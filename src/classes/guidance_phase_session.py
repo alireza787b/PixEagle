@@ -59,6 +59,10 @@ class GuidancePhaseSession:
         self._transition_started = None
         self._reason = "not_started"
 
+    @property
+    def reason(self) -> str:
+        return self._reason
+
     def end(self, reason: str) -> PhaseDecision:
         if self.state is not PhaseSessionState.ENDED:
             self.state = PhaseSessionState.ENDED

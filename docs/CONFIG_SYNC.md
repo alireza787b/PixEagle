@@ -233,9 +233,15 @@ These are legacy compatibility routes pending typed `/api/v1/config/*`
 promotion. Contract v2 is versioned even on this compatibility route. Admin
 `config:write` authorization remains required for plan/apply.
 
-`FixedWingGuidance` and `Follower.AIRFRAME_LAYOUT` are additive native-guidance
+`FixedWingGuidance`, `Follower.AIRFRAME_LAYOUT`,
+`Follower.AIRFRAME_PHASE_CONFIRMATION_S` and `Follower.VTOL_TRANSITION_TIMEOUT_S`
+are additive native-guidance
 settings. Missing saved values retain normal PX4 limits, native throttle and
 automatic layout detection; adoption uses preview/apply while following is
 inactive. Their follower-restart tier does not restart an active pursuit.
 An experimental configuration never overrides the runtime's firmware-capability
 check. See [FW guidance policy](followers/04-configuration/fixed-wing-guidance-policy.md).
+
+Native FW/VTOL engagement requires an explicit `bounded_flight` FW continuity
+policy. A saved legacy policy is not silently upgraded during engagement; use
+the existing migration preview/apply to adopt the phase override first.

@@ -160,6 +160,7 @@ follower_profiles:
     description: "Direct vector pursuit using gimbal angles and body frame velocity"
     control_type: "velocity_body_offboard"
     airframe_phase: "multicopter"           # Gimbal is the evidence source, not the vehicle type
+    native_airframe_phases: ["multicopter", "fixed_wing", "vtol_transition"]
     required_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s"]
     ui_category: "gimbal"
     # Schema-driven tracker data requirements

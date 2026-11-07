@@ -13,7 +13,7 @@ from classes.command_safety import (
 )
 from classes.setpoint_handler import SetpointHandler
 from classes.attitude_envelope import guard_body_rates
-from classes.aircraft_state import AircraftBinding, AircraftState, AircraftStateOwner
+from classes.aircraft_state import AircraftBinding, AircraftKind, AircraftState, AircraftStateOwner
 from classes.native_guidance import NativeGuidanceClient, NativeGuidanceError
 
 # Import circuit breaker for testing support
@@ -503,6 +503,23 @@ class PX4InterfaceManager:
         binding = AircraftBinding(uid, identity["connection_generation"], self._telemetry_generation)
         self._aircraft_state_owner.bind(binding)
         return binding
+
+    def get_aircraft_kind(self) -> AircraftKind:
+        """Use fresh observed MAV_TYPE from the verified aircraft, never config."""
+        manager = getattr(self, "mavlink_data_manager", None)
+        if manager is None and self.app_controller is not None:
+            manager = getattr(self.app_controller, "mavlink_data_manager", None)
+        getter = getattr(manager, "get_flight_state", None)
+        state = getter() if callable(getter) else {}
+        identity = self.get_aircraft_identity()
+        if (not isinstance(state, dict) or state.get("fresh") is not True
+                or not identity.get("connected") or not identity.get("autopilot_uid")
+                or state.get("autopilot_uid") != identity.get("autopilot_uid")):
+            return AircraftKind.UNKNOWN
+        try:
+            return AircraftKind(state.get("aircraft_kind"))
+        except (TypeError, ValueError):
+            return AircraftKind.UNKNOWN
 
     def commit_aircraft_state(self, state: AircraftState) -> bool:
         binding = self.get_aircraft_state_binding()

@@ -468,11 +468,16 @@ class Parameters(metaclass=_ParametersMeta):
             logger.warning("Could not validate target-continuity config: %s", exc)
 
         try:
-            from classes.aircraft_state import AircraftLayout
+            from classes.aircraft_state import AircraftLayout, finite_number
             from classes.fixed_wing_guidance_policy import FixedWingGuidancePolicy
 
             FixedWingGuidancePolicy.from_mapping(normalized_config.get("FixedWingGuidance"))
             AircraftLayout(normalized_config.get("Follower", {}).get("AIRFRAME_LAYOUT", "AUTO"))
+            follower = normalized_config.get("Follower", {})
+            if not 0. <= finite_number(follower.get("AIRFRAME_PHASE_CONFIRMATION_S", .5), "phase_confirmation") <= 5.:
+                raise ValueError("phase_confirmation_out_of_range")
+            if not 1. <= finite_number(follower.get("VTOL_TRANSITION_TIMEOUT_S", 30.), "transition_timeout") <= 120.:
+                raise ValueError("transition_timeout_out_of_range")
         except Exception as exc:
             failures.append(f"aircraft-guidance config validation failed: {exc}")
             logger.warning("Could not validate aircraft-guidance config: %s", exc)

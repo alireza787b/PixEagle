@@ -61,7 +61,8 @@ def following_snapshot(owner, principal, *, client_control_contract_version: int
             reason = "follower_implementation_unavailable"
         elif compatibility not in {"required", "preferred", "compatible", "optional"}:
             reason = "tracker_output_incompatible"
-        elif execution_mode == "PX4" and phase in ("fixed_wing", "vtol_transition"):
+        elif (execution_mode == "PX4" and phase in ("fixed_wing", "vtol_transition")
+              and phase not in info.get("native_airframe_phases", [])):
             reason = "profile_not_live_qualified"
         profiles.append(dict(
             mode=name, display_name=str(info.get("display_name") or name)[:120],

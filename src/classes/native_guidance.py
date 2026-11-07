@@ -19,6 +19,7 @@ from classes.fixed_wing_vector_guidance import FixedWingCommand, UpperSpeedPolic
 
 PROTOCOL_VERSION = 1
 MAX_MESSAGE_BYTES = 65536
+DEFAULT_SOCKET_PATH = Path("/run/pixeagle/guidance.sock")
 
 
 class NativeGuidanceError(RuntimeError):

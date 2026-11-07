@@ -170,6 +170,20 @@ class TestPX4InterfaceManagerInitialization:
         assert px4_interface.active_mode is False
         assert px4_interface.get_telemetry_readiness()["state"] == "idle"
 
+    @pytest.mark.parametrize('kind', ['multicopter', 'fixed_wing', 'vtol'])
+    def test_observed_aircraft_kind_requires_fresh_matching_identity(self, px4_interface, kind):
+        from classes.aircraft_state import AircraftKind
+        px4_interface.get_aircraft_identity = MagicMock(return_value={
+            'connected': True, 'autopilot_uid': '42',
+        })
+        flight = {'fresh': True, 'autopilot_uid': '42', 'aircraft_kind': kind}
+        px4_interface.mavlink_data_manager.get_flight_state.return_value = flight
+        assert px4_interface.get_aircraft_kind() is AircraftKind(kind)
+        flight['fresh'] = False
+        assert px4_interface.get_aircraft_kind() is AircraftKind.UNKNOWN
+        flight.update(fresh=True, autopilot_uid='another')
+        assert px4_interface.get_aircraft_kind() is AircraftKind.UNKNOWN
+
     def test_init_setpoint_handler_created(self, px4_interface):
         """Test setpoint handler is created."""
         assert px4_interface.setpoint_handler is not None

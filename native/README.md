@@ -84,13 +84,20 @@ an initial airborne FW controller probe have passed. The controller probe
 confirmed native course response, continuous publication and observed loiter.
 This is **not full follower or VTOL qualification**.
 
-Still required: application/session publisher integration, moving-target
+Still required: actual-PX4 application/session qualification, moving-target
 following, both VTOL transition directions and abort/rescue cases, native
 unrestricted-speed policy and expiry tests, ARM64 packaging, reusable 3D
 evidence and operator acceptance. The unrestricted capability remains false.
 Public defaults and the private platform's tested MC profile are unchanged.
-The registered Vector follower now accepts the tested internal phase/session
-binding and the shared publisher provides its phase-observation hook. Automatic
-application startup and service provisioning do not enable them yet.
+The application now binds the registered Vector follower, one native command
+transport and the existing continuity supervisor. An observed FW/VTOL selects
+the native owner throughout the session; pure MC retains MAVSDK. No ordinary
+setup/service provisioning installs the development adapter yet. Startup uses
+the canonical `/run/pixeagle/guidance.sock`; isolated protocol probes retain
+their explicit socket argument.
+Stop joins the existing publisher before native handoff and never calls MAVSDK
+Offboard Stop for that owner. Failed handoff retains unresolved cleanup state.
+Obsolete MAVLink Offboard-exit notifications cannot revoke a newer native mode;
+native observations remain authoritative for takeover/rescue/expiry.
 See the [active checkpoint](../docs/reporting/agent-ops/codex-modernization/checkpoints/2026-11-06-gimbal-vector-airframes.md)
 for precise gates and evidence locations.

@@ -605,6 +605,9 @@ class TestFollowerCommandSchemaContract:
                 ),
                 'unsupported metadata',
             ),
+            *[(lambda schema, bad=bad: schema['follower_profiles']['gm_velocity_vector'].__setitem__(
+                'native_airframe_phases', bad), 'native_airframe_phases is invalid')
+              for bad in ('fixed_wing', ['fixed_wing', 'fixed_wing'], ['unknown'], [{}], [True])],
         ],
     )
     def test_complete_schema_validation_fails_closed(self, mutate, match):

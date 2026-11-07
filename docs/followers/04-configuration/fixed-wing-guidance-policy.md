@@ -8,6 +8,8 @@ or image tracking. Input geometry remains specific to each tracker contract.
 | Setting | Factory value | Meaning |
 | --- | --- | --- |
 | `Follower.AIRFRAME_LAYOUT` | `AUTO` | Use fresh PX4 state; an explicit MC/FW/VTOL/tailsitter choice verifies the installation |
+| `Follower.AIRFRAME_PHASE_CONFIRMATION_S` | `0.5` | Fresh settled phase before resuming pursuit |
+| `Follower.VTOL_TRANSITION_TIMEOUT_S` | `30` | Maximum transition/settlement duration; never renews target recovery |
 | `FixedWingGuidance.UPPER_SPEED_POLICY` | `px4_configured_max` | Respect the current native PX4 airspeed envelope |
 | `FixedWingGuidance.MIN_DIVE_THROTTLE` | `null` | Keep native throttle behavior |
 
@@ -43,6 +45,18 @@ activation of flight-path priority.
 
 ## Aircraft and camera frames
 
+| Installation / observed phase | Reused implementation |
+| --- | --- |
+| Pure MC, or VTOL in MC flight | Existing MC vector math; pure MC uses MAVSDK, VTOL keeps its native owner |
+| Pure FW, or VTOL in FW flight | The same native course, vertical-path and airspeed strategy |
+| Standard VTOL or tailsitter during transition | PX4's native transition interface; pursuit paused |
+| Different gimbal or mounting | Provider adapter and mounting geometry produce the same physical ray |
+
+There is no separate tailsitter pursuit law. Public defaults provide the base
+configuration; a named aircraft overlay changes only its explicit settings.
+Follower-specific gains stay with that follower. Shared FW policy and PX4-owned
+envelope resolution must not be copied into each aircraft or camera adapter.
+
 The aircraft-layout choice does not establish flight phase. Actual MC/FW/
 transition state comes from fresh PX4 observations. AUTO is the normal choice.
 An explicit layout mismatch is an installation problem, not permission to
@@ -56,9 +70,14 @@ during transition or apply that conversion again.
 
 ## Current qualification boundary
 
-The typed policy, configuration, phase-specific controls and native frame
-observations are implemented. Automatic application wiring, the unrestricted
-firmware policy and full moving-target/VTOL acceptance remain in progress.
+The typed policy, configuration, phase-specific controls, native frame
+observations and application lifecycle binding are implemented and unit tested.
+Native setup/packaging, unrestricted firmware policy and full moving-target/
+VTOL acceptance remain in progress. The development adapter is not installed
+by ordinary setup. Native startup requires matching firmware, a verified
+aircraft, fresh observations and an explicitly configured FW recovery policy;
+missing legacy recovery settings require Config Sync, not a silent authority
+change. A failed preparation never falls through to MC commands on FW/VTOL.
 The older `fw_attitude_rate` implementation still uses its direct-rate/thrust
 contract and does **not** gain unrestricted behavior from these settings. It
 must adopt the shared qualified native boundary before advertising the policy;

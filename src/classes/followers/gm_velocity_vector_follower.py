@@ -254,6 +254,17 @@ class GMVelocityVectorFollower(BaseFollower):
 
     # ==================== Core Control Logic ====================
 
+    def create_airframe_session(self, identity, capabilities, **policy):
+        """Adopt the canonical MC control and geometry in the native session."""
+        from classes.gimbal_vector_session import GimbalVectorSession
+        if getattr(self, '_airframe_session', None) is not None:
+            raise ValueError("airframe_session_already_bound")
+        return GimbalVectorSession(
+            identity, capabilities, multicopter_control=self._requested_speed_control(),
+            geometry_policy=self.guidance_policy, altitude_control=self.enable_altitude_control,
+            altitude_limits=self.altitude_limits, **policy,
+        )
+
     def bind_airframe_session(self, session) -> None:
         """Bind the native phase owner after the normal control-session reset."""
         from classes.gimbal_vector_session import GimbalVectorSession

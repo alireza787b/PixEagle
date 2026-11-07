@@ -1625,7 +1625,8 @@ async def test_connect_px4_does_not_mark_following_active_when_offboard_start_fa
         stop_offboard_mode=AsyncMock(),
     )
 
-    with patch('classes.app_controller.Follower', return_value=follower_manager):
+    with patch('classes.app_controller.Follower', return_value=follower_manager) as factory:
+        factory.get_mode_info.return_value = {"airframe_phase": "multicopter"}
         result = await ctrl.connect_px4()
 
     assert ctrl.following_active is False
@@ -1681,7 +1682,8 @@ async def test_connect_px4_rechecks_target_readiness_after_telemetry_wait(monkey
         stop_offboard_mode=AsyncMock(),
     )
 
-    with patch('classes.app_controller.Follower', return_value=follower_manager):
+    with patch('classes.app_controller.Follower', return_value=follower_manager) as factory:
+        factory.get_mode_info.return_value = {"airframe_phase": "multicopter"}
         result = await ctrl.connect_px4()
 
     assert ctrl.following_active is False
@@ -1719,7 +1721,8 @@ async def test_connect_px4_rejects_low_altitude_before_offboard():
         stop_offboard_mode=AsyncMock(),
     )
 
-    with patch('classes.app_controller.Follower', return_value=follower_manager):
+    with patch('classes.app_controller.Follower', return_value=follower_manager) as factory:
+        factory.get_mode_info.return_value = {"airframe_phase": "multicopter"}
         result = await ctrl.connect_px4()
 
     assert result["precondition"]["code"] == "following_altitude_below_start_margin"
@@ -1816,8 +1819,9 @@ async def test_connect_px4_starts_offboard_commander_instead_of_setpoint_sender(
         get_status=MagicMock(return_value={"running": True}),
     )
 
-    with patch('classes.app_controller.Follower', return_value=follower_manager), \
+    with patch('classes.app_controller.Follower', return_value=follower_manager) as factory, \
             patch('classes.app_controller.OffboardCommander', return_value=commander) as commander_ctor:
+        factory.get_mode_info.return_value = {"airframe_phase": "multicopter"}
         result = await ctrl.connect_px4()
 
     assert result["errors"] == []

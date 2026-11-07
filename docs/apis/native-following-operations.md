@@ -97,6 +97,20 @@ of slow model or target operations.
 
 ## Evidence boundary
 
+Development FW/VTOL sessions retain the existing publisher, but their command
+contract can change with actual phase. The optional
+`command_publication.dynamic_command_contract` flag identifies this case.
+Current telemetry `fields` then comes from the current adapter-accepted command
+(`field_source: command_publication`), with its guidance identity. An expired,
+retired or cross-phase publication is unknown; MC schema defaults and cached
+legacy telemetry cannot replace it.
+
+`observed_native_publications` is the native publisher's counter increase
+observed during the owned session. Adapter acknowledgements alone do not make
+this value positive. A missing/reset counter remains unknown; it does not add
+another control guard. Publications do not prove PX4 response or field safety;
+actual pose and mode evidence are still required separately.
+
 Recorded-video replay can qualify targeting and command preview only. It cannot
 qualify aircraft following. Unit and mocked connection tests exercise guards,
 profile filtering, Stop routing and API envelopes. The isolated pinned PX4 SIH
@@ -104,4 +118,5 @@ run recorded Offboard entry, sustained command publication, Stop, target-loss
 cleanup, pending-Start cancellation and an armed/takeoff/follow/land cycle. Its
 logs are identified in the paired slice-4a checkpoint. This is simulation
 evidence; it does not imply HIL, physical camera acceptance or field-flight
-safety. Gimbal-specific movement remains the next slice-4 gate.
+safety. Current FW/VTOL development and its remaining gates are recorded in the
+[airframe checkpoint](../reporting/agent-ops/codex-modernization/checkpoints/2026-11-06-gimbal-vector-airframes.md).

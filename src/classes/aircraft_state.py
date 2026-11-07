@@ -35,6 +35,15 @@ class AircraftLayout(str, Enum):
     VTOL = "VTOL"
     VTOL_TAILSITTER = "VTOL_TAILSITTER"
 
+    def accepts_kind(self, kind: AircraftKind) -> bool:
+        if self is AircraftLayout.AUTO:
+            return True
+        expected = {AircraftLayout.MULTICOPTER: AircraftKind.MULTICOPTER,
+                    AircraftLayout.FIXED_WING: AircraftKind.FIXED_WING,
+                    AircraftLayout.VTOL: AircraftKind.VTOL,
+                    AircraftLayout.VTOL_TAILSITTER: AircraftKind.VTOL}[self]
+        return kind is expected
+
     def matches(self, state: "AircraftState") -> bool:
         """Verify an installation choice; configuration never declares phase."""
         if self is AircraftLayout.AUTO:

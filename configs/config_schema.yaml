@@ -3643,6 +3643,30 @@ sections:
         - value: VTOL_TAILSITTER
           label: VTOL tailsitter
         label: Aircraft layout
+      AIRFRAME_PHASE_CONFIRMATION_S:
+        type: float
+        default: 0.5
+        description: Fresh settled phase observations required before native pursuit resumes; target confirmation and original
+          recovery deadlines still apply.
+        reload_tier: follower_restart
+        reboot_required: false
+        min: 0.0
+        max: 5.0
+        step: 0.1
+        unit: s
+        label: Aircraft phase confirmation
+      VTOL_TRANSITION_TIMEOUT_S:
+        type: float
+        default: 30.0
+        description: Maximum observed native transition/settlement duration. PixEagle does not request transitions or renew
+          target recovery during them.
+        reload_tier: follower_restart
+        reboot_required: false
+        min: 1.0
+        max: 120.0
+        step: 1.0
+        unit: s
+        label: VTOL transition timeout
       USE_MAVLINK2REST:
         type: boolean
         default: true

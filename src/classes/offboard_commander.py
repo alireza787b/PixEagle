@@ -638,6 +638,11 @@ class OffboardCommander:
             return False
         return 0 <= (time.monotonic() - self._last_intent.created_at_monotonic_s) <= self.command_ttl_s
 
+    def get_published_intent(self) -> CommandIntent | None:
+        if self.command_transport is None or self._failsafe_defaults_active:
+            return None
+        return self.command_transport.published_intent(ttl_s=self.command_ttl_s)
+
     def _apply_default_setpoints(self, reason: str) -> None:
         if not self._failsafe_defaults_active:
             self.stale_intent_resets += 1
@@ -781,6 +786,9 @@ class OffboardCommander:
             "terminal_failure_reason": self.terminal_failure_reason,
             "failure_action": "stop_following",
             "sends_mavsdk_commands": self.command_transport is None,
+            "dynamic_command_contract": self.command_transport is not None,
+            "observed_native_publications": (self.command_transport.observed_publications
+                                              if self.command_transport is not None else None),
             "command_publication_source": (self.command_transport.publication_source
                                            if self.command_transport is not None else "offboard_commander"),
             "connection_generation": self._connection_generation,

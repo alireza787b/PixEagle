@@ -1594,6 +1594,8 @@ class APIFollowingCommandPublicationStatus(BaseModel):
     health_state: Optional[str] = None
     command_publication_source: Optional[str] = None
     sends_mavsdk_commands: Optional[bool] = None
+    dynamic_command_contract: bool = False
+    observed_native_publications: Optional[int] = Field(default=None, ge=0)
     commands_sent_to_px4: bool = False
     last_intent_fresh: Optional[bool] = None
     failsafe_defaults_active: Optional[bool] = None
@@ -1659,7 +1661,14 @@ class APITargetContinuityStatus(BaseModel):
         "REACQUIRING",
         "HANDOFF_PENDING",
     ]
-    policy_mode: Literal["immediate_handoff", "bounded_decay"]
+    policy_mode: Literal["immediate_handoff", "bounded_decay", "bounded_flight"]
+    effective_policy: Optional[Dict[str, Any]] = None
+    configuration_origin: Optional[str] = None
+    distance_budget_applies: Optional[bool] = None
+    pursuit_paused: bool = False
+    target_transition_pending: bool = False
+    transition_phase: Optional[Literal["none", "loss", "retarget"]] = None
+    effective_command_fields: Optional[Dict[str, float]] = None
     terminal_action: Literal["hold"]
     session_epoch: int
     episode_id: int
@@ -1695,6 +1704,7 @@ class APIFollowingTelemetryResponse(BaseModel):
     fields: Dict[str, Any] = Field(default_factory=dict)
     field_source: Literal[
         "active_follower",
+        "command_publication",
         "legacy_telemetry",
         "schema_profile",
         "unavailable",

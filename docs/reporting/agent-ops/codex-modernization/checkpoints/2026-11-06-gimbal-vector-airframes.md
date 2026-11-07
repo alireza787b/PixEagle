@@ -43,7 +43,7 @@ or deployed to the Pi by this task.
    extension build. Native normal and sanitizer tests pass. Registration and
    read-only live SIH snapshots pass; initial airborne native FW course/altitude
    controller publication and confirmed loiter pass. ARM64/setup installation,
-   unrestricted-speed firmware policy and full application integration remain.
+   unrestricted-speed firmware policy and actual-PX4 application qualification remain.
 4. API, Dashboard and QGC negotiate speed-control contract version 2. FW EAS is
    never labeled as MC 3D speed; stale phase-generation edits are rejected.
    Older clients do not receive unsupported FW controls. Phase policy defaults
@@ -86,11 +86,12 @@ phase-specific control ownership or hardware qualification.
 
 ## Next implementation order
 
-1. Finish the native owner/publisher binding in the application; retain one
-   heartbeat/continuity/lifecycle owner and preserve guidance identity through
-   command shaping. Never send MC zero defaults to the native FW contract.
-2. Complete transition command continuity and shared recovery rebind in both
-   directions. Do not add another target-loss timer or auto transition trigger.
+1. Qualify the application native owner against actual independent moving
+   targets. Keep one publisher/continuity/lifecycle owner; never send MC zero
+   defaults to FW. Complete the pure-MC heading-frame conversion before flight
+   acceptance, including fresh attitude and both mounts at nonzero tilt.
+2. Verify transition command continuity and shared recovery rebind in both
+   directions on actual PX4. Do not add another loss timer or transition trigger.
 3. Implement/qualify the owner-bound unrestricted native policy; stock firmware
    continues to report it unavailable. Do not disable underspeed protection.
 4. Run the full independent actual-PX4 airframe matrix and 3D evidence export,
@@ -113,8 +114,9 @@ phase-specific control ownership or hardware qualification.
   It advances native generations before submitting a new contract, accepts the
   next generation while its acknowledgement is pending, preserves newer
   tracker intents and records the effective contract in publication evidence.
-  Failed binding revokes the socket. The application must install this hook;
-  ordinary startup still does not activate the development native path.
+  Failed binding revokes the socket. The application now installs this hook
+  when the matching native runtime is present; ordinary setup does not install
+  that development runtime yet.
 - Camera angle receipt time now advances classifier dwell. Processing the same
   angle repeatedly cannot complete vertical/rearward confirmation. Provider
   geometry is checked before filtering, in physical FRD, for both strategies.
@@ -139,10 +141,10 @@ phase-specific control ownership or hardware qualification.
   disagreement between independently delivered vehicle/VTOL status. Settled
   pursuit requires agreement. During settlement the adapter supplies the safe
   contract for the native helper's actual phase. It does not request transitions.
-- The remaining application binding must update generation/baseline before
-  normal publisher validation, so a legitimate phase edge is not counted as a
-  publisher fault. Preserve one continuity supervisor across MC/FW/transition;
-  install the now-tested bidirectional rebind without another loss timer.
+- The application binding updates generation/baseline before normal publisher
+  validation, so a legitimate phase edge is not counted as a publisher fault.
+  One continuity supervisor persists across MC/FW/transition, with the tested
+  bidirectional rebind and no additional loss timer.
   Keep MC accumulated travel when returning to MC; never apply it to FW.
 - Dynamic native load limits do not revise an editor on every telemetry tick.
   Each action still checks current bounds; parameter provenance, phase and
@@ -210,6 +212,41 @@ This refinement has not enabled unrestricted behavior or changed hardware.
 
 No hardware or installed profile was changed. Public guide:
 [shared FW policy](../../../../followers/04-configuration/fixed-wing-guidance-policy.md).
+
+## Application lifecycle checkpoint
+
+- Profile metadata declares native phase capability; there are no follower-name
+  checks in transport selection. Fresh observed aircraft kind selects pure-MC
+  MAVSDK versus one native owner for FW/VTOL. Explicit layout mismatch fails
+  before command acquisition. Tailsitter subtype is verified from native state.
+- Startup prepares observations, freezes configuration, engages explicitly and
+  seeds a complete phase-safe intent before starting the existing publisher.
+  VTOL uses the same owner from MC engagement through both transitions. Legacy
+  missing FW recovery requires Config Sync before engagement; it is not silently
+  replaced with new authority. Preparation failure never sends MAVSDK Hold.
+- Stop joins the publisher before native handoff, revokes phase controls before
+  awaiting teardown and preserves unresolved cleanup. Delayed MAVLink Offboard
+  exit cannot revoke a newer registered native mode. Terminal phase reasons are
+  retained across publisher cleanup. Speed editing uses actual native ownership
+  and pauses during phase confirmation rather than requiring MAVLink Offboard.
+- The typed continuity API now accepts `bounded_flight` and retains effective
+  policy/origin, phase pause and command fields. Pending configuration is
+  rechecked before connection, preventing an unqualified direct-rate FW mode
+  from bypassing the start gate after the initial profile check.
+- Schema: 44 sections / 616 parameters. Native/sanitizer contracts remain 28
+  each; the combined backend/API/configuration gate passes 1,590 cases in
+  `native-app-final-20261107.log`. New lifecycle and binding regressions are in
+  `test_native_follow_application.py` and `test_native_follow_binding.py`.
+- Native telemetry reads the current adapter-accepted publication, not the MC
+  schema's default fields. Expired, retired and cross-phase commands remain
+  unknown without falling back to legacy telemetry. Guidance generation stays
+  attached. The session-relative native publication counter is separate from
+  local acknowledgements; missing/reset counts cannot claim publication.
+
+This is software composition evidence, not all-airframe or aircraft acceptance.
+The native unrestricted policy, optional dive-throttle implementation, legacy
+FW input adoption, actual transition/moving-target matrix, visualizer extension,
+packaging and deployment remain open. No new hardware test is requested yet.
 
 ## Readable boundary evidence
 

@@ -24,8 +24,8 @@ full-quaternion mount handling, phase-safe baselines, final native guards and
 shared loss deadlines across transitions. Repeated processing of old camera
 angles no longer completes guidance dwell. The shared publisher preserves new
 intents arriving during a phase acknowledgement and records the effective
-submitted contract. Application startup/teardown wiring and complete native
-moving-target/VTOL qualification remain open.
+submitted contract. Application startup/teardown was completed in the subsequent
+lifecycle slice; native moving-target/VTOL qualification remains open.
 
 The operator clarified flight-path priority rather than literal nose alignment.
 A canonical native FW policy and optional installation-layout verification now
@@ -39,3 +39,19 @@ phase holding bridges a contract change only under the original unexpired
 command lease, including a native load-dependent speed floor above trim.
 Legacy direct-rate FW adoption and
 the owner-bound unrestricted firmware implementation remain open.
+
+The application now selects the command owner by declared capability and fresh
+observed aircraft kind. One native binding joins the existing publisher and
+continuity supervisor across MC/FW/transition. It seeds a phase-safe objective,
+joins publication before handoff, preserves terminal reasons and unresolved
+cleanup, and avoids MAVSDK Stop for a native owner. Native speed controls use
+native authority, with edits paused during phase confirmation. Applied pending
+configuration is rechecked against the same qualification rule before connection.
+No native service, firmware or aircraft was installed or changed.
+
+The resumed 2026-11-07 check found that typed telemetry could still expose MC
+schema defaults for a native FW publication. It now returns the current
+published contract and guidance identity, and leaves retired/stale contracts
+unknown. Observed native publication count is session-relative and separate
+from local RPC success. The combined backend/API/configuration gate passes
+1,590 cases; one existing Starlette deprecation warning remains.

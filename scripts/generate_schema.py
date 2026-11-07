@@ -1408,6 +1408,14 @@ SCHEMA_OVERRIDES = {
             {'value': 'VTOL_TAILSITTER', 'label': 'VTOL tailsitter'},
         ],
         'description': 'Verify the physical installation against fresh PX4 observations. This choice never forces the active phase or rotates the camera mount.'},
+    'Follower.AIRFRAME_PHASE_CONFIRMATION_S': {
+        'type': 'float', 'min': 0.0, 'max': 5.0, 'step': 0.1, 'unit': 's',
+        'label': 'Aircraft phase confirmation', 'reload_tier': 'follower_restart',
+        'description': 'Fresh settled phase observations required before native pursuit resumes; target confirmation and original recovery deadlines still apply.'},
+    'Follower.VTOL_TRANSITION_TIMEOUT_S': {
+        'type': 'float', 'min': 1.0, 'max': 120.0, 'step': 1.0, 'unit': 's',
+        'label': 'VTOL transition timeout', 'reload_tier': 'follower_restart',
+        'description': 'Maximum observed native transition/settlement duration. PixEagle does not request transitions or renew target recovery during them.'},
     'GM_VELOCITY_VECTOR.ALTITUDE_CHECK_INTERVAL': {'min': 0.01, 'max': 60.0, 'step': 0.1, 'unit': 's',
         'description': 'How often to check altitude safety (seconds)'},
 

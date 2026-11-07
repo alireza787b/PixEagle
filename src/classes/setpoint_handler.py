@@ -207,6 +207,7 @@ def validate_follower_command_schema(schema: Any) -> Dict[str, Any]:
                 "required_tracker_data",
                 "optional_tracker_data",
                 "session_controls",
+                "native_airframe_phases",
             }
         )
         if unknown_profile_metadata:
@@ -214,6 +215,12 @@ def validate_follower_command_schema(schema: Any) -> Dict[str, Any]:
                 f"follower_profiles.{profile_name} has unsupported metadata: "
                 f"{unknown_profile_metadata}"
             )
+        native_phases = profile.get("native_airframe_phases", [])
+        if (not isinstance(native_phases, list) or any(
+                not isinstance(phase, str) or phase not in {"multicopter", "fixed_wing", "vtol_transition"}
+                for phase in native_phases)
+                or len(native_phases) != len(set(native_phases))):
+            raise ValueError(f'follower_profiles.{profile_name}.native_airframe_phases is invalid')
         controls = profile.get('session_controls', {})
         if not isinstance(controls, dict):
             raise ValueError(f'follower_profiles.{profile_name}.session_controls must be an object')

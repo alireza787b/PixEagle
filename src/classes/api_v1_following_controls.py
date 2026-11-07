@@ -29,13 +29,20 @@ def session_control_snapshot(app, principal, *, client_contract_version: int = 1
                 or identity.get('autopilot_uid') != app._following_session_aircraft_uid
                 or identity.get('connection_generation') != app._following_session_connection_generation):
             reason = 'following_aircraft_unavailable'
-        manager = getattr(app, 'mavlink_data_manager', None)
-        flight = manager.get_flight_state() if manager is not None else {}
-        if (flight.get('fresh') is not True
-                or flight.get('autopilot_uid') != app._following_session_aircraft_uid
-                or type(flight.get('flight_mode')) is not int
-                or flight['flight_mode'] != getattr(manager, 'offboard_mode_code', None)):
-            reason = 'following_authority_unavailable'
+        native = getattr(app, '_native_follow_binding', None)
+        if native is not None:
+            if not native.owner_confirmed:
+                reason = 'following_authority_unavailable'
+            elif native.pursuit_paused:
+                reason = 'phase_confirmation_pending'
+        else:
+            manager = getattr(app, 'mavlink_data_manager', None)
+            flight = manager.get_flight_state() if manager is not None else {}
+            if (flight.get('fresh') is not True
+                    or flight.get('autopilot_uid') != app._following_session_aircraft_uid
+                    or type(flight.get('flight_mode')) is not int
+                    or flight['flight_mode'] != getattr(manager, 'offboard_mode_code', None)):
+                reason = 'following_authority_unavailable'
         from classes.circuit_breaker import FollowerCircuitBreaker
         if FollowerCircuitBreaker.is_active():
             reason = 'circuit_breaker_active'

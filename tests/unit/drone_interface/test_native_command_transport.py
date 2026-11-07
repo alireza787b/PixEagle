@@ -27,6 +27,63 @@ def setup_transport(state=None):
     return transport, client, identity
 
 
+async def test_published_snapshot_requires_current_contract_owner_and_intent_freshness():
+    transport, client, identity = setup_transport()
+    intent = replace(FixedWingCommand(.3, 18., 0., None).intent(identity, source="test"),
+                     created_at_monotonic_s=100.)
+    assert transport.published_intent(ttl_s=.5) is None
+    await transport.publish(intent, reason="heartbeat", ttl_s=.5)
+    snapshot = transport.published_intent(ttl_s=.5)
+    assert snapshot.fields == intent.fields
+    snapshot.fields["course_rad"] = 100.
+    assert transport.published_intent(ttl_s=.5).fields["course_rad"] == .3
+    old = transport.connection.get_aircraft_state()
+    transport.connection.get_aircraft_state = lambda: replace(old, phase=AirframePhase.MULTICOPTER, is_vtol=True)
+    assert transport.published_intent(ttl_s=.5) is None
+    transport.connection.get_aircraft_state = lambda: old
+    transport.clock = lambda: 100.6
+    assert transport.published_intent(ttl_s=.5) is None
+    transport.clock = lambda: 100.2
+    client.session_identity = None
+    assert transport.published_intent(ttl_s=.5) is None
+
+
+async def test_native_publication_count_excludes_previous_owners_and_local_acks_alone():
+    transport, client, identity = setup_transport()
+    intent = replace(FixedWingCommand(.3, 18., 0., None).intent(identity, source="test"),
+                     created_at_monotonic_s=100.)
+    await transport.publish(intent, reason="heartbeat", ttl_s=.5)
+    assert transport.observed_publications is None
+    client.observe.return_value["publications"] = 145
+    await transport.publish(intent, reason="heartbeat", ttl_s=.5)
+    assert transport.observed_publications == 0
+    client.observe.return_value["publications"] = 148
+    await transport.publish(intent, reason="heartbeat", ttl_s=.5)
+    assert transport.observed_publications == 3
+    client.session_identity = None
+    assert transport.observed_publications is None
+
+
+@pytest.mark.parametrize("bad", [True, False, -1, 1.5, None])
+async def test_missing_or_invalid_native_count_is_unknown_without_blocking_control(bad):
+    transport, client, identity = setup_transport()
+    client.observe.return_value["publications"] = bad
+    intent = replace(FixedWingCommand(.3, 18., 0., None).intent(identity, source="test"),
+                     created_at_monotonic_s=100.)
+    assert await transport.publish(intent, reason="heartbeat", ttl_s=.5)
+    assert transport.observed_publications is None
+
+
+async def test_a_counter_reset_cannot_be_reported_as_current_session_publication():
+    transport, client, identity = setup_transport()
+    intent = replace(FixedWingCommand(.3, 18., 0., None).intent(identity, source="test"),
+                     created_at_monotonic_s=100.)
+    for count in (20, 21, 0, 30):
+        client.observe.return_value["publications"] = count
+        assert await transport.publish(intent, reason="heartbeat", ttl_s=.5)
+    assert transport.observed_publications is None
+
+
 @pytest.mark.asyncio
 async def test_native_start_requires_an_explicit_complete_initial_objective():
     transport, client, _ = setup_transport()

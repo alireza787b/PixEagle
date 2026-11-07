@@ -33,6 +33,9 @@ class NativeCommandTransport:
         self.last_handoff = None
         self.last_published_intent = None
         self._pending_identity = None
+        self._publication_origin = None
+        self._last_publications = None
+        self._publication_counter_invalid = False
 
     def ready(self) -> bool:
         state = self.connection.get_aircraft_state()
@@ -41,6 +44,34 @@ class NativeCommandTransport:
 
     def abort(self) -> None:
         self.client.abort()
+
+    def published_intent(self, *, ttl_s: float) -> CommandIntent | None:
+        """Current adapter-accepted command, never a predicted PX4 response."""
+        intent = self.last_published_intent
+        state = self.connection.get_aircraft_state()
+        if (not self.ready() or state is None or intent is None or intent.guidance_identity != self.identity
+                or not 0. <= self.clock() - intent.created_at_monotonic_s <= ttl_s):
+            return None
+        try:
+            self._command(intent, state)
+        except ValueError:
+            return None
+        return replace(intent, fields=dict(intent.fields))
+
+    @property
+    def observed_publications(self) -> int | None:
+        if not self.ready() or self._publication_counter_invalid or self._publication_origin is None:
+            return None
+        return self._last_publications - self._publication_origin
+
+    def _record_publication_count(self, value):
+        if type(value) is not int or value < 0:
+            return
+        if self._last_publications is not None and value < self._last_publications:
+            self._publication_counter_invalid = True
+        if self._publication_origin is None:
+            self._publication_origin = value
+        self._last_publications = value
 
     def _command(self, intent, state, *, identity=None):
         identity = self.identity if identity is None else identity
@@ -109,6 +140,7 @@ class NativeCommandTransport:
         if (state.source != incoming.source or state.binding != incoming.binding or state.phase != incoming.phase
                 or state.is_vtol != incoming.is_vtol or state.is_tailsitter != incoming.is_tailsitter):
             raise ValueError("native_aircraft_state_rejected")
+        self._record_publication_count(observation.get("publications"))
         if self.on_observation is not None:
             intent = await self.on_observation(state, observation, intent)
             if not isinstance(intent, CommandIntent):
