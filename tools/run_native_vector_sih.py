@@ -142,6 +142,37 @@ def tracker_for_world_target(packet, target, mount, *, clock=time.monotonic):
                                    supports_reverse=True, supports_yaw_fallback=True)})
 
 
+def load_component_scenario(path, *, mount, altitude, duration, is_vtol):
+    scenario = VisualizationScenario.from_yaml(path)
+    expected_airframe = "vtol" if is_vtol else "fixed_wing"
+    if (scenario.schema_version != 2 or scenario.follower_profile != "gm_velocity_vector"
+            or scenario.input_contract != "gimbal_angles" or scenario.airframe != expected_airframe
+            or scenario.mount_type != mount or scenario.altitude_control is not altitude):
+        raise ValueError("native_component_scenario_contract_mismatch")
+    if scenario.faults:
+        raise ValueError("native_component_fault_injection_not_implemented")
+    if scenario.requested_speed is not None:
+        raise ValueError("native_component_use_explicit_mc_request_action")
+    if scenario.target_at(0.) is None or scenario.target_at(duration) is None:
+        raise ValueError("native_component_target_does_not_cover_run")
+    return yaml.safe_load(path.read_text())
+
+
+def phase_response_segments(response):
+    """Describe observed phase spans; never substitute them for acceptance checks."""
+    segments = []
+    for row in response:
+        if not segments or segments[-1]["phase"] != row["phase"]:
+            segments.append(dict(phase=row["phase"], start_s=row["timestamp"], end_s=row["timestamp"],
+                                 range_start_m=row["range_m"], range_end_m=row["range_m"],
+                                 altitude_min_m=row["altitude_m"], altitude_max_m=row["altitude_m"], samples=0))
+        segment = segments[-1]
+        segment.update(end_s=row["timestamp"], range_end_m=row["range_m"], samples=segment["samples"] + 1,
+                       altitude_min_m=min(segment["altitude_min_m"], row["altitude_m"]),
+                       altitude_max_m=max(segment["altitude_max_m"], row["altitude_m"]))
+    return segments
+
+
 async def run(args, isolation):
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
@@ -242,19 +273,26 @@ async def run(args, isolation):
         target_start = [origin[k] + forward[k] * 160. + right[k] * 35. for k in (0, 1)]
         target_start.append(origin[2] + (8. if args.altitude else 0.))
         target_end = [target_start[k] + forward[k] * 6. * args.duration for k in (0, 1)] + [target_start[2]]
-        scenario_raw = yaml.safe_load((ROOT / "tools/sih_visualization_scenarios/gimbal-vector-native-fw.yaml").read_text())
+        scenario_raw = (load_component_scenario(args.scenario, mount=args.mount, altitude=args.altitude,
+                                                duration=args.duration, is_vtol=state.is_vtol)
+                        if args.scenario else yaml.safe_load(
+                            (ROOT / "tools/sih_visualization_scenarios/gimbal-vector-native-fw.yaml").read_text()))
         scenario_raw.update(name=output.name, mount_type=args.mount, initial_conditions={"vehicle_ned": origin})
         if state.is_vtol:
             scenario_raw["airframe"] = "vtol"
             scenario_raw["follower"]["command_contract"] = "vtol_external"
         scenario_raw["follower"]["altitude_control"] = args.altitude
-        scenario_raw["target"]["waypoints"] = [dict(time_s=0., position_ned=target_start),
-                                                dict(time_s=args.duration, position_ned=target_end)]
+        scenario_raw["constraints"] = {"altitude": dict(min=follower.altitude_limits.min_altitude,
+                                                       max=follower.altitude_limits.max_altitude)}
+        scenario_raw["continuity_policy"] = json.loads(json.dumps(asdict(supervisor.policy)))
+        if args.scenario is None:
+            scenario_raw["target"]["waypoints"] = [dict(time_s=0., position_ned=target_start),
+                                                    dict(time_s=args.duration, position_ned=target_end)]
         scenario_path = output / "scenario.yaml"
         scenario_path.write_text(yaml.safe_dump(scenario_raw, sort_keys=False))
         scenario = VisualizationScenario.from_yaml(scenario_path)
 
-        target_output[0] = tracker_for_world_target(connection.last_packet, target_start, args.mount)
+        target_output[0] = tracker_for_world_target(connection.last_packet, scenario.target_at(0.), args.mount)
         baseline = await binding.engage()
         follower.bind_airframe_session(guidance)
 
@@ -311,7 +349,7 @@ async def run(args, isolation):
             follower.record_submitted_command(fields)
             feedback = packet.get("native_guidance_feedback") or {}
             p = packet["vehicle_pose"]
-            response.append(dict(range_m=math.dist(p["vehicle_ned"], target),
+            response.append(dict(timestamp=elapsed, phase=state.phase.value, range_m=math.dist(p["vehicle_ned"], target),
                                  altitude_m=state.relative_altitude_m,
                                  eas_m_s=state.airspeed.equivalent_m_s,
                                  pose_observed_at=p["observed_at_monotonic_s"]))
@@ -327,7 +365,10 @@ async def run(args, isolation):
                 tracker_output=target_output[0].to_dict()))
             log("trace/follower_state.jsonl", dict(timestamp=elapsed, state=decision.authority_state.value,
                 aircraft_phase=state.phase.value, observed_eas_m_s=state.airspeed.equivalent_m_s,
-                native_effective_eas_m_s=feedback.get("effective_eas_m_s")))
+                native_effective_eas_m_s=feedback.get("effective_eas_m_s"),
+                phase_state=guidance.phase_owner.state.value, phase_reason=guidance.phase_owner.reason,
+                guidance_generation=guidance.identity.guidance_generation,
+                pursuit_paused=binding.pursuit_paused, effective_continuity_policy=asdict(supervisor.policy)))
             await asyncio.sleep(.05)
         await commander.stop(publish_final=False)
         native_publications = binding.transport.observed_publications
@@ -363,6 +404,7 @@ async def run(args, isolation):
                       maximum_altitude_change_m=altitude_error,
                       maximum_altitude_hold_error_m=None if args.altitude else altitude_error,
                       required_altitude_hold_tolerance_m=None if args.altitude else args.altitude_tolerance,
+                      phase_segments=phase_response_segments(response),
                       application_startup_qualified=False)
     except Exception as error:
         result = dict(passed=False, reason=f"{type(error).__name__}:{error}")
@@ -390,6 +432,7 @@ def main():
     parser.add_argument("--socket", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--config", type=Path, default=ROOT / "configs/config_default.yaml")
+    parser.add_argument("--scenario", type=Path, help="Version-2 world-target YAML; must match mount, altitude and actual airframe")
     parser.add_argument("--mount", choices=("HORIZONTAL", "VERTICAL"), required=True)
     parser.add_argument("--altitude", action="store_true")
     parser.add_argument("--duration", type=float, default=15.)

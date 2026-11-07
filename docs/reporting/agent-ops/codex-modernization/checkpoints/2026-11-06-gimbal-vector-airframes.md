@@ -418,3 +418,22 @@ The focused aircraft/binding/transport/phase gate passes 109 tests. The pinned
 native image passes 33 normal and 33 ASan/UBSan tests. The failed attempt and
 confirmed cleanup remain retained in the task cache; both transition directions
 still require an actual successful repeat before acceptance.
+
+The aggregate-progress repeat completed MC → transition → FW → transition → MC
+under one native owner. All 785 submissions succeeded, 1,200 native publications
+were observed, and Stop confirmed Hold with no later publication. All 834
+observations (including pre-engagement samples) remained fresh. The retained MC
+request was 6 m/s on both sides of the cycle. This proves the repaired phase
+boundary for this run, not full transition acceptance: the scenario failed its
+range and 2 m altitude checks (163.8 → 245.7 m; 2.831 m maximum altitude change).
+The target outran much of the unchanged 0.25 m/s² MC ramp, and the altitude dip
+occurred just after FW entry at a minimum-clipped 10 m/s reference. Both require
+separate response investigation. Raw data and the replay remain in the task
+cache `sih-20261107/xvert-aggregate/vector-cycle-attempt2/`.
+
+The renewed combined software gate passes 1,685 tests. The component harness
+now accepts the existing version-2 world-target YAML without moving its target
+relative to the drone. It records actual phase lifecycle/generation, effective
+continuity policy and per-phase response spans. Unsupported fault/speed scenario
+edits are refused explicitly. Overall failed checks remain failed; scenario
+selection is not a substitute for qualifying the flight response.

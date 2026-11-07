@@ -60,6 +60,17 @@ airspeed. `--mc-request` is an explicit simulated operator speed adjustment;
 it is not written to the saved configuration. The runner still never requests
 VTOL transitions: an independently controlled simulator/pilot must initiate them.
 Mixed-phase traces retain the actual contract for each publication.
+An optional `--scenario PATH` supplies the independent world-target trajectory
+through the same version-2 YAML contract. Mount, altitude mode and actual
+airframe must agree. The runner rejects unsupported fault injection and saved
+scenario speed edits rather than pretending to execute them; `--mc-request`
+remains an explicit simulated operator action. Actual limits and continuity
+policy come from the loaded configuration and appear in the retained scenario
+and per-phase state trace. Target coordinates are never reanchored to the drone.
+Phase spans report actual range/altitude changes without replacing the overall
+response checks. In particular, a 6 m/s target can outrun the public 0.25 m/s²
+MC startup ramp in a short transition test. Successful ownership transitions
+alone do not prove target closure or altitude acceptance.
 
 The component result separately checks observed range reduction, altitude hold
 or vertical response, altitude floor, successful handoff and stopped publication.

@@ -5,10 +5,11 @@ import json
 import socket
 
 import pytest
+import yaml
 
 from classes.aircraft_state import AirframePhase
 from tests.unit.drone_interface.test_aircraft_state import aircraft_state
-from tools.run_native_vector_sih import stable_window, tracker_for_world_target, verify_simulator
+from tools.run_native_vector_sih import load_component_scenario, phase_response_segments, stable_window, tracker_for_world_target, verify_simulator
 
 
 def flight_window():
@@ -72,6 +73,38 @@ def test_vtol_mc_stable_gate_uses_hover_telemetry_without_fw_airspeed():
     assert not stable_window(states[:-1] + [replace(states[-1], navigation_heading_rad=1.)])
     assert not stable_window(states[:-1] + [replace(states[-1], velocity_ned_m_s=Vector3(1., 0., 0.))])
     assert not stable_window([replace(s, is_vtol=False) for s in states])
+
+
+def test_component_world_target_is_not_reanchored_to_the_aircraft(tmp_path):
+    from tools.run_native_vector_sih import ROOT
+    raw = yaml.safe_load((ROOT / "tools/sih_visualization_scenarios/gimbal-vector-native-fw.yaml").read_text())
+    path = tmp_path / "scenario.yaml"
+    path.write_text(yaml.safe_dump(raw))
+    loaded = load_component_scenario(path, mount="VERTICAL", altitude=False, duration=20., is_vtol=False)
+    assert loaded["target"] == raw["target"]
+    for changes in ({"mount": "HORIZONTAL"}, {"altitude": True}, {"duration": 60.}, {"is_vtol": True}):
+        kwargs = dict(mount="VERTICAL", altitude=False, duration=20., is_vtol=False) | changes
+        with pytest.raises(ValueError, match="scenario_contract_mismatch|target_does_not_cover_run"):
+            load_component_scenario(path, **kwargs)
+    raw["faults"] = [{"type": "loss", "start_s": 1., "end_s": 2.}]
+    path.write_text(yaml.safe_dump(raw))
+    with pytest.raises(ValueError, match="fault_injection_not_implemented"):
+        load_component_scenario(path, mount="VERTICAL", altitude=False, duration=20., is_vtol=False)
+
+
+def test_phase_analysis_keeps_separate_repeated_mc_spans_and_actual_range_divergence():
+    rows = [dict(timestamp=t, phase=phase, range_m=distance, altitude_m=altitude)
+            for t, phase, distance, altitude in [(0., "multicopter", 100., 30.),
+                                                (1., "multicopter", 105., 30.1),
+                                                (2., "vtol_transition", 106., 29.),
+                                                (3., "fixed_wing", 90., 28.),
+                                                (4., "multicopter", 95., 29.)]]
+    spans = phase_response_segments(rows)
+    assert [s["phase"] for s in spans] == ["multicopter", "vtol_transition", "fixed_wing", "multicopter"]
+    assert spans[0]["range_end_m"] > spans[0]["range_start_m"]
+    assert spans[0]["altitude_max_m"] == 30.1
+    assert spans[0]["samples"] == 2
+    assert spans[-1]["start_s"] == 4.
 
 
 @pytest.mark.parametrize("unsafe", ["host_network", "privileged", "devices", "ports", None])
