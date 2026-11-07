@@ -282,3 +282,10 @@ remain open. Integration work is unpublished.
   target-source timestamps and retains imported truth gaps as unknown. Standard
   VTOL altitude response, full application startup and unrestricted firmware
   remain open. See the active [airframe checkpoint](checkpoints/2026-11-06-gimbal-vector-airframes.md#native-fw-recovery-and-source-timed-evidence--2026-11-07).
+
+- **2026-11-07 — Native Stop confirmation / retained FW request (fixed):**
+  immediate socket abort now receives read-only, UID/runtime/epoch-bound mode
+  confirmation without another Hold request. Retained recovery commands honor
+  an acknowledged EAS reduction before the canonical native envelope resolver.
+  Two actual application/SIH sessions and the 1,766-test gate passed. See the
+  [application checkpoint](checkpoints/2026-11-06-gimbal-vector-airframes.md#actual-applicationapi-checkpoint--2026-11-07).

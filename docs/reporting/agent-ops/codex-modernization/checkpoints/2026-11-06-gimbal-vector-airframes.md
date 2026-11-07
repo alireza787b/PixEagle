@@ -585,3 +585,60 @@ gate), complete application/HTTP startup, VTOL abort/rescue/loss/retarget matrix
 owner-bound unrestricted firmware policy, legacy FW adoption, ARM64/setup and
 client/hardware qualification. No new hardware action is needed for the next
 software slice. Experimental unrestricted capability remains false.
+
+## Actual application/API checkpoint — 2026-11-07
+
+The normal FlowController, video lifecycle, real SIP provider/parser, Gimbal
+tracker, browser-session authentication, MAVSDK identity, REST telemetry and
+native DDS publisher now ran together on an isolated SIH airplane. A loopback
+RTSP test-pattern source and SIP world-target fixture replace hardware inputs;
+no application/tracker/follower/flight manager class is mocked. The private
+bootstrap redirects only the native socket path to the verified simulator.
+This tests the application path, not setup/service installation or a real camera.
+
+The first run started/followed correctly but its immediate Stop closed the socket
+before orderly teardown could confirm Hold. The shared native client/binding now
+retain immediate abort and then observe release read-only under the same aircraft
+UID, adapter runtime and a newer activation epoch. No second mode command or
+Follow replay is issued. Unknown confirmation propagates failure to the existing
+cleanup owner; stale cleanup cannot close a replacement session socket.
+
+A separate failing regression showed that retained FW recovery intent could
+undo an acknowledged EAS reduction. The shared final session guard now applies
+the current request before the existing native envelope resolver. Native
+load-dependent minimum speed still wins; no MC limiter or new controller was
+added. MC behavior and all public/private tuning remain unchanged.
+
+| Actual application case | Range | Maximum altitude change | Successful publications |
+| --- | --- | --- | --- |
+| Normal HTTP session (`91d2084e6`) | 399.5 → 263.1 m | 0.187 m | 297 |
+| Camera loss / EAS reduction (`12e14a93f`) | 396.1 → 260.3 m | 0.192 m | 297 |
+
+Both runs confirmed native Hold and 55 subsequent fresh observations with no
+later publications. The largest acknowledged publication gap was 56.6 ms and
+there were zero failures. Contract-v2 FW controls used EAS, while v1 hid them;
+idempotent adjustment replay returned the same action and stale revisions were
+rejected. Camera target loss retained following, refused increases, accepted a
+reduction and never restored the older higher command after acknowledgement.
+Actual PX4 position closed range; no commands were integrated into aircraft pose.
+
+Evidence: `reports/sitl/native-vector-application-20261107/index.html`, also in
+the single Desktop review selector. It retains raw combined traces, protocol
+truth/pose, API responses, audit, parameters, full compressed ULog, executed
+fixture/driver sources, proof JSON and derived HTML/CSV/PNG. All 197 application
+runtime source files match the recorded checkout. Derived exports use measured
+publication epoch/monotonic pairs (spread below 0.1 ms). The native FW orientation
+axis and measured EAS were not retained in this application trace and remain
+unknown; the EAS plot shows acknowledged request and submitted reference.
+
+The final combined gate passes 1,766 tests, with one existing Starlette warning.
+Fatal/import lint and the unchanged schema gate pass. All owned backend, camera
+fixtures, SIH, native adapter, SDK/REST/router and DDS Agent processes were stopped.
+No hardware, installed service, QGC source, public/private default, remote, tag,
+release or GitHub Actions run was changed.
+
+Next: resolve the standard-VTOL altitude response, finish VTOL application and
+abort/rescue/loss/retarget cases, then implement/qualify the owner-bound
+unrestricted firmware policy and legacy FW adoption. ARM64/setup/platform and
+hardware acceptance follow. The unrestricted capability is still false; no Pi
+or camera action is needed yet.

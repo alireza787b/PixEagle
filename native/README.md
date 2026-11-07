@@ -130,7 +130,15 @@ later publication. Replays, raw traces and the pre-enablement refusal are in
 `reports/sitl/native-vector-recovery-20261107/`. These are component checks,
 not complete application or real-aircraft qualification.
 
-Still required: actual-PX4 application/session qualification, standard VTOL,
+Two normal FlowController/HTTP sessions now passed on the SIH airplane with
+a vertical-mount SIP/RTSP camera fixture: verified telemetry/identity, native
+start, temporary EAS controls, target loss/reacquisition and confirmed Stop.
+A recovery reduction constrains retained commands before the existing native
+envelope resolver. Evidence and interactive replays are in
+`reports/sitl/native-vector-application-20261107/`. This qualifies the tested
+application path with fixtures, not real camera or VTOL application acceptance.
+
+Still required: VTOL application/session qualification, standard VTOL,
 abort/rescue, target-loss/retarget and takeover cases, native
 unrestricted-speed policy and expiry tests, ARM64 packaging, reusable 3D
 evidence for the remaining airframes and operator acceptance. The unrestricted capability remains false.
