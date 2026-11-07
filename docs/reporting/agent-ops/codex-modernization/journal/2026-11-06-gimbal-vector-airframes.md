@@ -91,3 +91,17 @@ biasing FW guidance after pitch-over. The filter now follows guidance generation
 without changing controls or continuity budgets; same-phase filtering remains.
 Both mount regressions fail before the fix and pass after it. Actual transition,
 unrestricted policy, legacy FW adoption and deployment qualification stay open.
+
+Live tailsitter repeats additionally repaired aggregate source sequencing,
+VTOL heartbeat cadence, phase command-history retirement and engagement-altitude
+retention. Both mounts now pass normal MC/FW/MC component cycles, with actual
+moving-target response, zero publication failures and confirmed Stop/Hold.
+Failed comparisons remain beside the replays. The combined gate passes 1,689
+tests; native contracts/sanitizers pass 33 each and the viewer gate passes 51.
+
+Standard VTOL completed the owned phase cycle but missed its 2 m altitude gate
+at 2.165 m; it remains open. A PX4-only comparison measured 1.954 m with a
+different position-Hold contract. Pilot FW-to-RTL takeover retained RTL and an
+unchanged publication count through 55 subsequent observations; no late Hold
+or automatic Follow replay occurred. The checkpoint links exact evidence and
+remaining firmware/application/deployment gates. No hardware was changed.

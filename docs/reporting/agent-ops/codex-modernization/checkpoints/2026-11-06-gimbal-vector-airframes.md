@@ -470,3 +470,33 @@ Browser checks cover all five cases, real target/pose/phase data, scrubbing and
 view reset without script errors. The viewer additionally labels the initial
 speed from its actual sample contract: a VTOL MC request cannot be called EAS
 just because the overall scenario supports FW.
+
+## Standard VTOL and pilot-takeover comparison — 2026-11-07
+
+The stock `sihsim_standard_vtol` native-component cycle completed both phase
+directions, all 785 submissions / 1,200 native publications and confirmed Stop
+to Hold without publication failures. It remains **failed** against the 2 m
+altitude gate: maximum deviation was 2.165 m, mostly during MC return. Range
+decreased 163.8 → 130.5 m. No simulator or aircraft gains were changed.
+
+A separate native FW pilot takeover selected RTL. The publisher refused further
+ownership, and 55 subsequent read-only observations stayed in RTL (nav state 5),
+with the native publication count unchanged at 1,476 and no reacquired owner.
+Cleanup did not overwrite RTL with Hold. This is an intentional terminal-fault
+test, not a passed nominal component run.
+
+The PX4-only baseline used the same standard-VTOL airframe, settled 30 m MC
+start and pilot transitions, with zero native-adapter publications and no
+external owner. Maximum altitude deviation was 1.954 m and final altitude
+30.015 m from 29.976 m initially. The two tests have different post-transition
+contracts (native position Hold versus MC zero vertical velocity); they do not
+isolate a single causal controller change. Do not adjust the acceptance result
+or introduce a companion altitude controller merely to hide that distinction.
+Raw observations, parameters, pilot actions, ULogs, comparison plot and replay
+are retained at `reports/sitl/native-vector-standard-vtol-20261107/`.
+
+All owned SIH aircraft processes were stopped after their evidence was closed.
+No hardware, public/private tuning, service, main branch, remote tag, release or
+GitHub Actions build was changed. Remaining work includes the standard-VTOL
+response gate, full application startup, loss/retarget/abort/rescue matrix,
+unrestricted firmware policy and deployment/platform qualification.
