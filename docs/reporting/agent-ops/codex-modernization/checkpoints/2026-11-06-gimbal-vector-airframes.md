@@ -520,3 +520,15 @@ the real state owner, so the test actually advances generations rather than
 swallowing an initialization error. This check does not qualify complete
 AppController/HTTP follow startup. Raw before/after evidence is retained in
 `sih-20261107/connection-boundary/` in the task cache.
+
+The clean-revision repeat on `44d80195c` passes the same actual boundary,
+including observed disarmed/on-ground state. A deliberately wrong aircraft UID
+is rejected by the adapter. The renewed combined gate, now including the native
+integration API tests, passes 1,740 tests. Evidence is archived at
+`reports/sitl/native-vector-connection-boundary-20261107/`. A single Desktop
+review page at `PixEagle-native-guidance-review-2026-11-07/index.html` selects
+the FW, tailsitter, standard-VTOL and disarmed-connection reports. It preserves
+their separate pass/failure scopes; nothing is presented as full application or
+hardware acceptance. The AppController reference was also reduced to its actual
+lifecycle methods and canonical configuration links, removing obsolete
+pseudocode APIs/settings that conflicted with the implementation.
