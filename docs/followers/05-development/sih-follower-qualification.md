@@ -45,6 +45,17 @@ HTML is self-contained and works offline; CSV and PNG preserve the same command
 semantics. This format support is not evidence that native FW/VTOL qualification
 has passed.
 
+For native Vector component checks, `tools/run_native_vector_sih.py` verifies an
+already-running isolated Docker SIH instance and its UID before control. It
+defaults to read-only verification; `--execute` waits for seven stable airborne
+FW samples, then joins the production follower, phase binding, continuity
+supervisor and existing command publisher. It never arms or takes off. The
+temporary simulator configuration, independent target path, observed pose,
+commands, handoff and source revision are retained in its output directory.
+This component runner does not qualify the HTTP/App startup path or VTOL
+transitions; those remain separate gates. The normal read-only visualizer can
+render its `scenario.yaml` and trace directory directly.
+
 ## Safe command
 
 The dry-run validates every checked-in scenario and never starts a process:
