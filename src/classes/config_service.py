@@ -774,6 +774,31 @@ class ConfigService:
         return {"_value": value}
 
     @staticmethod
+    def _get_mapping_path(mapping: Dict[str, Any], path: List[str], default: Any = None) -> Any:
+        """Read an exact mapping path without conflating absence and null."""
+        value: Any = mapping
+        for component in path:
+            if not isinstance(value, dict) or component not in value:
+                return default
+            value = value[component]
+        return value
+
+    @staticmethod
+    def _set_mapping_path(mapping: Dict[str, Any], path: List[str], value: Any) -> None:
+        """Set one mapping value, creating only missing mapping ancestors."""
+        if not path:
+            raise ValueError("Config paths must contain at least one component")
+        cursor = mapping
+        for index, component in enumerate(path[:-1]):
+            if component not in cursor:
+                cursor[component] = {}
+            child = cursor[component]
+            if not isinstance(child, dict):
+                raise ValueError(f"Config shape conflict at {'.'.join(path[:index + 1])}")
+            cursor = child
+        cursor[path[-1]] = copy.deepcopy(value)
+
+    @staticmethod
     def _mapping_path_exists(mapping: Dict[str, Any], path: List[str]) -> bool:
         """Return whether an exact, arbitrarily nested mapping path exists."""
         cursor: Any = mapping
@@ -1501,22 +1526,35 @@ class ConfigService:
     def _schema_for_path(self, path: List[str] | Tuple[str, ...]) -> Dict[str, Any]:
         """Resolve schema metadata for a root, parameter, or declared object child."""
         parts = list(path)
-        if not parts:
+        if not parts or not all(
+            isinstance(part, str) and part.strip() == part and part for part in parts
+        ):
             return {}
-        schema: Any = self._schema.get("sections", {}).get(parts[0], {})
-        if len(parts) >= 2:
-            schema = (
-                schema.get("parameters", {}).get(parts[1], {})
-                if isinstance(schema, dict)
-                else {}
-            )
-        for part in parts[2:]:
-            schema = (
-                schema.get("properties", {}).get(part, {})
-                if isinstance(schema, dict)
-                else {}
-            )
+        schema: Any = self._schema.get("sections", {}).get(parts[0])
+        if not isinstance(schema, dict):
+            schema = self._extension_section_schemas_locked().get(parts[0], {})
+        for index, part in enumerate(parts[1:], start=1):
+            if not isinstance(schema, dict):
+                return {}
+            properties = schema.get("parameters") if index == 1 else None
+            if not isinstance(properties, dict):
+                if schema.get("type") != "object":
+                    return {}
+                properties = schema.get("properties", {})
+            child = properties.get(part) if isinstance(properties, dict) else None
+            if child is None:
+                additional = schema.get("additional_properties")
+                if isinstance(additional, dict):
+                    child = additional
+                elif additional is True and index == len(parts) - 1:
+                    child = {"type": "any"}
+            schema = child
         return schema if isinstance(schema, dict) else {}
+
+    def get_path_schema(self, path: List[str] | Tuple[str, ...]) -> Dict[str, Any]:
+        """Return the exact declared path contract, never an inherited default."""
+        with self._mutation_lock:
+            return copy.deepcopy(self._schema_for_path(path))
 
     @classmethod
     def _string_contains_credentials(cls, value: str) -> bool:
@@ -1567,8 +1605,10 @@ class ConfigService:
         if not parts or not all(isinstance(part, str) and part for part in parts):
             return True
         with self._mutation_lock:
-            schema = self._schema_for_path(parts)
-            return bool(schema.get("sensitive") is True) or bool(
+            return any(
+                self._schema_for_path(parts[:depth]).get("sensitive") is True
+                for depth in range(1, len(parts) + 1)
+            ) or bool(
                 self._SENSITIVE_PARAMETER_RE.search(".".join(parts))
             )
 
@@ -2052,25 +2092,9 @@ class ConfigService:
 
     def _path_is_active(self, path: List[str]) -> bool:
         with self._mutation_lock:
-            if self._mapping_path_exists(self._default, path):
-                return True
-            if not path:
-                return False
-
-            schema_node: Any = self._schema.get("sections", {}).get(path[0])
-            if not isinstance(schema_node, dict):
-                return False
-            if len(path) == 1:
-                return True
-
-            schema_node = schema_node.get("parameters", {}).get(path[1])
-            if not isinstance(schema_node, dict):
-                return False
-            for component in path[2:]:
-                schema_node = schema_node.get("properties", {}).get(component)
-                if not isinstance(schema_node, dict):
-                    return False
-            return True
+            return self._mapping_path_exists(self._default, path) or bool(
+                self._schema_for_path(path)
+            )
 
     def get_registered_retirement(
         self,
@@ -2093,11 +2117,10 @@ class ConfigService:
             parts = list(path)
             if not parts:
                 raise ValueError("Config paths must contain at least one component")
-            value: Any = self._config
-            for component in parts:
-                if not isinstance(value, dict) or component not in value:
-                    return default
-                value = value[component]
+            marker = object()
+            value = self._get_mapping_path(self._config, parts, marker)
+            if value is marker:
+                return default
             return copy.deepcopy(value)
 
     def path_exists(self, path: List[str] | Tuple[str, ...]) -> bool:
@@ -2331,125 +2354,36 @@ class ConfigService:
         return ValidationResult(valid, status, errors, warnings)
 
     def validate_value(self, section: str, param: str, value: Any) -> ValidationResult:
-        """Validate a section/parameter value against its schema."""
-        with self._mutation_lock:
-            section_schema = self._schema.get("sections", {}).get(section)
-            if isinstance(section_schema, dict):
-                parameters = section_schema.get("parameters")
-                if isinstance(parameters, dict):
-                    parameter_schema = parameters.get(param)
-                    if parameter_schema is None:
-                        return ValidationResult(
-                            False,
-                            ValidationStatus.ERROR,
-                            [
-                                f"{section}.{param} is not declared by the active "
-                                "configuration schema"
-                            ],
-                            [],
-                        )
-                    return self._validate_value_against_schema(
-                        f"{section}.{param}",
-                        value,
-                        parameter_schema,
-                    )
-
-            try:
-                extension_schema = self._extension_section_schemas_locked().get(
-                    section
-                )
-            except ValueError as exc:
-                return ValidationResult(
-                    False,
-                    ValidationStatus.ERROR,
-                    [str(exc)],
-                    [],
-                )
-            if isinstance(extension_schema, dict):
-                properties = extension_schema.get("properties", {})
-                if not isinstance(properties, dict):
-                    return ValidationResult(
-                        False,
-                        ValidationStatus.ERROR,
-                        [f"Extension section {section} has an invalid properties contract"],
-                        [],
-                    )
-                parameter_schema = properties.get(param)
-                if isinstance(parameter_schema, dict):
-                    return self._validate_value_against_schema(
-                        f"{section}.{param}",
-                        value,
-                        parameter_schema,
-                    )
-                additional = extension_schema.get("additional_properties")
-                if isinstance(additional, dict):
-                    return self._validate_value_against_schema(
-                        f"{section}.{param}",
-                        value,
-                        additional,
-                    )
-                if additional is True:
-                    return ValidationResult(
-                        True,
-                        ValidationStatus.WARNING,
-                        [],
-                        [
-                            f"{section}.{param} is accepted by the explicit "
-                            "extension-section contract"
-                        ],
-                    )
-
-            return ValidationResult(
-                False,
-                ValidationStatus.ERROR,
-                [
-                    f"{section}.{param} is not declared by the active "
-                    "configuration schema"
-                ],
-                [],
-            )
+        """Validate a section/parameter through the canonical path resolver."""
+        return self.validate_path([section, param], value)
 
     def validate_path(
         self,
         path: List[str] | Tuple[str, ...],
         value: Any,
     ) -> ValidationResult:
-        """Validate a root or section/parameter config path."""
+        """Validate an exact root, parameter, or declared object-child path."""
         with self._mutation_lock:
             parts = list(path)
-            if len(parts) == 2:
-                return self.validate_value(parts[0], parts[1], value)
-            if len(parts) == 1:
-                schema = self._schema.get("sections", {}).get(parts[0])
-                if not isinstance(schema, dict):
-                    try:
-                        schema = self._extension_section_schemas_locked().get(
-                            parts[0]
-                        )
-                    except ValueError as exc:
-                        return ValidationResult(
-                            False,
-                            ValidationStatus.ERROR,
-                            [str(exc)],
-                            [],
-                        )
-                if not isinstance(schema, dict):
-                    return ValidationResult(
-                        False,
-                        ValidationStatus.ERROR,
-                        [
-                            f"{parts[0]} is not declared by the active "
-                            "configuration schema"
-                        ],
-                        [],
-                    )
-                return self._validate_value_against_schema(parts[0], value, schema)
-            return ValidationResult(
-                False,
-                ValidationStatus.ERROR,
-                ["Config paths must contain one or two components"],
-                [],
-            )
+            if not parts or not all(
+                isinstance(part, str) and part.strip() == part and part for part in parts
+            ):
+                return ValidationResult(
+                    False, ValidationStatus.ERROR,
+                    ["Config paths require non-empty canonical mapping keys"], [],
+                )
+            try:
+                schema = self._schema_for_path(parts)
+            except ValueError as exc:
+                return ValidationResult(False, ValidationStatus.ERROR, [str(exc)], [])
+            if not schema:
+                return ValidationResult(
+                    False, ValidationStatus.ERROR,
+                    [f"{'.'.join(parts)} is not declared by the active configuration schema"], [],
+                )
+            if len(parts) == 1 and isinstance(schema.get("parameters"), dict):
+                schema = {**schema, "type": "object", "properties": schema["parameters"]}
+            return self._validate_value_against_schema('.'.join(parts), value, schema)
 
     def validate_config_mapping(
         self,
@@ -2815,8 +2749,27 @@ class ConfigService:
         audit: bool = False,
         source: str = "api",
     ) -> ValidationResult:
-        """Set a supported root or section/parameter path in memory."""
+        """Set one exact path without replacing its unselected siblings."""
         parts = list(path)
+        if len(parts) > 2:
+            result = self.validate_path(parts, value) if validate else ValidationResult(
+                True, ValidationStatus.VALID, [], []
+            )
+            if not result.valid:
+                return result
+            marker = object()
+            parent = self.get_path_value(parts[:2], default=marker)
+            if parent is marker:
+                parent = {}
+            try:
+                if not isinstance(parent, dict):
+                    raise ValueError(f"Config shape conflict at {'.'.join(parts[:2])}")
+                self._set_mapping_path(parent, parts[2:], value)
+            except ValueError as exc:
+                return ValidationResult(False, ValidationStatus.ERROR, [str(exc)], [])
+            return self.set_parameter(
+                parts[0], parts[1], parent, validate, audit=audit, source=source,
+            )
         if len(parts) == 2:
             return self.set_parameter(
                 parts[0],

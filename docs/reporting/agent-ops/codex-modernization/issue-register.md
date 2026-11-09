@@ -305,3 +305,11 @@ remain open. Integration work is unpublished.
   VTOL admission stays blocked pending transition-preserving release; legacy
   owner admission and client migration remain S3/S9. See the same consolidation
   checkpoint for tests, archive-render evidence and qualification boundaries.
+
+- **2026-11-09 — Nested configuration migration, S2 (complete):** one schema
+  resolver and exact leaf operations preserve sparse overrides/custom siblings,
+  distinguish null from absence, reject overlapping requests and retain
+  transactional rollback. Three inert GM Chase keys now have exact registered
+  retirements. Required General loading remains strict; source upgrades must
+  not assume preview can repair an incomplete required object. See the same
+  consolidation checkpoint and Config Sync guide for tested scope.

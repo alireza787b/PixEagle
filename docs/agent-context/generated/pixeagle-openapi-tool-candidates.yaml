@@ -21,9 +21,9 @@ source:
   - file: src/classes/api_legacy_control_routes.py
     sha256: a49a2216a8c4a0967a65acecb449a949656206412f1a3c7fa17a6a9925ca0d44
   - file: src/classes/config_sync.py
-    sha256: 5f22b728f272a3a0366f31f0111c3785ec05f429e92e5b398acf25d81988ace8
+    sha256: 134cc9c7acfba9bbc0d3a5ddfc4b5a216f6c9bae5407cc42544b3290819d3e39
   - file: src/classes/api_legacy_config_routes.py
-    sha256: 8d55ad63be3cd5992b8bff8a04a6c1611dd3150ab0db10fd5fac57506be1546e
+    sha256: 3f9ac8aba8407adca8f786c9e7ab4dffad271505b093f20071d240bee168991e
   - file: src/classes/api_legacy_follower_routes.py
     sha256: af748daecdb70706cf065b09cd98e062de4f8b557cafc0ba2309c660da27f100
   - file: src/classes/api_legacy_gstreamer_routes.py

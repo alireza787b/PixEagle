@@ -3,6 +3,27 @@ registry_version: 1
 # Only exact paths listed here may be removed by config migration. Absence from
 # config_default.yaml or config_schema.yaml never makes an extension obsolete.
 retirements:
+  - id: remove-unused-gm-chase-required-tracker-fields-v1
+    path: [GM_VELOCITY_CHASE, REQUIRED_TRACKER_FIELDS]
+    action: remove
+    retired_in_schema_version: 1.7.0
+    reason: The command profile input contract owns required tracker data; this value had no runtime consumer.
+    replacement: null
+
+  - id: remove-unused-gm-chase-safety-return-speed-v1
+    path: [GM_VELOCITY_CHASE, SAFETY_RETURN_SPEED]
+    action: remove
+    retired_in_schema_version: 1.7.0
+    reason: No maintained gimbal chase calculation used this setting; altitude protections use the shared safety envelope.
+    replacement: null
+
+  - id: remove-unused-gm-chase-default-thrust-v1
+    path: [GM_VELOCITY_CHASE, DEFAULT_THRUST]
+    action: remove
+    retired_in_schema_version: 1.7.0
+    reason: Gimbal chase publishes body velocity and yaw commands, not attitude-rate thrust commands.
+    replacement: null
+
   - id: remove-unused-streaming-bandwidth-low-v1
     path: [Streaming, TARGET_BANDWIDTH_LOW_KBPS]
     action: remove

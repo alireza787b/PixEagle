@@ -6554,14 +6554,6 @@ sections:
     category: follower
     icon: control_camera
     parameters:
-      REQUIRED_TRACKER_FIELDS:
-        type: array
-        default:
-        - angular
-        description: Must have angular data from gimbal
-        reload_tier: follower_restart
-        reboot_required: false
-        item_type: string
       FORWARD_VELOCITY_MODE:
         type: string
         default: CONSTANT
@@ -6593,16 +6585,6 @@ sections:
         max: 100.0
         step: 0.1
         unit: m/s²
-      SAFETY_RETURN_SPEED:
-        type: float
-        default: 3.0
-        description: Velocity when returning to safe altitude (m/s)
-        reload_tier: follower_restart
-        reboot_required: false
-        min: 0.0
-        max: 100.0
-        step: 0.1
-        unit: m/s
       ANGLE_DEADZONE:
         type: float
         default: 2.0
@@ -6652,15 +6634,6 @@ sections:
         max: 100.0
         step: 0.1
         unit: deg
-      DEFAULT_THRUST:
-        type: float
-        default: 0.5
-        description: Default thrust for attitude rate control mode
-        reload_tier: follower_restart
-        reboot_required: false
-        min: 0.0
-        max: 1.0
-        step: 0.01
     additional_properties: false
   GM_VELOCITY_VECTOR:
     display_name: Gimbal Velocity Vector

@@ -26,6 +26,7 @@ from classes.config_sync import (
     ConfigSyncPlanRequest,
     build_defaults_sync_plan,
 )
+from classes.config_service import ConfigService
 
 
 pytestmark = [pytest.mark.unit]
@@ -254,9 +255,12 @@ class FakeConfigService:
         return section_data.get(parameter) if isinstance(section_data, dict) else None
 
     def get_path_value(self, path, default=None):
-        if len(path) == 1:
-            return self.current.get(path[0], default)
-        return self.current.get(path[0], {}).get(path[1], default)
+        return ConfigService._get_mapping_path(self.current, path, default)
+
+    def get_path_schema(self, path):
+        return ConfigService._schema_for_path(SimpleNamespace(
+            _schema=self.schema, _extension_section_schemas_locked=lambda: {}
+        ), path)
 
     def get_sections(self):
         sections = []
@@ -338,6 +342,9 @@ class FakeConfigService:
         return self.validate_value(path[0], path[1], value)
 
     def set_path(self, path, value, **kwargs):
+        if len(path) > 2:
+            ConfigService._set_mapping_path(self.current, path, value)
+            return FakeValidationResult(True)
         if len(path) == 1:
             self.current[path[0]] = value
             return FakeValidationResult(True)
@@ -399,13 +406,8 @@ class FakeConfigService:
             normalized = [path, parameter]
         else:
             normalized = list(path)
-        section, parameter = normalized
-        self.remove_calls.append((section, parameter))
-        section_data = self.current.get(section, {})
-        if parameter not in section_data:
-            return False
-        del section_data[parameter]
-        return True
+        self.remove_calls.append(tuple(normalized))
+        return ConfigService._remove_mapping_path(self.current, normalized)
 
     def refresh_defaults_snapshot(self):
         self.snapshot_refreshes += 1

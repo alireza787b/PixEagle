@@ -1,7 +1,7 @@
 # Follower consolidation and aircraft qualification plan
 
-Date: 2026-11-09. Status: implementation in progress; S0/S1 complete,
-S2 next. Follow the [checkpoint](../../reporting/agent-ops/codex-modernization/checkpoints/2026-11-09-follower-consolidation.md)
+Date: 2026-11-09. Status: implementation in progress; S0–S2 complete,
+S3 next. Follow the [checkpoint](../../reporting/agent-ops/codex-modernization/checkpoints/2026-11-09-follower-consolidation.md)
 for actual verification; later slices and qualification remain pending.
 
 This is the single plan for consolidating follower definitions, configuration,

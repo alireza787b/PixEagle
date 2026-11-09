@@ -1145,9 +1145,6 @@ TargetContinuity:
 # GIMBAL PID PURSUIT FOLLOWER CONFIGURATION
 # ==============================================================================
 GM_VELOCITY_CHASE:
-  # === Required Tracker Fields ===
-  REQUIRED_TRACKER_FIELDS: ["angular"]     # Must have angular data from gimbal
-
   # === Forward Velocity Control System ===
   # Implemented modes only; neither mode estimates target range or interception state.
   # NOTE: Max velocity limits are now in Safety.GlobalLimits
@@ -1158,13 +1155,8 @@ GM_VELOCITY_CHASE:
   # === Lateral Guidance / Yaw Smoothing / Mode Switch ===
   # Now in Follower.General (with per-follower overrides in Follower.FollowerOverrides)
 
-  # === Safety Parameters (Override Safety.GlobalLimits if needed) ===
-  # These use unified naming: MIN_ALTITUDE, MAX_ALTITUDE
-  # If not specified, values inherit from Safety.GlobalLimits section
-  # MIN_ALTITUDE: 3.0                     # Override global minimum altitude (meters)
-  # MAX_ALTITUDE: 120.0                   # Override global maximum altitude (meters)
-  # MAX_SAFETY_VIOLATIONS, EMERGENCY_STOP_ENABLED now from Safety.GlobalLimits
-  SAFETY_RETURN_SPEED: 3.0                # Velocity when returning to safe altitude (m/s)
+  # Limits and protection behavior come from Safety.GlobalLimits and its
+  # tighter per-follower overrides, not from this algorithm section.
 
   # === Coordinate Transformation ===
   ANGLE_DEADZONE: 2.0                     # Ignore gimbal movements below this (degrees)
@@ -1174,9 +1166,6 @@ GM_VELOCITY_CHASE:
   PITCH_DEADZONE_DEGREES: 2.0             # Pitch deadzone to prevent jitter (degrees)
   MAX_ROLL_ANGLE: 90.0                    # Maximum expected roll range (degrees)
   MAX_PITCH_ANGLE: 90.0                   # Maximum expected pitch range (degrees)
-
-  # === Default Values for Optional Features ===
-  DEFAULT_THRUST: 0.5                     # Default thrust for attitude rate control mode
 
   # === Performance ===
   # CONTROL_UPDATE_RATE, COMMAND_SMOOTHING_ENABLED, SMOOTHING_FACTOR

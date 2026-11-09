@@ -5,7 +5,8 @@ defaults without treating custom extensions as obsolete.
 
 ## Classification
 
-- **New**: a defaults/schema key is missing locally.
+- **New**: a checked-in default leaf is missing locally. Schema-only sparse
+  overrides may be added with an explicit value; they have no invented default.
 - **Changed**: a checked-in default changed since the pre-update baseline.
 - **Retired**: an exact local path is listed in
   `configs/config_retirements.yaml` and is absent from active defaults/schema.
@@ -16,6 +17,11 @@ defaults without treating custom extensions as obsolete.
 Absence from defaults or schema is never enough to authorize removal. The
 versioned retirement registry is the only removal authority; wildcards and
 prefix matches are not supported.
+
+Reports compare exact mapping leaves. Arrays and empty mappings remain atomic;
+changing one nested setting does not replace its customized siblings. An absent
+override still inherits; explicit `null`, `false` and `0` remain present values.
+Nested secrets inherit their parent's redaction policy.
 
 ## Dashboard Flow
 
@@ -110,6 +116,12 @@ are registered retirements. Config Sync offers their exact-path removal;
 active payload allocation, cache size and `QUALITY_STEP_ADAPTIVE` values are
 preserved. The old values are not translated because their semantics differ.
 
+The unused GM Chase `REQUIRED_TRACKER_FIELDS`, `SAFETY_RETURN_SPEED` and
+`DEFAULT_THRUST` settings are also registered retirements. Required observations
+come from the command profile, protections from the shared safety envelope, and
+GM Chase publishes velocity rather than thrust. Cleanup removes only the selected
+exact keys; it does not change gains or apply a new flight policy.
+
 The QGC 4b.4 closeout adds `TargetContinuity.FollowerOverrides` for both gimbal
 followers and changes the fresh Vector lateral-mode default to coordinated turn.
 An existing flat continuity policy and an explicit saved sideslip choice remain
@@ -161,6 +173,13 @@ unqualified native publisher or firmware extension. See the
   components usable without silently rewriting the operator's config; an
   explicit sync or reset is still required to persist the new values.
 
+This optional-default behavior does not relax required configuration contracts.
+An incomplete required object such as `Follower.General` fails strict loading
+before Config Sync preview is available. Do not remove required fields to request
+inheritance. Recover through a reviewed offline configuration repair or explicit
+backed-up reset; startup does not silently merge missing required values. Adding
+new required fields needs a separately tested pre-start migration path.
+
 ### Running Process After A Source Update
 
 Defaults, schema, and the retirement registry are one definition generation.
@@ -210,7 +229,17 @@ Plan/apply requests use the strict v2 shape:
 }
 ```
 
-Paths contain either one root key or one section and parameter. The old
+Paths contain one root key, a section and parameter, or declared nested mapping
+keys (up to 16 components), for example
+`["Follower", "General", "YAW_SMOOTHING", "SMOOTHING_ALPHA"]`.
+The canonical schema must permit every component; array indexing and descent
+through scalar/null values are rejected. A request cannot contain duplicate or
+overlapping parent/child paths. `ADD_NEW` without `value` adopts an actual
+checked-in default; explicit `value: null` requests null and must be allowed by
+the schema. A schema-only sparse path requires an explicit value;
+`ADOPT_DEFAULT` never substitutes an inherited or schema annotation value.
+Apply advances only selected baseline leaves, preserving unselected changes.
+The old
 `section`/`parameter` operation fields and obsolete archive/remove operation
 are rejected rather than guessed. Apply adds the opaque `plan_digest` token and
 `confirm: true`; preview tokens are invalid after a backend restart.

@@ -21,6 +21,18 @@ Hardware, installed services and local saved/private configuration are untouched
   private vertical tailsitter overlay. Preserve it and locate/compare the actual
   accepted private artifact before migration; never silently apply 6 m/s/5 m.
 
+Private baseline subsequently located read-only in the October 27 Desktop
+handoff: `private-vertical-gimbal-profile/configs/config.yaml` is byte-identical
+to `pi-deployment-2026-10-27/config-after.yaml`, SHA-256
+`3df34625378fef3759431a69a163cf0ddacddf724920363b97eee0c831ecafc8`.
+Its separate sparse `overlay.yaml` SHA-256 is
+`3800c635ebc0c72abe05f9e9dc05879097f763b2f399664034d2c257c592804a`.
+The accepted MC settings are vertical Topotek mount, zero startup/initial speed,
+6 m/s saved velocity caps, 1.5 m/s² ramp, coordinated turn, Vector altitude
+guidance on through its override, relative altitude 5–120 m, yaw limit 90°/s
+and circuit breaker on. These are retained installation values, not new FW
+tuning or a physical tailsitter geometry qualification. No archive was modified.
+
 Validation: 74 route-inventory/config-publication tests and 36 documentation/
 tracker-contract tests passed; schema is current
 (44 sections, 616 parameters). One existing Starlette deprecation warning.
@@ -69,8 +81,30 @@ CSV/JSON). It retained 590 observed pose samples with no analyzer flags and
 range 163.8 to 26.4 m. This renews report-reader compatibility, not SIH behavior
 after S1; original capture/evidence remains unchanged.
 
-## Next — S2
+## S2 — exact configuration migration complete
 
-Generalize exact nested ConfigService/Config Sync paths, preserve sparse override
-absence and transactional preview/apply/rollback, then retire the three confirmed
-inert GM Chase settings. Use the existing service and migration store.
+- ConfigService owns the nested schema resolver used by validation, retirement
+  classification and redaction. Exact writes preserve customized siblings and
+  sparse override absence, including typed extension children.
+- Config Sync v2 accepts up to 16 mapping components and reports leaf changes.
+  Arrays/empty objects remain atomic. Explicit null differs from omitted values;
+  schema-only additions need an explicit value. Duplicate/prefix-overlapping
+  operations, scalar ancestors and unknown schema paths are rejected.
+- Apply advances only selected baseline leaves and audits their exact paths.
+  Inherited sensitivity protects nested leaves. Existing CAS, backups, durable
+  audit, publication barrier and conditional rollback remain authoritative.
+- Retired exactly three confirmed inert GM Chase keys through the registry;
+  no gains or operational defaults changed. Schema is 44 sections/613 parameters.
+- Required `Follower.General` remains strict before preview; missing required
+  values are not silently merged. This limitation and recovery boundary are
+  documented in Config Sync; no new required General field was introduced.
+
+Validation: the combined config/service/routes/CLI/schema/publication gate passed
+389 tests; one Windows-only ACL test skipped on Linux. One existing Starlette
+deprecation warning. Fatal CI lint, schema drift and whitespace checks passed.
+No saved/private configuration was applied, and no hardware or SIH run occurred.
+
+## Next — S3
+
+Remove class/profile-name coupling at the strategy boundary, preserve command
+shaping/reset behavior, and converge live admission in the flight owner.
