@@ -16,10 +16,10 @@ evidence status, and interactive replay links, see the
 
 | Follower | Profile | Use Case | Key Feature |
 |----------|---------|----------|-------------|
-| [mc_velocity_chase](mc-velocity-chase.md) | `mc_velocity_chase` | Forward pursuit | Velocity ramping, PN guidance |
-| [mc_velocity_ground](mc-velocity-ground.md) | `mc_velocity_ground` | Ground tracking | 3-axis control, gimbal correction |
+| [mc_velocity_chase](mc-velocity-chase.md) | `mc_velocity_chase` | Forward pursuit | Image-error steering and velocity ramping; no PN law |
+| [mc_velocity_ground](mc-velocity-ground.md) | `mc_velocity_ground` | Downlooking ground follow | Image-axis centering; optional descent, not landing |
 | [mc_velocity_distance](mc-velocity-distance.md) | `mc_velocity_distance` | Visual centering | Zero forward velocity; no range hold |
-| [mc_velocity_position](mc-velocity-position.md) | `mc_velocity_position` | Position hold | Yaw + altitude only |
+| [mc_velocity_position](mc-velocity-position.md) | `mc_velocity_position` | Stationary tracking | Zero horizontal velocity, visual yaw and optional vertical guidance |
 
 ### Multicopter (MC) - Attitude Rate Control
 
@@ -31,7 +31,7 @@ evidence status, and interactive replay links, see the
 
 | Follower | Profile | Use Case | Key Feature |
 |----------|---------|----------|-------------|
-| [fw_attitude_rate](fw-attitude-rate.md) | `fw_attitude_rate` | Fixed-wing pursuit | L1 Navigation + TECS |
+| [fw_attitude_rate](fw-attitude-rate.md) | `fw_attitude_rate` | Research visual guidance | Direct rates/thrust; currently gated for live following |
 
 ### Gimbal (GM)
 
@@ -82,7 +82,8 @@ follower.set_command_fields({
 
 ### PID Control
 
-All followers use `CustomPID` controllers with anti-windup:
+PID-based profiles use `CustomPID`. Vector guidance instead uses ray geometry;
+native FW navigation delegates energy/attitude control to PX4. For a PID:
 
 ```python
 from classes.followers.custom_pid import CustomPID
@@ -100,8 +101,10 @@ output = pid(current_error)
 ### Target Continuity
 
 All profiles use the shared target-evidence authority policy. Followers do not
-own loss timers or loss commands. The default is immediate handoff; the optional
-bounded-decay strategy is command-preview-only until separately qualified. See
+own loss timers or loss commands. The global default is immediate handoff;
+fresh gimbal overrides select bounded MC decay. Native FW uses its separate
+bounded-flight strategy. Implementation and response qualification are recorded
+in the [qualification inventory](../05-development/follower-sih-validation-matrix.md). See
 [Target Continuity](../06-safety/target-continuity.md).
 
 ### Safety Limits
@@ -122,17 +125,18 @@ vel_fwd, vel_right, vel_down = self.clamp_velocity(15.0, 8.0, 5.0)
 
 | Vehicle | Recommended Follower | Reason |
 |---------|---------------------|--------|
-| Quadcopter | `mc_velocity_chase` | Velocity-ramped pursuit |
-| Fixed-wing | `fw_attitude_rate` | Current visual attitude-rate profile; airframe acceptance required |
-| Gimbal-only | `gm_velocity_chase` | Direct gimbal control |
+| Multicopter beginner | `mc_velocity_position` | Factory default stationary visual tracking |
+| Multicopter pursuit | `mc_velocity_chase` | Velocity-ramped pursuit |
+| Fixed-wing | Qualified native Vector path under development | Direct-rate profile remains live-gated |
+| MC using gimbal observations | `gm_velocity_chase` or `gm_velocity_vector` | Aircraft pursuit from provider observations; camera actuation is separate |
 
 ### By Use Case
 
 | Scenario | Recommended Follower | Reason |
 |----------|---------------------|--------|
-| Chase from behind | `mc_velocity_chase` | Forward ramping, PN guidance |
+| Chase from behind | `mc_velocity_chase` | Forward ramping and image-error steering |
 | Center without forward motion | `mc_velocity_distance` | Lateral/vertical centering compatibility profile |
-| Stationary tracking | `mc_velocity_position` | Position hold |
+| Stationary tracking | `mc_velocity_position` | Zero horizontal velocity and visual yaw |
 | Ground targets | `mc_velocity_ground` | 3-axis + altitude |
 | Direct MC attitude authority | `mc_attitude_rate` | Direct rate and thrust control |
 | Fixed-wing evaluation | `fw_attitude_rate` | L1/TECS-inspired visual control |
@@ -143,7 +147,7 @@ vel_fwd, vel_right, vel_down = self.clamp_velocity(15.0, 8.0, 5.0)
 |--------------|---------------------|
 | POSITION_2D | All except gimbal |
 | GIMBAL_ANGLES | `gm_velocity_chase`, `gm_velocity_vector` |
-| POSITION_3D | All (uses 2D projection) |
+| POSITION_3D | Image-position profiles using its required 2D projection; not gimbal-angle profiles |
 
 ---
 

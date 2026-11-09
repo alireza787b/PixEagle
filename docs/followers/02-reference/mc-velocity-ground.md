@@ -64,6 +64,7 @@ terrain-relative range estimation.
 
 ## Tracker Contract
 
-The profile requires fresh `POSITION_2D` data. Inactive or prediction-only
-tracker output publishes an explicit zero body-velocity command instead of
-running pursuit math.
+The profile requires fresh image-position data. Inactive or prediction-only
+output does not run nominal pursuit math. The shared target-continuity supervisor
+owns any authorized recovery command or terminal handoff; the follower does not
+publish its own competing inactive-output command.

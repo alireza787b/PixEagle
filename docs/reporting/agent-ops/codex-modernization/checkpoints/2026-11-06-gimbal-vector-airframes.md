@@ -1,5 +1,12 @@
 # Gimbal Vector airframe integration — active checkpoint
 
+**2026-11-09 continuation:** the
+[consolidation plan](../../../../followers/05-development/follower-consolidation-plan.md)
+now requires following to end on transition, with a fresh Start afterward.
+Continuing-session transitions below describe the historical implementation and
+evidence, not the new policy. Follow current work in the
+[consolidation checkpoint](2026-11-09-follower-consolidation.md).
+
 Baseline: PixEagle `ee4d30b71c51eb9583d7cfb390da44d297a60bc7` (remote main verified),
 branch `feat/gimbal-vector-airframes-2026-11-06`. QGC baseline `12a2200d7`, with
 client changes committed locally as `c7cfdfa13`, in

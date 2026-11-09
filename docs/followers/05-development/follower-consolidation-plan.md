@@ -1,6 +1,8 @@
 # Follower consolidation and aircraft qualification plan
 
-Date: 2026-11-09. Status: design draft; implementation and qualification pending.
+Date: 2026-11-09. Status: implementation in progress; S0 inventory complete,
+S1 next. Follow the [checkpoint](../../reporting/agent-ops/codex-modernization/checkpoints/2026-11-09-follower-consolidation.md)
+for actual verification; later slices and qualification remain pending.
 
 This is the single plan for consolidating follower definitions, configuration,
 clients and MC/FW/VTOL composition. It extends the

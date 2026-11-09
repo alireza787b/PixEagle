@@ -1,5 +1,10 @@
 # Follower visual guide
 
+For current per-profile and native FW/VTOL evidence, use the
+[qualification inventory](../05-development/follower-sih-validation-matrix.md).
+The gallery fixtures described here are synthetic; older gallery status labels
+do not supersede the inventory or qualify the new end-on-transition behavior.
+
 Open the generated [follower contract gallery](../../../tools/sih_visualization_gallery.py)
 with the catalog at
 [`tools/sih_visualization_scenarios/follower-contracts.yaml`](../../../tools/sih_visualization_scenarios/follower-contracts.yaml).

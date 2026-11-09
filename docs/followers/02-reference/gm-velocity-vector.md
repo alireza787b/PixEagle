@@ -18,8 +18,9 @@ bounding boxes.
 Evidence and animation: [follower evidence gallery](follower-visual-guide.md).
 
 FW/VTOL support is an [active native-adapter development checkpoint](../../../native/README.md).
-Its native course/airspeed contract is separate from the qualified MC velocity
-path. Do not use the MC command contract as fixed-wing guidance or change the
+Its native course/airspeed contract is separate from the MC velocity
+path. Qualification is bounded by the [evidence inventory](../05-development/follower-sih-validation-matrix.md),
+not implied by a profile identifier. Do not use the MC command contract as fixed-wing guidance or change the
 mount preset during a tailsitter transition. Full FW/VTOL qualification and
 hardware deployment remain pending.
 

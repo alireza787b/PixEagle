@@ -63,7 +63,13 @@ seconds. No MC distance budget or horizontal decay applies to FW. Recovery
 requires the native command owner; the MAVSDK attitude-rate FW path remains
 unsupported. Unknown execution contracts fail closed.
 
-During a PX4-owned VTOL transition, the same supervisor retains the original
+The historical development path below retains a session through transition.
+The [2026-11-09 plan](../05-development/follower-consolidation-plan.md) supersedes
+that design: transition ends following and requires a new Start. Its
+transition-preserving authority release is not implemented/qualified yet.
+Historical transition results do not qualify the new policy.
+
+In the existing development runtime, during a PX4-owned transition the supervisor retains the original
 loss deadline while the native owner publishes phase-safe holding objectives.
 Transition and repeated retargeting cannot renew the deadline. Re-entry to MC
 restores its policy and accumulated commanded travel. See the

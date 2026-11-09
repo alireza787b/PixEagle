@@ -289,3 +289,11 @@ remain open. Integration work is unpublished.
   an acknowledged EAS reduction before the canonical native envelope resolver.
   Two actual application/SIH sessions and the 1,766-test gate passed. See the
   [application checkpoint](checkpoints/2026-11-06-gimbal-vector-airframes.md#actual-applicationapi-checkpoint--2026-11-07).
+
+- **2026-11-09 — Follower consolidation, S0:** corrected the qualification
+  inventory and overview claims without changing runtime or local profiles.
+  Shared input/phase eligibility, nested retirement migration, direct-rate
+  altitude semantics and transition-preserving release remain open. Transition
+  now ends following and requires a new Start; older continuing-session evidence
+  does not qualify that policy. See the
+  [consolidation checkpoint](checkpoints/2026-11-09-follower-consolidation.md).
