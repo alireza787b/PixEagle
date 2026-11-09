@@ -165,3 +165,12 @@ Browser review of the retained November 7 FW replay passed in Chromium: no page
 errors, populated command/measurement values and different 3D/side canvas views.
 Screenshot retained at the archived-reader run's `browser-review.png`; its
 underlying PX4 capture is historical, not a new S4 flight.
+
+The canonical MC world-target harness passes 49 focused tests (projection,
+staging, readiness, timing, fault rejection, response and owned ULog cleanup).
+Root review passed 102 runner/visualizer tests before four final timing cases
+were added. The worker uses production component dispatch/publication; HTTP/App
+startup is not qualified. Five nominal scenarios and one explicit Chase loss
+case are provided; unsupported faults fail instead of implying coverage. Actual
+runs are next. The shared host extraction retains its QGC source/hash and an
+explicit S10 consolidation task; no QGC code or hardware changed.

@@ -95,28 +95,46 @@ tolerance is a test acceptance value, not another flight-control limit.
 
 ## Safe command
 
-The dry-run validates every checked-in scenario and never starts a process:
+The dry-run validates the selected checked-in scenario and never starts a process:
 
 ```bash
 PYTHONPATH=src .venv/bin/python tools/run_sih_follower_validation.py \
-  --follower gm_velocity_vector
+  --follower mc_velocity_position
 ```
 
-An isolated run is explicit. It delegates to the reviewed QGC SIH harness,
-which starts only a pinned PX4 simulator and loopback sidecars. It must not be
-used with a real aircraft or motor-enabled hardware:
+MC image profiles now use the PixEagle-owned worker with a physically projected
+moving world target, not fixed image coordinates. The worker waits for seven
+fresh airborne Hold observations before engaging, retains actual PX4 pose and
+ULog, and verifies production dispatch, publication, response and Stop. Its
+fixed-camera axes/FOV describe a simulated sensor, not a calibrated real camera.
+
+An isolated run is explicit and needs Docker plus the repository's configured
+Python environment and pinned sidecars. No host port or hardware is exposed:
 
 ```bash
 PYTHONPATH=src .venv/bin/python tools/run_sih_follower_validation.py \
   --execute \
-  --follower gm_velocity_vector \
-  --evidence-root reports/sitl/gm-vector-vertical-$(date +%Y%m%d-%H%M%S) \
-  --qgc-repo "$HOME/qgroundcontrol-pixeagle"
+  --follower mc_velocity_position \
+  --evidence-root reports/sitl/mc-position-$(date +%Y%m%d-%H%M%S)
 ```
 
-Use `--follower` once for each profile and choose the mount explicitly for
-gimbal profiles through the scenario or the delegated harness. The runner
-rejects an acceptance result unless it has:
+Use `--follower` for each MC image profile. `--enable-altitude-control` explicitly
+changes the staged test configuration, never the saved installation. `--scenario`
+accepts a validated MC world-target YAML; unsupported faults are rejected.
+The retained scenario records actual resolved limits/policy and the once-frozen
+target anchor. Nominal and loss cases are separate: use
+`tools/sih_visualization_scenarios/mc_velocity_chase-qualification-loss.yaml`
+with Chase to check its default immediate handoff. Current scenarios do not
+claim retarget, takeover or all fault coverage. Rate-mode qualification still
+requires its observed attitude and thrust envelope; successful commands alone
+cannot pass it.
+
+Gimbal/FW legacy drivers remain separate command-sign infrastructure; they are
+not upgraded to moving-world-target qualification by this change. Use the native
+component runner described above for native FW evidence. Remaining host-launcher
+consolidation is recorded as S10 debt.
+
+The runner rejects an acceptance result unless it has:
 
 - a target-truth trace independent of PixEagle's transforms;
 - synchronized PX4 position and attitude observations;

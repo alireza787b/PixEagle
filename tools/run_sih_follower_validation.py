@@ -2,8 +2,8 @@
 """Run or validate a follower's isolated PX4-SIH qualification evidence.
 
 The default operation is a side-effect-free contract check. ``--execute`` is
-an explicit opt-in and delegates to the reviewed, loopback-only QGC SIH
-harness when that checkout is available. The visualizer remains read-only:
+an explicit opt-in. MC image profiles use the PixEagle-owned fixed-camera
+world-target worker; legacy gimbal/FW drivers remain separate. The visualizer remains read-only:
 it never starts following, sends a target, or integrates a command into a
 vehicle pose. A run is accepted only when the evidence contains independent
 target truth, PX4-observed pose, and successful publication records.
@@ -15,10 +15,12 @@ import argparse
 import json
 import subprocess
 import sys
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from classes.sih_visualization import (  # noqa: E402
@@ -35,17 +37,18 @@ except ModuleNotFoundError:
 
 
 PROFILE_SCENARIOS = {
-    "mc_velocity_chase": "camera-chase-2d.yaml",
-    "mc_velocity_ground": "camera-ground-2d.yaml",
-    "mc_velocity_distance": "camera-distance-2d.yaml",
-    "mc_velocity_position": "camera-position-2d.yaml",
-    "mc_attitude_rate": "mc-attitude-rate.yaml",
+    "mc_velocity_chase": "mc_velocity_chase-qualification.yaml",
+    "mc_velocity_ground": "mc_velocity_ground-qualification.yaml",
+    "mc_velocity_distance": "mc_velocity_distance-qualification.yaml",
+    "mc_velocity_position": "mc_velocity_position-qualification.yaml",
+    "mc_attitude_rate": "mc_attitude_rate-qualification.yaml",
     "fw_attitude_rate": "fw-attitude-rate.yaml",
     "gm_velocity_chase": "gimbal-chase-horizontal.yaml",
     "gm_velocity_vector": "gimbal-vector-combined-catchup.yaml",
 }
 
 NORMAL_PROFILES = set(PROFILE_SCENARIOS) - {"gm_velocity_chase", "gm_velocity_vector"}
+MC_PROFILES = NORMAL_PROFILES - {"fw_attitude_rate"}
 
 
 def scenario_path(profile: str) -> Path:
@@ -180,6 +183,11 @@ def validate_px4_evidence(root: Path, scenario: VisualizationScenario) -> dict[s
         raise VisualizationValidationError("PX4 acceptance requires a non-empty PX4 pose trace")
     if not evidence["published"] or not any(row.get("publish_success") is True for row in evidence["published"]):
         raise VisualizationValidationError("PX4 acceptance requires successful Offboard publication records")
+    if scenario.follower_profile in MC_PROFILES:
+        result = json.loads((root / "result.json").read_text(encoding="utf-8"))
+        if (result.get("passed") is not True or result.get("scope") != "actual_mc_follower_component_only"
+                or result.get("follower") != scenario.follower_profile):
+            raise VisualizationValidationError("MC response/authority acceptance did not pass")
     samples = build_timeline(scenario, evidence)
     summary = analyze_timeline(scenario, samples)
     summary["evidence_kind"] = "px4_sih"
@@ -209,6 +217,10 @@ def write_visualization(root: Path, scenario: VisualizationScenario, summary: di
 
 
 def run_external(args: argparse.Namespace, scenario: VisualizationScenario) -> None:
+    if scenario.follower_profile in MC_PROFILES:
+        from tools.mc_follower_sih import run_host
+        run_host(args, args.scenario or scenario_path(args.follower))
+        return
     qgc_root = args.qgc_repo.resolve()
     if not qgc_root.is_dir():
         raise SystemExit(f"QGC validation checkout is missing: {qgc_root}")
@@ -235,13 +247,24 @@ def main() -> int:
     parser.add_argument("--evidence-root", type=Path)
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--enable-altitude-control", action="store_true")
+    parser.add_argument("--scenario", type=Path, help="Explicit supported world-target YAML for this profile")
     parser.add_argument("--qgc-repo", type=Path, default=Path.home() / "qgroundcontrol-pixeagle")
-    parser.add_argument("--backend-repo", type=Path, default=Path.home() / "PixEagle-qgc-integration")
-    parser.add_argument("--python", type=Path, default=Path.home() / ".cache/pixeagle-qgc-baseline/slice-3b-2026-09-22/runtime/full-ai-venv/bin/python")
-    parser.add_argument("--bin-dir", type=Path, default=Path.home() / "PixEagle/bin")
-    parser.add_argument("--opencv-lib", type=Path, default=Path.home() / "PixEagle/.venv/lib")
+    parser.add_argument("--backend-repo", type=Path, default=PROJECT_ROOT)
+    parser.add_argument("--python", type=Path, default=Path(sys.executable))
+    parser.add_argument("--bin-dir", type=Path, default=PROJECT_ROOT / "bin")
+    parser.add_argument("--opencv-lib", type=Path, default=PROJECT_ROOT / ".venv/lib")
     args = parser.parse_args()
-    scenario = VisualizationScenario.from_yaml(scenario_path(args.follower))
+    selected_path = args.scenario or scenario_path(args.follower)
+    scenario = VisualizationScenario.from_yaml(selected_path)
+    if scenario.follower_profile != args.follower:
+        parser.error("Scenario profile differs from --follower")
+    if args.follower in MC_PROFILES:
+        from tools.fixed_camera_world_target import MCScenario
+        MCScenario.from_yaml(selected_path)
+    elif args.scenario is not None:
+        parser.error("Custom scenarios are supported by the MC runner only; use the native FW runner separately")
+    if args.enable_altitude_control:
+        scenario = replace(scenario, altitude_control=True)
     plan = validate_scenario(scenario)
     if args.execute:
         if args.evidence_root is None:
@@ -251,6 +274,9 @@ def main() -> int:
         run_external(args, scenario)
         args.evidence_root.mkdir(parents=True, exist_ok=True)
         (args.evidence_root / "scenario.json").write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
+        captured_scenario = args.evidence_root / "scenario.yaml"
+        if args.follower in MC_PROFILES:
+            scenario = VisualizationScenario.from_yaml(captured_scenario)
         summary = validate_px4_evidence(args.evidence_root, scenario)
         (args.evidence_root / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
         write_visualization(args.evidence_root, scenario, summary)
