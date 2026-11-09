@@ -102,6 +102,13 @@ class MCVelocityDistanceFollower(BaseFollower):
         self._last_update_time = time.monotonic()
         return True
 
+    def prepare_authorized_command(self, fields: Dict[str, float], *, loss_decay: bool) -> Dict[str, float]:
+        fields = super().prepare_authorized_command(fields, loss_decay=loss_decay)
+        # Retained NED lateral motion can acquire a forward component when yaw
+        # changes; visual centering still owns no forward command during recovery.
+        fields["vel_body_fwd"] = 0.0
+        return fields
+
     def _initialize_pid_controllers(self) -> None:
         """
         Initialize PID controllers for active axes with proper configuration.

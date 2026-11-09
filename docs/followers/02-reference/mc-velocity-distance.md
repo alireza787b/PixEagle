@@ -37,6 +37,11 @@ to the follower.
 
 ## Configuration
 
+The zero-forward contract also applies after continuity rotates a retained
+command during retargeting. The strategy projects only forward velocity to zero;
+it does not redistribute that component into lateral speed or reset recovery
+time/travel budgets. Physical PX4 motion remains separate from command intent.
+
 ```yaml
 Follower:
   FOLLOWER_MODE: mc_velocity_distance
