@@ -51,11 +51,14 @@ NORMAL_PROFILES = set(PROFILE_SCENARIOS) - {"gm_velocity_chase", "gm_velocity_ve
 MC_PROFILES = NORMAL_PROFILES - {"fw_attitude_rate"}
 
 
-def scenario_path(profile: str) -> Path:
+def scenario_path(profile: str, altitude_control: bool = False) -> Path:
     try:
-        return PROJECT_ROOT / "tools" / "sih_visualization_scenarios" / PROFILE_SCENARIOS[profile]
+        name = PROFILE_SCENARIOS[profile]
     except KeyError as exc:
         raise VisualizationValidationError(f"unsupported follower profile: {profile}") from exc
+    if altitude_control and profile in MC_PROFILES - {"mc_attitude_rate"}:
+        name = f"{profile}-qualification-altitude.yaml"
+    return PROJECT_ROOT / "tools" / "sih_visualization_scenarios" / name
 
 
 def validate_scenario(scenario: VisualizationScenario) -> dict[str, Any]:
@@ -190,6 +193,8 @@ def validate_px4_evidence(root: Path, scenario: VisualizationScenario) -> dict[s
             raise VisualizationValidationError("MC response/authority acceptance did not pass")
     samples = build_timeline(scenario, evidence)
     summary = analyze_timeline(scenario, samples)
+    if scenario.follower_profile in MC_PROFILES:
+        summary["qualification_result"] = result
     summary["evidence_kind"] = "px4_sih"
     summary["evidence_counts"] = counts
     summary["claims"] = "PX4-observed pose, independent target truth, and publication trace only"
@@ -216,10 +221,27 @@ def write_visualization(root: Path, scenario: VisualizationScenario, summary: di
     return output
 
 
+def write_failed_visualization(root: Path, scenario: VisualizationScenario, failure: Exception) -> Path | None:
+    """Render retained failed-run data without granting response acceptance."""
+    captured = root / "scenario.yaml"
+    if captured.is_file():
+        scenario = VisualizationScenario.from_yaml(captured)
+    evidence = load_evidence(root)
+    if not evidence["pose"]:
+        return None
+    result_path = root / "result.json"
+    result = json.loads(result_path.read_text()) if result_path.is_file() else {}
+    result = {**result, "passed": False}
+    result.setdefault("reason", str(failure))
+    summary = analyze_timeline(scenario, build_timeline(scenario, evidence))
+    summary.update(evidence_kind="px4_sih", qualification_result=result)
+    return write_visualization(root, scenario, summary)
+
+
 def run_external(args: argparse.Namespace, scenario: VisualizationScenario) -> None:
     if scenario.follower_profile in MC_PROFILES:
         from tools.mc_follower_sih import run_host
-        run_host(args, args.scenario or scenario_path(args.follower))
+        run_host(args, args.scenario or scenario_path(args.follower, args.enable_altitude_control))
         return
     qgc_root = args.qgc_repo.resolve()
     if not qgc_root.is_dir():
@@ -248,21 +270,27 @@ def main() -> int:
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--enable-altitude-control", action="store_true")
     parser.add_argument("--scenario", type=Path, help="Explicit supported world-target YAML for this profile")
+    parser.add_argument("--sih-build-manifest", type=Path,
+                        help="Verified source-build manifest for isolated MC SIH; omission retains compatibility baseline")
     parser.add_argument("--qgc-repo", type=Path, default=Path.home() / "qgroundcontrol-pixeagle")
     parser.add_argument("--backend-repo", type=Path, default=PROJECT_ROOT)
     parser.add_argument("--python", type=Path, default=Path(sys.executable))
     parser.add_argument("--bin-dir", type=Path, default=PROJECT_ROOT / "bin")
     parser.add_argument("--opencv-lib", type=Path, default=PROJECT_ROOT / ".venv/lib")
     args = parser.parse_args()
-    selected_path = args.scenario or scenario_path(args.follower)
+    selected_path = args.scenario or scenario_path(args.follower, args.enable_altitude_control)
     scenario = VisualizationScenario.from_yaml(selected_path)
     if scenario.follower_profile != args.follower:
         parser.error("Scenario profile differs from --follower")
     if args.follower in MC_PROFILES:
         from tools.fixed_camera_world_target import MCScenario
         MCScenario.from_yaml(selected_path)
+        if args.enable_altitude_control and args.follower != "mc_attitude_rate" and not scenario.altitude_control:
+            parser.error("--enable-altitude-control requires an altitude-enabled velocity scenario with vertical stimulus")
     elif args.scenario is not None:
         parser.error("Custom scenarios are supported by the MC runner only; use the native FW runner separately")
+    if args.sih_build_manifest is not None and args.follower not in MC_PROFILES:
+        parser.error("--sih-build-manifest is supported by the isolated MC runner only")
     if args.enable_altitude_control:
         scenario = replace(scenario, altitude_control=True)
     plan = validate_scenario(scenario)
@@ -271,7 +299,14 @@ def main() -> int:
             parser.error("--execute requires --evidence-root")
         if args.evidence_root.exists():
             parser.error("evidence root already exists; use a new run directory")
-        run_external(args, scenario)
+        try:
+            run_external(args, scenario)
+        except Exception as failure:
+            try:
+                write_failed_visualization(args.evidence_root, scenario, failure)
+            except Exception as report_error:
+                print(f"Failed-run visualization unavailable: {report_error}", file=sys.stderr)
+            raise
         args.evidence_root.mkdir(parents=True, exist_ok=True)
         (args.evidence_root / "scenario.json").write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
         captured_scenario = args.evidence_root / "scenario.yaml"

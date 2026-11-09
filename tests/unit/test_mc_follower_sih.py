@@ -19,6 +19,25 @@ def forbidden(*args, **kwargs):
     raise AssertionError("A dry-run/test tried to execute an external process")
 
 
+def test_telemetry_identity_is_requested_from_the_simulator_not_copied_from_command_link():
+    from unittest.mock import Mock
+
+    http = Mock()
+    packet = {"header": {"system_id": 255}, "message": {"param2": 0.0}}
+    http.get.return_value.json.return_value = packet
+    runner.request_telemetry_identity(http)
+    http.get.return_value.raise_for_status.assert_called_once_with()
+    http.post.return_value.raise_for_status.assert_called_once_with()
+    http.post.assert_called_once_with(
+        "http://127.0.0.1:8088/v1/mavlink", timeout=2,
+        json={"header": {"system_id": 255}, "message": {
+            "param1": 148.0, "param2": 0.0,
+            "command": {"type": "MAV_CMD_REQUEST_MESSAGE"},
+            "target_system": 1, "target_component": 1,
+        }},
+    )
+
+
 def test_default_cli_is_read_only_even_with_an_output_path(tmp_path, monkeypatch, capsys):
     output = tmp_path / "never-created"
     monkeypatch.setattr(entry.subprocess, "run", forbidden)
@@ -75,12 +94,52 @@ def test_explicit_altitude_flag_is_staged_truthfully_without_gain_changes(tmp_pa
     monkeypatch.setattr(sih_isolated_host, "host", fake_host)
     args = SimpleNamespace(backend_repo=runner.ROOT, evidence_root=tmp_path / "staged",
                            follower="mc_velocity_ground", enable_altitude_control=True)
-    runner.run_host(args, entry.scenario_path(args.follower))
+    runner.run_host(args, entry.scenario_path(args.follower, altitude_control=True))
     scenario = yaml.safe_load((args.output / "scenario.yaml").read_text())
     assert scenario["follower"]["altitude_control"]
+    assert scenario["qualification"]["minimum_vertical_response_m"] == .1
     assert scenario["constraints"]["velocity"]["down"] == config["Safety"]["GlobalLimits"]["MAX_VELOCITY_VERTICAL"]
     assert config["MC_VELOCITY_GROUND"]["ENABLE_DESCEND_TO_TARGET"]
     assert config["PID"] == gains
+
+
+@pytest.mark.parametrize("profile", sorted(entry.MC_PROFILES - {"mc_attitude_rate"}))
+def test_altitude_flag_dry_run_and_execute_select_the_same_explicit_scenario(profile, tmp_path, monkeypatch, capsys):
+    output = tmp_path / "never-created"
+    monkeypatch.setattr(entry.subprocess, "run", forbidden)
+    monkeypatch.setattr(sih_isolated_host, "host", forbidden)
+    arguments = ["runner", "--follower", profile, "--enable-altitude-control", "--evidence-root", str(output)]
+    monkeypatch.setattr("sys.argv", arguments)
+    assert entry.main() == 0
+    plan = json.loads(capsys.readouterr().out)["scenario"]
+    assert plan["altitude_control"]
+    assert any("0.1 m target-directed vertical closure" in requirement for requirement in plan["acceptance"])
+
+    class WorkerPathCaptured(Exception):
+        pass
+
+    captured = {}
+    def capture_worker_path(args, path):
+        captured["path"] = path
+        raise WorkerPathCaptured
+
+    monkeypatch.setattr(runner, "run_host", capture_worker_path)
+    monkeypatch.setattr("sys.argv", [*arguments, "--execute"])
+    with pytest.raises(WorkerPathCaptured):
+        entry.main()
+    assert captured["path"] == entry.scenario_path(profile, altitude_control=True)
+    assert captured["path"] != entry.scenario_path(profile)
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("profile", sorted(entry.MC_PROFILES - {"mc_attitude_rate"}))
+def test_altitude_flag_rejects_explicit_altitude_off_velocity_scenario(profile, monkeypatch):
+    monkeypatch.setattr(sih_isolated_host, "host", forbidden)
+    monkeypatch.setattr("sys.argv", ["runner", "--follower", profile, "--enable-altitude-control",
+                                     "--scenario", str(entry.scenario_path(profile))])
+    with pytest.raises(SystemExit) as exc:
+        entry.main()
+    assert exc.value.code == 2
 
 
 def test_cached_pose_poll_is_skipped_without_extending_freshness():
@@ -134,13 +193,18 @@ def test_pose_observation_uses_raw_quaternion_and_independent_velocity():
         "ATTITUDE": message(dict(type="ATTITUDE", time_boot_ms=1004, yaw=0.)),
     }}}}}}
     manager = SimpleNamespace(current_altitude=20., get_flight_mode_text=lambda _: "Hold")
-    flight = dict(fresh=True, flight_mode=1, arm_status="Armed", landed_state="MAV_LANDED_STATE_IN_AIR")
-    sample = runner.pose_observation(data, flight, manager, monotonic_s=42.)
+    flight = dict(fresh=True, flight_mode=1, arm_status="Armed", landed_state="MAV_LANDED_STATE_IN_AIR",
+                  autopilot_uid="123456789")
+    sample = runner.pose_observation(data, flight, manager, expected_aircraft_uid="123456789", monotonic_s=42.)
     assert sample["quaternion_wxyz"] == (1., 0., 0., 0.)
     assert sample["velocity_ned"] == (.1, .2, 0.)
     assert sample["position_ned"] == (1., 2., -20.)
     assert sample["source_boot_ms"] == (1000, 1005)
     assert sample["monotonic_s"] == 42.
+    # Read-only post-Stop observation has no active following session to consult.
+    assert runner.pose_observation(data, flight, manager, expected_aircraft_uid="123456789")["hold"]
+    with pytest.raises(ValueError, match="UID mismatch"):
+        runner.pose_observation(data, flight, manager, expected_aircraft_uid="987654321")
 
 
 @pytest.mark.parametrize("ulog_present", [True, False])

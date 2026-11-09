@@ -38,6 +38,19 @@ def write_json(path, value):
     path.write_text(json.dumps(value, indent=2, sort_keys=True, default=lambda item: item.value) + "\n", encoding="utf-8")
 
 
+def request_telemetry_identity(http):
+    """Request the simulator's own identity on its independent telemetry route."""
+    endpoint = "http://127.0.0.1:8088"
+    response = http.get(endpoint + "/v1/helper/mavlink?name=COMMAND_LONG", timeout=2)
+    response.raise_for_status()
+    packet = response.json()
+    packet["message"].update(
+        param1=148.0, command={"type": "MAV_CMD_REQUEST_MESSAGE"},
+        target_system=1, target_component=1,
+    )
+    http.post(endpoint + "/v1/mavlink", json=packet, timeout=2).raise_for_status()
+
+
 def run_host(args, scenario_path):
     """Stage only qualification inputs; public and operator configuration stay untouched."""
     from tools.sih_isolated_host import host
@@ -92,10 +105,13 @@ def run_host(args, scenario_path):
     host(args, driver_path=Path(__file__), configure=configure)
 
 
-def pose_observation(payload, flight_state, manager, *, monotonic_s=None):
+def pose_observation(payload, flight_state, manager, *, expected_aircraft_uid, monotonic_s=None):
     """Read raw physical quaternion, independent NED motion and source progress."""
     from classes.aircraft_state import Quaternion
 
+    if (not isinstance(expected_aircraft_uid, str) or not expected_aircraft_uid
+            or flight_state.get("autopilot_uid") != expected_aircraft_uid):
+        raise ValueError("MAVSDK/REST aircraft UID mismatch")
     position, quaternion = pose_from_mavlink2rest(payload, 1)
     messages = payload["vehicles"]["1"]["components"]["1"]["messages"]
     local = messages["LOCAL_POSITION_NED"]["message"]
@@ -120,6 +136,7 @@ def pose_observation(payload, flight_state, manager, *, monotonic_s=None):
         source_receipt_times={name: messages[name]["status"]["time"]["last_update"]
                               for name in ("LOCAL_POSITION_NED", "ATTITUDE_QUATERNION")},
         source="px4_mavlink2rest_observed",
+        flight_mode=flight_state.get("flight_mode"),
         hold=manager.get_flight_mode_text(flight_state.get("flight_mode")) == "Hold",
         airborne=(flight_state.get("arm_status") == "Armed"
                   and flight_state.get("landed_state") == "MAV_LANDED_STATE_IN_AIR"),
@@ -248,9 +265,9 @@ async def worker(args):
             lambda: requests.get("http://127.0.0.1:8088/v1/mavlink", timeout=2).json()
         )
         flight = app.mavlink_data_manager.get_flight_state()
-        if flight.get("autopilot_uid") != app._following_session_aircraft_uid:
-            raise RuntimeError("MAVSDK/REST aircraft UID mismatch")
-        sample = pose_observation(payload, flight, manager)
+        sample = pose_observation(
+            payload, flight, manager, expected_aircraft_uid=identity["autopilot_uid"],
+        )
         log("raw-pose-observations.jsonl", dict(timestamp=time.time(), **sample))
         return sample
 
@@ -271,7 +288,14 @@ async def worker(args):
         if not identity.get("autopilot_uid"):
             raise RuntimeError("Simulated aircraft UID unavailable")
         app._following_session_aircraft_uid = identity["autopilot_uid"]
+        app._following_session_connection_generation = identity["connection_generation"]
         write_json(output / "identity.json", identity)
+        await asyncio.to_thread(request_telemetry_identity, requests)
+        await wait_for(lambda: app.mavlink_data_manager.get_flight_state().get("fresh") is True)
+        telemetry_identity = app.mavlink_data_manager.get_aircraft_identity()
+        write_json(output / "telemetry-identity.json", telemetry_identity)
+        if telemetry_identity.get("autopilot_uid") != identity["autopilot_uid"]:
+            raise RuntimeError("Independent telemetry/command identities disagree")
         Parameters.FOLLOWER_CIRCUIT_BREAKER = False
         async def armable():
             async for health in manager.drone.telemetry.health():
@@ -329,14 +353,15 @@ async def worker(args):
         write_json(output / "runtime-policy.json", dict(continuity=resolved_policy,
             velocity=concrete.velocity_limits._asdict(), altitude=concrete.altitude_limits._asdict(),
             rates_rad_s=concrete.rate_limits._asdict(), pid_gains=config["PID"]["PID_GAINS"]))
-        app.offboard_commander = OffboardCommander(manager, concrete.setpoint_handler, on_publish_result=publication)
+        commander = OffboardCommander(manager, concrete.setpoint_handler, on_publish_result=publication)
+        app.offboard_commander = commander
         if not (await manager.start_offboard_mode()).get("executed"):
             raise RuntimeError("Production Offboard start failed")
         seed = CommandIntent(args.follower, app.follower.get_control_type(),
                              concrete.setpoint_handler.get_fields(), "isolated_sih_baseline")
-        if not app.offboard_commander.submit_intent(seed):
+        if not commander.submit_intent(seed):
             raise RuntimeError("Initial complete safe command was refused")
-        await app.offboard_commander.start()
+        await commander.start()
         app.following_active = True
         started = time.monotonic()
         progress_guard = PoseProgress()
@@ -377,13 +402,24 @@ async def worker(args):
             await app._stop_following_after_continuity_failure("operator_stop")
         handoff = getattr(app, "_last_following_handoff", {})
         stop_count = len(publications)
+        convergence = []
+        deadline = time.monotonic() + manager.get_mavsdk_command_timeout_s()
+        while time.monotonic() < deadline:
+            sample = await snapshot()
+            convergence.append(sample)
+            if sample["hold"]:
+                break
+            await asyncio.sleep(.15)
+        write_json(output / "stop-mode-convergence.json", convergence)
         after = []
         for _ in range(7):
             await asyncio.sleep(.15)
             after.append(await snapshot())
         write_json(output / "post-stop-observations.json", after)
         checks = dict(
-            hold_confirmed=handoff.get("result") == "confirmed_hold" and all(s["hold"] for s in after),
+            hold_confirmed=(handoff.get("result") == "confirmed_hold"
+                            and bool(convergence) and convergence[-1]["hold"]
+                            and all(s["hold"] for s in after)),
             no_publication_after_stop=len(publications) == stop_count,
             expected_loss_executed=expected_loss_seen == scenario.expected_handoff,
             no_following_replay=not app.following_active,
@@ -397,13 +433,13 @@ async def worker(args):
                                for axis in ("yaw", "pitch", "roll")},
             attitude_limits_deg={"roll": config["MC_ATTITUDE_RATE"]["MAX_ROLL_ANGLE"],
                                  "pitch": config["MC_ATTITUDE_RATE"]["MAX_PITCH_ANGLE"]},
-            publication_gap_limit_s=min(app.offboard_commander.get_status()["command_ttl_s"],
-                                        app.offboard_commander.get_status()["publish_timeout_s"]))
+            publication_gap_limit_s=min(commander.get_status()["command_ttl_s"],
+                                        commander.get_status()["publish_timeout_s"]))
         report["checks"].update(checks)
         report.update(passed=all(report["checks"].values()), scope="actual_mc_follower_component_only",
                       follower=args.follower, physical_camera=False, application_startup_qualified=False,
                       hardware_qualified=False, release_qualified=False, handoff=handoff,
-                      publication=app.offboard_commander.get_status(), camera=asdict(scenario.camera),
+                      publication=commander.get_status(), camera=asdict(scenario.camera),
                       altitude_guidance=scenario.visual.altitude_control,
                       metric_scope="Observed image alignment from actual pose; range closure is checked separately and does not prove interception",
                       executed_scenario_sha256=hashlib.sha256((output / "scenario.yaml").read_bytes()).hexdigest(),

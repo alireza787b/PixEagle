@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+from dataclasses import replace
 import math
 from pathlib import Path
 
@@ -173,3 +174,155 @@ def test_response_rejects_altitude_off_command_or_saved_limit_violation():
     assert not report["checks"]["altitude_off_zero_intent"]
     publications[0]["fields"]["yawspeed_deg_s"] = 11.
     assert not evaluate_response(scenario, observations, publications, **kwargs)["checks"]["saved_rate_bounds"]
+
+
+VELOCITY_PROFILES = sorted(MC_PROFILES - {"mc_attitude_rate"})
+
+
+def altitude_scenario_path(profile):
+    return scenario_path(profile).with_name(f"{profile}-qualification-altitude.yaml")
+
+
+@pytest.mark.parametrize("profile", VELOCITY_PROFILES)
+def test_altitude_scenarios_declare_visible_vertical_stimulus_without_relaxing_gates(profile):
+    baseline = MCScenario.from_yaml(scenario_path(profile))
+    scenario = MCScenario.from_yaml(altitude_scenario_path(profile))
+    assert scenario.visual.altitude_control
+    assert scenario.minimum_vertical_response_m == .1
+    assert scenario.duration_s == baseline.duration_s
+    assert scenario.visual.stable_flight == baseline.visual.stable_flight
+    assert scenario.altitude_tolerance_m == baseline.altitude_tolerance_m
+    assert scenario.position_tolerance_m == baseline.position_tolerance_m
+    assert max(abs(point.position_ned[2] - scenario.visual.initial_vehicle_ned[2])
+               for point in scenario.visual.target_waypoints) > scenario.minimum_vertical_response_m
+    for point in scenario.visual.target_waypoints:
+        assert scenario.camera.project(scenario.visual.initial_vehicle_ned, (1., 0., 0., 0.), point.position_ned) is not None
+    if profile == "mc_velocity_ground":
+        assert all(-point.position_ned[2] < scenario.visual.limits["altitude_min"]
+                   for point in scenario.visual.target_waypoints)
+
+
+@pytest.mark.parametrize("qualification", [{}, {"minimum_vertical_response_m": .1}])
+def test_altitude_enabled_same_height_target_cannot_qualify(tmp_path, qualification):
+    raw = yaml.safe_load(scenario_path("mc_velocity_position").read_text())
+    raw["follower"]["altitude_control"] = True
+    raw["qualification"].update(qualification)
+    path = tmp_path / "unexcited-altitude.yaml"
+    path.write_text(yaml.safe_dump(raw))
+    with pytest.raises(ValueError, match="minimum_vertical_response_m|vertical target stimulus"):
+        MCScenario.from_yaml(path)
+
+
+def test_altitude_flag_cannot_bypass_missing_stimulus_with_dataclass_replacement():
+    scenario = MCScenario.from_yaml(scenario_path("mc_velocity_position"))
+    with pytest.raises(ValueError, match="vertical target stimulus"):
+        replace(scenario, visual=replace(scenario.visual, altitude_control=True), minimum_vertical_response_m=.1)
+
+
+@pytest.mark.parametrize("minimum", [0., -.1, float("nan"), float("inf")])
+def test_altitude_minimum_response_requires_a_positive_finite_distance(tmp_path, minimum):
+    raw = yaml.safe_load(altitude_scenario_path("mc_velocity_position").read_text())
+    raw["qualification"]["minimum_vertical_response_m"] = minimum
+    path = tmp_path / "invalid-minimum.yaml"
+    path.write_text(yaml.safe_dump(raw))
+    with pytest.raises(ValueError):
+        MCScenario.from_yaml(path)
+
+
+def altitude_response_inputs(profile="mc_velocity_position", *, target_z=-23., observed_z=-20.2):
+    _, observations, publications, kwargs = response_inputs()
+    scenario = MCScenario.from_yaml(altitude_scenario_path(profile))
+    for row in observations:
+        row["target_ned"] = (18., 4., target_z) if profile != "mc_velocity_ground" else (4., 3., target_z)
+    observations[-1]["position_ned"] = (0., 0., observed_z)
+    observations[-1]["altitude_m"] = -observed_z
+    for row in publications:
+        row["fields"]["vel_body_down"] = math.copysign(.2, target_z + 20.)
+    if profile == "mc_velocity_chase":
+        observations[-1]["position_ned"] = (.2, 0., observed_z)
+        for row in publications:
+            row["fields"]["vel_body_fwd"] = .2
+    if profile == "mc_velocity_ground":
+        observations[-1]["position_ned"] = (.2, .2, observed_z)
+        observations[-1]["quaternion_wxyz"] = (1., 0., 0., 0.)
+        for row in publications:
+            row["fields"].update(vel_body_fwd=.2, vel_body_right=.2, yawspeed_deg_s=0.)
+    return scenario, observations, publications, kwargs
+
+
+@pytest.mark.parametrize("profile,target_z,observed_z", [
+    (profile, target_z, observed_z)
+    for profile in VELOCITY_PROFILES if profile != "mc_velocity_ground"
+    for target_z, observed_z in [(-23., -20.2), (-17., -19.8)]
+] + [("mc_velocity_ground", 0., -19.8)])
+def test_response_requires_actual_target_directed_vertical_movement(profile, target_z, observed_z):
+    scenario, observations, publications, kwargs = altitude_response_inputs(profile, target_z=target_z, observed_z=observed_z)
+    report = evaluate_response(scenario, observations, publications, **kwargs)
+    assert report["checks"]["observed_vertical_response"]
+    assert report["metrics"]["vertical_response_work_m"] == pytest.approx(.2)
+    assert report["metrics"]["minimum_vertical_response_m"] == .1
+    assert report["passed"]
+
+
+@pytest.mark.parametrize("observed_z", [-20., -19.8, -20.05])
+def test_vertical_commands_without_sufficient_correct_observed_motion_fail(observed_z):
+    scenario, observations, publications, kwargs = altitude_response_inputs(observed_z=observed_z)
+    report = evaluate_response(scenario, observations, publications, **kwargs)
+    assert report["checks"]["observed_image_response"]
+    assert not report["checks"]["observed_vertical_response"]
+    assert not report["passed"]
+
+
+def test_pitch_alignment_cannot_substitute_for_vertical_aircraft_response():
+    scenario, observations, publications, kwargs = altitude_response_inputs(observed_z=-20.)
+    # Correct yaw and pitch align the image without moving the aircraft.
+    yaw = math.atan2(4., 18.)
+    pitch = math.atan2(3., math.hypot(18., 4.))
+    q = Quaternion.from_euler(0., pitch, yaw)
+    observations[-1]["quaternion_wxyz"] = (q.w, q.x, q.y, q.z)
+    observations[-1]["pitch_deg"] = math.degrees(pitch)
+    before = scenario.camera.project(observations[0]["position_ned"], observations[0]["quaternion_wxyz"], observations[0]["target_ned"])
+    after = scenario.camera.project(observations[-1]["position_ned"], observations[-1]["quaternion_wxyz"], observations[-1]["target_ned"])
+    assert sum(value ** 2 for value in after) < sum(value ** 2 for value in before)
+    report = evaluate_response(scenario, observations, publications, **kwargs)
+    assert report["checks"]["observed_image_response"]
+    assert report["metrics"]["vertical_response_work_m"] == 0.
+    assert not report["checks"]["observed_vertical_response"]
+    assert not report["passed"]
+
+
+def test_target_only_height_closure_cannot_substitute_for_aircraft_motion():
+    scenario, observations, publications, kwargs = altitude_response_inputs(observed_z=-20.)
+    observations[-1]["target_ned"] = (18., 4., -22.)
+    report = evaluate_response(scenario, observations, publications, **kwargs)
+    assert report["metrics"]["vertical_response_work_m"] == 0.
+    assert not report["checks"]["observed_vertical_response"]
+
+
+def test_wrong_way_aircraft_motion_fails_even_when_target_motion_closes_height_gap():
+    scenario, observations, publications, kwargs = altitude_response_inputs(observed_z=-19.8)
+    observations[-1]["target_ned"] = (18., 4., -22.)
+    report = evaluate_response(scenario, observations, publications, **kwargs)
+    assert report["metrics"]["vertical_response_work_m"] == pytest.approx(-.2)
+    assert not report["checks"]["observed_vertical_response"]
+
+
+def test_vertical_motion_during_loss_does_not_count_as_observed_target_response():
+    scenario, observations, publications, kwargs = altitude_response_inputs()
+    observations[-1]["loss_active"] = True
+    report = evaluate_response(scenario, observations, publications, **kwargs)
+    assert report["metrics"]["vertical_response_work_m"] == 0.
+    assert not report["checks"]["observed_vertical_response"]
+
+
+def test_direct_rate_profile_keeps_its_distinct_altitude_and_thrust_contract():
+    scenario = MCScenario.from_yaml(scenario_path("mc_attitude_rate"))
+    scenario = replace(scenario, visual=replace(scenario.visual, altitude_control=True))
+    _, observations, _, kwargs = response_inputs()
+    publications = [dict(success=True, monotonic_s=timestamp,
+                         fields=dict(rollspeed_deg_s=0., pitchspeed_deg_s=0., yawspeed_deg_s=5., thrust=.5))
+                    for timestamp in (10., 10.05)]
+    report = evaluate_response(scenario, observations, publications, **kwargs)
+    assert "observed_vertical_response" not in report["checks"]
+    assert report["checks"]["thrust_normalized"]
+    assert report["checks"]["observed_attitude_envelope"]

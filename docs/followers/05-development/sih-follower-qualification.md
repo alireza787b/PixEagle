@@ -121,6 +121,12 @@ PYTHONPATH=src .venv/bin/python tools/run_sih_follower_validation.py \
 Use `--follower` for each MC image profile. `--enable-altitude-control` explicitly
 changes the staged test configuration, never the saved installation. `--scenario`
 accepts a validated MC world-target YAML; unsupported faults are rejected.
+The four altitude-enabled velocity scenarios declare a vertical target stimulus
+and a minimum 0.1 m observed vertical response. Response is measured toward the
+independent target height with its height frozen between each observed pair;
+target motion or camera pitch alone cannot earn credit. This is a direction/
+response gate, not a claim of interception or stable range keeping. An explicit
+altitude-off scenario cannot silently become an altitude-on test through a flag.
 The retained scenario records actual resolved limits/policy and the once-frozen
 target anchor. Nominal and loss cases are separate: use
 `tools/sih_visualization_scenarios/mc_velocity_chase-qualification-loss.yaml`
@@ -128,6 +134,15 @@ with Chase to check its default immediate handoff. Current scenarios do not
 claim retarget, takeover or all fault coverage. Rate-mode qualification still
 requires its observed attitude and thrust envelope; successful commands alone
 cannot pass it.
+
+For a separately verified source build, pass `--sih-build-manifest PATH` to the
+MC runner. The host verifies the manifest, packaged executable/ROMFS and immutable
+image binding before staging an experiment. See the [native build guide](../../../native/README.md).
+Omitting it retains the historical compatibility image; it is not evidence that
+the source-built baseline has been adopted. Keep baseline comparisons separate
+from follower tuning and never relax response tolerances to conceal simulator
+drift. Failed runs with actual pose retain an explicitly failed animation;
+missing pose cannot produce an observed-aircraft animation.
 
 Gimbal/FW legacy drivers remain separate command-sign infrastructure; they are
 not upgraded to moving-world-target qualification by this change. Use the native

@@ -128,7 +128,7 @@ updates a continuity-sync fixture to accept S2's nested leaf paths.
 Independent root review: 392 catalog/lifecycle/owner/API/provenance/documentation
 tests passed, including local Markdown links; fatal CI lint and whitespace passed.
 
-## S4 — MC behavior repair verified; actual SIH pending
+## S4 — MC behavior repair and component SIH in progress
 
 Real factory/default tests reproduced and repaired these configuration defects:
 
@@ -174,3 +174,64 @@ startup is not qualified. Five nominal scenarios and one explicit Chase loss
 case are provided; unsupported faults fail instead of implying coverage. Actual
 runs are next. The shared host extraction retains its QGC source/hash and an
 explicit S10 consolidation task; no QGC code or hardware changed.
+
+First actual attempt at `8c5d0f9d3`,
+`reports/sitl/follower-consolidation-20261109/mc-position-off-r1/`, stopped before
+following because the new worker omitted requesting aircraft identity on the
+independent REST telemetry link. MAVSDK identity alone was correctly insufficient.
+The failed result, source/config, logs and actual ULog are retained. Restore the
+existing route-specific identity handshake, not an identity-check bypass, then
+use a new run directory. This attempt is not accepted follower-response evidence.
+
+### Actual MC evidence and simulator baseline investigation
+
+Runs remain under `reports/sitl/follower-consolidation-20261109/` with exact
+source/configuration, publication, observed pose, ULog and interactive reports.
+The identity-request omission, immutable UID check after Stop, cleared-commander
+reference and delayed read-only Hold confirmation were repaired in the worker.
+Failed attempts remain unchanged. Successful commands alone never grant a pass.
+
+The historical image (`381149fb012762f5e38c4a7fdc1b905b28038970`) failed
+Stationary tracking with 7.53 m horizontal drift and Centering with 2.03 m altitude
+variation. A no-follower comparison also observed drift in native Hold and direct
+zero velocity. ULog inspection found disagreement between SIH physics and the
+estimated attitude/velocity; the precise upstream cause is not established.
+
+A separately packaged **diagnostic candidate**, PX4
+`155f415168cef08dca2f5d85d2bc258b44a589ec` plus the reviewed native extension,
+uses immutable local image
+`sha256:f486e59d879b68dbf3ceba067aa513be9be90c09e5fb93d3fd19592f23f1d07f`.
+Matching binary, ROMFS, source patch and invocation are retained per run.
+No follower gains, test limits, real firmware or compatibility default changed
+for these comparisons. The candidate's no-follower physics displacement was
+0.079 m in native Hold and 0.203 m in direct zero velocity, versus 1.474/1.321 m
+on the historical image. These are two observed runs, not proof of a particular
+upstream fix. Canonical clean-source compilation/attestation is a separate gate.
+
+| Candidate component case | Altitude off | Altitude on |
+| --- | --- | --- |
+| Stationary tracking | passed; 0.208 m horizontal drift | passed; observed climb 3.27 m, horizontal drift 0.127 m |
+| MC Chase | passed; range 18.26 → 16.34 m | passed; range 18.51 → 16.47 m, observed descent 2.76 m |
+| Visual Centering | passed; altitude variation 0.138 m | passed; observed climb 3.74 m, zero forward intent |
+| Downlooking Ground | passed; altitude variation 0.097 m | passed; observed descent 5.60 m |
+| MC direct rates | failed; altitude variation 5.99 m and wrong net image response | pending repair |
+
+Case directories use `mc-{position,chase,centering,ground,rates}-{off,alt}-native155-r1`.
+The velocity cases retained bounded successful publication, declared axis checks,
+Stop with confirmed Hold, no later publication and restored circuit breaker.
+Altitude-on values are signed response work toward independent target height,
+not altitude-hold errors or interception claims. Ground's tilted/edge correction,
+loss/retarget/takeover, full application and repeatability remain pending.
+
+Altitude cases require an explicit stimulus and at least 0.1 m observed vertical
+response; camera tilt/target motion alone receive no credit. Failed-run replay
+shows **Scenario failed**; only an explicit qualification result produces a pass
+badge. The harness/report/projection gate passes 126 tests.
+
+Direct-rate diagnosis reproduced a degree/radian mismatch with real factory PIDs:
+pitch/yaw normalized-image gains were amplified 57.3-fold. Unit conversion is now
+centralized at gain loading, including hot tuning; angular roll gains remain
+unchanged. Factory/unit checks pass. Its 1 Hz cached altitude stream also fed
+camera-rate I/D and saturated thrust. Source-progress-aware height/vertical-speed
+feedback and actual response requalification are in progress; this profile is
+not accepted. Saved/private configuration and hardware remain unchanged.

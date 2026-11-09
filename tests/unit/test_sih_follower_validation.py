@@ -16,6 +16,7 @@ from tools.run_sih_follower_validation import (  # noqa: E402
     scenario_path,
     validate_px4_evidence,
     validate_scenario,
+    write_failed_visualization,
 )
 from classes.sih_visualization import VisualizationScenario  # noqa: E402
 
@@ -90,3 +91,27 @@ def test_px4_gate_rejects_command_only_evidence(tmp_path):
     )
     with pytest.raises(VisualizationValidationError, match="target_truth"):
         validate_px4_evidence(tmp_path, scenario)
+
+
+def test_failed_run_keeps_visual_evidence_without_an_acceptance_claim(tmp_path):
+    scenario = VisualizationScenario.from_yaml(scenario_path("mc_velocity_position"))
+    (tmp_path / "px4").mkdir()
+    pose = {"timestamp": 1., "vehicle_ned": [0., 0., -20.],
+            "vehicle_quaternion": [1., 0., 0., 0.]}
+    (tmp_path / "px4/pose_trace.jsonl").write_text(json.dumps(pose) + "\n")
+    failure = {"passed": False, "checks": {"observed_stationary_drift": False},
+               "metrics": {"maximum_horizontal_drift_m": 7.5}}
+    (tmp_path / "result.json").write_text(json.dumps(failure))
+    output = write_failed_visualization(tmp_path, scenario, RuntimeError("response failed"))
+    html = (output / "index.html").read_text()
+    assert 'id="qualification">Scenario failed' in html
+    assert "Scenario passed" not in html
+    assert (output / "summary.png").is_file()
+    assert json.loads((output / "summary.json").read_text())["qualification_result"]["passed"] is False
+    assert json.loads((tmp_path / "result.json").read_text()) == failure
+
+
+def test_no_pose_cannot_be_rendered_as_observed_aircraft_motion(tmp_path):
+    scenario = VisualizationScenario.from_yaml(scenario_path("mc_velocity_position"))
+    assert write_failed_visualization(tmp_path, scenario, RuntimeError("no pose")) is None
+    assert not (tmp_path / "visualization").exists()

@@ -31,3 +31,12 @@ tests: altitude-off paths/history, yaw-disable, Ground tuning/correction switche
 rate altitude-offset permission and monotonic yaw intervals. Existing saved
 offset range is retained. These are software gates; the canonical moving-target
 runner and actual PX4 response remain pending, so S4 is not closed.
+
+Actual MC component runs now distinguish a historical simulator drift failure
+from a separately pinned diagnostic firmware candidate. All four MC velocity
+profiles passed nominal altitude-off/on candidate scenarios with unchanged
+tuning/acceptance limits. MC direct rates failed altitude/image response; a
+reproduced pitch/yaw unit defect is repaired, and timestamped altitude feedback
+is being corrected before a fresh run. The checkpoint retains exact run names,
+metrics, baseline provenance and remaining gates. Failed evidence is preserved
+and visibly labelled. No hardware, private profile or release has changed.

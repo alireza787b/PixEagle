@@ -380,3 +380,13 @@ def test_html_report_contains_read_only_claim_labels():
     assert "quatRotate" not in html
     assert "native ? sample.course_direction_ned : sample.command_ned" in html
     assert "sample.vehicle_forward_ned" in html
+
+
+@pytest.mark.parametrize("passed,label", [(True, "Scenario passed"), (False, "Scenario failed")])
+def test_report_verdict_requires_an_explicit_qualification_result(passed, label):
+    scenario = VisualizationScenario.from_yaml(ROOT / "tools/sih_visualization_scenarios/camera-chase-2d.yaml")
+    summary = {"qualification_result": {"passed": passed}, "flags": []}
+    html = build_html(scenario, [VisualizationSample(timestamp=0.)], summary)
+    assert f'id="qualification">{label}' in html
+    replay = build_html(scenario, [VisualizationSample(timestamp=0.)], {"flags": []})
+    assert 'id="qualification">Replay only' in replay

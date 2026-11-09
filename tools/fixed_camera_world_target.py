@@ -84,6 +84,20 @@ class MCScenario:
     expected_handoff: bool
     altitude_tolerance_m: float
     position_tolerance_m: float
+    minimum_vertical_response_m: float | None = None
+
+    def __post_init__(self):
+        if self.minimum_vertical_response_m is not None:
+            minimum = finite_number(self.minimum_vertical_response_m, "minimum_vertical_response_m")
+            if minimum <= 0.:
+                raise VisualizationValidationError("Minimum vertical response must be positive")
+        if self.visual.altitude_control and self.visual.follower_profile != "mc_attitude_rate":
+            if self.minimum_vertical_response_m is None:
+                raise VisualizationValidationError("Altitude-enabled velocity scenarios require minimum_vertical_response_m")
+            stimulus = max(abs(point.position_ned[2] - self.visual.initial_vehicle_ned[2])
+                           for point in self.visual.target_waypoints)
+            if stimulus < self.minimum_vertical_response_m:
+                raise VisualizationValidationError("Altitude-enabled velocity scenarios require nonzero vertical target stimulus")
 
     @classmethod
     def from_yaml(cls, path: Path):
@@ -115,7 +129,8 @@ class MCScenario:
         if any(right[0] < left[1] for left, right in zip(sorted(windows), sorted(windows)[1:])):
             raise VisualizationValidationError("Loss windows cannot overlap")
         qualification = raw.get("qualification", {})
-        if set(qualification) != {"expected_handoff", "altitude_tolerance_m", "position_tolerance_m"}:
+        required = {"expected_handoff", "altitude_tolerance_m", "position_tolerance_m"}
+        if not required <= set(qualification) or set(qualification) - required - {"minimum_vertical_response_m"}:
             raise VisualizationValidationError("Explicit qualification tolerances and expected handoff are required")
         expected = qualification["expected_handoff"]
         if type(expected) is not bool or expected != bool(windows):
@@ -124,6 +139,8 @@ class MCScenario:
         position = finite_number(qualification["position_tolerance_m"], "position_tolerance")
         if not 0. < altitude <= 2. or not 0. < position <= 2.:
             raise VisualizationValidationError("MC response tolerances must be positive and no greater than 2 m")
+        minimum_vertical = (finite_number(qualification["minimum_vertical_response_m"], "minimum_vertical_response_m")
+                            if "minimum_vertical_response_m" in qualification else None)
         if visual.follower_profile == "mc_velocity_ground":
             if camera.forward_body != Vector3(0., 0., 1.) or camera.right_body != Vector3(0., 1., 0.):
                 raise VisualizationValidationError("Ground scenario requires explicit downlooking camera axes")
@@ -132,7 +149,7 @@ class MCScenario:
         initial_quaternion = raw.get("initial_conditions", {}).get("quaternion_wxyz", (1., 0., 0., 0.))
         if camera.project(visual.initial_vehicle_ned, initial_quaternion, visual.target_at(0.)) is None:
             raise VisualizationValidationError("Initial world target must be in the declared camera FOV")
-        return cls(visual, camera, duration, tuple(windows), expected, altitude, position)
+        return cls(visual, camera, duration, tuple(windows), expected, altitude, position, minimum_vertical)
 
     def target_at(self, elapsed_s, anchor_ned):
         """Use one frozen pre-engagement world anchor, never the latest aircraft pose."""
@@ -207,6 +224,7 @@ def evaluate_response(scenario, records, publications, *, velocity_limits, rate_
     range_start = math.dist(first["position_ned"], first["target_ned"])
     range_end = math.dist(records[-1]["position_ned"], records[-1]["target_ned"])
     work = 0.
+    vertical_work_m = 0.
     for previous, current in zip(records, records[1:]):
         if current.get("loss_active") or previous.get("loss_active"):
             continue
@@ -217,6 +235,9 @@ def evaluate_response(scenario, records, publications, *, velocity_limits, rate_
             continue
         axes = (0,) if mode in {"mc_velocity_position", "mc_velocity_chase", "mc_velocity_distance"} else (0, 1)
         work += sum(before[axis] ** 2 - after[axis] ** 2 for axis in axes)
+        # Freeze independent target height so only observed aircraft z earns closure.
+        vertical_work_m += (abs(target[2] - previous["position_ned"][2])
+                            - abs(target[2] - current["position_ned"][2]))
     metrics.update(maximum_altitude_error_m=altitude_error, maximum_horizontal_drift_m=horizontal_drift,
                    range_start_m=range_start, range_end_m=range_end, camera_response_work=work)
     checks["observed_image_response"] = work > 1e-4
@@ -226,6 +247,10 @@ def evaluate_response(scenario, records, publications, *, velocity_limits, rate_
     )
     if not scenario.visual.altitude_control:
         checks["observed_altitude_hold"] = altitude_error <= scenario.altitude_tolerance_m
+    elif mode != "mc_attitude_rate":
+        metrics["vertical_response_work_m"] = vertical_work_m
+        metrics["minimum_vertical_response_m"] = scenario.minimum_vertical_response_m
+        checks["observed_vertical_response"] = vertical_work_m >= scenario.minimum_vertical_response_m
     if mode == "mc_velocity_position":
         checks["observed_stationary_drift"] = horizontal_drift <= scenario.position_tolerance_m
     if mode == "mc_velocity_chase":

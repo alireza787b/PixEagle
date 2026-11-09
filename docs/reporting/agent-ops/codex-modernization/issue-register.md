@@ -320,3 +320,12 @@ remain open. Integration work is unpublished.
   Start is intentionally blocked pending S7. Characterization/owner gates pass;
   algorithms, gains and hardware are unchanged. Public MC altitude behavior and
   the moving-target harness are S4 work, not covered by this structural pass.
+
+- **2026-11-09 — MC component qualification, S4 (open):** four ordinary velocity
+  profiles pass altitude-off/on moving-world-target scenarios on a separately
+  pinned diagnostic firmware candidate. Historical-image drift failures remain
+  retained; clean-source baseline adoption is not yet qualified. Direct MC rates
+  exposed a degree/radian gain defect and slow cached altitude feedback; unit
+  repair is tested, fresh altitude feedback/response is pending. Loss, retarget,
+  takeover and application qualification remain open. See the consolidation
+  checkpoint for per-run evidence and scope.
