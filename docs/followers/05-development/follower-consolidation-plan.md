@@ -1,7 +1,7 @@
 # Follower consolidation and aircraft qualification plan
 
-Date: 2026-11-09. Status: implementation in progress; S0 inventory complete,
-S1 next. Follow the [checkpoint](../../reporting/agent-ops/codex-modernization/checkpoints/2026-11-09-follower-consolidation.md)
+Date: 2026-11-09. Status: implementation in progress; S0/S1 complete,
+S2 next. Follow the [checkpoint](../../reporting/agent-ops/codex-modernization/checkpoints/2026-11-09-follower-consolidation.md)
 for actual verification; later slices and qualification remain pending.
 
 This is the single plan for consolidating follower definitions, configuration,
@@ -284,8 +284,9 @@ Keep the fork private/unpublished and create no public QGC PR or release.
 
 ## 8. Implementation slices and exit gates
 
-All rows are planned. Record actual revision, checks and remaining work at each
-slice; implementation completion and flight qualification are different statuses.
+The checkpoint records completed slices; remaining rows are planned. Record
+actual revision, checks and remaining work at each slice. Implementation
+completion and flight qualification are different statuses.
 
 | Slice | Deliverable | Exit gate |
 | --- | --- | --- |

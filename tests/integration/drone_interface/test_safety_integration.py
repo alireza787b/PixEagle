@@ -20,7 +20,7 @@ from unittest.mock import patch, MagicMock, AsyncMock
 def mock_schema():
     """Create a mock schema for testing."""
     return {
-        'schema_version': '2.1.0',
+        'schema_version': '2.2.0',
         'follower_profiles': {
             'mc_velocity_chase': {
                 'control_type': 'velocity_body_offboard',
@@ -213,7 +213,7 @@ class TestThrustLimits:
     def test_thrust_max_clamped(self):
         """Test thrust is clamped to maximum of 1.0."""
         mock_schema = {
-            'schema_version': '2.1.0',
+            'schema_version': '2.2.0',
             'follower_profiles': {
                 'fw_attitude_rate': {
                     'control_type': 'attitude_rate',
@@ -252,7 +252,7 @@ class TestThrustLimits:
     def test_thrust_min_clamped(self):
         """Test thrust is clamped to minimum of 0.0."""
         mock_schema = {
-            'schema_version': '2.1.0',
+            'schema_version': '2.2.0',
             'follower_profiles': {
                 'fw_attitude_rate': {
                     'control_type': 'attitude_rate',

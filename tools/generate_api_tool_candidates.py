@@ -63,6 +63,10 @@ WEBRTC_MANAGER = PROJECT_ROOT / "src" / "classes" / "webrtc_manager.py"
 API_V1_INTEGRATION = PROJECT_ROOT / "src" / "classes" / "api_v1_integration.py"
 API_V1_NATIVE_TARGETS = PROJECT_ROOT / "src" / "classes" / "api_v1_native_targets.py"
 API_V1_FOLLOWING_CONTROLS = PROJECT_ROOT / "src" / "classes" / "api_v1_following_controls.py"
+API_V1_NATIVE_FOLLOWING = PROJECT_ROOT / "src" / "classes" / "api_v1_native_following.py"
+FOLLOWER_CATALOG = PROJECT_ROOT / "src" / "classes" / "follower_catalog.py"
+FOLLOWER_COMMANDS = PROJECT_ROOT / "configs" / "follower_commands.yaml"
+TRACKER_SCHEMAS = PROJECT_ROOT / "configs" / "tracker_schemas.yaml"
 API_V1_NATIVE_MODELS = PROJECT_ROOT / "src" / "classes" / "api_v1_native_models.py"
 API_V1_NATIVE_CONFIG = PROJECT_ROOT / "src" / "classes" / "api_v1_native_config.py"
 API_V1_NATIVE_CAMERA = PROJECT_ROOT / "src" / "classes" / "api_v1_native_camera.py"
@@ -102,6 +106,10 @@ ROUTE_SOURCE_FILES = (
     API_V1_INTEGRATION,
     API_V1_NATIVE_TARGETS,
     API_V1_FOLLOWING_CONTROLS,
+    API_V1_NATIVE_FOLLOWING,
+    FOLLOWER_CATALOG,
+    FOLLOWER_COMMANDS,
+    TRACKER_SCHEMAS,
     API_V1_NATIVE_MODELS,
     API_V1_NATIVE_CONFIG,
     API_V1_NATIVE_CAMERA,

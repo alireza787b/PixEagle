@@ -50,9 +50,11 @@ class MyCustomFollower(BaseFollower):
 
 follower_profiles:
   my_custom_profile:
+    family: multicopter
+    visibility: advanced
     display_name: "My Custom Follower"
     control_type: "velocity_body_offboard"
-    required_fields: ["vel_body_fwd", "vel_body_right"]
+    required_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s"]
 ```
 
 ### 3. Register with Factory

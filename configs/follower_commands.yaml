@@ -6,7 +6,7 @@
 # profile definitions and enables extensible follower modes.
 
 # Schema version for future compatibility
-schema_version: "2.1.0"
+schema_version: "2.2.0"
 
 # ==============================================================================
 # Command Field Definitions
@@ -95,6 +95,8 @@ follower_profiles:
   
   # MC Velocity Ground Follower - Full velocity control for ground target tracking
   mc_velocity_ground:
+    family: multicopter
+    visibility: advanced
     display_name: "MC Velocity Ground"
     description: "Full velocity control for tracking ground targets"
     control_type: "velocity_body_offboard"
@@ -107,6 +109,8 @@ follower_profiles:
     
   # Historical key retained for visual-centering compatibility
   mc_velocity_distance:
+    family: multicopter
+    visibility: advanced
     display_name: "MC Visual Centering"
     description: "Compatibility profile with zero forward velocity, lateral centering, optional vertical control and yaw; no range hold"
     control_type: "velocity_body_offboard"
@@ -119,6 +123,8 @@ follower_profiles:
 
   # MC Velocity Position Follower - Limited movement, yaw and altitude only
   mc_velocity_position:
+    family: multicopter
+    visibility: basic
     display_name: "MC Velocity Position"
     description: "Stationary profile: zero forward/right, visual yaw, optional vertical control"
     control_type: "velocity_body_offboard"
@@ -132,6 +138,8 @@ follower_profiles:
     
   # MC Velocity Chase Follower - Quadcopter offboard velocity control
   mc_velocity_chase:
+    family: multicopter
+    visibility: basic
     display_name: "MC Velocity Chase"
     description: "Pursuit profile: forward ramp with yaw or sideslip and optional vertical control"
     control_type: "velocity_body_offboard"
@@ -144,6 +152,8 @@ follower_profiles:
 
   # GM PID Pursuit Follower - PID-based pursuit with coordinated turn guidance
   gm_velocity_chase:
+    family: external
+    visibility: advanced
     display_name: "GM PID Pursuit"
     description: "PID-based pursuit control with coordinated turn guidance from gimbal angles"
     control_type: "velocity_body_offboard"  # Use body velocity offboard for body frame commands
@@ -156,11 +166,16 @@ follower_profiles:
 
   # GM Velocity Vector Follower - Direct vector pursuit using gimbal angles
   gm_velocity_vector:
+    family: external
+    visibility: advanced
     display_name: "GM Velocity Vector"
     description: "Direct vector pursuit using gimbal angles and body frame velocity"
     control_type: "velocity_body_offboard"
     airframe_phase: "multicopter"           # Gimbal is the evidence source, not the vehicle type
-    native_airframe_phases: ["multicopter", "fixed_wing", "vtol_transition"]
+    native_phase_contracts:
+      multicopter: velocity_body_offboard
+      fixed_wing: fixed_wing_external
+      vtol_transition: vtol_transition_external
     required_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s"]
     ui_category: "gimbal"
     # Schema-driven tracker data requirements
@@ -174,6 +189,8 @@ follower_profiles:
 
   # FW Attitude Rate Follower - visual L1/TECS-inspired control
   fw_attitude_rate:
+    family: fixed_wing
+    visibility: experimental
     display_name: "FW Attitude Rate"
     description: "Fixed-wing visual guidance with L1/TECS-inspired rate and thrust control"
     control_type: "attitude_rate"
@@ -187,6 +204,8 @@ follower_profiles:
 
   # MC Attitude Rate Follower - direct angular-rate and thrust control
   mc_attitude_rate:
+    family: multicopter
+    visibility: experimental
     display_name: "MC Attitude Rate"
     description: "High-authority multicopter visual control using attitude rates and thrust"
     control_type: "attitude_rate"

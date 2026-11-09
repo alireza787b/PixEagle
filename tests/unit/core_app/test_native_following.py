@@ -27,7 +27,7 @@ pytestmark = pytest.mark.unit
 def owner(target_owner, monkeypatch):
     owner = target_owner
     owner.flight_test = {"fresh": True, "arm_status": "Armed",
-                         "landed_state": "MAV_LANDED_STATE_IN_AIR"}
+                         "landed_state": "MAV_LANDED_STATE_IN_AIR", "aircraft_kind": "multicopter"}
     owner.app_controller.mavlink_data_manager.get_flight_state = lambda: {
         **owner.flight_test,
         "connection_generation": owner.telemetry_test["connection_generation"],
@@ -61,6 +61,59 @@ def test_normal_modes_are_advertised_without_an_aircraft_or_start_permission(own
         "mc_velocity_position", "mc_attitude_rate",
     }
     owner.app_controller.px4_interface.connect.assert_not_called()
+
+
+def test_catalog_separates_selection_from_live_qualification(owner):
+    snapshot = following_snapshot(owner, owner.principal_test)
+    row = next(item for item in snapshot["profiles"] if item["mode"] == "fw_attitude_rate")
+    assert row["selection_eligible"] is True
+    assert row["compatible"] is False
+    assert row["live_eligible"] is False
+    assert row["live_reason_code"] == "profile_not_live_qualified"
+    assert row["family"] == "fixed_wing" and row["visibility"] == "experimental"
+    assert row["phase_command_contracts"] == {"fixed_wing": "attitude_rate"}
+
+
+def test_catalog_generation_and_saved_selection_do_not_follow_aircraft_readiness(owner, monkeypatch):
+    before = following_snapshot(owner, owner.principal_test)
+    ready_owner(owner, monkeypatch)
+    owner.flight_test["aircraft_kind"] = "fixed_wing"
+    after = following_snapshot(owner, owner.principal_test)
+    assert after["profile_generation"] == before["profile_generation"]
+    assert after["configured_mode"] == before["configured_mode"] == "mc_velocity_position"
+    assert "follower_aircraft_incompatible" in after["start_reason_codes"]
+
+
+@pytest.mark.parametrize("kind,reason", [
+    ("unknown", "aircraft_kind_unavailable"),
+    ("vtol", "vtol_transition_release_unqualified"),
+])
+def test_start_does_not_infer_aircraft_support_from_selected_profile(owner, monkeypatch, kind, reason):
+    ready_owner(owner, monkeypatch)
+    owner.flight_test["aircraft_kind"] = kind
+    snapshot = following_snapshot(owner, owner.principal_test)
+    assert not snapshot["start_allowed"]
+    assert reason in snapshot["start_reason_codes"]
+
+
+def test_start_permission_readiness_matches_the_action_scopes(owner, monkeypatch):
+    ready_owner(owner, monkeypatch)
+    owner.principal_test = APIPrincipal.bearer(
+        subject="no-media", token_id="no-media", scopes={"actions:execute", "status:read", "telemetry:read"},
+    )
+    snapshot = following_snapshot(owner, owner.principal_test)
+    assert not snapshot["start_allowed"]
+    assert "following_permission_required" in snapshot["start_reason_codes"]
+
+
+def test_stop_permission_readiness_matches_the_action_scopes(owner):
+    owner.app_controller.following_active = True
+    owner.app_controller._following_session_id = "active-session"
+    owner.app_controller._following_session_aircraft_uid = "42"
+    owner.principal_test = APIPrincipal.bearer(
+        subject="no-telemetry", token_id="no-telemetry", scopes={"actions:execute", "status:read"},
+    )
+    assert following_snapshot(owner, owner.principal_test)["stop_allowed"] is False
 
 
 def test_following_snapshot_reports_continuity_authority_without_claiming_handoff(owner):

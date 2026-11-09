@@ -6,7 +6,8 @@ Schema Manager Module
 
 This module provides centralized schema management for the PixEagle tracker system.
 It loads schema configurations from YAML files and provides validation,
-compatibility checking, and extensibility support.
+measurement validation and extensibility support. Follower eligibility is
+derived by follower_catalog from these semantics and profile requirements.
 
 Project Information:
 - Project Name: PixEagle
@@ -17,7 +18,7 @@ Project Information:
 Key Features:
 - YAML-based schema configuration
 - Dynamic schema loading and validation
-- Compatibility matrix for trackers and followers
+- Explicit measurement representations and field guarantees
 - Extensible design for future tracker types
 """
 
@@ -53,7 +54,6 @@ class SchemaManager:
         self.config_path = config_path or self._get_default_config_path()
         self.schemas: Dict[str, Any] = {}
         self.tracker_types: Dict[str, Any] = {}
-        self.compatibility: Dict[str, Any] = {}
         self._loaded = False
         
         # Load schemas on initialization
@@ -83,9 +83,21 @@ class SchemaManager:
                 config = yaml.safe_load(file)
             
             # Load schema sections
-            self.schemas = config.get('tracker_data_types', {})
-            self.tracker_types = config.get('tracker_types', {})
-            self.compatibility = config.get('compatibility', {})
+            from classes.follower_catalog import OBSERVATION_REPRESENTATIONS
+
+            schemas = config.get('tracker_data_types', {})
+            tracker_types = config.get('tracker_types', {})
+            for name, schema in schemas.items():
+                if schema.get('representation') not in OBSERVATION_REPRESENTATIONS:
+                    raise ValueError(f'{name}.representation is missing or invalid')
+            for name, tracker in tracker_types.items():
+                schema = schemas.get(tracker.get('data_type'), {})
+                declared = set(schema.get('required_fields', [])) | set(schema.get('optional_fields', []))
+                promised = tracker.get('following_required_fields', [])
+                if not isinstance(promised, list) or any(field not in declared for field in promised):
+                    raise ValueError(f'{name}.following_required_fields is invalid')
+            self.schemas = schemas
+            self.tracker_types = tracker_types
             
             # Generate dynamic enum values
             self._generate_enum()
@@ -382,29 +394,6 @@ class SchemaManager:
         supported_schemas = tracker_info.get('supported_schemas', [])
         return schema_type in supported_schemas
     
-    def check_follower_compatibility(self, follower_name: str, schema_type: str) -> str:
-        """
-        Check follower compatibility with a schema type.
-
-        Args:
-            follower_name (str): Name of the follower
-            schema_type (str): Schema type to check
-
-        Returns:
-            str: 'required', 'preferred', 'optional', 'compatible', or 'incompatible'
-        """
-        compatibility_info = self.compatibility.get('followers', {}).get(follower_name, {})
-
-        if schema_type in compatibility_info.get('required_schemas', []):
-            return 'required'
-        elif schema_type in compatibility_info.get('preferred_schemas', []):
-            return 'preferred'
-        elif schema_type in compatibility_info.get('compatible_schemas', []):
-            return 'compatible'
-        elif schema_type in compatibility_info.get('optional_schemas', []):
-            return 'optional'
-        else:
-            return 'incompatible'
     
     def get_available_schemas(self) -> List[str]:
         """Get list of all available schema types."""

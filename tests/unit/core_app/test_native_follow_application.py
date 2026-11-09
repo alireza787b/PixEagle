@@ -48,7 +48,8 @@ def app(monkeypatch):
     factory = Mock(return_value=manager)
     factory.get_mode_info.return_value = {
         "airframe_phase": "multicopter",
-        "native_airframe_phases": ["multicopter", "fixed_wing", "vtol_transition"],
+        "native_phase_contracts": {"multicopter": "velocity_body_offboard",
+                                   "fixed_wing": "fixed_wing_external", "vtol_transition": "vtol_transition_external"},
     }
     commander = SimpleNamespace(
         setpoint_handler=manager.follower.setpoint_handler,
@@ -134,7 +135,12 @@ async def test_native_stop_joins_publisher_before_native_handoff(app):
     ctrl = app.ctrl
     assert not (await ctrl._connect_px4_on_flight_loop())["errors"]
     order = []
-    app.commander.stop.side_effect = lambda **_: order.append("publisher") or True
+
+    async def publisher_stop(**_):
+        order.append("publisher")
+        return True
+
+    app.commander.stop.side_effect = publisher_stop
 
     async def handoff(*_, **__):
         order.append("handoff")

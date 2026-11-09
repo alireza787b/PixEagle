@@ -19,7 +19,7 @@ from classes.target_continuity import ContinuityMode, ContinuityPolicy, TargetEv
 def requires_native_guidance(profile: dict, aircraft_kind: AircraftKind, *,
                              expected_layout: AircraftLayout = AircraftLayout.AUTO) -> bool:
     """An installation label never establishes VTOL's current flight phase."""
-    phases = profile.get("native_airframe_phases", [])
+    phases = profile.get("native_phase_contracts", {})
     if not phases:
         return False
     if not isinstance(aircraft_kind, AircraftKind) or aircraft_kind is AircraftKind.UNKNOWN:

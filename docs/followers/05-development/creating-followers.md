@@ -8,7 +8,7 @@
 
 Before coding, answer:
 
-1. **What vehicle type?** MC, FW, or Gimbal
+1. **What aircraft and phase?** MC or FW; gimbal is an input family, not an aircraft
 2. **What control type?** `velocity_body_offboard` or `attitude_rate`
 3. **What tracker data needed?** POSITION_2D, GIMBAL_ANGLES, etc.
 4. **What algorithm?** PID, PN, L1, custom
@@ -22,6 +22,8 @@ Add to `configs/follower_commands.yaml`:
 ```yaml
 follower_profiles:
   my_follower:
+    family: multicopter
+    visibility: advanced
     display_name: "My Custom Follower"
     description: "Brief description of behavior"
     control_type: "velocity_body_offboard"

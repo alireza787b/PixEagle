@@ -37,7 +37,7 @@ def _expected_contract(profile: str, airframe: str):
     control = info["control_type"]
     input_type = "gimbal_angles" if angular else (
         "attitude_rate_image_position" if control == "attitude_rate" else "image_position_2d")
-    native = info.get("native_airframe_phases", [])
+    native = info.get("native_phase_contracts", {})
     if airframe == "vtol" and {"multicopter", "fixed_wing", "vtol_transition"}.issubset(native):
         return airframe, input_type, "vtol_external"
     if airframe == "fixed_wing" and "fixed_wing" in native:

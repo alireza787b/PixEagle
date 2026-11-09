@@ -292,11 +292,11 @@ def test_gazebo_visual_artifact_content_checks_accept_strict_evidence(tmp_path):
     assert checks["offboard_publish_trace"]["ok"] is True
     assert (
         checks["tracker_command_trace"]["follower_command_schema_version"]
-        == "2.1.0"
+        == "2.2.0"
     )
     assert (
         checks["offboard_publish_trace"]["follower_command_schema_version"]
-        == "2.1.0"
+        == "2.2.0"
     )
 
 
@@ -305,7 +305,7 @@ def test_strict_trace_contract_loads_canonical_follower_schema():
 
     contract = harness.load_follower_command_contract()
 
-    assert contract["schema_version"] == "2.1.0"
+    assert contract["schema_version"] == "2.2.0"
     assert (
         contract["control_types"]["velocity_body_offboard"]["mavsdk_method"]
         == "set_velocity_body"

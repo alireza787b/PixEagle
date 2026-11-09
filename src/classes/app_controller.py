@@ -3042,7 +3042,7 @@ class AppController:
     def _refuse_unqualified_live_profile(self, profile, result) -> bool:
         phase = profile.get("airframe_phase")
         if (phase not in {"fixed_wing", "vtol_transition"}
-                or phase in profile.get("native_airframe_phases", [])):
+                or phase in profile.get("native_phase_contracts", {})):
             return False
         from classes.airspeed_readiness import evaluate_following_start_airspeed
         message = (f"Live {phase} following is not qualified for the current "
@@ -3507,7 +3507,7 @@ class AppController:
                     f"({telemetry_readiness.get('source', 'unknown')})"
                 )
                 native_required = False
-                if configured_profile.get("native_airframe_phases"):
+                if configured_profile.get("native_phase_contracts"):
                     native_required = requires_native_guidance(
                         configured_profile, self.px4_interface.get_aircraft_kind(),
                         expected_layout=AircraftLayout(getattr(Parameters, "AIRFRAME_LAYOUT", "AUTO")),

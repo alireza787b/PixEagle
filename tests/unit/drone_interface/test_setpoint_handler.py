@@ -28,7 +28,7 @@ import os
 def mock_schema():
     """Create a mock schema for testing."""
     return {
-        'schema_version': '2.1.0',
+        'schema_version': '2.2.0',
         'follower_profiles': {
             'mc_velocity_chase': {
                 'control_type': 'velocity_body_offboard',
@@ -564,7 +564,7 @@ class TestFollowerCommandSchemaContract:
         path = Path(__file__).resolve().parents[3] / 'configs' / 'follower_commands.yaml'
         contract = SetpointHandler.load_and_validate_schema(path)
 
-        assert contract['schema_version'] == '2.1.0'
+        assert contract['schema_version'] == '2.2.0'
         assert contract['removed_profile_aliases']['mc_velocity'] == 'mc_velocity_chase'
         assert contract['control_types']['velocity_body_offboard']['mavsdk_method'] == (
             'set_velocity_body'
@@ -573,6 +573,14 @@ class TestFollowerCommandSchemaContract:
     @pytest.mark.parametrize(
         'mutate,match',
         [
+            (
+                lambda schema: schema['follower_profiles']['mc_velocity_chase'].__setitem__('family', []),
+                'family is invalid',
+            ),
+            (
+                lambda schema: schema['follower_profiles']['mc_velocity_chase'].__setitem__('visibility', 'always'),
+                'visibility is invalid',
+            ),
             (
                 lambda schema: schema.__setitem__('schema_version', '3.0.0'),
                 'unsupported follower command schema_version',
@@ -606,7 +614,7 @@ class TestFollowerCommandSchemaContract:
                 'unsupported metadata',
             ),
             *[(lambda schema, bad=bad: schema['follower_profiles']['gm_velocity_vector'].__setitem__(
-                'native_airframe_phases', bad), 'native_airframe_phases is invalid')
+                'native_phase_contracts', bad), 'native_phase_contracts is invalid')
               for bad in ('fixed_wing', ['fixed_wing', 'fixed_wing'], ['unknown'], [{}], [True])],
         ],
     )

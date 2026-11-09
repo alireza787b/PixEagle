@@ -297,3 +297,11 @@ remain open. Integration work is unpublished.
   now ends following and requires a new Start; older continuing-session evidence
   does not qualify that policy. See the
   [consolidation checkpoint](checkpoints/2026-11-09-follower-consolidation.md).
+
+- **2026-11-09 — Follower catalog, S1 (backend complete):** profile requirements
+  and tracker measurement semantics now derive one eligibility result; duplicate
+  class compatibility and stale descriptive geometry were removed. Typed status
+  separates selection from live/readiness and preserves existing clients. Typed
+  VTOL admission stays blocked pending transition-preserving release; legacy
+  owner admission and client migration remain S3/S9. See the same consolidation
+  checkpoint for tests, archive-render evidence and qualification boundaries.

@@ -8,6 +8,7 @@
 
 tracker_data_types:
   POSITION_2D:
+    representation: image_position
     name: "2D Position Tracking"
     description: "Standard 2D normalized position tracking"
     category: "position"
@@ -26,6 +27,7 @@ tracker_data_types:
         range: [-2.0, 2.0]  # Allow off-screen tracking
   
   POSITION_3D:
+    representation: image_position
     name: "3D Position with Depth"
     description: "3D position tracking with depth information (includes 2D projection)"
     category: "position"
@@ -50,6 +52,7 @@ tracker_data_types:
         range: [-2.0, 2.0]  # Must match x,y components of position_3d
         
   ANGULAR:
+    representation: angular_bearing
     name: "Angular Bearing/Elevation"
     description: "Bearing and elevation angles in degrees"
     category: "angular"
@@ -66,6 +69,7 @@ tracker_data_types:
         range: [-180.0, 180.0]
 
   GIMBAL_ANGLES:
+    representation: provider_angles
     name: "Gimbal Angle Tracking"
     description: "Real-time gimbal yaw, pitch, roll angles from external gimbal system"
     category: "angular"
@@ -98,42 +102,9 @@ tracker_data_types:
           - target_vector_body
           - aircraft_attitude
           - mount_configuration
-    # Mount configuration support for coordinate transformations
-    mount_configurations:
-      HORIZONTAL:
-        name: "Horizontal Mount"
-        description: "Gimbal mounted horizontally, 1:1 mapping with aircraft body frame"
-        coordinate_mapping:
-          yaw: "yaw"      # Direct mapping to aircraft yaw
-          pitch: "pitch"  # Direct mapping to aircraft pitch
-          roll: "roll"    # Direct mapping to aircraft roll
-        startup_angles:
-          yaw: 0.0       # Forward facing at startup
-          pitch: 0.0     # Level at startup
-          roll: 0.0      # No roll at startup
-        transformation_type: "DIRECT"
-        notes: "Direct 1:1 mapping to aircraft body frame coordinates"
-      VERTICAL:
-        name: "Vertical Mount (90° Rotated)"
-        description: "Gimbal mounted vertically, requires 90° rotation transformation"
-        coordinate_mapping:
-          yaw: "roll"     # Gimbal yaw -> aircraft roll (azimuth)
-          pitch: "pitch-90"  # Gimbal pitch-90° -> aircraft pitch (elevation)
-          roll: "yaw"     # Gimbal roll -> aircraft yaw (typically unused in active tracking)
-        startup_angles:
-          yaw: 0.0       # Points forward when rolled to 0°
-          pitch: 90.0    # Points down when pitched to 90°
-          roll: 0.0      # No additional rotation
-        transformation_type: "ROTATIONAL_90"
-        notes: "Requires 90° coordinate rotation: roll->azimuth, pitch-90°->elevation"
-    # Default mount configuration metadata
-    default_mount: "VERTICAL"  # Default to vertical for easier testing
-    coordinate_systems:
-      source: "GIMBAL_BODY"    # Gimbal's local body frame
-      intermediate: "AIRCRAFT_BODY"  # Aircraft body frame (FRD)
-      target: "NED"            # North-East-Down world frame
         
   BBOX_CONFIDENCE:
+    representation: image_position
     name: "Bounding Box with Confidence"
     description: "Traditional bounding box tracking with confidence"
     category: "bbox"
@@ -160,6 +131,7 @@ tracker_data_types:
         range: [-2.0, 2.0]  # Allow objects partially or completely off-screen
         
   VELOCITY_AWARE:
+    representation: image_position
     name: "Position with Velocity Estimation"
     description: "Position tracking with velocity estimates"
     category: "motion"
@@ -183,6 +155,7 @@ tracker_data_types:
         element_type: "float"
         
   EXTERNAL:
+    representation: external
     name: "External Data Source"
     description: "Data from external sources (radar, GPS, etc.)"
     category: "external"
@@ -202,6 +175,7 @@ tracker_data_types:
           - source_data
           
   MULTI_TARGET:
+    representation: image_position
     name: "Multiple Target Tracking"
     description: "Tracking multiple targets simultaneously"
     category: "multi"
@@ -413,6 +387,8 @@ tracker_types:
       
   SmartTracker:
     data_type: MULTI_TARGET
+    # Only active selected-target output is eligible for aircraft following.
+    following_required_fields: [position_2d]
     name: "YOLO-based Smart Tracker"
     description: "YOLO detect/OBB inference with ByteTrack, BoT-SORT, or optional PixEagle appearance matching"
     supported_schemas:
@@ -509,81 +485,6 @@ tracker_types:
         - "Comparison with CSRT and KCF"
         - "Optional-backend evaluation"
 
-# Schema compatibility matrix
-compatibility:
-  followers:
-    MCAttitudeRateFollower:
-      required_schemas:
-        - POSITION_2D
-      compatible_schemas:
-        - POSITION_3D  # Works because 3D includes 2D projection
-        - BBOX_CONFIDENCE
-        - VELOCITY_AWARE
-        - MULTI_TARGET  # SmartTracker provides position_2d for selected target
-    MCVelocityChaseFollower:
-      required_schemas:
-        - POSITION_2D
-      compatible_schemas:
-        - POSITION_3D  # Works because 3D includes 2D projection
-        - MULTI_TARGET  # SmartTracker provides position_2d for selected target
-      preferred_schemas:
-        - VELOCITY_AWARE
-      optional_schemas:
-        - BBOX_CONFIDENCE
-    MCVelocityPositionFollower:
-      required_schemas:
-        - POSITION_2D
-      compatible_schemas:
-        - POSITION_3D  # Works because 3D includes 2D projection
-        - VELOCITY_AWARE  # Works because VELOCITY_AWARE includes position_2d
-        - MULTI_TARGET  # SmartTracker provides position_2d for selected target
-      optional_schemas:
-        - ANGULAR
-        - BBOX_CONFIDENCE
-    MCVelocityDistanceFollower:
-      required_schemas:
-        - POSITION_2D
-      compatible_schemas:
-        - POSITION_3D  # Uses only the included 2D projection
-        - VELOCITY_AWARE  # Works because VELOCITY_AWARE includes position_2d
-        - MULTI_TARGET  # SmartTracker provides position_2d for selected target
-      optional_schemas:
-        - BBOX_CONFIDENCE
-        - ANGULAR
-    MCVelocityGroundFollower:
-      required_schemas:
-        - POSITION_2D
-      compatible_schemas:
-        - POSITION_3D  # Works because 3D includes 2D projection
-        - VELOCITY_AWARE  # Works because VELOCITY_AWARE includes position_2d
-        - MULTI_TARGET  # SmartTracker provides position_2d for selected target
-      preferred_schemas:
-        - ANGULAR
-        - POSITION_3D  # 3D helps with ground projection
-      optional_schemas:
-        - EXTERNAL
-    GMVelocityChaseFollower:
-      required_schemas:
-        - GIMBAL_ANGLES
-      preferred_schemas:
-        - GIMBAL_ANGLES
-    GMVelocityVectorFollower:
-      required_schemas:
-        - GIMBAL_ANGLES
-      preferred_schemas:
-        - GIMBAL_ANGLES
-    FWAttitudeRateFollower:
-      required_schemas:
-        - POSITION_2D
-      compatible_schemas:
-        - POSITION_3D  # Works because 3D includes 2D projection
-        - VELOCITY_AWARE  # Enhances L1 navigation
-        - MULTI_TARGET  # SmartTracker provides position_2d for selected target
-      preferred_schemas:
-        - VELOCITY_AWARE  # Prefers velocity data for better path following
-        - POSITION_3D  # 3D path following with L1/TECS guidance
-      optional_schemas:
-        - BBOX_CONFIDENCE  # Confidence data for adaptive behavior
 
 # Future extensibility guidelines
 extensibility:

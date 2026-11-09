@@ -18,7 +18,7 @@ from classes.safety_types import FIELD_LIMIT_MAPPING
 # Set up logging
 logger = logging.getLogger(__name__)
 
-SUPPORTED_FOLLOWER_COMMAND_SCHEMA_VERSIONS = frozenset({"2.1.0"})
+SUPPORTED_FOLLOWER_COMMAND_SCHEMA_VERSIONS = frozenset({"2.2.0"})
 _SCHEMA_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
@@ -207,7 +207,9 @@ def validate_follower_command_schema(schema: Any) -> Dict[str, Any]:
                 "required_tracker_data",
                 "optional_tracker_data",
                 "session_controls",
-                "native_airframe_phases",
+                "native_phase_contracts",
+                "family",
+                "visibility",
             }
         )
         if unknown_profile_metadata:
@@ -215,12 +217,17 @@ def validate_follower_command_schema(schema: Any) -> Dict[str, Any]:
                 f"follower_profiles.{profile_name} has unsupported metadata: "
                 f"{unknown_profile_metadata}"
             )
-        native_phases = profile.get("native_airframe_phases", [])
-        if (not isinstance(native_phases, list) or any(
-                not isinstance(phase, str) or phase not in {"multicopter", "fixed_wing", "vtol_transition"}
-                for phase in native_phases)
-                or len(native_phases) != len(set(native_phases))):
-            raise ValueError(f'follower_profiles.{profile_name}.native_airframe_phases is invalid')
+        from classes.follower_catalog import NATIVE_PHASE_CONTRACTS, PROFILE_FAMILIES, PROFILE_VISIBILITIES
+
+        if not isinstance(profile.get("family"), str) or profile["family"] not in PROFILE_FAMILIES:
+            raise ValueError(f"follower_profiles.{profile_name}.family is invalid")
+        if not isinstance(profile.get("visibility"), str) or profile["visibility"] not in PROFILE_VISIBILITIES:
+            raise ValueError(f"follower_profiles.{profile_name}.visibility is invalid")
+        native = profile.get("native_phase_contracts", {})
+        if (not isinstance(native, dict) or any(
+                phase not in NATIVE_PHASE_CONTRACTS or contract != NATIVE_PHASE_CONTRACTS[phase]
+                for phase, contract in native.items())):
+            raise ValueError(f'follower_profiles.{profile_name}.native_phase_contracts is invalid')
         controls = profile.get('session_controls', {})
         if not isinstance(controls, dict):
             raise ValueError(f'follower_profiles.{profile_name}.session_controls must be an object')

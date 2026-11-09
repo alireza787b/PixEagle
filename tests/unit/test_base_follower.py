@@ -257,6 +257,7 @@ class TestBaseFollowerCompatibilityFailClosed:
         from classes.followers.mc_velocity_chase_follower import MCVelocityChaseFollower
 
         stub = MCVelocityChaseFollower.__new__(MCVelocityChaseFollower)
+        stub.profile_name = "mc_velocity_chase"
         stub._rate_limiter = MagicMock()
         stub._error_aggregator = MagicMock()
         stub.get_required_tracker_data_types = MagicMock(
@@ -287,16 +288,9 @@ class TestBaseFollowerCompatibilityFailClosed:
         assert stub.validate_tracker_compatibility(self._sample()) is False
         stub._error_aggregator.record_error.assert_called_once()
 
-    @patch('classes.followers.base_follower.get_schema_manager')
-    def test_compatible_type_still_requires_current_sample_fields(
-        self,
-        get_schema_manager,
-    ):
+    def test_compatible_type_still_requires_current_sample_fields(self):
         stub = self._make_stub()
-        get_schema_manager.return_value.check_follower_compatibility.return_value = (
-            'required'
-        )
-
+        assert stub.validate_tracker_compatibility(self._sample()) is True
         assert stub.validate_tracker_compatibility(
             self._sample(position_2d=None)
         ) is False

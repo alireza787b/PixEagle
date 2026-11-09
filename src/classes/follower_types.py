@@ -20,7 +20,7 @@ class FollowerType(str, Enum):
     Naming convention: {platform}_{control}_{behavior}
       - mc_  = Multicopter (velocity or attitude-rate control)
       - fw_  = Fixed-Wing (L1/TECS attitude-rate control)
-      - gm_  = Gimbal-guided (runs on MC airframe; gm_ = tracking method, not vehicle)
+      - gm_  = External/gimbal input family; actual aircraft/phase support is declared separately
     """
 
     # ── Multicopter: Velocity Control ────────────────────────────────────────
@@ -35,6 +35,6 @@ class FollowerType(str, Enum):
     # ── Fixed-Wing: Attitude Rate Control (L1/TECS) ──────────────────────────
     FW_ATTITUDE_RATE     = 'fw_attitude_rate'
 
-    # ── Gimbal-Guided: Velocity Control (runs on MC) ─────────────────────────
+    # ── External/gimbal guidance ────────────────────────────────────────────
     GM_VELOCITY_CHASE    = 'gm_velocity_chase'
     GM_VELOCITY_VECTOR   = 'gm_velocity_vector'

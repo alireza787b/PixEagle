@@ -20,7 +20,7 @@ from classes.api_v1_paths import (API_V1_NATIVE_FOLLOWING_PATH,
                                   API_V1_ACTION_NATIVE_FOLLOW_START_PATH,
                                   API_V1_ACTION_NATIVE_FOLLOW_STOP_PATH)
 from classes.api_v1_paths import API_V1_ACTION_NATIVE_FOLLOWER_SELECT_PATH
-from classes.follower import FollowerFactory
+from classes.follower_catalog import evaluate_aircraft, evaluate_input, get_follower_catalog
 from classes.airspeed_readiness import evaluate_following_start_airspeed
 from classes.parameters import Parameters
 from classes.runtime_identity import INSTANCE_ID, RUNTIME_ID
@@ -28,16 +28,21 @@ from classes.api_v1_following_controls import session_control_snapshot
 from classes.sih_replay import isolated_sih_replay_authorized
 
 
-def _selected_tracker_schema(target):
+def _selected_tracker_output(target, manager):
     """Use the same canonical tracker declarations as the catalog and factory."""
-    from classes.schema_manager import get_schema_manager
-
-    manager = get_schema_manager()
     if target["mode"] == "smart":
+        name = "SmartTracker"
         info = manager.get_tracker_info("SmartTracker")
     else:
-        _, info, _ = manager.resolve_tracker_for_ui(target["tracker_type"])
-    return (info or {}).get("data_type")
+        name, info, _ = manager.resolve_tracker_for_ui(target["tracker_type"])
+    return name, (info or {}).get("data_type")
+
+
+def _following_scopes(*, start):
+    required = {"actions:execute", "status:read", "telemetry:read"}
+    if start:
+        required.add("media:read")
+    return required
 
 
 def following_snapshot(owner, principal, *, client_control_contract_version: int = 1):
@@ -49,28 +54,31 @@ def following_snapshot(owner, principal, *, client_control_contract_version: int
     mode = target["mode"]
     from classes.schema_manager import get_schema_manager
     schema_manager = get_schema_manager()
-    output_type = _selected_tracker_schema(target)
+    tracker_name, output_type = _selected_tracker_output(target, schema_manager)
     execution_mode = status["execution_mode"]
     profiles = []
-    for name in FollowerFactory.get_available_modes():
-        info = FollowerFactory.get_follower_info(name)
-        phase = str(info.get("airframe_phase") or "unknown")
-        compatibility = schema_manager.check_follower_compatibility(info.get("implementation_class"), output_type)
-        reason = None
-        if not info.get("implementation_available"):
-            reason = "follower_implementation_unavailable"
-        elif compatibility not in {"required", "preferred", "compatible", "optional"}:
+    catalog = get_follower_catalog()
+    for profile in catalog:
+        selection = evaluate_input(profile, schema_manager, output_type, tracker_name=tracker_name)
+        live = profile.live_eligibility
+        reason = selection.reason_code or (live.reason_code if execution_mode == "PX4" else None)
+        if not selection.eligible and reason != "follower_implementation_unavailable":
+            # Existing clients retain their generic compatibility reason; new
+            # clients can explain the precise selection failure separately.
             reason = "tracker_output_incompatible"
-        elif (execution_mode == "PX4" and phase in ("fixed_wing", "vtol_transition")
-              and phase not in info.get("native_airframe_phases", [])):
-            reason = "profile_not_live_qualified"
         profiles.append(dict(
-            mode=name, display_name=str(info.get("display_name") or name)[:120],
-            control_type=str(info.get("control_type") or "unknown")[:80],
-            airframe_phase=phase[:80], compatible=reason is None, reason_code=reason,
+            mode=profile.mode, display_name=profile.display_name,
+            description=profile.description, family=profile.family, visibility=profile.visibility,
+            required_tracker_data=list(profile.required_tracker_data),
+            phase_command_contracts=profile.phase_command_contracts,
+            control_type=profile.control_type, airframe_phase=profile.airframe_phase,
+            compatible=reason is None, reason_code=reason,
+            selection_eligible=selection.eligible, selection_reason_code=selection.reason_code,
+            live_eligible=live.eligible, live_reason_code=live.reason_code,
         ))
 
     reasons = []
+    flight = {}
     context = context_snapshot(owner, principal)
     if not context["association"]["verified"]:
         reasons.append("aircraft_not_verified")
@@ -105,7 +113,13 @@ def following_snapshot(owner, principal, *, client_control_contract_version: int
         reasons.append("profile_not_advertised")
     elif not selected["compatible"]:
         reasons.append(selected["reason_code"])
-    if "actions:execute" not in principal.scopes:
+    if context["association"]["verified"] and flight.get("fresh"):
+        profile = next((item for item in catalog if item.mode == configured), None)
+        if profile is not None:
+            aircraft = evaluate_aircraft(profile, flight.get("aircraft_kind"))
+            if not aircraft.eligible:
+                reasons.append(aircraft.reason_code)
+    if not _following_scopes(start=True).issubset(principal.scopes):
         reasons.append("following_permission_required")
     if execution_mode != "PX4":
         reasons.append("command_preview_not_aircraft_following")
@@ -167,7 +181,7 @@ def following_snapshot(owner, principal, *, client_control_contract_version: int
                       (stop_identity_available or
                        (bool(getattr(owner.app_controller, "_native_follow_start_attempt_id", None)) and
                         bool(getattr(owner.app_controller, "_native_follow_start_aircraft_uid", None)))) and
-                      "actions:execute" in principal.scopes),
+                      _following_scopes(start=False).issubset(principal.scopes)),
         follow_session_id=follow_session_id,
         follow_aircraft_uid=follow_aircraft_uid,
         follow_connection_generation=getattr(owner.app_controller, '_following_session_connection_generation', None),
@@ -209,9 +223,7 @@ def _actor(request, *, start):
     principal = getattr(getattr(request, "state", None), "api_principal", None)
     if principal is None or principal.kind not in (APIPrincipalKind.SESSION, APIPrincipalKind.BEARER):
         raise NativeTargetError("native_credentials_required", "Sign in to PixEagle first.", 401)
-    required = {"actions:execute", "status:read", "telemetry:read"}
-    if start:
-        required.add("media:read")
+    required = _following_scopes(start=start)
     if not required.issubset(principal.scopes):
         raise NativeTargetError("following_permission_required", "Following permission is required.", 403)
     return principal
@@ -358,7 +370,7 @@ async def native_follower_select(owner, request, response, http_request):
                 if snapshot["following_active"]:
                     raise NativeTargetError("following_active", "Stop following before changing profile.")
                 row = next((item for item in snapshot["profiles"] if item["mode"] == request.profile_mode), None)
-                if row is None or not row["compatible"]:
+                if row is None or not row["selection_eligible"]:
                     raise NativeTargetError("follower_profile_incompatible", "This follower is not compatible with the selected tracker.")
                 if not _audit(owner, principal, path, "validated", action_type):
                     raise NativeTargetError("audit_unavailable", "Following audit is unavailable.", 503)

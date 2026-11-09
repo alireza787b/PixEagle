@@ -80,16 +80,17 @@ def fixture(*, phase=AirframePhase.FIXED_WING):
 @pytest.mark.parametrize("kind,required", [(AircraftKind.MULTICOPTER, False),
                                          (AircraftKind.FIXED_WING, True), (AircraftKind.VTOL, True)])
 def test_transport_choice_uses_capabilities_and_actual_aircraft_kind(kind, required):
-    profile = {"native_airframe_phases": ["multicopter", "fixed_wing", "vtol_transition"]}
+    profile = {"native_phase_contracts": {"multicopter": "velocity_body_offboard",
+                                         "fixed_wing": "fixed_wing_external", "vtol_transition": "vtol_transition_external"}}
     assert requires_native_guidance(profile, kind) is required
     assert requires_native_guidance({}, kind) is False
 
 
 def test_unknown_aircraft_cannot_be_assumed_to_be_a_multicopter():
     with pytest.raises(ValueError, match="aircraft_kind_unavailable"):
-        requires_native_guidance({"native_airframe_phases": ["fixed_wing"]}, AircraftKind.UNKNOWN)
+        requires_native_guidance({"native_phase_contracts": {"fixed_wing": "fixed_wing_external"}}, AircraftKind.UNKNOWN)
     with pytest.raises(ValueError, match="strategy_unavailable"):
-        requires_native_guidance({"native_airframe_phases": ["fixed_wing"]}, AircraftKind.VTOL)
+        requires_native_guidance({"native_phase_contracts": {"fixed_wing": "fixed_wing_external"}}, AircraftKind.VTOL)
 
 
 def test_legacy_recovery_configuration_is_not_silently_changed_after_engagement():
@@ -108,7 +109,8 @@ def test_legacy_recovery_configuration_is_not_silently_changed_after_engagement(
                                        (AircraftLayout.MULTICOPTER, AircraftKind.FIXED_WING)])
 def test_wrong_explicit_layout_is_refused_before_any_command_owner_is_acquired(layout, kind):
     with pytest.raises(ValueError, match="aircraft_layout_mismatch"):
-        requires_native_guidance({"native_airframe_phases": ["multicopter", "fixed_wing", "vtol_transition"]},
+        requires_native_guidance({"native_phase_contracts": {"multicopter": "velocity_body_offboard",
+                                                             "fixed_wing": "fixed_wing_external", "vtol_transition": "vtol_transition_external"}},
                                  kind, expected_layout=layout)
 
 

@@ -1129,102 +1129,34 @@ class BaseFollower(ABC):
         return [TrackerDataType[name] for name in optional_data_names]
     
     def validate_tracker_compatibility(self, tracker_data: TrackerOutput) -> bool:
-        """
-        Validates if the tracker data is compatible with this follower's requirements.
-        Uses the required tracker schema plus the profile's required data fields.
-        
-        Args:
-            tracker_data (TrackerOutput): Tracker data to validate
-            
-        Returns:
-            bool: True if compatible, False otherwise
-        """
+        """Require declared observation semantics and current required fields."""
         if not tracker_data or not tracker_data.tracking_active:
-            logger.debug("Tracker data is inactive or None")
             return False
-        
-        follower_class_name = self.__class__.__name__
-        data_type = tracker_data.data_type.value.upper()
+        from classes.follower_catalog import evaluate_input, get_follower_profile
+
         try:
-            compatibility = get_schema_manager().check_follower_compatibility(
-                follower_class_name,
-                data_type,
-            )
-        except Exception as e:
-            error_key = f"schema_error_{follower_class_name}_{data_type}"
-            error_msg = (
-                f"Tracker compatibility validation failed closed for "
-                f"{follower_class_name}/{data_type}: {e}"
-            )
-            self._rate_limiter.log_rate_limited(
-                logger,
-                'error',
-                error_key,
-                error_msg,
-            )
-            self._error_aggregator.record_error(error_key, logger)
-            return False
-
-        if compatibility not in {'required', 'preferred', 'compatible', 'optional'}:
-            error_key = f"incompatible_{follower_class_name}_{data_type}"
-            error_msg = (
-                f"Tracker data incompatible: {follower_class_name} cannot use "
-                f"{data_type}. Switch to a compatible tracker or follower."
-            )
-            self._rate_limiter.log_rate_limited(
-                logger,
-                'error',
-                error_key,
-                error_msg,
-            )
-            self._error_aggregator.record_error(error_key, logger)
-            return False
-
-        # Type-level compatibility is insufficient if the current sample omits
-        # data required by this follower profile.
-        required_types = self.get_required_tracker_data_types()
-        for required_type in required_types:
-            if not self._has_required_data(tracker_data, required_type):
-                error_key = f"missing_data_{self.__class__.__name__}_{required_type.value}"
-                error_msg = (
-                    f"Tracker missing required data: {self.__class__.__name__} requires "
-                    f"{required_type.value} but tracker does not provide it."
-                )
-                self._rate_limiter.log_rate_limited(logger, 'warning', error_key, error_msg)
-                self._error_aggregator.record_error(error_key, logger)
-                return False
-        
-        logger.debug(f"Tracker data is compatible with {self.get_display_name()}")
-        return True
-
-    def _has_required_data(self, tracker_data: TrackerOutput, data_type: TrackerDataType) -> bool:
-        """
-        Checks if tracker data contains the required data type.
-        
-        Args:
-            tracker_data (TrackerOutput): Tracker data to check
-            data_type (TrackerDataType): Required data type
-            
-        Returns:
-            bool: True if data is available
-        """
-        if data_type == TrackerDataType.POSITION_2D:
-            return tracker_data.position_2d is not None
-        elif data_type == TrackerDataType.POSITION_3D:
-            return tracker_data.position_3d is not None
-        elif data_type == TrackerDataType.ANGULAR:
-            return tracker_data.angular is not None
-        elif data_type == TrackerDataType.GIMBAL_ANGLES:
-            return tracker_data.angular is not None
-        elif data_type == TrackerDataType.BBOX_CONFIDENCE:
-            return (tracker_data.bbox is not None or 
-                   tracker_data.normalized_bbox is not None)
-        elif data_type == TrackerDataType.VELOCITY_AWARE:
-            return tracker_data.velocity is not None
-        elif data_type == TrackerDataType.MULTI_TARGET:
-            return tracker_data.targets is not None
-        elif data_type == TrackerDataType.EXTERNAL:
-            return tracker_data.raw_data is not None
+            manager = get_schema_manager()
+            profile = get_follower_profile(self.profile_name)
+            data_type = tracker_data.data_type.value.upper()
+            schema = manager.get_schema(data_type)
+            if not isinstance(schema, dict):
+                raise ValueError("tracker_output_unknown")
+            fields = set(schema.get("required_fields", [])) | set(schema.get("optional_fields", []))
+            fields.update({"bbox", "normalized_bbox"})
+            sample = {name: getattr(tracker_data, name, None) for name in fields}
+            decision = evaluate_input(profile, manager, data_type, sample_fields=sample)
+            if decision.eligible:
+                return True
+            reason = decision.reason_code
+        except Exception as error:
+            reason = str(error)
+        self._rate_limiter.log_rate_limited(
+            logger, 'warning', f"tracker_input_{type(self).__name__}",
+            f"Tracker input rejected for {type(self).__name__}: {reason}",
+        )
+        self._error_aggregator.record_error(
+            f"tracker_input_{type(self).__name__}", logger,
+        )
         return False
     
     def extract_target_coordinates(self, tracker_data: TrackerOutput) -> Optional[Tuple[float, float]]:

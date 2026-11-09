@@ -289,6 +289,7 @@ Schemas are defined in `configs/tracker_schemas.yaml`:
 ```yaml
 tracker_data_types:
   POSITION_2D:
+    representation: image_position
     name: "2D Position Tracking"
     category: "position"
     required_fields:
@@ -304,19 +305,23 @@ tracker_data_types:
 
 ## Tracker-Follower Compatibility
 
-The schema system ensures trackers and followers use compatible data:
+The shared follower catalog derives eligibility from profile requirements and
+declared measurement semantics. Optional fields do not guarantee support:
 
 ```yaml
-# From tracker_schemas.yaml
-compatibility:
-  followers:
-    MCVelocityChaseFollower:
-      required_schemas:
-        - POSITION_2D
-      compatible_schemas:
-        - POSITION_3D
-        - MULTI_TARGET
+# follower_commands.yaml profile
+required_tracker_data: [POSITION_2D]
+
+# tracker_schemas.yaml data type
+representation: image_position
+required_fields: [position_2d]
 ```
+
+There is no independent tracker/follower compatibility matrix. SmartTracker's
+selected-target field guarantee and each actual sample are checked separately.
+Provider-angle samples remain incompatible with image followers even if they
+also contain projected coordinates. See the
+[schema guide](../../developers/SCHEMA_DRIVEN_DEVELOPMENT_GUIDE.md).
 
 ---
 
