@@ -277,14 +277,20 @@ class MCAttitudeRateFollower(BaseFollower):
             axis (str): Control axis name (mc_pitchspeed_deg_s, mc_att_yawspeed_deg_s, etc.)
 
         Returns:
-            Tuple[float, float, float]: (P, I, D) gains.
+            Tuple[float, float, float]: Internal-unit (P, I, D) gains.
 
         Raises:
             KeyError: If the specified axis is not configured.
         """
         try:
             gains = Parameters.PID_GAINS[axis]
-            return gains['p'], gains['i'], gains['d']
+            values = (gains['p'], gains['i'], gains['d'])
+            # These PIDs take normalized image errors, so their declared deg/s
+            # gains need conversion. Roll takes an angular error in radians:
+            # its deg/deg ratio already has the same numerical value in rad/rad.
+            if axis in ('mc_pitchspeed_deg_s', 'mc_att_yawspeed_deg_s'):
+                return tuple(math.radians(value) for value in values)
+            return values
         except KeyError as e:
             logger.error(f"PID gains not found for axis '{axis}': {e}")
             raise KeyError(f"Invalid PID axis '{axis}'. Check Parameters.PID_GAINS configuration.")

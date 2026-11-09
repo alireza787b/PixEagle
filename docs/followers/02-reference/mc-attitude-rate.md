@@ -40,6 +40,15 @@ Yaw-error gating can reduce pitch authority until horizontal alignment is
 within `YAW_ERROR_THRESHOLD`. Optional coordinated-turn logic derives roll rate
 from yaw rate and current ground speed.
 
+Direct image-error gains `mc_pitchspeed_deg_s` and `mc_att_yawspeed_deg_s`
+are degrees per second per normalized image error (with the corresponding I/D
+time factors). The controller converts these gains to internal radians once;
+publication converts the resulting rates back to degrees once. Roll uses an
+angular bank error, so its deg/deg gain ratio is unchanged. The November 9 repair
+removes an unintended 57.3-fold pitch/yaw gain amplification. Saved numbers are
+preserved, but installations tuned around the old unit defect require review;
+there is no silent numeric migration or change to other followers' yaw gains.
+
 Measured roll/pitch protection runs after smoothing and again on every Offboard
 publication, including heartbeats without a new image. It converts BODY rates
 to coupled Euler-angle derivatives and uniformly scales the three rates to stay

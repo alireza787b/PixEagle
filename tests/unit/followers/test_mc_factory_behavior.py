@@ -131,6 +131,36 @@ def test_mc_rates_respect_altitude_guidance_permission_for_saved_offset(factory,
     assert follower.pid_altitude.setpoint == expected
 
 
+@pytest.mark.parametrize("refresh", [False, True])
+def test_mc_rate_image_gains_use_declared_degrees_per_second(factory, refresh):
+    follower = factory("mc_attitude_rate")
+    # Isolate P units from elapsed-time I/D, using the actual factory controllers.
+    for axis in ("mc_pitchspeed_deg_s", "mc_att_yawspeed_deg_s"):
+        Parameters.PID_GAINS[axis]["i"] = 0.
+        Parameters.PID_GAINS[axis]["d"] = 0.
+    follower._update_pid_gains()
+    if refresh:
+        Parameters.PID_GAINS["mc_pitchspeed_deg_s"]["p"] = 20.
+        Parameters.PID_GAINS["mc_att_yawspeed_deg_s"]["p"] = 10.
+        follower._update_pid_gains()
+    pitch, yaw = follower._calculate_direct_rates((.01, -.01))
+    expected_pitch, expected_yaw = (.2, .1) if refresh else (.18, .12)
+    assert math.degrees(pitch) == pytest.approx(expected_pitch)
+    assert math.degrees(yaw) == pytest.approx(expected_yaw)
+    # Bank error is angular, unlike the normalized image input: preserve its gain.
+    follower.pid_roll_rate.tunings = (1.5, 0., 0.)
+    roll = follower._calculate_coordinated_roll_rate(0., 0., 10.)
+    assert math.degrees(roll) == pytest.approx(-15.)
+
+
+def test_mc_rate_image_gain_conversion_includes_integral_and_derivative(factory):
+    follower = factory("mc_attitude_rate")
+    for pid, axis in ((follower.pid_pitch_rate, "mc_pitchspeed_deg_s"),
+                      (follower.pid_yaw_rate, "mc_att_yawspeed_deg_s")):
+        gains = Parameters.PID_GAINS[axis]
+        assert pid.tunings == pytest.approx(tuple(math.radians(gains[key]) for key in ("p", "i", "d")))
+
+
 def test_ground_coordinate_correction_disable_applies_to_attitude(factory):
     def configure(config):
         config["MC_VELOCITY_GROUND"]["COORDINATE_CORRECTIONS_ENABLED"] = False
