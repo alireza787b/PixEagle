@@ -72,6 +72,15 @@ Attitude-rate control requires an explicit thrust command. `HOVER_THRUST` is
 the baseline. Optional altitude hold adds a bounded correction, and optional
 pitch compensation adjusts for reduced vertical thrust while tilted.
 
+Height hold uses a paired relative-height/vertical-speed observation owned by the
+connection's telemetry manager. On REST it uses `GLOBAL_POSITION_INT` and a
+validated home-altitude reference, rather than differentiating the 1 Hz
+`ALTITUDE` message at camera rate. PI advances only when the source sample
+advances; measured upward velocity supplies damping. Cached reads preserve the
+same sample and correction, and unavailable/stale feedback or a changed datum
+rejects guidance through the existing handoff. Yaw alignment gates pitch, while
+height stabilization remains active.
+
 With resolved `Follower` altitude guidance off, altitude hold captures the
 engagement altitude and ignores `TARGET_ALTITUDE_OFFSET`. It does not command an
 automatic climb. With guidance explicitly enabled, the configured offset is
@@ -80,6 +89,10 @@ the declared rate strategy, not a velocity or guaranteed flight-path controller.
 
 `HOVER_THRUST`, thrust limits, and altitude gains are vehicle-specific. The
 checked-in values are software defaults, not flight-accepted tuning.
+Fresh normalized-thrust gains are `p=0.03`, `i=0.003`, `d=0.08`; D multiplies
+measured upward m/s with a negative sign. Saved gains remain explicit and are
+not automatically rewritten. In particular, the older `2/0.3/0.5` values need
+review for this actuator-scale output, not blind adoption on a new vehicle.
 
 ## Configuration
 

@@ -18,6 +18,7 @@ from typing import Any, Deque, Dict, Optional
 
 from classes.command_intent import CommandIntent
 from classes.aircraft_state import Quaternion
+from classes.telemetry_observation import AltitudeObservation
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +82,17 @@ class CommandPreviewController:
 
     def get_ground_speed(self) -> float:
         return self.current_ground_speed
+
+    def get_altitude_observation(self) -> AltitudeObservation:
+        """Explicit synthetic height feedback; this adapter has no aircraft owner."""
+        now = time.monotonic()
+        return AltitudeObservation(
+            height_relative_m=self.current_altitude, vertical_speed_up_m_s=0.,
+            source_marker=int(now * 1000) % 2**32, sample_time_s=now,
+            received_at_monotonic_s=now, sample_time_basis="synthetic_monotonic_s",
+            source="command_preview", altitude_reference_generation=1,
+            connection_generation=0, telemetry_generation=0,
+        )
 
     def get_airspeed_observation(self) -> Dict[str, Any]:
         """Describe explicit synthetic input without implying aircraft telemetry."""

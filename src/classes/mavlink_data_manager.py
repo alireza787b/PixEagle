@@ -8,7 +8,9 @@ from typing import Dict, Optional
 from .parameters import Parameters
 from .logging_manager import logging_manager
 from .aircraft_identity import TelemetryAircraftIdentity
+from .telemetry_observation import AltitudeSourceSample
 import math
+
 
 class MavlinkDataManager:
     MAX_STALE_TIMEOUT_S = 5.0
@@ -97,6 +99,12 @@ class MavlinkDataManager:
         self._attitude_source_progress_at = None
         self._ground_speed_source_marker = None
         self._ground_speed_source_progress_at = None
+        self._altitude_source_marker = None
+        self._altitude_source_time_s = None
+        self._altitude_source_sample = None
+        self._altitude_home_reference = None
+        self._altitude_reference_generation = 0
+        self._altitude_observation_epoch = 0
         self.connection_error_count = 0
         self.last_error = None
         self.last_status_log = 0  # For throttling status messages
@@ -1046,6 +1054,81 @@ class MavlinkDataManager:
             self._attitude_source_progress_at = None
             self._ground_speed_source_marker = None
             self._ground_speed_source_progress_at = None
+            self._altitude_source_marker = None
+            self._altitude_source_time_s = None
+            self._altitude_source_sample = None
+            self._altitude_home_reference = None
+            self._altitude_reference_generation = 0
+            self._altitude_observation_epoch += 1
+
+    async def fetch_altitude_observation(self) -> Optional[AltitudeSourceSample]:
+        """Read paired home-relative height and earth vertical speed for control.
+
+        GLOBAL_POSITION_INT contains millimetres and centimetres/second. HOME_POSITION
+        establishes its reference: PX4 can otherwise put AMSL in relative_alt.
+        A repeated REST read retains the original sample and receipt, not a new clock.
+        """
+        with self._lock:
+            epoch = self._altitude_observation_epoch
+
+        async def position_fetch():
+            payload = await self.fetch_data_from_uri(self._message_uri("GLOBAL_POSITION_INT"))
+            return payload, time.monotonic()
+
+        (payload, received_at), home_payload = await asyncio.gather(
+            position_fetch(), self.fetch_data_from_uri(self._message_uri("HOME_POSITION")),
+        )
+        message = payload.get("message") if isinstance(payload, dict) else None
+        home = home_payload.get("message") if isinstance(home_payload, dict) else None
+
+        def wire_integer(mapping, key, lower, upper):
+            value = mapping.get(key) if isinstance(mapping, dict) else None
+            return value if type(value) is int and lower <= value <= upper else None
+
+        marker = wire_integer(message, "time_boot_ms", 0, 2**32 - 1)
+        relative_mm = wire_integer(message, "relative_alt", -2**31 + 1, 2**31 - 2)
+        altitude_mm = wire_integer(message, "alt", -2**31 + 1, 2**31 - 2)
+        down_cm_s = wire_integer(message, "vz", -2**15 + 1, 2**15 - 2)
+        home_mm = wire_integer(home, "altitude", -2**31 + 1, 2**31 - 2)
+        home_marker = wire_integer(home, "time_usec", 1, 2**64 - 1)
+        # The three independently quantized millimetre fields can differ by 2 mm.
+        valid = (all(value is not None for value in
+                     (marker, relative_mm, altitude_mm, down_cm_s, home_mm, home_marker))
+                 and math.isfinite(received_at)
+                 and abs(altitude_mm - relative_mm - home_mm) <= 2)
+        with self._lock:
+            if epoch != self._altitude_observation_epoch:
+                return None
+            if not valid:
+                self._altitude_source_sample = None
+                return None
+            # Home message/publication time can change without changing the height datum.
+            reference = home_mm
+            if reference != self._altitude_home_reference:
+                self._altitude_home_reference = reference
+                self._altitude_reference_generation += 1
+                self._altitude_source_marker = marker
+                self._altitude_source_time_s = marker / 1000.
+                self._altitude_source_sample = None
+                return None
+            previous = self._altitude_source_marker
+            delta = (marker - previous) % 2**32
+            if delta == 0:
+                return self._altitude_source_sample
+            if delta >= 2**31:
+                self._altitude_source_sample = None
+                return None
+            self._altitude_source_marker = marker
+            self._altitude_source_time_s += delta / 1000.
+            self._altitude_source_sample = AltitudeSourceSample(
+                height_relative_m=relative_mm / 1000., vertical_speed_up_m_s=-down_cm_s / 100.,
+                source_marker=marker, sample_time_s=self._altitude_source_time_s,
+                received_at_monotonic_s=received_at,
+                sample_time_basis="px4_boot_ms_unwrapped; receipt_monotonic_age",
+                source="mavlink2rest:GLOBAL_POSITION_INT",
+                altitude_reference_generation=self._altitude_reference_generation,
+            )
+            return self._altitude_source_sample
 
     async def fetch_altitude_data(self) -> Optional[Dict[str, float]]:
         """

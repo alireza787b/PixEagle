@@ -14,6 +14,24 @@ PX4InterfaceManager is the main interface between PixEagle and the PX4 autopilot
 - Telemetry aggregation from MAVLink2REST or MAVSDK
 - Circuit breaker integration for testing
 
+The same owner exposes `get_altitude_observation()` for direct-rate height
+stabilization: paired home-relative height/upward velocity, source progress,
+sample/receipt timing and connection/reference generations. Cached reads never
+refresh this observation. REST uses `GLOBAL_POSITION_INT` with a validated home
+datum; MAVSDK pairs position with NED velocity and labels receipt-time
+approximation explicitly. Float32 and millimetre representation uncertainty is
+accounted for when detecting SDK home-datum changes. This is not terrain height.
+
+MAVSDK's existing three-worker lifecycle now uses `position`, `attitude` and
+`velocity_ned`; the optional diagnostic key `velocity_body` is replaced by
+`velocity_ned`. Horizontal ground speed is earth-horizontal, and body-Z velocity
+is never treated as earth vertical speed at a tilted attitude. Position/velocity
+rates are negotiated from the existing refresh setting; freshness/skew remain
+observed acceptance conditions. The MC attitude publication guard rechecks
+height availability and its session-bound datum on heartbeats, even without a
+new tracker frame. A new follower handler establishes a new binding; an old
+handler cannot silently adopt a changed height datum.
+
 ## Class Diagram
 
 ```

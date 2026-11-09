@@ -2,6 +2,7 @@ import asyncio
 import math
 import logging
 import time
+from dataclasses import asdict
 from pathlib import Path
 from typing import List, Literal, NamedTuple, Optional, TypedDict
 from mavsdk import System
@@ -15,6 +16,7 @@ from classes.setpoint_handler import SetpointHandler
 from classes.attitude_envelope import guard_body_rates
 from classes.aircraft_state import AircraftBinding, AircraftKind, AircraftState, AircraftStateOwner, Quaternion, finite_number
 from classes.native_guidance import NativeGuidanceClient, NativeGuidanceError
+from classes.telemetry_observation import AltitudeObservation, AltitudeSourceSample
 
 # Import circuit breaker for testing support
 try:
@@ -206,7 +208,7 @@ class PX4InterfaceManager:
     DEFAULT_OWNED_TASK_STOP_TIMEOUT_S = 2.0
     # Hold the first accepted setpoint long enough to establish PX4 proof-of-life.
     OFFBOARD_PRIME_DURATION_S = 1.1
-    MAVSDK_TELEMETRY_STREAM_NAMES = ("position", "attitude", "velocity_body")
+    MAVSDK_TELEMETRY_STREAM_NAMES = ("position", "attitude", "velocity_ned")
     MIN_MAVSDK_STREAM_RETRY_DELAY_S = 0.25
     MAX_MAVSDK_STREAM_RETRY_DELAY_S = 5.0
 
@@ -290,6 +292,10 @@ class PX4InterfaceManager:
         self._last_telemetry_error = None
         self._attitude_receipt_monotonic_s = None
         self._ground_speed_receipt_monotonic_s = None
+        self._altitude_observation = None
+        self._mavsdk_altitude_reference = None
+        self._mavsdk_altitude_reference_generation = 0
+        self._mc_altitude_guard_context = None
         self._last_attitude_guard = None
         self._terminal_attitude_guard_reason = None
         self._sender_quiesce_task = None
@@ -646,6 +652,10 @@ class PX4InterfaceManager:
         self._telemetry_pending_values = {}
         self._attitude_receipt_monotonic_s = None
         self._ground_speed_receipt_monotonic_s = None
+        self._altitude_observation = None
+        self._mavsdk_altitude_reference = None
+        self._mavsdk_altitude_reference_generation = 0
+        self._mc_altitude_guard_context = None
         self._last_attitude_guard = None
         self._terminal_attitude_guard_reason = None
         reset_receipt = getattr(getattr(self, "mavlink_data_manager", None), "reset_attitude_receipt", None)
@@ -679,6 +689,7 @@ class PX4InterfaceManager:
         temporal_skew_s: float | None = None,
         attitude_receipt_monotonic_s: float | None = None,
         ground_speed_receipt_monotonic_s: float | None = None,
+        altitude_observation: AltitudeSourceSample | None = None,
     ) -> bool:
         """Publish one complete finite follower snapshot without partial writes."""
         connection_generation = (
@@ -715,11 +726,31 @@ class PX4InterfaceManager:
                 raise ValueError(f"Telemetry field {field_name} is not finite")
             parsed[field_name] = value
 
+        height_sample = None
+        if altitude_observation is not None:
+            if not isinstance(altitude_observation, AltitudeSourceSample):
+                raise ValueError("Altitude observation has an invalid contract")
+            for value in (altitude_observation.height_relative_m, altitude_observation.vertical_speed_up_m_s,
+                          altitude_observation.sample_time_s, altitude_observation.received_at_monotonic_s):
+                finite_number(value, "altitude_observation")
+            if altitude_observation.received_at_monotonic_s > time.monotonic():
+                self._altitude_observation = None
+                raise ValueError("Altitude observation receipt is in the future")
+            if altitude_observation.height_relative_m != parsed["relative_altitude_m"]:
+                raise ValueError("Altitude observation does not match the committed height")
+            height_sample = AltitudeObservation(
+                **asdict(altitude_observation), connection_generation=connection_generation,
+                telemetry_generation=telemetry_generation,
+            )
+            if height_sample == self._altitude_observation:
+                height_sample = self._altitude_observation
+
         self.current_roll = parsed["roll_deg"]
         self.current_pitch = parsed["pitch_deg"]
         self.current_yaw = parsed["yaw_deg"]
         self.current_altitude = parsed["relative_altitude_m"]
         self.current_ground_speed = parsed["ground_speed_m_s"]
+        self._altitude_observation = height_sample
         self._attitude_receipt_monotonic_s = attitude_receipt_monotonic_s
         self._ground_speed_receipt_monotonic_s = ground_speed_receipt_monotonic_s
         completed_at = (
@@ -740,6 +771,19 @@ class PX4InterfaceManager:
         self._telemetry_ready_event.set()
         return True
 
+    def get_altitude_observation(self) -> AltitudeObservation | None:
+        """Return the original fresh paired sample, never freshness from polling.
+
+        MAVSDK position/NED velocity pairs use explicitly labelled receipt timing.
+        """
+        sample = self._altitude_observation
+        if (sample is None or not self.active_mode
+                or not self._is_telemetry_owner_current(sample.connection_generation, sample.telemetry_generation)
+                or not self.get_telemetry_readiness()["ready"]):
+            return None
+        age = time.monotonic() - sample.received_at_monotonic_s
+        return sample if 0. <= age <= self.get_telemetry_stale_timeout_s() else None
+
     def guard_mc_attitude_command(self, fields):
         """Recheck measured attitude at calculation and every publication boundary."""
         from classes.offboard_commander import OffboardCommander
@@ -759,6 +803,18 @@ class PX4InterfaceManager:
         period, timeout, ttl = timing
         horizon = age + max(ttl, self.get_follower_data_refresh_period_s() + period + timeout)
         config = getattr(Parameters, "MC_ATTITUDE_RATE", {})
+        height = None
+        height_context = None
+        if config.get("ENABLE_ALTITUDE_HOLD", True):
+            height = self.get_altitude_observation()
+            if height is None:
+                raise CommandValidationError("altitude_sample_unavailable")
+            binding = (height.source, height.connection_generation, height.telemetry_generation,
+                       height.altitude_reference_generation)
+            previous = self._mc_altitude_guard_context
+            if previous is not None and previous[0] is self.setpoint_handler and previous[1] != binding:
+                raise CommandValidationError("altitude_reference_changed")
+            height_context = (self.setpoint_handler, binding)
         guarded, status = guard_body_rates(
             fields, roll_deg=self.current_roll, pitch_deg=self.current_pitch,
             max_roll_deg=config.get("MAX_ROLL_ANGLE"), max_pitch_deg=config.get("MAX_PITCH_ANGLE"),
@@ -766,6 +822,16 @@ class PX4InterfaceManager:
         )
         status["measurement_age_s"] = age
         status["source"] = self._telemetry_source_active
+        if height is not None:
+            status["altitude_observation"] = {
+                "measurement_age_s": now - height.received_at_monotonic_s,
+                "source": height.source, "source_marker": height.source_marker,
+                "sample_time_basis": height.sample_time_basis,
+                "connection_generation": height.connection_generation,
+                "telemetry_generation": height.telemetry_generation,
+                "altitude_reference_generation": height.altitude_reference_generation,
+            }
+            self._mc_altitude_guard_context = height_context
         self._last_attitude_guard = status
         return guarded
 
@@ -1566,6 +1632,10 @@ class PX4InterfaceManager:
             value, completed = await timed_fetch(self.mavlink_data_manager.fetch_ground_speed)
             return value, completed, None
 
+        async def altitude_observation_fetch():
+            fetch = getattr(self.mavlink_data_manager, "fetch_altitude_observation", None)
+            return await fetch() if callable(fetch) else None
+
         try:
             if not self._is_telemetry_owner_current(
                 connection_generation,
@@ -1577,6 +1647,7 @@ class PX4InterfaceManager:
                     attitude_fetch(),
                     timed_fetch(self.mavlink_data_manager.fetch_altitude_data),
                     ground_speed_fetch(),
+                    altitude_observation_fetch(),
                 ),
                 timeout=self.get_mavlink2rest_cycle_timeout_s(),
             )
@@ -1584,7 +1655,11 @@ class PX4InterfaceManager:
                 ground_speed,
                 ground_speed_at,
                 ground_speed_received,
-            ) = results
+            ), altitude_observation = results
+
+            if (altitude_observation is None
+                    and self._is_telemetry_owner_current(connection_generation, telemetry_generation)):
+                self._altitude_observation = None
 
             completion_times = (attitude_at, altitude_at, ground_speed_at)
             temporal_skew_s = max(completion_times) - min(completion_times)
@@ -1607,7 +1682,8 @@ class PX4InterfaceManager:
                     "roll_deg": attitude_data["roll"],
                     "pitch_deg": attitude_data["pitch"],
                     "yaw_deg": attitude_data["yaw"],
-                    "relative_altitude_m": altitude_data["altitude_relative"],
+                    "relative_altitude_m": (altitude_observation.height_relative_m
+                                            if altitude_observation is not None else altitude_data["altitude_relative"]),
                     "ground_speed_m_s": ground_speed,
                 },
                 connection_generation=connection_generation,
@@ -1616,6 +1692,7 @@ class PX4InterfaceManager:
                 temporal_skew_s=temporal_skew_s,
                 attitude_receipt_monotonic_s=attitude_received,
                 ground_speed_receipt_monotonic_s=ground_speed_received,
+                altitude_observation=altitude_observation,
             )
             return committed
         except asyncio.TimeoutError:
@@ -1657,6 +1734,12 @@ class PX4InterfaceManager:
             telemetry_generation,
         ):
             return
+        rate_hz = self.get_follower_data_refresh_rate_hz()
+        await asyncio.wait_for(
+            asyncio.gather(self.drone.telemetry.set_rate_position(rate_hz),
+                           self.drone.telemetry.set_rate_velocity_ned(rate_hz)),
+            timeout=self.get_mavsdk_command_timeout_s(),
+        )
         workers = {
             "position": (
                 self.drone.telemetry.position,
@@ -1666,9 +1749,9 @@ class PX4InterfaceManager:
                 self.drone.telemetry.attitude_euler,
                 self._consume_mavsdk_attitude,
             ),
-            "velocity_body": (
-                self.drone.telemetry.velocity_body,
-                self._consume_mavsdk_velocity_body,
+            "velocity_ned": (
+                self.drone.telemetry.velocity_ned,
+                self._consume_mavsdk_velocity_ned,
             ),
         }
         statuses = {
@@ -1796,6 +1879,9 @@ class PX4InterfaceManager:
                 status["state"] = "cancelled"
                 raise
             except Exception as exc:
+                if (name in {"position", "velocity_ned"}
+                        and self._is_telemetry_owner_current(connection_generation, telemetry_generation)):
+                    self._altitude_observation = None
                 status["state"] = "retrying"
                 status["restart_count"] += 1
                 status["last_error"] = f"{type(exc).__name__}: {exc}"
@@ -1809,11 +1895,35 @@ class PX4InterfaceManager:
 
         status["state"] = "stopped"
 
+    @staticmethod
+    def _mavsdk_altitude_reference_interval(absolute_m, relative_m):
+        """Bound the inferred datum by transport precision, not a flight tolerance."""
+        def half_float32_ulp(value):
+            if value == 0.:
+                return math.ldexp(1., -150)
+            exponent = math.frexp(abs(value))[1]
+            return math.ldexp(1., max(exponent - 24, -149) - 1)
+
+        uncertainty_m = 0.
+        for value in (absolute_m, relative_m):
+            # Integer-mm truncation, float32 mm scaling/casting, and SDK float output.
+            uncertainty_m += (.001 + 2. * half_float32_ulp(value * 1000.) / 1000.
+                              + half_float32_ulp(value))
+        datum_m = absolute_m - relative_m
+        return datum_m - uncertainty_m, datum_m + uncertainty_m
+
     def _consume_mavsdk_position(self, position):
         value = float(position.relative_altitude_m)
         if not math.isfinite(value):
             raise ValueError("MAVSDK relative altitude is not finite")
-        return {"relative_altitude_m": value}
+        result = {"relative_altitude_m": value}
+        absolute = getattr(position, "absolute_altitude_m", None)
+        result["home_altitude_reference_interval_m"] = (
+            self._mavsdk_altitude_reference_interval(float(absolute), value)
+            if isinstance(absolute, (int, float)) and not isinstance(absolute, bool) and math.isfinite(absolute)
+            else None
+        )
+        return result
 
     def _consume_mavsdk_attitude(self, attitude):
         values = {
@@ -1825,14 +1935,15 @@ class PX4InterfaceManager:
             raise ValueError("MAVSDK attitude contains a non-finite value")
         return values
 
-    def _consume_mavsdk_velocity_body(self, velocity):
+    def _consume_mavsdk_velocity_ned(self, velocity):
         ground_speed = math.hypot(
-            float(velocity.x_m_s),
-            float(velocity.y_m_s),
+            float(velocity.north_m_s),
+            float(velocity.east_m_s),
         )
-        if not math.isfinite(ground_speed):
-            raise ValueError("MAVSDK ground speed is not finite")
-        return {"ground_speed_m_s": ground_speed}
+        vertical_up = -float(velocity.down_m_s)
+        if not math.isfinite(ground_speed) or not math.isfinite(vertical_up):
+            raise ValueError("MAVSDK NED velocity is not finite")
+        return {"ground_speed_m_s": ground_speed, "vertical_speed_up_m_s": vertical_up}
 
     def _try_commit_mavsdk_telemetry_snapshot(
         self,
@@ -1865,13 +1976,16 @@ class PX4InterfaceManager:
                 stream_status["connection_generation"] != connection_generation
                 or stream_status["telemetry_generation"] != telemetry_generation
             ):
+                self._altitude_observation = None
                 return False
             last_update = stream_status["last_update_monotonic_s"]
-            if last_update is None or now - last_update > stale_timeout_s:
+            if last_update is None or not 0. <= now - last_update <= stale_timeout_s:
+                self._altitude_observation = None
                 return False
             completion_times.append(last_update)
         temporal_skew_s = max(completion_times) - min(completion_times)
         if temporal_skew_s > self.get_telemetry_max_skew_s():
+            self._altitude_observation = None
             self._last_telemetry_error = (
                 "MAVSDK telemetry stream skew "
                 f"{temporal_skew_s:.3f}s exceeds "
@@ -1879,14 +1993,41 @@ class PX4InterfaceManager:
             )
             return False
         try:
+            values = self._telemetry_pending_values
+            position_status = self._telemetry_stream_status["position"]
+            position_at = position_status["last_update_monotonic_s"]
+            velocity_at = self._telemetry_stream_status["velocity_ned"]["last_update_monotonic_s"]
+            reference = values.get("home_altitude_reference_interval_m")
+            altitude_observation = None
+            paired_streams_valid = all(self._telemetry_stream_status[name]["last_error"] is None
+                                       for name in ("position", "velocity_ned"))
+            if reference is not None and "vertical_speed_up_m_s" in values and paired_streams_valid:
+                previous = self._mavsdk_altitude_reference
+                coherent = ((max(previous[0], reference[0]), min(previous[1], reference[1]))
+                            if previous is not None else None)
+                if coherent is None or coherent[0] > coherent[1]:
+                    self._mavsdk_altitude_reference = reference
+                    self._mavsdk_altitude_reference_generation += 1
+                else:
+                    self._mavsdk_altitude_reference = coherent
+                altitude_observation = AltitudeSourceSample(
+                    height_relative_m=values["relative_altitude_m"],
+                    vertical_speed_up_m_s=values["vertical_speed_up_m_s"],
+                    source_marker=position_status["sample_count"] % 2**32,
+                    sample_time_s=position_at, received_at_monotonic_s=min(position_at, velocity_at),
+                    sample_time_basis="position receipt_monotonic; age from oldest paired receipt; SDK source timestamps unavailable",
+                    source="mavsdk:position+velocity_ned",
+                    altitude_reference_generation=self._mavsdk_altitude_reference_generation,
+                )
             committed = self._commit_telemetry_snapshot(
-                dict(self._telemetry_pending_values),
+                {key: values[key] for key in ("roll_deg", "pitch_deg", "yaw_deg", "relative_altitude_m", "ground_speed_m_s")},
                 connection_generation=connection_generation,
                 telemetry_generation=telemetry_generation,
                 completed_at_monotonic_s=max(completion_times),
                 temporal_skew_s=temporal_skew_s,
                 attitude_receipt_monotonic_s=self._telemetry_stream_status["attitude"]["last_update_monotonic_s"],
-                ground_speed_receipt_monotonic_s=self._telemetry_stream_status["velocity_body"]["last_update_monotonic_s"],
+                ground_speed_receipt_monotonic_s=velocity_at,
+                altitude_observation=altitude_observation,
             )
         except ValueError:
             return False

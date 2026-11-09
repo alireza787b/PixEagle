@@ -162,6 +162,124 @@ async def test_ground_receipt_handles_wrap_and_missing_source_marker(mavlink_dat
     assert await mavlink_data_manager.fetch_ground_speed_observation() == (18.0, (10, None))
 
 
+def altitude_payloads():
+    return ({"message": {"time_boot_ms": 10, "relative_alt": 20000, "alt": 520000, "vz": -125}},
+            {"message": {"time_usec": 1000000, "altitude": 500000}})
+
+
+def provide_altitude_payloads(manager, payload, home):
+    async def fetch(uri):
+        return home if uri.endswith("HOME_POSITION") else payload
+    manager.fetch_data_from_uri = AsyncMock(side_effect=fetch)
+
+
+@pytest.mark.asyncio
+async def test_control_altitude_pairs_home_height_and_earth_vertical_speed_without_refreshed_cache(
+    mavlink_data_manager, monkeypatch,
+):
+    from dataclasses import FrozenInstanceError
+    clock = [100.]
+    monkeypatch.setattr("classes.mavlink_data_manager.time.monotonic", lambda: clock[0])
+    payload, home = altitude_payloads()
+    provide_altitude_payloads(mavlink_data_manager, payload, home)
+    assert await mavlink_data_manager.fetch_altitude_observation() is None
+    assert await mavlink_data_manager.fetch_altitude_observation() is None
+    payload["message"]["time_boot_ms"] = 210
+    sample = await mavlink_data_manager.fetch_altitude_observation()
+    assert sample.height_relative_m == 20.
+    assert sample.vertical_speed_up_m_s == 1.25
+    assert sample.sample_time_s == pytest.approx(.210)
+    assert sample.received_at_monotonic_s == 100.
+    assert sample.altitude_reference_generation == 1
+    with pytest.raises(FrozenInstanceError):
+        sample.height_relative_m = 99.
+    clock[0] = 102.
+    assert await mavlink_data_manager.fetch_altitude_observation() is sample
+    payload["message"].update(time_boot_ms=410, relative_alt=20000, vz=0)
+    sample = await mavlink_data_manager.fetch_altitude_observation()
+    assert sample.received_at_monotonic_s == 102.
+    assert sample.vertical_speed_up_m_s == 0.
+
+
+@pytest.mark.asyncio
+async def test_control_altitude_unwraps_wire_clock_and_rejects_rollback(mavlink_data_manager):
+    payload, home = altitude_payloads()
+    payload["message"]["time_boot_ms"] = 2**32 - 10
+    provide_altitude_payloads(mavlink_data_manager, payload, home)
+    assert await mavlink_data_manager.fetch_altitude_observation() is None
+    payload["message"]["time_boot_ms"] = 10
+    sample = await mavlink_data_manager.fetch_altitude_observation()
+    assert sample.source_marker == 10
+    assert sample.sample_time_s == pytest.approx((2**32 + 10) / 1000.)
+    payload["message"]["time_boot_ms"] = 9
+    assert await mavlink_data_manager.fetch_altitude_observation() is None
+    payload["message"]["time_boot_ms"] = 10
+    assert await mavlink_data_manager.fetch_altitude_observation() is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field,value", [
+    ("relative_alt", 2**31 - 1), ("relative_alt", -2**31), ("relative_alt", None),
+    ("alt", 2**31 - 1), ("vz", 32767), ("vz", -32768), ("vz", float("nan")),
+    ("vz", float("inf")), ("vz", True), ("time_boot_ms", True), ("time_boot_ms", -1),
+    ("time_boot_ms", 2**32),
+])
+async def test_control_altitude_rejects_unavailable_or_invalid_wire_values(mavlink_data_manager, field, value):
+    payload, home = altitude_payloads()
+    provide_altitude_payloads(mavlink_data_manager, payload, home)
+    await mavlink_data_manager.fetch_altitude_observation()
+    payload["message"]["time_boot_ms"] = 20
+    assert await mavlink_data_manager.fetch_altitude_observation() is not None
+    payload["message"][field] = value
+    assert await mavlink_data_manager.fetch_altitude_observation() is None
+
+
+@pytest.mark.asyncio
+async def test_control_altitude_requires_home_and_detects_reference_changes(mavlink_data_manager):
+    payload, home = altitude_payloads()
+    provide_altitude_payloads(mavlink_data_manager, payload, home)
+    await mavlink_data_manager.fetch_altitude_observation()
+    payload["message"]["time_boot_ms"] = 20
+    first = await mavlink_data_manager.fetch_altitude_observation()
+    home["message"].update(time_usec=2000000, altitude=501000)
+    assert await mavlink_data_manager.fetch_altitude_observation() is None
+    payload["message"].update(time_boot_ms=30, relative_alt=19000)
+    assert await mavlink_data_manager.fetch_altitude_observation() is None
+    payload["message"]["time_boot_ms"] = 40
+    second = await mavlink_data_manager.fetch_altitude_observation()
+    assert second.altitude_reference_generation != first.altitude_reference_generation
+    assert second.height_relative_m == 19.
+    home.clear()
+    assert await mavlink_data_manager.fetch_altitude_observation() is None
+
+
+@pytest.mark.asyncio
+async def test_home_message_timestamp_changes_do_not_change_altitude_datum(mavlink_data_manager):
+    payload, home = altitude_payloads()
+    provide_altitude_payloads(mavlink_data_manager, payload, home)
+    await mavlink_data_manager.fetch_altitude_observation()
+    payload["message"]["time_boot_ms"] = 20
+    first = await mavlink_data_manager.fetch_altitude_observation()
+    home["message"]["time_usec"] += 1000000
+    assert await mavlink_data_manager.fetch_altitude_observation() is first
+    payload["message"]["time_boot_ms"] = 30
+    second = await mavlink_data_manager.fetch_altitude_observation()
+    assert second.altitude_reference_generation == first.altitude_reference_generation
+
+
+@pytest.mark.asyncio
+async def test_late_control_altitude_fetch_cannot_cross_receipt_reset(mavlink_data_manager):
+    payload, home = altitude_payloads()
+    async def fetch(uri):
+        if uri.endswith("HOME_POSITION"):
+            mavlink_data_manager.reset_attitude_receipt()
+            return home
+        return payload
+    mavlink_data_manager.fetch_data_from_uri = AsyncMock(side_effect=fetch)
+    assert await mavlink_data_manager.fetch_altitude_observation() is None
+    assert mavlink_data_manager._altitude_source_marker is None
+
+
 class TestMavlinkDataManagerPolling:
     """Tests for polling lifecycle."""
 

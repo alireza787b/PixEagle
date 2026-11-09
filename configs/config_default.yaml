@@ -1736,7 +1736,7 @@ PID:
     mc_pitchspeed_deg_s:    {p: 18.0, i: 0.15, d: 0.4}     # [deg/s] — pitch rate
     mc_rollspeed_deg_s:     {p: 1.5,  i: 0.08, d: 0.25}    # [deg/s] — roll rate
     mc_att_yawspeed_deg_s:  {p: 12.0, i: 0.1,  d: 0.3}     # [deg/s] — yaw rate (attitude mode)
-    mc_att_altitude:        {p: 2.0,  i: 0.3,  d: 0.5}     # [m]     — altitude via thrust
+    mc_att_altitude:        {p: 0.03, i: 0.003, d: 0.08}   # normalized thrust / m; D uses measured upward m/s
 
     # ── FW: L1 + TECS Cascade ────────────────────────────────
     # Used by: fw_attitude_rate only

@@ -8151,9 +8151,9 @@ sections:
             i: 0.1
             d: 0.3
           mc_att_altitude: &id015
-            p: 2.0
-            i: 0.3
-            d: 0.5
+            p: 0.03
+            i: 0.003
+            d: 0.08
           fw_bank_angle: &id016
             p: 2.0
             i: 0.3
@@ -8528,32 +8528,32 @@ sections:
           mc_att_altitude:
             type: object
             default: *id015
-            description: '[m]     — altitude via thrust'
+            description: normalized thrust / m; D uses measured upward m/s
             reload_tier: follower_restart
             reboot_required: false
             properties:
               p:
                 type: float
-                default: 2.0
-                description: p parameter
+                default: 0.03
+                description: Normalized thrust correction per metre of relative-height error
                 reload_tier: follower_restart
                 reboot_required: false
                 min: 0.0
                 max: 100.0
-                step: 0.1
+                step: 0.01
               i:
                 type: float
-                default: 0.3
-                description: i parameter
+                default: 0.003
+                description: Normalized thrust integral gain per metre-second of relative-height error
                 reload_tier: follower_restart
                 reboot_required: false
                 min: 0.0
                 max: 1.0
-                step: 0.01
+                step: 0.001
               d:
                 type: float
-                default: 0.5
-                description: d parameter
+                default: 0.08
+                description: Normalized thrust damping per measured upward metre per second
                 reload_tier: follower_restart
                 reboot_required: false
                 min: 0.0

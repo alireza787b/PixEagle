@@ -16,6 +16,7 @@ import pytest
 import math
 import asyncio
 import time
+import struct
 from types import SimpleNamespace
 from unittest.mock import patch, MagicMock, AsyncMock, PropertyMock
 import sys
@@ -49,6 +50,8 @@ def mock_mavsdk_system():
     mock_system.action = MagicMock()
     mock_system.action.return_to_launch = AsyncMock()
     mock_system.telemetry = MagicMock()
+    mock_system.telemetry.set_rate_position = AsyncMock()
+    mock_system.telemetry.set_rate_velocity_ned = AsyncMock()
     return mock_system
 
 
@@ -94,6 +97,7 @@ def mock_mavlink_data_manager():
     mock_manager = MagicMock()
     mock_manager.fetch_attitude_observation = None
     mock_manager.fetch_ground_speed_observation = None
+    mock_manager.fetch_altitude_observation = None
     mock_manager.fetch_attitude_data = AsyncMock(return_value={
         'roll': 0.0,
         'pitch': 0.0,
@@ -693,6 +697,268 @@ class TestPX4InterfaceManagerConnection:
 class TestPX4InterfaceManagerTelemetry:
     """Tests for telemetry updates."""
 
+    @staticmethod
+    def altitude_sample(*, received_at=100., marker=200, height=20.):
+        from classes.mavlink_data_manager import AltitudeSourceSample
+        return AltitudeSourceSample(
+            height_relative_m=height, vertical_speed_up_m_s=1.25, source_marker=marker,
+            sample_time_s=marker / 1000., received_at_monotonic_s=received_at,
+            sample_time_basis="px4_boot_ms_unwrapped; receipt_monotonic_age",
+            source="mavlink2rest:GLOBAL_POSITION_INT", altitude_reference_generation=1,
+        )
+
+    @pytest.mark.asyncio
+    async def test_altitude_observation_is_atomic_immutable_and_expires_despite_cached_reads(
+        self, px4_interface, mock_mavlink_data_manager, monkeypatch,
+    ):
+        from dataclasses import FrozenInstanceError
+        clock = [100.]
+        monkeypatch.setattr("classes.px4_interface_manager.time.monotonic", lambda: clock[0])
+        px4_interface.active_mode = True
+        px4_interface._reset_telemetry_health("mavlink2rest")
+        mock_mavlink_data_manager.fetch_altitude_observation = AsyncMock(return_value=self.altitude_sample())
+        assert await px4_interface._update_telemetry_via_mavlink2rest()
+        sample = px4_interface.get_altitude_observation()
+        assert sample.height_relative_m == px4_interface.current_altitude == 20.
+        assert sample.vertical_speed_up_m_s == 1.25
+        assert sample.connection_generation == px4_interface._connection_generation
+        assert sample.telemetry_generation == px4_interface._telemetry_generation
+        with pytest.raises(FrozenInstanceError):
+            sample.height_relative_m = 99.
+        clock[0] += .5
+        assert await px4_interface._update_telemetry_via_mavlink2rest()
+        assert px4_interface.get_altitude_observation() is sample
+        clock[0] += 1.6
+        assert await px4_interface._update_telemetry_via_mavlink2rest()
+        assert px4_interface.get_telemetry_readiness()["ready"]
+        assert px4_interface.get_altitude_observation() is None
+
+    @pytest.mark.asyncio
+    async def test_failed_gather_does_not_pair_new_altitude_timing_with_old_height(
+        self, px4_interface, mock_mavlink_data_manager, monkeypatch,
+    ):
+        monkeypatch.setattr("classes.px4_interface_manager.time.monotonic", lambda: 100.)
+        px4_interface.active_mode = True
+        px4_interface._reset_telemetry_health("mavlink2rest")
+        mock_mavlink_data_manager.fetch_altitude_observation = AsyncMock(return_value=self.altitude_sample())
+        assert await px4_interface._update_telemetry_via_mavlink2rest()
+        sample = px4_interface.get_altitude_observation()
+        mock_mavlink_data_manager.fetch_altitude_observation.return_value = self.altitude_sample(height=99., marker=400)
+        mock_mavlink_data_manager.fetch_attitude_data.return_value = None
+        assert not await px4_interface._update_telemetry_via_mavlink2rest()
+        assert px4_interface.current_altitude == 20.
+        assert px4_interface.get_altitude_observation() is sample
+        mock_mavlink_data_manager.fetch_altitude_observation.return_value = None
+        assert not await px4_interface._update_telemetry_via_mavlink2rest()
+        assert px4_interface.current_altitude == 20.
+        assert px4_interface.get_altitude_observation() is None
+
+    @pytest.mark.asyncio
+    async def test_unavailable_control_altitude_preserves_legacy_height_without_fabricated_vertical_speed(
+        self, px4_interface, mock_mavlink_data_manager,
+    ):
+        px4_interface.active_mode = True
+        px4_interface._reset_telemetry_health("mavlink2rest")
+        mock_mavlink_data_manager.fetch_altitude_observation = AsyncMock(return_value=None)
+        assert await px4_interface._update_telemetry_via_mavlink2rest()
+        assert px4_interface.current_altitude == 50.
+        assert px4_interface.get_altitude_observation() is None
+
+    @pytest.mark.asyncio
+    async def test_altitude_observation_cannot_cross_telemetry_owner_generation(
+        self, px4_interface, mock_mavlink_data_manager,
+    ):
+        px4_interface.active_mode = True
+        px4_interface._reset_telemetry_health("mavlink2rest")
+        async def superseded():
+            px4_interface._advance_connection_generation()
+            px4_interface._reset_telemetry_health("mavlink2rest")
+            return self.altitude_sample(received_at=time.monotonic())
+        mock_mavlink_data_manager.fetch_altitude_observation = AsyncMock(side_effect=superseded)
+        assert not await px4_interface._update_telemetry_via_mavlink2rest()
+        assert px4_interface.get_altitude_observation() is None
+
+    @pytest.mark.asyncio
+    async def test_future_altitude_receipt_does_not_partially_update_snapshot(
+        self, px4_interface, mock_mavlink_data_manager, monkeypatch,
+    ):
+        monkeypatch.setattr("classes.px4_interface_manager.time.monotonic", lambda: 100.)
+        px4_interface.active_mode = True
+        px4_interface._reset_telemetry_health("mavlink2rest")
+        mock_mavlink_data_manager.fetch_altitude_observation = AsyncMock(return_value=self.altitude_sample())
+        assert await px4_interface._update_telemetry_via_mavlink2rest()
+        sample = px4_interface.get_altitude_observation()
+        mock_mavlink_data_manager.fetch_altitude_observation.return_value = self.altitude_sample(received_at=101., height=99.)
+        assert not await px4_interface._update_telemetry_via_mavlink2rest()
+        assert px4_interface.current_altitude == 20.
+        assert px4_interface.get_altitude_observation() is None
+        px4_interface._reset_telemetry_health("mavlink2rest")
+        assert px4_interface.get_altitude_observation() is None
+
+    def test_mavsdk_height_without_a_home_reference_cannot_supply_control_altitude(self, px4_interface):
+        px4_interface.active_mode = True
+        px4_interface._reset_telemetry_health("mavsdk")
+        px4_interface._telemetry_pending_values.update(
+            relative_altitude_m=20., roll_deg=30., pitch_deg=20., yaw_deg=0.,
+            **px4_interface._consume_mavsdk_velocity_ned(SimpleNamespace(north_m_s=1., east_m_s=2., down_m_s=-4.)),
+        )
+        for status in px4_interface._telemetry_stream_status.values():
+            status["last_update_monotonic_s"] = time.monotonic()
+        assert px4_interface._try_commit_mavsdk_telemetry_snapshot()
+        assert px4_interface.get_altitude_observation() is None
+
+    @staticmethod
+    def stage_mavsdk_altitude(controller):
+        controller.active_mode = True
+        controller._reset_telemetry_health("mavsdk")
+        controller._telemetry_pending_values.update(
+            controller._consume_mavsdk_position(SimpleNamespace(relative_altitude_m=20., absolute_altitude_m=520.)),
+        )
+        controller._telemetry_pending_values.update(
+            controller._consume_mavsdk_attitude(SimpleNamespace(roll_deg=30., pitch_deg=20., yaw_deg=0.)),
+        )
+        controller._telemetry_pending_values.update(
+            controller._consume_mavsdk_velocity_ned(SimpleNamespace(north_m_s=3., east_m_s=4., down_m_s=-1.25)),
+        )
+        for status in controller._telemetry_stream_status.values():
+            status.update(last_update_monotonic_s=100., sample_count=1, state="running")
+
+    def test_mavsdk_paired_height_uses_position_receipt_clock_and_true_ned_vertical(
+        self, px4_interface, monkeypatch,
+    ):
+        clock = [100.]
+        monkeypatch.setattr("classes.px4_interface_manager.time.monotonic", lambda: clock[0])
+        self.stage_mavsdk_altitude(px4_interface)
+        assert px4_interface._try_commit_mavsdk_telemetry_snapshot()
+        first = px4_interface.get_altitude_observation()
+        assert first.height_relative_m == 20.
+        assert first.vertical_speed_up_m_s == 1.25
+        assert px4_interface.current_ground_speed == 5.
+        assert first.sample_time_s == first.received_at_monotonic_s == 100.
+        assert "receipt_monotonic" in first.sample_time_basis
+        assert first.source == "mavsdk:position+velocity_ned"
+        assert "velocity_body" not in px4_interface._telemetry_stream_status
+
+        clock[0] = 100.1
+        px4_interface._telemetry_stream_status["attitude"]["last_update_monotonic_s"] = 100.1
+        assert px4_interface._try_commit_mavsdk_telemetry_snapshot()
+        assert px4_interface.get_altitude_observation() is first
+        velocity = px4_interface._telemetry_stream_status["velocity_ned"]
+        velocity.update(last_update_monotonic_s=100.1, sample_count=2)
+        assert px4_interface._try_commit_mavsdk_telemetry_snapshot()
+        assert px4_interface.get_altitude_observation().sample_time_s == 100.
+
+        clock[0] = 100.2
+        px4_interface._telemetry_stream_status["position"].update(last_update_monotonic_s=100.2, sample_count=2)
+        assert px4_interface._try_commit_mavsdk_telemetry_snapshot()
+        second = px4_interface.get_altitude_observation()
+        assert second.sample_time_s == 100.2
+        assert second.received_at_monotonic_s == 100.1
+        assert second.altitude_reference_generation == first.altitude_reference_generation
+
+        px4_interface._telemetry_pending_values.update(
+            px4_interface._consume_mavsdk_position(SimpleNamespace(relative_altitude_m=19., absolute_altitude_m=520.)),
+        )
+        assert px4_interface._try_commit_mavsdk_telemetry_snapshot()
+        assert px4_interface.get_altitude_observation().altitude_reference_generation != second.altitude_reference_generation
+
+    def test_mavsdk_skew_or_invalid_source_clears_altitude_control_feedback(self, px4_interface, monkeypatch):
+        clock = [100.]
+        monkeypatch.setattr("classes.px4_interface_manager.time.monotonic", lambda: clock[0])
+        self.stage_mavsdk_altitude(px4_interface)
+        assert px4_interface._try_commit_mavsdk_telemetry_snapshot()
+        assert px4_interface.get_altitude_observation() is not None
+        clock[0] = 100.5
+        px4_interface._telemetry_stream_status["position"]["last_update_monotonic_s"] = 100.5
+        assert not px4_interface._try_commit_mavsdk_telemetry_snapshot()
+        assert px4_interface.get_altitude_observation() is None
+        for status in px4_interface._telemetry_stream_status.values():
+            status["last_update_monotonic_s"] = 100.5
+        px4_interface._telemetry_stream_status["velocity_ned"]["last_error"] = "nonfinite sample"
+        assert px4_interface._try_commit_mavsdk_telemetry_snapshot()
+        assert px4_interface.get_altitude_observation() is None
+        px4_interface._telemetry_stream_status["velocity_ned"]["last_error"] = None
+        px4_interface._telemetry_stream_status["position"]["last_update_monotonic_s"] = 100.6
+        assert not px4_interface._try_commit_mavsdk_telemetry_snapshot()
+        assert px4_interface.get_altitude_observation() is None
+
+    @staticmethod
+    def float32_sdk_position(home_m, height_m, *, wire_path):
+        from mavsdk.telemetry_pb2 import Position
+        if wire_path:
+            f32 = lambda value: struct.unpack("!f", struct.pack("!f", value))[0]
+            home = f32(home_m)
+            absolute = f32(home + height_m)
+            absolute_mm = int(f32(absolute * 1000.))
+            relative_mm = int(f32(f32(absolute - home) * 1000.))
+            return Position(absolute_altitude_m=absolute_mm / 1000., relative_altitude_m=relative_mm / 1000.)
+        return Position(absolute_altitude_m=home_m + height_m, relative_altitude_m=height_m)
+
+    @pytest.mark.parametrize("home_m", [500.1234, 5000.1234, 10000.1234, 30000.1234])
+    @pytest.mark.parametrize("wire_path", [False, True])
+    def test_sdk_float32_home_datum_stays_stable_as_height_changes_but_detects_a_reset(
+        self, px4_interface, monkeypatch, home_m, wire_path,
+    ):
+        clock = [100.]
+        monkeypatch.setattr("classes.px4_interface_manager.time.monotonic", lambda: clock[0])
+        self.stage_mavsdk_altitude(px4_interface)
+        generation = None
+        heights = [5. + index / 1000. for index in range(21)] + [10., 20., 30.125, 60.999, 119.999]
+        for index, height in enumerate(heights):
+            position = self.float32_sdk_position(home_m, height, wire_path=wire_path)
+            px4_interface._telemetry_pending_values.update(px4_interface._consume_mavsdk_position(position))
+            clock[0] += .01
+            for status in px4_interface._telemetry_stream_status.values():
+                status.update(last_update_monotonic_s=clock[0], sample_count=index + 1)
+            assert px4_interface._try_commit_mavsdk_telemetry_snapshot()
+            sample = px4_interface.get_altitude_observation()
+            if generation is None:
+                generation = sample.altitude_reference_generation
+            assert sample.altitude_reference_generation == generation
+
+        # The aircraft stays at the same absolute height while home moves by 5 cm.
+        position = self.float32_sdk_position(home_m + .05, heights[-1] - .05, wire_path=wire_path)
+        px4_interface._telemetry_pending_values.update(px4_interface._consume_mavsdk_position(position))
+        assert px4_interface._try_commit_mavsdk_telemetry_snapshot()
+        assert px4_interface.get_altitude_observation().altitude_reference_generation != generation
+
+    def test_sdk_reference_coherence_does_not_follow_accumulating_datum_drift(self, px4_interface, monkeypatch):
+        clock = [100.]
+        monkeypatch.setattr("classes.px4_interface_manager.time.monotonic", lambda: clock[0])
+        self.stage_mavsdk_altitude(px4_interface)
+        generations = []
+        for index in range(21):
+            position = self.float32_sdk_position(5000.1234 + index / 1000., 20., wire_path=True)
+            px4_interface._telemetry_pending_values.update(px4_interface._consume_mavsdk_position(position))
+            clock[0] += .01
+            for status in px4_interface._telemetry_stream_status.values():
+                status.update(last_update_monotonic_s=clock[0], sample_count=index + 1)
+            assert px4_interface._try_commit_mavsdk_telemetry_snapshot()
+            generations.append(px4_interface.get_altitude_observation().altitude_reference_generation)
+        assert generations[-1] > generations[0]
+
+    @pytest.mark.parametrize("values", [
+        dict(north_m_s=1., east_m_s=0., down_m_s=float("nan")),
+        dict(north_m_s=float("inf"), east_m_s=0., down_m_s=0.),
+        dict(x_m_s=1., y_m_s=0., z_m_s=-2.),
+    ])
+    def test_mavsdk_vertical_feedback_rejects_invalid_or_body_frame_velocity(self, px4_interface, values):
+        with pytest.raises((ValueError, AttributeError)):
+            px4_interface._consume_mavsdk_velocity_ned(SimpleNamespace(**values))
+
+    @pytest.mark.asyncio
+    async def test_mavsdk_height_stream_negotiation_failure_cannot_start_workers(self, px4_interface):
+        px4_interface.active_mode = True
+        px4_interface._reset_telemetry_health("mavsdk")
+        px4_interface.drone.telemetry.set_rate_velocity_ned.side_effect = RuntimeError("rate rejected")
+        with pytest.raises(RuntimeError, match="rate rejected"):
+            await px4_interface._update_telemetry_via_mavsdk(
+                connection_generation=px4_interface._connection_generation,
+                telemetry_generation=px4_interface._telemetry_generation,
+            )
+        assert px4_interface._telemetry_stream_tasks == {}
+        assert not px4_interface.get_telemetry_readiness()["ready"]
+
     @pytest.mark.asyncio
     async def test_ground_receipt_is_committed_with_its_value_not_failed_new_gather(
         self, px4_interface, mock_mavlink_data_manager,
@@ -1120,8 +1386,8 @@ class TestPX4InterfaceManagerTelemetry:
         px4_interface.drone.telemetry.attitude_euler.side_effect = lambda: stream(
             SimpleNamespace(roll_deg=1.5, pitch_deg=-2.5, yaw_deg=90.0)
         )
-        px4_interface.drone.telemetry.velocity_body.side_effect = lambda: stream(
-            SimpleNamespace(x_m_s=3.0, y_m_s=4.0, z_m_s=0.0)
+        px4_interface.drone.telemetry.velocity_ned.side_effect = lambda: stream(
+            SimpleNamespace(north_m_s=3.0, east_m_s=4.0, down_m_s=0.0)
         )
 
         px4_interface.active_mode = True
@@ -1147,6 +1413,8 @@ class TestPX4InterfaceManagerTelemetry:
             assert px4_interface.current_yaw == pytest.approx(97.0)
             assert px4_interface.current_ground_speed == pytest.approx(5.0)
             assert px4_interface.get_telemetry_readiness()["ready"] is True
+            px4_interface.drone.telemetry.set_rate_position.assert_awaited_once_with(1.)
+            px4_interface.drone.telemetry.set_rate_velocity_ned.assert_awaited_once_with(1.)
             assert px4_interface.get_connection_status()["telemetry_update_running"] is True
         finally:
             px4_interface.active_mode = False
@@ -1185,12 +1453,12 @@ class TestPX4InterfaceManagerTelemetry:
 
         async def velocity_stream():
             while True:
-                yield SimpleNamespace(x_m_s=6.0, y_m_s=8.0, z_m_s=0.0)
+                yield SimpleNamespace(north_m_s=6.0, east_m_s=8.0, down_m_s=0.0)
                 await asyncio.sleep(0.001)
 
         px4_interface.drone.telemetry.position.side_effect = position_stream
         px4_interface.drone.telemetry.attitude_euler.side_effect = attitude_stream
-        px4_interface.drone.telemetry.velocity_body.side_effect = velocity_stream
+        px4_interface.drone.telemetry.velocity_ned.side_effect = velocity_stream
         px4_interface.MIN_MAVSDK_STREAM_RETRY_DELAY_S = 0.001
         px4_interface.get_follower_data_refresh_period_s = MagicMock(return_value=0.001)
 
@@ -1211,7 +1479,7 @@ class TestPX4InterfaceManagerTelemetry:
 
             assert px4_interface._telemetry_stream_status["position"]["restart_count"] == 1
             assert px4_interface._telemetry_stream_status["attitude"]["sample_count"] > 0
-            assert px4_interface._telemetry_stream_status["velocity_body"]["sample_count"] > 0
+            assert px4_interface._telemetry_stream_status["velocity_ned"]["sample_count"] > 0
         finally:
             px4_interface.active_mode = False
             await px4_interface._cancel_telemetry_update_task()

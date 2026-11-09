@@ -63,6 +63,15 @@ def test_zero_mc_altitude_offset_default_preserves_existing_metres_range():
     assert field['unit'] == 'm'
 
 
+def test_fresh_mc_thrust_gains_preserve_explicit_saved_tuning_range():
+    schema = yaml.safe_load((CONFIGS_DIR / "config_schema.yaml").read_text())
+    gains = schema["sections"]["PID"]["parameters"]["PID_GAINS"]["properties"]["mc_att_altitude"]["properties"]
+    for key, default, previous in (("p", .03, 2.), ("i", .003, .3), ("d", .08, .5)):
+        assert gains[key]["default"] == default
+        assert gains[key]["min"] <= previous <= gains[key]["max"]
+    assert gains["i"]["step"] == .001
+
+
 def test_ground_speed_fallback_schema_is_false_boolean_in_existing_fw_group():
     schema = yaml.safe_load((CONFIGS_DIR / "config_schema.yaml").read_text())
     field = schema["sections"]["FW_ATTITUDE_RATE"]["parameters"]["ALLOW_GROUND_SPEED_FALLBACK"]

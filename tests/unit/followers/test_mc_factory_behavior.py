@@ -12,6 +12,8 @@ import yaml
 from classes.follower import FollowerFactory
 from classes.parameters import Parameters
 from classes.tracker_output import TrackerDataType, TrackerOutput
+from classes.telemetry_observation import AltitudeObservation
+from classes.command_safety import CommandValidationError
 
 
 pytestmark = pytest.mark.unit
@@ -38,6 +40,7 @@ def factory():
             get_orientation=lambda: (0., 0., 0.),
             is_command_connection_ready=lambda **kwargs: True,
         )
+        controller.get_altitude_observation = lambda: height_sample(controller.current_altitude)
         return FollowerFactory.create_follower(mode, controller, aim)
 
     try:
@@ -56,6 +59,16 @@ def observe(follower, x, y):
     assert intent is not None
     assert all(math.isfinite(value) for value in intent.fields.values())
     return intent.fields
+
+
+def height_sample(height=30., *, up=0., time_s=1., reference=1):
+    return AltitudeObservation(
+        height_relative_m=height, vertical_speed_up_m_s=up,
+        source_marker=int(time_s * 1000), sample_time_s=time_s,
+        received_at_monotonic_s=time.monotonic(), sample_time_basis="unit_fixture",
+        source="test_paired_height", altitude_reference_generation=reference,
+        connection_generation=1, telemetry_generation=1,
+    )
 
 
 @pytest.mark.parametrize("mode", VELOCITY_MODES)
@@ -127,7 +140,7 @@ def test_mc_rates_respect_altitude_guidance_permission_for_saved_offset(factory,
         config["MC_ATTITUDE_RATE"]["TARGET_ALTITUDE_OFFSET"] = 3.
 
     follower = factory("mc_attitude_rate", altitude=altitude, configure=configure)
-    follower._calculate_thrust_command(30., 0.)
+    follower._calculate_thrust_command(0.)
     assert follower.pid_altitude.setpoint == expected
 
 
@@ -159,6 +172,60 @@ def test_mc_rate_image_gain_conversion_includes_integral_and_derivative(factory)
                       (follower.pid_yaw_rate, "mc_att_yawspeed_deg_s")):
         gains = Parameters.PID_GAINS[axis]
         assert pid.tunings == pytest.approx(tuple(math.radians(gains[key]) for key in ("p", "i", "d")))
+
+
+def test_mc_rate_height_integrates_once_per_source_sample_and_damps_vertical_speed(factory):
+    def configure(config):
+        config["PID"]["PID_GAINS"]["mc_att_altitude"] = dict(p=0., i=.1, d=.2)
+
+    follower = factory("mc_attitude_rate", configure=configure)
+    sample = height_sample()
+    follower.px4_controller.get_altitude_observation = lambda: sample
+    assert follower._calculate_altitude_correction() == 0.
+    sample = height_sample(29., time_s=2.)
+    assert follower._calculate_altitude_correction() == pytest.approx(.1)
+    for _ in range(100):
+        assert follower._calculate_altitude_correction() == pytest.approx(.1)
+    sample = height_sample(29., up=.5, time_s=3.)
+    assert follower._calculate_altitude_correction() == pytest.approx(.1)
+
+
+@pytest.mark.parametrize("up", [-.5, .5])
+def test_mc_rate_height_damping_uses_paired_measured_speed(factory, up):
+    def configure(config):
+        config["PID"]["PID_GAINS"]["mc_att_altitude"] = dict(p=0., i=0., d=.2)
+
+    follower = factory("mc_attitude_rate", configure=configure)
+    follower.px4_controller.get_altitude_observation = lambda: height_sample(up=up)
+    assert follower._calculate_altitude_correction() == pytest.approx(-.2 * up)
+
+
+@pytest.mark.parametrize("replacement,reason", [
+    (None, "altitude_sample_unavailable"),
+    (height_sample(time_s=.5), "altitude_source_time_reversed"),
+    (height_sample(time_s=2., reference=2), "altitude_reference_changed"),
+])
+def test_mc_rate_invalid_height_cannot_reuse_a_hover_guess(factory, replacement, reason):
+    follower = factory("mc_attitude_rate")
+    follower._calculate_altitude_correction()
+    follower.px4_controller.get_altitude_observation = lambda: replacement
+    with pytest.raises(CommandValidationError, match=reason):
+        follower._calculate_thrust_command(0.)
+
+
+def test_mc_rate_yaw_gating_keeps_altitude_stabilization(factory):
+    follower = factory("mc_attitude_rate")
+    assert follower._apply_yaw_error_gating(1., .2, .61) == (0., .61)
+
+
+def test_mc_rate_thrust_compensation_includes_roll_as_well_as_pitch(factory):
+    follower = factory("mc_attitude_rate")
+    baseline = follower._calculate_thrust_command(0., 0.)
+    tilted = follower._calculate_thrust_command(20., 25.)
+    expected = follower.hover_thrust * follower.pitch_compensation_gain * (
+        1. / (math.cos(math.radians(20.)) * math.cos(math.radians(25.))) - 1.
+    )
+    assert tilted - baseline == pytest.approx(expected)
 
 
 def test_ground_coordinate_correction_disable_applies_to_attitude(factory):
