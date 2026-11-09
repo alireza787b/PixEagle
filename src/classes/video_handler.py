@@ -139,6 +139,9 @@ class VideoHandler:
         self._source_listener = None
         self._capture_monotonic = None
         self._last_capture_stamp = CaptureStamp()
+        self._last_capture_geometry = None
+        self._last_capture_frame = None
+        self._last_capture_cached_frame = None
         self._pending_replay_epoch = False
         self._last_frame_status = {
             "source": "none",
@@ -1806,14 +1809,21 @@ class VideoHandler:
         self._next_recovery_time = 0.0
         self._init_failed = False
         
-        # Cache the good frame
-        if self.current_raw_frame is not None:
-            self._frame_cache.append(self.current_raw_frame.copy())
-
-        self._frame_sequence += 1
-        self._last_capture_stamp = CaptureStamp(
-            self._source_epoch, str(self._frame_sequence), self._capture_monotonic, "fresh",
-        )
+        with self._source_initialization_lock:
+            frame = self.current_raw_frame
+            cached = frame.copy() if frame is not None else None
+            if cached is not None:
+                self._frame_cache.append(cached)
+            self._frame_sequence += 1
+            self._last_capture_stamp = CaptureStamp(
+                self._source_epoch, str(self._frame_sequence), self._capture_monotonic, "fresh",
+            )
+            self._last_capture_frame = frame
+            self._last_capture_cached_frame = cached
+            self._last_capture_geometry = (
+                (int(frame.shape[1]), int(frame.shape[0]), self._frame_rotation_deg, self._frame_flip_mode)
+                if frame is not None else None
+            )
         replay_source = self._is_video_file_source()
         if replay_source:
             self._video_file_playback_state = "playing"
@@ -2017,6 +2027,9 @@ class VideoHandler:
         self._source_epoch = str(uuid.uuid4())
         self._capture_monotonic = None
         self._last_capture_stamp = CaptureStamp()
+        self._last_capture_geometry = None
+        self._last_capture_frame = None
+        self._last_capture_cached_frame = None
         self._pending_replay_epoch = False
         if clear_frames:
             self._frame_cache.clear()
@@ -2024,6 +2037,13 @@ class VideoHandler:
             self.current_resized_raw_frame = self.current_resized_osd_frame = None
         if self._source_listener is not None:
             self._source_listener(self._source_epoch)
+
+    def get_capture_context(self, frame=None):
+        """Atomically return the exact pixels' receipt stamp and capture geometry."""
+        with self._source_initialization_lock:
+            stamp = self.get_capture_stamp(frame)
+            geometry = getattr(self, '_last_capture_geometry', None) if stamp.capture_id is not None else None
+            return stamp, geometry
 
     def get_capture_stamp(self, frame=None) -> CaptureStamp:
         """Snapshot backend receipt provenance for the exact returned pixels.
@@ -2033,8 +2053,8 @@ class VideoHandler:
         """
         with self._source_initialization_lock:
             if frame is not None and not (
-                frame is self.current_raw_frame
-                or (self._frame_cache and frame is self._frame_cache[-1])
+                frame is self._last_capture_frame
+                or frame is self._last_capture_cached_frame
             ):
                 return CaptureStamp()
             captured = self._last_capture_stamp

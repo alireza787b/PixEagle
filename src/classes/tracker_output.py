@@ -28,6 +28,8 @@ from typing import Optional, Tuple, Dict, Any, List
 import time
 import logging
 
+from classes.guidance_observation import ImageMeasurement
+
 logger = logging.getLogger(__name__)
 
 # Import schema manager for dynamic schema handling
@@ -143,6 +145,7 @@ class TrackerOutput:
 
     # Schema-specific fields (handled as optional kwargs)
     gimbal_metadata: Optional[Dict[str, Any]] = None
+    image_measurement: Optional[ImageMeasurement] = None
     
     def __post_init__(self):
         """Validate the tracker output after initialization."""
@@ -157,6 +160,8 @@ class TrackerOutput:
             bool: True if valid, raises ValueError if invalid
         """
         # Basic validation
+        if self.image_measurement is not None and not isinstance(self.image_measurement, ImageMeasurement):
+            raise ValueError("image_measurement must be a typed ImageMeasurement")
         if self.timestamp <= 0:
             raise ValueError("Timestamp must be positive")
         
@@ -223,8 +228,11 @@ class TrackerOutput:
             TrackerOutput: New instance
         """
         # Convert string back to enum
+        data = dict(data)
         if 'data_type' in data and isinstance(data['data_type'], str):
             data['data_type'] = TrackerDataType(data['data_type'])
+        if isinstance(data.get('image_measurement'), dict):
+            data['image_measurement'] = ImageMeasurement.from_dict(data['image_measurement'])
         
         return cls(**data)
     

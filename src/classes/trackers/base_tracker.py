@@ -26,6 +26,7 @@ To create a new tracker:
 """
 
 from abc import ABC, abstractmethod
+from classes.guidance_observation import image_measurement_for_output
 from collections import deque
 import dataclasses
 import time
@@ -82,6 +83,8 @@ class BaseTracker(ABC):
         self.predicted_bbox: Optional[Tuple[int, int, int, int]] = None
         self.predicted_center: Optional[Tuple[float, float]] = None
         self.last_measurement_timestamp: Optional[float] = None
+        self.image_measurement = None
+        self._last_image_capture = None
         self.center_history = deque(maxlen=Parameters.CENTER_HISTORY_LENGTH)
         self.tracking_started: bool = False
 
@@ -164,6 +167,7 @@ class BaseTracker(ABC):
     # =========================================================================
 
     def stop_tracking(self) -> None:
+        self.image_measurement = None
         self.tracking_started = False
         self.bbox = None
         self.prev_bbox = None
@@ -188,6 +192,7 @@ class BaseTracker(ABC):
         logger.debug(f"{self.tracker_name} tracking stopped and state reset")
 
     def reset(self):
+        self.image_measurement = None
         self.bbox = None
         self.center = None
         self.prev_center = None
@@ -1308,6 +1313,11 @@ class BaseTracker(ABC):
             quality_metrics=quality_metrics,
             raw_data=raw_data,
             metadata=metadata,
+            image_measurement=image_measurement_for_output(
+                getattr(self, 'image_measurement', None), measured=usable_for_following,
+                source_epoch=getattr(getattr(self, 'video_handler', None), '_source_epoch', None),
+                target_generation=getattr(getattr(self, 'app_controller', None), '_tracking_session_generation', None),
+            ),
         )
 
     def get_output(self) -> TrackerOutput:

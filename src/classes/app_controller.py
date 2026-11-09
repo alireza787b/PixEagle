@@ -46,6 +46,7 @@ from classes.recording_manager import RecordingManager
 from classes.storage_manager import StorageManager
 from classes.mavlink_data_manager import MavlinkDataManager
 from classes.frame_publisher import FramePublisher
+from classes.guidance_observation import ImageFrameContext, ObservationProvenance
 from classes.frame_preprocessor import FramePreprocessor
 from classes.video_geometry import FrameScale
 from classes.estimators.estimator_factory import create_estimator
@@ -860,7 +861,8 @@ class AppController:
                 "message": message,
             }
 
-    def _track_and_draw_smart_frame(self, frame: np.ndarray, *, selection_snapshot=None, display_frame=None) -> np.ndarray:
+    def _track_and_draw_smart_frame(self, frame: np.ndarray, *, selection_snapshot=None, display_frame=None,
+                                    image_context=None) -> np.ndarray:
         """Run one SmartTracker frame while model and target state are stable."""
         state_lock = getattr(self, "_tracker_model_state_lock", None)
         if state_lock is None:
@@ -869,8 +871,38 @@ class AppController:
             smart_tracker = self.smart_tracker
             if smart_tracker is None:
                 return frame if display_frame is None else display_frame
-            result = (smart_tracker.track_and_draw(frame) if display_frame is None
-                      else smart_tracker.track_and_draw(frame, display_frame=display_frame))
+            smart_tracker.image_measurement = None
+            timestamp = getattr(smart_tracker, 'last_measurement_timestamp', None)
+            had_image_context = isinstance(image_context, ImageFrameContext)
+            if (isinstance(image_context, ImageFrameContext)
+                    and image_context.image_size_px != (frame.shape[1], frame.shape[0])):
+                image_context = None
+            try:
+                result = (smart_tracker.track_and_draw(frame) if display_frame is None
+                          else smart_tracker.track_and_draw(frame, display_frame=display_frame))
+            except Exception:
+                smart_tracker._last_measurement_current = False
+                smart_tracker.last_measurement_timestamp = timestamp
+                classic = getattr(self, 'tracker', None)
+                if classic is not None and getattr(classic, 'override_active', False):
+                    classic.image_measurement = None
+                raise
+            if smart_tracker is not self.smart_tracker:
+                image_context = None
+            output = smart_tracker.get_output() if isinstance(image_context, ImageFrameContext) else None
+            measurement = self._commit_tracking_image_measurement(
+                smart_tracker, output, image_context, getattr(smart_tracker, 'selected_center', None),
+            )
+            if measurement is not None:
+                smart_tracker.last_measurement_timestamp = time.time()
+            elif had_image_context:
+                smart_tracker._last_measurement_current = False
+                smart_tracker.last_measurement_timestamp = timestamp
+            classic = getattr(self, 'tracker', None)
+            if classic is not None and getattr(classic, 'override_active', False):
+                classic.image_measurement = measurement
+                if measurement is not None:
+                    classic.last_measurement_timestamp = smart_tracker.last_measurement_timestamp
             if selection_snapshot is not None:
                 selection_snapshot.update(
                     candidates=deepcopy(tuple(smart_tracker.last_detections)),
@@ -1047,7 +1079,7 @@ class AppController:
             )
             return display_frame
 
-    def _publish_tracking_input_frame(self, frame: np.ndarray) -> np.ndarray:
+    def _publish_tracking_input_frame(self, frame: np.ndarray, *, capture=None, capture_geometry=None) -> np.ndarray:
         """Publish one clean pre-overlay frame for operator target selection."""
         snapshot = frame.copy()
         state_lock = getattr(self, "_tracker_model_state_lock", None)
@@ -1055,6 +1087,26 @@ class AppController:
             raise RuntimeError("Tracker/model state barrier is unavailable")
         with state_lock:
             self.tracking_input_frame = snapshot
+            previous = getattr(self, 'tracking_input_context', None)
+            self.tracking_input_context = None
+            publisher = getattr(self, 'frame_publisher', None)
+            source_id = getattr(publisher, 'stream_id', None)
+            if (isinstance(capture_geometry, tuple) and len(capture_geometry) == 4
+                    and isinstance(source_id, str)):
+                try:
+                    size = (int(frame.shape[1]), int(frame.shape[0]))
+                    revision = repr(('analysis_full_frame', capture_geometry, size))
+                    provenance = ObservationProvenance(
+                        source_id, int(getattr(self, '_tracking_session_generation', 0)), revision, None, capture,
+                    )
+                    context = ImageFrameContext(provenance, size)
+                    if (isinstance(previous, ImageFrameContext)
+                            and previous.provenance.capture == capture
+                            and previous.provenance.geometry_revision == revision):
+                        context = previous
+                    self.tracking_input_context = context
+                except ValueError:
+                    logging.debug('Image frame has no complete capture provenance')
         return snapshot
 
     def _publish_segmentation_selection_snapshot(
@@ -1108,13 +1160,75 @@ class AppController:
                 source = getattr(self, "current_frame", None)
             return source.copy() if source is not None else None
 
-    def _update_classic_tracker(self, frame: np.ndarray):
+    def _commit_tracking_image_measurement(self, tracker, output, context, pixel, *, success=True):
+        """Bind one accepted result to its original frame; never refresh on reads."""
+        tracker.image_measurement = None
+        if (getattr(tracker, 'is_external_tracker', False)
+                or not isinstance(context, ImageFrameContext)):
+            return None
+        provenance = context.provenance
+        capture = provenance.capture
+        publisher = getattr(self, 'frame_publisher', None)
+        if (capture.state != 'fresh'
+                or capture.source_epoch != getattr(publisher, 'control_source_epoch', None)
+                or provenance.target_generation != int(getattr(self, '_tracking_session_generation', 0))):
+            return None
+        previous = getattr(tracker, '_last_image_capture', None)
+        if (previous is not None and previous.source_epoch == capture.source_epoch
+                and (previous.capture_id == capture.capture_id or previous.captured_at >= capture.captured_at)):
+            return None
+        tracker._last_image_capture = capture
+        if (not success or not isinstance(output, TrackerOutput)
+                or not evaluate_tracker_command_freshness(output)['usable_for_following'] or pixel is None):
+            return None
+        try:
+            measurement = context.at_pixel(tuple(float(value) for value in pixel))
+        except (TypeError, ValueError):
+            return None
+        tracker.image_measurement = measurement
+        return measurement
+
+    def _update_classic_tracker(self, frame: np.ndarray, *, image_context=None):
         """Serialize classic tracker mutation with API selection/reinitialization."""
         state_lock = getattr(self, "_tracker_model_state_lock", None)
         if state_lock is None:
             raise RuntimeError("Tracker/model state barrier is unavailable")
         with state_lock:
-            return self.tracker.update(frame)
+            tracker = self.tracker
+            if getattr(tracker, 'is_external_tracker', False):
+                return tracker.update(frame)
+            timestamp = getattr(tracker, 'last_measurement_timestamp', None)
+            tracker.image_measurement = None
+            had_image_context = isinstance(image_context, ImageFrameContext)
+            if (isinstance(image_context, ImageFrameContext)
+                    and image_context.image_size_px != (frame.shape[1], frame.shape[0])):
+                image_context = None
+            try:
+                success, result = tracker.update(frame)
+            except Exception:
+                if had_image_context:
+                    tracker.last_measurement_timestamp = timestamp
+                raise
+            if tracker is not self.tracker:
+                image_context = None
+            output = result if isinstance(result, TrackerOutput) else None
+            getter = getattr(tracker, 'get_output', None)
+            if output is None and isinstance(image_context, ImageFrameContext) and callable(getter):
+                try:
+                    output = getter()
+                except Exception:
+                    logging.debug('Tracker output has no measured image provenance', exc_info=True)
+            measurement = self._commit_tracking_image_measurement(
+                tracker, output, image_context, getattr(tracker, 'center', None), success=success,
+            )
+            if measurement is not None:
+                tracker.last_measurement_timestamp = output.timestamp
+            elif had_image_context:
+                tracker.last_measurement_timestamp = timestamp
+            if isinstance(result, TrackerOutput):
+                result = dataclasses.replace(result, image_measurement=measurement,
+                                             timestamp=getattr(tracker, 'last_measurement_timestamp', None) or result.timestamp)
+            return success, result
 
     async def start_tracking(
         self,
@@ -1541,7 +1655,12 @@ class AppController:
         In smart mode, runs AI detection and draws bounding boxes.
         """
         self._capture_app_event_loop()
-        capture_stamp = self.video_handler.get_capture_stamp(frame)
+        capture_context = getattr(self.video_handler, 'get_capture_context', None)
+        capture_pair = capture_context(frame) if callable(capture_context) else None
+        if isinstance(capture_pair, tuple) and len(capture_pair) == 2:
+            capture_stamp, capture_geometry = capture_pair
+        else:
+            capture_stamp, capture_geometry = self.video_handler.get_capture_stamp(frame), None
         capture_frame = frame
 
         # DEBUG: Log every 100th frame to verify update_loop is running
@@ -1571,10 +1690,11 @@ class AppController:
             # or OSD drawing. All vision inference and tracker mutation use this
             # analysis frame; overlays are drawn on a separate display copy.
             analysis_frame = frame
-            tracking_frame_snapshot = self._publish_tracking_input_frame(
-                analysis_frame
-            )
             with self._tracker_model_state_lock:
+                tracking_frame_snapshot = self._publish_tracking_input_frame(
+                    analysis_frame, capture=capture_stamp, capture_geometry=capture_geometry,
+                )
+                image_context = self.tracking_input_context
                 selection_snapshot = {"revision": int(getattr(self, "_tracking_session_generation", 0)),
                                       "candidates": ()}
             frame = capture_frame.copy()
@@ -1600,7 +1720,7 @@ class AppController:
             if self.smart_tracker:
                 frame = self._track_and_draw_smart_frame(
                     analysis_frame.copy(), selection_snapshot=selection_snapshot,
-                    display_frame=frame)
+                    display_frame=frame, image_context=image_context)
 
             # Always-Reporting Trackers (schema-based) - Process when available regardless of manual start
             is_always_reporting = self._is_always_reporting_tracker()
@@ -1616,7 +1736,7 @@ class AppController:
                 # Handle always-reporting trackers (e.g., GimbalTracker)
                 try:
                     # Always-reporting trackers update regardless of manual tracking state
-                    success, tracker_output = self._update_classic_tracker(analysis_frame)
+                    success, tracker_output = self._update_classic_tracker(analysis_frame, image_context=image_context)
 
                     if tracker_output:
                         # Draw tracking overlay for always-reporting trackers
@@ -1649,7 +1769,7 @@ class AppController:
                     measurement_usable = True
                     logging.debug("Smart override active: using SmartTracker-provided tracking data")
                 else:
-                    success, tracker_output = self._update_classic_tracker(analysis_frame)
+                    success, tracker_output = self._update_classic_tracker(analysis_frame, image_context=image_context)
                     measurement_usable = self._classic_tracker_update_is_usable(
                         success,
                         tracker_output,
@@ -1823,6 +1943,9 @@ class AppController:
         """Invalidate asynchronous work associated with the previous target."""
         generation = int(getattr(self, "_tracking_session_generation", 0)) + 1
         self._tracking_session_generation = generation
+        for tracker in (getattr(self, 'tracker', None), getattr(self, 'smart_tracker', None)):
+            if tracker is not None:
+                tracker.image_measurement = None
         self._target_transition_started_wall_time = time.time() if for_retarget else None
         self._last_target_loss_reason = None
         supervisor = getattr(self, "target_continuity", None)
@@ -6338,6 +6461,7 @@ class AppController:
 
         return dataclasses.replace(
             tracker_output,
+            image_measurement=None,
             tracking_active=False,
             raw_data=raw_data,
             metadata=metadata,

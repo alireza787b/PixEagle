@@ -1,6 +1,6 @@
 """Immutable image/bearing values; geometry does not grant flight authority.
 
-CaptureStamp records backend receipt, not exposure. These dormant contracts do
+CaptureStamp records backend receipt, not exposure. These contracts do
 not establish sensor timing, attitude alignment, tracker lock or live readiness.
 """
 
@@ -128,6 +128,52 @@ is unknown; uncalibrated pixels remain valid image measurements.
                 raise ValueError("image_affine_singular")
         if type(self.measured) is not bool:
             raise ValueError("image_measurement_validity_invalid")
+
+    @classmethod
+    def from_dict(cls, payload: dict) -> "ImageMeasurement":
+        """Decode serialized values without refreshing identity or receipt time."""
+        try:
+            values = dict(payload)
+            provenance = dict(values.pop("provenance"))
+            if provenance.pop("time_basis") != "backend_receipt":
+                raise ValueError("image_time_basis_invalid")
+            provenance["capture"] = CaptureStamp(**provenance["capture"])
+            values["provenance"] = ObservationProvenance(**provenance)
+            for name in ("pixel_xy", "image_size_px", "image_to_calibration"):
+                if values[name] is not None:
+                    values[name] = tuple(values[name])
+            return cls(**values)
+        except (KeyError, TypeError) as error:
+            raise ValueError("image_measurement_contract_invalid") from error
+
+
+@dataclass(frozen=True)
+class ImageFrameContext:
+    """Capture/geometry/target binding frozen before tracker processing."""
+
+    provenance: ObservationProvenance
+    image_size_px: tuple[int, int]
+
+    def __post_init__(self):
+        if not isinstance(self.provenance, ObservationProvenance):
+            raise ValueError("observation_provenance_invalid")
+        _image_size(self.image_size_px)
+
+    def at_pixel(self, pixel_xy: tuple[float, float]) -> ImageMeasurement:
+        """Image pixels remain uncalibrated until a real mapping is supplied."""
+        return ImageMeasurement(self.provenance, pixel_xy, self.image_size_px, None, True)
+
+
+def image_measurement_for_output(
+    measurement: ImageMeasurement | None, *, measured: bool,
+    source_epoch: str | None, target_generation: int | None,
+) -> ImageMeasurement | None:
+    """Expose a committed sample only for its still-current source and target."""
+    if (not measured or not isinstance(measurement, ImageMeasurement)
+            or measurement.provenance.capture.source_epoch != source_epoch
+            or measurement.provenance.target_generation != target_generation):
+        return None
+    return measurement
 
 
 @dataclass(frozen=True)
