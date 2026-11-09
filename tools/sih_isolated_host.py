@@ -46,6 +46,15 @@ def host(args: argparse.Namespace, *, driver_path: Path, configure=None) -> None
     runtime = args.output.resolve()
     if runtime.exists():
         raise SystemExit("Use a new output directory; existing evidence is never overwritten.")
+    baseline_manifest = getattr(args, "sih_build_manifest", None)
+    if baseline_manifest is not None:
+        from tools.sih_baseline import validate_build_manifest
+
+        baseline = validate_build_manifest(Path(baseline_manifest))
+        px4_image = baseline["image_id"]
+    else:
+        px4_image = PX4_IMAGE
+        baseline = {"kind": "compatibility_image", "reference": px4_image}
     for path in (
         repo / "src/classes/app_controller.py",
         args.python,
@@ -132,7 +141,8 @@ def host(args: argparse.Namespace, *, driver_path: Path, configure=None) -> None
                 "import importlib.metadata,json; print(json.dumps(sorted((d.metadata['Name'], d.version) for d in importlib.metadata.distributions())))",
             )
         ),
-        "px4_image": json.loads(command("docker", "image", "inspect", PX4_IMAGE))[0]["Id"],
+        "px4_image": json.loads(command("docker", "image", "inspect", px4_image))[0]["Id"],
+        "sih_baseline": baseline,
         "worker_image": json.loads(command("docker", "image", "inspect", WORKER_IMAGE))[0]["Id"],
     }
     write_json(runtime / "manifest.json", manifest)
@@ -166,7 +176,7 @@ def host(args: argparse.Namespace, *, driver_path: Path, configure=None) -> None
             "none",
             "-e",
             f"PX4_SIM_MODEL={getattr(args, 'simulator_model', 'sihsim_quadx')}",
-            PX4_IMAGE,
+            px4_image,
         )
         python_root = args.python.absolute().parent.parent
         command(

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build native guidance contract tests in an isolated, pinned ROS toolchain.
+"""Build native contracts or the isolated SIH firmware image from pinned inputs.
 
 This does not install a service, discover an aircraft or acquire control.
 """
@@ -12,11 +12,13 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tarfile
 import urllib.request
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 
 def prepare_sources(lock: dict, cache: Path, destination: Path) -> None:
@@ -78,9 +80,18 @@ def main() -> None:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--cache-dir", type=Path, default=Path.home() / ".cache/pixeagle-native-guidance")
     parser.add_argument("--prepare-only", action="store_true", help="Verify and prepare sources without starting Docker")
-    parser.add_argument("--px4-source", type=Path, help="Check every interface message against this PX4 source")
-    parser.add_argument("--image", default="pixeagle-native-contracts:development")
+    parser.add_argument("--px4-source", type=Path, help="Patched pinned PX4 checkout; required for the SIH target")
+    parser.add_argument("--image", default="pixeagle-native-contracts:development", help="Contract-test image tag")
+    parser.add_argument("--target", choices=("contracts", "sih"), default="contracts")
     args = parser.parse_args()
+    if args.target == "sih":
+        if args.px4_source is None:
+            parser.error("--target sih requires --px4-source with the reviewed extension applied")
+        from tools.sih_baseline import build_sih
+
+        build_sih(args.px4_source, args.output_dir, prepare_only=args.prepare_only,
+                  verify_extension=verify_extension, cache=args.cache_dir.expanduser())
+        return
     output = args.output_dir.expanduser().resolve()
     output.mkdir(parents=True, exist_ok=True)
     context = output / "build-context"

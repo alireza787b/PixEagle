@@ -53,6 +53,83 @@ The image builds the adapter and runs native contract and sanitizer tests. It
 does not start an aircraft, install a service or acquire control. ARM64
 packaging and normal setup/service integration remain qualification gates.
 
+## Explicit SIH firmware builds
+
+Ordinary multicopter following still uses MAVSDK. Its setup and runtime do not
+require ROS, the native guidance adapter or a DDS Agent. The separate
+`--target sih` builder skips all ROS dependency preparation and compiles PX4
+firmware only. The firmware itself retains its normal PX4 module configuration.
+
+`dependencies.lock.json` owns the firmware revision and immutable SIH compiler
+and runtime image pins; `px4/extension.json` owns the reviewed patch and applied
+file checksums. Use a separate, standalone checkout at that revision, initialize
+the SIH target's locked submodule paths recursively, and apply the checked-in
+patch. The builder rejects extra source changes, missing required submodules,
+any initialized submodule at another revision, linked worktrees and Git object
+alternates. Unused platform/simulator submodules may remain absent. It never resets or repairs
+an operator's checkout. The earlier development cache contains unrelated
+submodule changes and is not automatically accepted as a source build.
+
+For a new checkout, from the PixEagle repository root:
+
+```bash
+PIXEAGLE_PX4_SOURCE="$HOME/.cache/pixeagle-sih-source"
+git clone https://github.com/PX4/PX4-Autopilot.git "$PIXEAGLE_PX4_SOURCE"
+git -C "$PIXEAGLE_PX4_SOURCE" checkout --detach "$(python3 -c \
+  'import json; print(json.load(open("native/dependencies.lock.json"))["reference_px4_commit"])')"
+git -C "$PIXEAGLE_PX4_SOURCE" submodule update --init --recursive -- \
+  src/drivers/gps/devices src/lib/events/libevents src/lib/heatshrink/heatshrink \
+  src/modules/mavlink/mavlink src/modules/uxrce_dds_client/Micro-XRCE-DDS-Client
+git -C "$PIXEAGLE_PX4_SOURCE" apply \
+  "$PWD/native/px4/patches/0001-guidance-observation-and-owned-mode-handoff.patch"
+```
+
+With both pinned Docker input images already available locally:
+
+```bash
+python3 tools/build_native_guidance.py --target sih \
+  --px4-source /path/to/verified-patched-PX4 \
+  --prepare-only --output-dir reports/native-guidance/sih-prepared
+
+python3 tools/build_native_guidance.py --target sih \
+  --px4-source /path/to/verified-patched-PX4 \
+  --output-dir reports/native-guidance/sih-built
+```
+
+Use a new evidence directory for each command. Preparation verifies and copies
+source inputs, excluding existing build outputs; it does not invoke Docker.
+Preparation also obtains the locked Micro-CDR source if it is absent from the
+cache and verifies its commit, tag and clean state. This is the PX4 client's
+ordinary C serialization dependency, not a ROS runtime or DDS Agent. The build
+routes its upstream Git fetch to that verified local source.
+The build compiles with `DONT_RUN=1 make px4_sitl_sih -j2` in the pinned
+toolchain and passes the locked submodule paths through PX4's existing
+`PX4_GIT_SUBMODULES` CMake setting, with network access disabled. A missing toolchain dependency or
+attempted external download fails the build; no manifest is accepted as a
+replacement for a successful compilation. BuildKit can reuse matching layers,
+but the cached development executable is never imported into the build context.
+
+The builder extracts `bin/` and `etc/` from a stopped compiler container without
+starting it, preserving command aliases. It packages a separate minimal runtime
+image and emits `sih-build-manifest.json`, its matching `packaged/` artifacts,
+source/submodule provenance and compiler/runtime build logs. The manifest binds
+the recipe, firmware/extension pins, executable and ROMFS hashes to the immutable
+image ID and image labels. It declares response and hardware qualification false.
+
+The shared `tools.sih_isolated_host.host()` accepts an explicitly supplied
+`args.sih_build_manifest` path. It verifies the bundle and locally available
+image before creating run evidence, then launches that immutable ID. Run evidence
+records the selected manifest checksum and firmware provenance. Callers must
+forward this optional argument; no environment override or monkeypatch is needed.
+An invalid supplied manifest fails closed. Without it, the existing pinned image
+remains the explicitly labeled `compatibility_image` baseline.
+
+This recipe and its deterministic mock build/manifest tests do not establish
+that a fresh compiler build or its SIH response has passed. A real source build,
+followed by the unchanged qualification gates against that built image, remains
+required before adopting a new default. Legacy SIH profile/CI repository-digest
+requirements are unchanged by this builder.
+
 ## Read-only observations
 
 Start the adapter in the isolated SIH environment after the DDS Agent and PX4
