@@ -296,6 +296,28 @@ async def worker(args):
             await asyncio.sleep(.1)
         raise RuntimeError("Simulated aircraft readiness deadline expired")
 
+    def retain_pose(sample, timestamp):
+        log("px4/pose_trace.jsonl", dict(timestamp=timestamp, vehicle_ned=sample["position_ned"],
+            vehicle_quaternion=sample["quaternion_wxyz"], source=sample["source"],
+            source_boot_ms=sample["source_boot_ms"]))
+
+    async def observe_handoff(operation):
+        """Keep actual pose evidence flowing while awaiting control-owner cleanup."""
+        task = asyncio.create_task(operation)
+        try:
+            while not task.done():
+                sample = await snapshot()
+                epoch = time.time()
+                retain_pose(sample, epoch)
+                target = scenario.target_at(min(time.monotonic() - started, scenario.duration_s), anchor)
+                log("trace/target_truth.jsonl", dict(timestamp=epoch, target_ned=target))
+                await asyncio.sleep(1. / scenario.visual.rate_hz)
+            return await task
+        finally:
+            if not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+
     try:
         app.mavlink_data_manager.start_polling()
         observer.start_polling()
@@ -411,11 +433,12 @@ async def worker(args):
                 # observe that change and release its owner without another Hold.
                 takeover_requested_at = time.monotonic()
                 log("fault-events.jsonl", dict(timestamp=time.time(), event="pilot_takeover", mode="Hold"))
-                await manager.drone.action.hold()
-                await wait_for(lambda: not app.following_active, timeout=manager.get_mavsdk_command_timeout_s())
-                cleanup = getattr(app, "_following_stop_future", None)
-                if cleanup is not None:
-                    takeover_cleanup = await asyncio.shield(cleanup)
+                async def pilot_takeover():
+                    await manager.drone.action.hold()
+                    await wait_for(lambda: not app.following_active, timeout=manager.get_mavsdk_command_timeout_s())
+                    cleanup = getattr(app, "_following_stop_future", None)
+                    return await asyncio.shield(cleanup) if cleanup is not None else None
+                takeover_cleanup = await observe_handoff(pilot_takeover())
                 break
             target = scenario.target_at(elapsed, anchor)
             if target is None:
@@ -458,15 +481,13 @@ async def worker(args):
             row = dict(timestamp=measurement_epoch, elapsed_s=elapsed, target_ned=target,
                        image_position=coordinates if not lost else None, loss_active=lost, **sample)
             records.append(row)
-            log("px4/pose_trace.jsonl", dict(timestamp=measurement_epoch, vehicle_ned=sample["position_ned"],
-                vehicle_quaternion=sample["quaternion_wxyz"], source=sample["source"],
-                source_boot_ms=sample["source_boot_ms"]))
+            retain_pose(sample, measurement_epoch)
             log("trace/follower_state.jsonl", dict(timestamp=measurement_epoch, **app.get_target_continuity_status()))
             if not accepted and (not scenario.expected_handoff or app.following_active):
                 raise RuntimeError("Production dispatch refused a nominal measurement")
             await asyncio.sleep(1. / scenario.visual.rate_hz)
         if app.following_active:
-            await app._stop_following_after_continuity_failure("operator_stop")
+            await observe_handoff(app._stop_following_after_continuity_failure("operator_stop"))
         handoff = getattr(app, "_last_following_handoff", {})
         stop_count = len(publications)
         convergence = []
