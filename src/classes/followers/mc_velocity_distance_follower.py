@@ -92,6 +92,16 @@ class MCVelocityDistanceFollower(BaseFollower):
                    f"Yaw control: {'enabled' if self.yaw_enabled else 'disabled'}, "
                    f"Target: {self.initial_target_coords}")
     
+    def reset_target_state(self, reason: str) -> bool:
+        for controller in (self.pid_y, self.pid_z, self.pid_yaw_rate):
+            if controller is not None:
+                controller.reset()
+        self.yaw_smoother.reset()
+        self._last_vel_right = 0.0
+        self._last_vel_down = 0.0
+        self._last_update_time = time.monotonic()
+        return True
+
     def _initialize_pid_controllers(self) -> None:
         """
         Initialize PID controllers for active axes with proper configuration.

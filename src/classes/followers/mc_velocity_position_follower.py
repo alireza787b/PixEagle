@@ -606,7 +606,13 @@ class MCVelocityPositionFollower(BaseFollower):
     # ==================== Utility and Debugging Methods ====================
     
     def reset_target_state(self, reason: str) -> bool:
-        return self.reset_pid_controllers() is not False
+        if self.reset_pid_controllers() is False:
+            return False
+        self.yaw_smoother.reset()
+        self._last_yaw_command = 0.0
+        self._last_vertical_velocity_up_m_s = 0.0
+        self._last_update_time = time.monotonic()
+        return True
 
     def reset_pid_controllers(self) -> bool:
         """

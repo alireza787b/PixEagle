@@ -163,3 +163,14 @@ def test_clock_discontinuity_cannot_bypass_yaw_acceleration(factory, monkeypatch
     follower.yaw_smoother.filtered_yaw_rate = 3.
     monkeypatch.setattr("classes.followers.base_follower.time.monotonic", lambda: 99.)
     assert observe(follower, -.8, 0.)["yawspeed_deg_s"] == 3.
+
+
+@pytest.mark.parametrize("mode", ["mc_velocity_position", "mc_velocity_distance", "mc_velocity_ground"])
+def test_retarget_does_not_reuse_previous_target_command_history(factory, mode):
+    follower = factory(mode, altitude=True)
+    previous = observe(follower, .4, .4)
+    assert any(abs(value) > 0. for value in previous.values())
+    assert follower.prepare_for_target_transition("test_retarget")
+    for _ in range(3):
+        centered = observe(follower, 0., 0.)
+        assert all(abs(value) < 1e-9 for value in centered.values())

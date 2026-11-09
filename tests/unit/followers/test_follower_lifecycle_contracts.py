@@ -81,6 +81,8 @@ def test_explicit_retarget_hooks_preserve_existing_reset_result(follower_class, 
     follower.reset_command_fields = invalidate
     reset = Mock(side_effect=reset_controller)
     setattr(follower, legacy, reset)
+    if follower_class is MCVelocityPositionFollower:
+        follower.yaw_smoother = Mock()
     controls = follower._session_controls = {'acknowledged': object()}
     assert follower.prepare_for_target_transition("new_target") is (result is not False)
     assert events == ["invalidate", "controller"]

@@ -129,6 +129,11 @@ class MCVelocityGroundFollower(BaseFollower):
                    f"Mode: {self.target_position_mode}, "
                    f"Target: {self.initial_target_coords}")
     
+    def reset_target_state(self, reason: str) -> bool:
+        for controller in (self.pid_x, self.pid_y, self.pid_z):
+            controller.reset()
+        return True
+
     def _initialize_pid_controllers(self) -> None:
         """
         Initialize PID controllers for all three axes with proper configuration.

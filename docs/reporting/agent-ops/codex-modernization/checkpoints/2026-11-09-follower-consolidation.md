@@ -154,3 +154,14 @@ documentation tests passed (overlapping gates). Schema retains the existing
 0–100 m offset range, including saved 15 m values. No saved/private configuration
 was applied. A PixEagle-owned moving-world-target SIH harness is being verified;
 S4 and all-mode response qualification remain open until its actual runs pass.
+
+Retarget follow-up: actual factory tests reproduced residual command history in
+Position, Centering and Ground after replacement by a centered target. Explicit
+target-reset hooks now clear their PID/filter memory without ending session
+controls. The 538-test follower gate passes. This renews reset behavior, not
+physical retarget acceptance.
+
+Browser review of the retained November 7 FW replay passed in Chromium: no page
+errors, populated command/measurement values and different 3D/side canvas views.
+Screenshot retained at the archived-reader run's `browser-review.png`; its
+underlying PX4 capture is historical, not a new S4 flight.
