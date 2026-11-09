@@ -473,6 +473,22 @@ async def test_readiness_refusal_is_distinct_from_a_failed_concrete_submission()
     assert events[0]["submitted_fields"] is None
 
 
+@pytest.mark.asyncio
+async def test_old_guard_error_cannot_disguise_a_new_failed_send_as_pre_submission_refusal():
+    events = []
+    handler = _handler(fields=dict(rollspeed_deg_s=0., pitchspeed_deg_s=0., yawspeed_deg_s=0., thrust=.5),
+                       control_type="attitude_rate")
+    handler.profile_name = "mc_attitude_rate"
+    px4 = SimpleNamespace(send_commands_unified=AsyncMock(return_value=False),
+                          _terminal_attitude_guard_reason="old_error",
+                          _last_attitude_guard={"effective_fields": handler.get_fields()})
+    commander = OffboardCommander(px4, handler, on_publish_result=events.append)
+    assert not await commander.publish_once()
+    assert events[0]["publication_attempted"] is True
+    assert events[0]["submitted_fields"] is not None
+    assert not commander.get_status()["terminal_failure"]
+
+
 def test_offboard_commander_rejects_mismatched_command_intent():
     commander = OffboardCommander(
         SimpleNamespace(send_commands_unified=AsyncMock(return_value=True)),

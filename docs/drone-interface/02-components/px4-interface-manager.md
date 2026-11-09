@@ -256,7 +256,7 @@ async def _update_telemetry_via_mavsdk(self):
     Streams telemetry directly from MAVSDK (gRPC).
     Note: Circuit breaker does NOT block telemetry - only commands.
     """
-    # Position, attitude_euler, and velocity_body run concurrently.
+    # Position, attitude_euler, and velocity_ned run concurrently.
     # Their latest finite values are staged and committed together only while
     # all required streams are fresh.
 ```

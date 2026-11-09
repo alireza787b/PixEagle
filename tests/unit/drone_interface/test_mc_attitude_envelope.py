@@ -225,7 +225,8 @@ async def test_frozen_frame_heartbeat_rejects_missing_or_old_attitude(monkeypatc
 @pytest.mark.parametrize("failure", ["missing", "stale", "old_generation"])
 async def test_frozen_frame_heartbeat_rejects_unusable_height_despite_fresh_attitude(monkeypatch, failure):
     controller = interface(monkeypatch)
-    commander = OffboardCommander(controller, controller.setpoint_handler)
+    events = []
+    commander = OffboardCommander(controller, controller.setpoint_handler, on_publish_result=events.append)
     commander.submit_intent(CommandIntent(
         profile_name="mc_attitude_rate", control_type="attitude_rate",
         fields=fields(), source="frozen_frame",
@@ -242,6 +243,8 @@ async def test_frozen_frame_heartbeat_rejects_unusable_height_despite_fresh_atti
     controller._attitude_receipt_monotonic_s = time.monotonic()
     assert not await commander.publish_once()
     assert commander.terminal_failure_reason == "altitude_sample_unavailable"
+    assert events[-1]["publication_attempted"] is False
+    assert events[-1]["submitted_fields"] is None
     assert controller._safe_mavsdk_call.await_count == 1
     await asyncio.sleep(0)
 

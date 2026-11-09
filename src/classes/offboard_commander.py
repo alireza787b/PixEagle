@@ -619,12 +619,16 @@ class OffboardCommander:
                         published_intent = effective
                         submitted_fields = dict(effective.fields)
                 guard_reason = getattr(self.px4_interface, '_terminal_attitude_guard_reason', None)
+                guard = getattr(self.px4_interface, '_last_attitude_guard', None)
                 if (not success and isinstance(guard_reason, str) and guard_reason
+                        and isinstance(guard, dict) and guard.get('rejected') is True
                         and self.setpoint_handler.profile_name == 'mc_attitude_rate'):
+                    # The measured-state guard refused before the MAVSDK call.
+                    publication_attempted = False
+                    submitted_fields = None
                     self.last_error = guard_reason
                     if enforce_failure_policy:
                         terminal_failure_triggered = self._mark_terminal_failure(guard_reason)
-                guard = getattr(self.px4_interface, '_last_attitude_guard', None)
                 if (success and self.command_transport is None
                         and self.setpoint_handler.get_control_type() == 'attitude_rate'
                         and isinstance(guard, dict) and isinstance(guard.get('effective_fields'), dict)):
