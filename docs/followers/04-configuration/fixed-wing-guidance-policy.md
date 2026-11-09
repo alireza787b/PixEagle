@@ -73,6 +73,13 @@ FW controller supplies its own FW-frame heading and forward axis, including
 the tailsitter conversion. The companion does not rotate the mounting preset
 during transition or apply that conversion again.
 
+`FixedWingVectorGuidance.calculate` retains the physical-FRD API and delegates
+through one canonical quaternion rotation to `calculate_ned`. The latter requires
+an explicit `ned` frame and a finite unit direction, and uses the same course,
+EAS, vertical-path and altitude-envelope calculation without another rotation.
+Callers must separately qualify measurement-time alignment and pursuit authority;
+this shared math entry does not enable or qualify image-based FW following.
+
 Transition holding latches the preceding feasible course and FW request for the
 transition episode. It does not chase physical yaw changes as a tailsitter
 pitches through vertical, or reuse an old FW course after returning to MC.

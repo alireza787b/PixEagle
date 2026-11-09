@@ -79,7 +79,7 @@ class FixedWingGuidanceResult:
 
 
 class FixedWingVectorGuidance:
-    """Produce feasible navigation objectives from the shared physical-body ray."""
+    """Produce feasible navigation objectives from physical-body or NED rays."""
 
     def __init__(self, *, enable_altitude_control: bool, geometry_policy: GimbalGuidancePolicy,
                  policy: FixedWingGuidancePolicy | None = None, unrestricted_capability: bool = False):
@@ -155,13 +155,35 @@ class FixedWingVectorGuidance:
         self, body_ray: Vector3, state: AircraftState, *, requested_eas_m_s: float,
         identity: GuidanceSessionIdentity, altitude_limits: AltitudeLimits, now: float, timeout_s: float,
     ) -> FixedWingGuidanceResult:
+        """Compatibility entry: normalize physical FRD and rotate to NED once."""
         self._require_state(state, now=now, timeout_s=timeout_s)
+        ray = state.attitude_body_to_ned.rotate(body_ray.normalized())
+        return self.calculate_ned(
+            ray, state, frame="ned", requested_eas_m_s=requested_eas_m_s,
+            identity=identity, altitude_limits=altitude_limits, now=now, timeout_s=timeout_s,
+        )
+
+    def calculate_ned(
+        self, ray_ned: Vector3, state: AircraftState, *, frame: str, requested_eas_m_s: float,
+        identity: GuidanceSessionIdentity, altitude_limits: AltitudeLimits, now: float, timeout_s: float,
+    ) -> FixedWingGuidanceResult:
+        """Consume a unit NED ray without rotating it using the current attitude.
+
+        Callers own measurement-time alignment and pursuit authorization. The
+        current state still supplies the native envelope and altitude guards.
+        """
+        self._require_state(state, now=now, timeout_s=timeout_s)
+        if frame != "ned":
+            raise ValueError("guidance_ray_frame_invalid")
+        if (not isinstance(ray_ned, Vector3)
+                or not math.isclose(ray_ned.magnitude, 1.0, rel_tol=0.0, abs_tol=1e-9)):
+            raise ValueError("guidance_ray_not_unit")
         envelope = state.fixed_wing_envelope
         effective_speed, speed_reason = self.resolve_speed(state, requested_eas_m_s, self.policy.upper_speed_policy,
                                                           self._unrestricted_verified)
         self._require_binding(identity, state)
 
-        ray = state.attitude_body_to_ned.rotate(body_ray.normalized())
+        ray = ray_ned
         horizontal = ray.horizontal_magnitude
         enter, leave = (self.geometry_policy.vertical_enter_horizontal_norm,
                         self.geometry_policy.vertical_exit_horizontal_norm)
