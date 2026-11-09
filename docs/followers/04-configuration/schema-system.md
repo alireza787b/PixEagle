@@ -3,7 +3,7 @@
 `configs/follower_commands.yaml` is the checked-in authority for profile
 requirements, command fields/units and dispatch contracts. It is a developer
 contract asset, separate from saved operator settings in ConfigService.
-`SetpointHandler` validates it before use; current schema version is `2.2.0`.
+`SetpointHandler` validates it before use; current schema version is `2.3.0`.
 
 ## Profile declaration
 
@@ -12,6 +12,7 @@ A profile excerpt:
 ```yaml
 follower_profiles:
   mc_velocity_chase:
+    config_section: MC_VELOCITY_CHASE
     family: multicopter
     visibility: basic
     display_name: "MC Velocity Chase"
@@ -29,6 +30,12 @@ is `basic`, `advanced` or `experimental`. These describe presentation and
 requirements, not permission to fly. Keep stable profile IDs and explicit
 implementation registration. A new YAML profile without an implementation
 remains visible but unavailable.
+
+`config_section` explicitly binds algorithm settings, shared follower overrides
+and SafetyManager lookup. Renaming/subclassing a Python implementation must not
+change that binding. Developer-owned declarations must add it when upgrading
+from schema 2.2; there is no class-name-derived fallback. Saved operator settings
+keep their existing section names and values.
 
 Every required command field belongs to every atomic snapshot. Partial/optional
 command snapshots are unsupported. Units, scalar types and any static structural
@@ -52,8 +59,8 @@ MC uses its own velocity contract. Do not rename fields to pretend commands
 are interchangeable. The current adapter supports only its declared native
 contracts; extending one requires an implementation and qualification.
 
-The new end-on-transition policy is still pending. S1 rejects typed API VTOL
-Start until transition-preserving release is qualified. Historical native
+The new end-on-transition policy is still pending. The common flight owner
+rejects VTOL Start until transition-preserving release is qualified. Historical native
 transition holding does not establish that policy.
 
 ## Shared eligibility and clients

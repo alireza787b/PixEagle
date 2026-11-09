@@ -261,7 +261,7 @@ class GMVelocityVectorFollower(BaseFollower):
         if getattr(self, '_airframe_session', None) is not None:
             raise ValueError("airframe_session_already_bound")
         return GimbalVectorSession(
-            identity, capabilities, multicopter_control=self._requested_speed_control(),
+            identity, capabilities, profile_name=self.profile_name, multicopter_control=self._requested_speed_control(),
             geometry_policy=self.guidance_policy, altitude_control=self.enable_altitude_control,
             altitude_limits=self.altitude_limits, **policy,
         )
@@ -708,6 +708,12 @@ class GMVelocityVectorFollower(BaseFollower):
         if session is not None and session.control_type != 'velocity_body_offboard':
             return self.guard_authorized_command(fields)
         return super().limit_authorized_command(fields)
+
+    def prepare_authorized_command(self, fields: Dict[str, float], *, loss_decay: bool) -> Dict[str, float]:
+        return self.prepare_shaped_authorized_command(fields, loss_decay=loss_decay)
+
+    def on_command_submitted(self, fields: Dict[str, float]) -> None:
+        self.record_submitted_command(fields)
 
     def reset_control_session(self) -> None:
         super().reset_control_session()

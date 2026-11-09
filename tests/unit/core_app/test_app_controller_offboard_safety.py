@@ -33,7 +33,8 @@ from classes.fastapi_handler import (
 from classes.api_legacy_model_routes import get_smart_model_activation_error
 from classes.api_security_types import APIPrincipal
 from classes.parameters import Parameters
-from classes.follower import Follower
+from classes.follower import Follower, FollowerFactory
+from classes.aircraft_state import AircraftKind
 from classes.followers.gm_velocity_vector_follower import GMVelocityVectorFollower, Vector3D
 from classes.followers.mc_attitude_rate_follower import MCAttitudeRateFollower
 from classes.followers.mc_velocity_position_follower import MCVelocityPositionFollower
@@ -1606,6 +1607,7 @@ async def test_connect_px4_does_not_mark_following_active_when_offboard_start_fa
     ctrl.px4_interface = SimpleNamespace(
         setpoint_handler=setpoint_handler,
         connect=AsyncMock(return_value={"status": "connected", "connected": True}),
+        get_aircraft_kind=MagicMock(return_value=AircraftKind.MULTICOPTER),
         wait_for_telemetry_ready=AsyncMock(
             return_value={"state": "ready", "ready": True, "source": "mavsdk"}
         ),
@@ -1626,7 +1628,7 @@ async def test_connect_px4_does_not_mark_following_active_when_offboard_start_fa
     )
 
     with patch('classes.app_controller.Follower', return_value=follower_manager) as factory:
-        factory.get_mode_info.return_value = {"airframe_phase": "multicopter"}
+        factory.get_mode_info.return_value = FollowerFactory.get_follower_info("mc_velocity_position")
         result = await ctrl.connect_px4()
 
     assert ctrl.following_active is False
@@ -1675,6 +1677,7 @@ async def test_connect_px4_rechecks_target_readiness_after_telemetry_wait(monkey
     ctrl.px4_interface = SimpleNamespace(
         setpoint_handler=follower_manager.follower.setpoint_handler,
         connect=AsyncMock(return_value={"status": "connected", "connected": True}),
+        get_aircraft_kind=MagicMock(return_value=AircraftKind.MULTICOPTER),
         wait_for_telemetry_ready=AsyncMock(
             side_effect=telemetry_ready_after_target_stales
         ),
@@ -1683,7 +1686,7 @@ async def test_connect_px4_rechecks_target_readiness_after_telemetry_wait(monkey
     )
 
     with patch('classes.app_controller.Follower', return_value=follower_manager) as factory:
-        factory.get_mode_info.return_value = {"airframe_phase": "multicopter"}
+        factory.get_mode_info.return_value = FollowerFactory.get_follower_info("mc_velocity_position")
         result = await ctrl.connect_px4()
 
     assert ctrl.following_active is False
@@ -1716,13 +1719,14 @@ async def test_connect_px4_rejects_low_altitude_before_offboard():
         setpoint_handler=follower_manager.follower.setpoint_handler,
         current_altitude=3.0,
         connect=AsyncMock(return_value={"status": "connected", "connected": True}),
+        get_aircraft_kind=MagicMock(return_value=AircraftKind.MULTICOPTER),
         wait_for_telemetry_ready=AsyncMock(return_value={"state": "ready", "ready": True, "source": "mavsdk"}),
         start_offboard_mode=AsyncMock(),
         stop_offboard_mode=AsyncMock(),
     )
 
     with patch('classes.app_controller.Follower', return_value=follower_manager) as factory:
-        factory.get_mode_info.return_value = {"airframe_phase": "multicopter"}
+        factory.get_mode_info.return_value = FollowerFactory.get_follower_info("mc_velocity_position")
         result = await ctrl.connect_px4()
 
     assert result["precondition"]["code"] == "following_altitude_below_start_margin"
@@ -1747,6 +1751,7 @@ async def test_connect_px4_refuses_follow_when_link_has_no_usable_telemetry():
     )
     ctrl.px4_interface = SimpleNamespace(
         connect=AsyncMock(return_value={"status": "connected", "connected": True}),
+        get_aircraft_kind=MagicMock(return_value=AircraftKind.MULTICOPTER),
         wait_for_telemetry_ready=AsyncMock(
             return_value={
                 "state": "failed",
@@ -1791,6 +1796,7 @@ async def test_connect_px4_starts_offboard_commander_instead_of_setpoint_sender(
     ctrl.px4_interface = SimpleNamespace(
         setpoint_handler=setpoint_handler,
         connect=AsyncMock(return_value={"status": "connected", "connected": True}),
+        get_aircraft_kind=MagicMock(return_value=AircraftKind.MULTICOPTER),
         wait_for_telemetry_ready=AsyncMock(
             return_value={"state": "ready", "ready": True, "source": "mavsdk"}
         ),
@@ -1821,7 +1827,7 @@ async def test_connect_px4_starts_offboard_commander_instead_of_setpoint_sender(
 
     with patch('classes.app_controller.Follower', return_value=follower_manager) as factory, \
             patch('classes.app_controller.OffboardCommander', return_value=commander) as commander_ctor:
-        factory.get_mode_info.return_value = {"airframe_phase": "multicopter"}
+        factory.get_mode_info.return_value = FollowerFactory.get_follower_info("mc_velocity_position")
         result = await ctrl.connect_px4()
 
     assert result["errors"] == []
@@ -1868,6 +1874,7 @@ async def test_connect_px4_rejects_circuit_breaker_before_px4_connection(
     ctrl.px4_interface = SimpleNamespace(
         setpoint_handler=setpoint_handler,
         connect=AsyncMock(return_value={"status": "connected", "connected": True}),
+        get_aircraft_kind=MagicMock(return_value=AircraftKind.MULTICOPTER),
         wait_for_telemetry_ready=AsyncMock(
             return_value={"state": "ready", "ready": True, "source": "mavsdk"}
         ),
@@ -1896,8 +1903,9 @@ async def test_connect_px4_rejects_circuit_breaker_before_px4_connection(
         get_status=MagicMock(return_value={"running": True}),
     )
 
-    with patch('classes.app_controller.Follower', return_value=follower_manager), \
+    with patch('classes.app_controller.Follower', return_value=follower_manager) as factory, \
             patch('classes.app_controller.OffboardCommander', return_value=commander):
+        factory.get_mode_info.return_value = FollowerFactory.get_follower_info('mc_velocity_position')
         result = await ctrl.connect_px4()
 
     assert result["errors"]
@@ -2165,7 +2173,8 @@ async def test_failed_offboard_stop_can_be_explicitly_retried_without_reopening_
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("mode", ["gm_velocity_chase", "gm_velocity_vector"])
-async def test_dispatch_records_only_successfully_submitted_shaped_gimbal_command(mode):
+@pytest.mark.parametrize("accepted", [False, True])
+async def test_dispatch_records_only_successfully_submitted_shaped_gimbal_command(mode, accepted):
     ctrl = object.__new__(AppController)
     ctrl.following_active = True
     ctrl.follower = _follower_manager_stub()
@@ -2179,13 +2188,22 @@ async def test_dispatch_records_only_successfully_submitted_shaped_gimbal_comman
     concrete = SimpleNamespace(_geometry_invalid=None, _safety_rejection=None,
                                limit_authorized_command=MagicMock(return_value=shaped),
                                record_submitted_command=MagicMock())
+    concrete.limit_session_control_command = lambda fields: fields
+    from classes.followers.base_follower import BaseFollower
+    concrete.prepare_authorized_command = lambda fields, loss_decay: BaseFollower.prepare_shaped_authorized_command(concrete, fields, loss_decay=loss_decay)
+    concrete.on_command_submitted = concrete.record_submitted_command
     ctrl.follower.follower = concrete
     ctrl.offboard_commander = _commander_stub()
-    assert await ctrl._dispatch_tracker_output_on_flight_loop(_active_gimbal_output())
+    ctrl.offboard_commander.submit_intent.return_value = accepted
+    ctrl._stop_following_after_continuity_failure = AsyncMock()
+    assert await ctrl._dispatch_tracker_output_on_flight_loop(_active_gimbal_output()) is accepted
     submitted = ctrl.offboard_commander.submit_intent.call_args.args[0]
     assert submitted.fields == shaped
-    concrete.record_submitted_command.assert_called_once_with(shaped)
-    assert ctrl.get_target_continuity_status()["effective_command_fields"] == shaped
+    if accepted:
+        concrete.record_submitted_command.assert_called_once_with(shaped)
+        assert ctrl.get_target_continuity_status()["effective_command_fields"] == shaped
+    else:
+        concrete.record_submitted_command.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -2204,6 +2222,10 @@ async def test_confirmed_loss_restoration_reuses_the_normal_slew_limiter(reason)
                                limit_authorized_command=MagicMock(return_value=limited),
                                guard_authorized_command=MagicMock(return_value=dict(original.fields)),
                                record_submitted_command=MagicMock())
+    concrete.limit_session_control_command = lambda fields: fields
+    from classes.followers.base_follower import BaseFollower
+    concrete.prepare_authorized_command = lambda fields, loss_decay: BaseFollower.prepare_shaped_authorized_command(concrete, fields, loss_decay=loss_decay)
+    concrete.on_command_submitted = concrete.record_submitted_command
     ctrl.follower.follower = concrete
     supervisor = MagicMock()
     supervisor.get_status.return_value = {'transition_phase': 'loss', 'target_transition_pending': False}

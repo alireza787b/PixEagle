@@ -28,7 +28,7 @@ def session(*, altitude=True, state=None):
     owner = GimbalVectorSession(
         GuidanceSessionIdentity("follow", state.binding, 1),
         NativeCapabilities("native", "test", 2, True, True, False),
-        multicopter_control=SessionControl("requested_speed", "3D speed", "m/s", 0., None, .5, 0.,
+        profile_name="gm_velocity_vector", multicopter_control=SessionControl("requested_speed", "3D speed", "m/s", 0., None, .5, 0.,
                                           configured_maximum=6.), geometry_policy=GimbalGuidancePolicy(),
         altitude_control=altitude, altitude_limits=AltitudeLimits(5., 120., 2.), confirmation_s=.3,
         observation_timeout_s=.75, transition_timeout_s=10., clock=lambda: now[0],

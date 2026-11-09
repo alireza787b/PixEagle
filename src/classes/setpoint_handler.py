@@ -18,7 +18,7 @@ from classes.safety_types import FIELD_LIMIT_MAPPING
 # Set up logging
 logger = logging.getLogger(__name__)
 
-SUPPORTED_FOLLOWER_COMMAND_SCHEMA_VERSIONS = frozenset({"2.2.0"})
+SUPPORTED_FOLLOWER_COMMAND_SCHEMA_VERSIONS = frozenset({"2.3.0"})
 _SCHEMA_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
@@ -209,6 +209,7 @@ def validate_follower_command_schema(schema: Any) -> Dict[str, Any]:
                 "session_controls",
                 "native_phase_contracts",
                 "family",
+                "config_section",
                 "visibility",
             }
         )
@@ -219,6 +220,9 @@ def validate_follower_command_schema(schema: Any) -> Dict[str, Any]:
             )
         from classes.follower_catalog import NATIVE_PHASE_CONTRACTS, PROFILE_FAMILIES, PROFILE_VISIBILITIES
 
+        config_section = profile.get("config_section")
+        if not isinstance(config_section, str) or not re.fullmatch(r"[A-Z][A-Z0-9_]*", config_section):
+            raise ValueError(f"follower_profiles.{profile_name}.config_section is invalid")
         if not isinstance(profile.get("family"), str) or profile["family"] not in PROFILE_FAMILIES:
             raise ValueError(f"follower_profiles.{profile_name}.family is invalid")
         if not isinstance(profile.get("visibility"), str) or profile["visibility"] not in PROFILE_VISIBILITIES:

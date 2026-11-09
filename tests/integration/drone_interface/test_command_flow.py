@@ -19,7 +19,7 @@ from unittest.mock import patch, MagicMock, AsyncMock
 def mock_schema():
     """Create a mock schema for testing."""
     return {
-        'schema_version': '2.2.0',
+        'schema_version': '2.3.0',
         'follower_profiles': {
             'mc_velocity_chase': {
                 'control_type': 'velocity_body_offboard',

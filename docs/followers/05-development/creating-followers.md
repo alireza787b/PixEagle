@@ -1,357 +1,60 @@
-# Creating New Followers
-
-> Step-by-step guide to implementing custom followers
-
----
-
-## Step 1: Design Your Control Strategy
-
-Before coding, answer:
-
-1. **What aircraft and phase?** MC or FW; gimbal is an input family, not an aircraft
-2. **What control type?** `velocity_body_offboard` or `attitude_rate`
-3. **What tracker data needed?** POSITION_2D, GIMBAL_ANGLES, etc.
-4. **What algorithm?** PID, PN, L1, custom
-
----
-
-## Step 2: Create the Schema Profile
-
-Add to `configs/follower_commands.yaml`:
-
-```yaml
-follower_profiles:
-  my_follower:
-    family: multicopter
-    visibility: advanced
-    display_name: "My Custom Follower"
-    description: "Brief description of behavior"
-    control_type: "velocity_body_offboard"
-    airframe_phase: "multicopter"
-    required_fields:
-      - vel_body_fwd
-      - vel_body_right
-      - vel_body_down
-      - yawspeed_deg_s
-    ui_category: "velocity"
-    required_tracker_data:
-      - POSITION_2D
-    optional_tracker_data: []
-```
-
-Every `required_fields` entry must be present in every command intent.
-`airframe_phase` and `control_type` also select the shared target
-continuity capability. Optional command fields are intentionally unsupported.
-Tracker capabilities may still be optional through `optional_tracker_data`.
-
----
-
-## Step 3: Implement the Follower Class
-
-Create `src/classes/followers/my_follower.py`:
-
-```python
-"""
-My Custom Follower Module
-=========================
-
-Description of what this follower does.
-"""
-
-from classes.followers.base_follower import BaseFollower
-from classes.followers.custom_pid import CustomPID
-from classes.parameters import Parameters
-from classes.tracker_output import TrackerOutput, TrackerDataType
-import logging
-from typing import Tuple, Dict, Any
-
-logger = logging.getLogger(__name__)
-
-
-class MyFollower(BaseFollower):
-    """
-    Custom follower implementation.
-
-    Describe the control strategy and use cases.
-    """
-
-    def __init__(self, px4_controller, initial_target_coords: Tuple[float, float]):
-        """
-        Initialize the follower.
-
-        Args:
-            px4_controller: PX4 controller instance
-            initial_target_coords: Initial target position
-        """
-        # Initialize base class with profile name
-        super().__init__(px4_controller, "my_follower")
-
-        # Validate initial coordinates
-        if not self.validate_target_coordinates(initial_target_coords):
-            raise ValueError(f"Invalid coordinates: {initial_target_coords}")
-
-        self.initial_target_coords = initial_target_coords
-
-        # Load configuration
-        config = getattr(Parameters, 'MY_FOLLOWER', {})
-        self.param_one = config.get('PARAM_ONE', 1.0)
-        self.param_two = config.get('PARAM_TWO', True)
-
-        # Initialize PID controllers
-        self._initialize_pid()
-
-        # Update telemetry metadata
-        self.update_telemetry_metadata('follower_type', 'my_follower')
-
-        logger.info("MyFollower initialized successfully")
-
-    def _initialize_pid(self) -> None:
-        """Initialize PID controllers."""
-        try:
-            gains = Parameters.PID_GAINS['vel_body_fwd']
-            self.pid_fwd = CustomPID(
-                gains['p'], gains['i'], gains['d'],
-                setpoint=0.0,
-                output_limits=(-self.velocity_limits.forward,
-                              self.velocity_limits.forward)
-            )
-        except Exception as e:
-            logger.error(f"PID initialization failed: {e}")
-            raise RuntimeError(f"PID init failed: {e}")
-
-    def calculate_control_commands(self, tracker_data: TrackerOutput) -> None:
-        """
-        Calculate control commands from tracker data.
-
-        Args:
-            tracker_data: Structured tracker output
-        """
-        try:
-            # Extract target coordinates
-            coords = self.extract_target_coordinates(tracker_data)
-            if not coords:
-                logger.warning("No valid coordinates")
-                return
-
-            target_x, target_y = coords
-
-            # CustomPID accepts a measurement. Use the shared sign helper when
-            # a positive image-axis error should produce a positive command.
-            error_x = self.image_axis_error(target_x, 0.0)
-            error_y = self.image_axis_error(target_y, self.pid_fwd.setpoint)
-
-            vel_fwd = self.positive_error_pid_command(self.pid_fwd, error_y)
-            vel_right = 0.0  # Define the camera/body mapping for this follower.
-
-            # Clamp velocities
-            vel_fwd, vel_right, vel_down = self.clamp_velocity(
-                vel_fwd, vel_right, 0.0
-            )
-
-            # Publish one complete command intent
-            if not self.set_command_fields({
-                'vel_body_fwd': vel_fwd,
-                'vel_body_right': vel_right,
-                'vel_body_down': 0.0,
-                'yawspeed_deg_s': 0.0,
-            }, reason='normal_tracking'):
-                raise RuntimeError("Command intent rejected")
-
-            logger.debug(f"Commands: fwd={vel_fwd:.2f}, right={vel_right:.2f}")
-
-        except Exception as e:
-            logger.error(f"Control calculation failed: {e}")
-            self.reset_command_fields()
-
-    def follow_target(self, tracker_data: TrackerOutput) -> bool:
-        """
-        Execute target following.
-
-        Args:
-            tracker_data: Tracker output
-
-        Returns:
-            bool: True if successful
-        """
-        try:
-            # Validate tracker compatibility
-            if not self.validate_tracker_compatibility(tracker_data):
-                return False
-
-            # Calculate and apply commands
-            self.calculate_control_commands(tracker_data)
-
-            return True
-
-        except Exception as e:
-            logger.error(f"Follow failed: {e}")
-            self.reset_command_fields()
-            return False
-
-    def get_status(self) -> Dict[str, Any]:
-        """Return follower status for telemetry."""
-        return {
-            'type': 'my_follower',
-            'param_one': self.param_one,
-            'commands': self.get_all_command_fields()
-        }
-```
-
-`follow_target()` receives only confirmed command-usable evidence.
-Return `True` only after publishing a complete nominal
-`CommandIntent`. Do not add follower-local inactive-output, target-loss,
-coast, hover, or mode-change behavior; the shared target continuity supervisor
-owns that authority boundary.
-
----
-
-## Step 4: Register with Factory
-
-Edit `src/classes/follower.py`:
-
-```python
-# Add import
-from classes.followers.my_follower import MyFollower
-
-# In FollowerFactory._initialize_registry()
-@classmethod
-def _initialize_registry(cls):
-    if cls._registry_initialized:
-        return
-
-    cls._follower_registry = {
-        # ... existing entries ...
-        'my_follower': MyFollower,  # Add this
-    }
-
-    cls._registry_initialized = True
-```
-
----
-
-## Step 5: Add Configuration
-
-Add to `configs/config_default.yaml`:
-
-```yaml
-# My Custom Follower Configuration
-MY_FOLLOWER:
-  PARAM_ONE: 1.0
-  PARAM_TWO: true
-  MAX_VELOCITY: 5.0
-```
-
----
-
-## Step 6: Add PID Gains (if needed)
-
-```yaml
-PID_GAINS:
-  # ... existing gains ...
-  my_follower_axis:
-    p: 2.0
-    i: 0.1
-    d: 0.3
-```
-
----
-
-## Step 7: Test
-
-### Unit Test
-
-```python
-# tests/test_my_follower.py
-
-import pytest
-from classes.followers.my_follower import MyFollower
-from classes.tracker_output import TrackerOutput, TrackerDataType
-
-class MockPX4Interface:
-    pass
-
-def test_initialization():
-    px4 = MockPX4Interface()
-    follower = MyFollower(px4, (0.0, 0.0))
-    assert follower is not None
-
-def test_follow_target():
-    px4 = MockPX4Interface()
-    follower = MyFollower(px4, (0.0, 0.0))
-
-    tracker_data = TrackerOutput(
-        data_type=TrackerDataType.POSITION_2D,
-        position_2d=(0.1, -0.1)
-    )
-
-    result = follower.follow_target(tracker_data)
-    assert result == True
-```
-
-### SITL Test
-
-```bash
-# Start SITL
-make px4_sitl gazebo
-
-# Run PixEagle with your follower
-FOLLOWER_MODE=my_follower bash scripts/run.sh
-```
-
----
-
-## Common Patterns
-
-### Using Base Class Utilities
-
-```python
-# Extract coordinates
-coords = self.extract_target_coordinates(tracker_data)
-
-# Validate coordinates
-if not self.validate_target_coordinates(coords):
-    return
-
-# Clamp velocities
-clamped = self.clamp_velocity(vel_fwd, vel_right, vel_down)
-
-# Publish one complete command intent
-self.set_command_fields({
-    'vel_body_fwd': vel_fwd,
-    'vel_body_right': vel_right,
-    'vel_body_down': vel_down,
-    'yawspeed_deg_s': yaw_speed,
-}, reason='normal_tracking')
-
-# Rate-limited logging
-self._rate_limiter.log_rate_limited(
-    logger, 'info', 'status', f"Status: {status}"
-)
-```
-
-### Accessing Safety Limits
-
-```python
-# Velocity limits (from SafetyManager)
-max_fwd = self.velocity_limits.forward
-max_lat = self.velocity_limits.lateral
-max_vert = self.velocity_limits.vertical
-
-# Altitude limits
-min_alt = self.altitude_limits.min_altitude
-max_alt = self.altitude_limits.max_altitude
-
-# Rate limits
-max_yaw = self.rate_limits.yaw  # rad/s
-```
-
-### Custom Telemetry
-
-```python
-def get_telemetry(self) -> Dict[str, Any]:
-    return {
-        **self.get_follower_telemetry(),  # Base telemetry
-        'custom_field': self.custom_value,
-        'status': self.get_status()
-    }
-```
+# Creating a follower
+
+Start from an existing follower with the same input and command contract.
+Describe what it controls and what it does not estimate. Image centering does
+not establish range; a provider bearing is not a measured pixel.
+
+1. Declare the stable ID in `configs/follower_commands.yaml` (schema 2.3.0):
+   `family`, `visibility`, `config_section`, label/purpose, aircraft phase,
+   control type, every required command field, and required tracker schemas.
+   The [command schema](../04-configuration/schema-system.md) is authoritative.
+2. Register its implementation in `FollowerFactory`. An unimplemented YAML
+   declaration remains unavailable. Do not add another compatibility matrix.
+   The shared catalog evaluates observation meaning, actual fields and live
+   aircraft admission separately from profile selection.
+3. Implement `BaseFollower` using that profile ID. Read algorithm settings from
+   its declared configuration section; use FollowerConfigManager for shared
+   behavior and SafetyManager for the resolved operational envelope. Do not
+   derive settings from a class name or add a second maximum-speed setting.
+4. Return a complete nominal `CommandIntent` through `set_command_fields()`.
+   Return success only if that snapshot was accepted. Exceptions/invalid input
+   must invalidate obsolete intent. Never publish MAVSDK/DDS commands from
+   strategy calculations.
+5. Implement `reset_target_state(reason)` when the strategy has controller history.
+   Retarget preparation invalidates intent and calls this hook; the base hook
+   is an explicit no-op for stateless implementations. A target transition
+   preserves acknowledged session controls; ending the session clears them.
+6. Only if needed, override `prepare_authorized_command(fields, loss_decay=...)`
+   for post-continuity shaping and `on_command_submitted(fields)` for accepted
+   submission history. Preserve session-limit resolution before shaping;
+   rejected submissions cannot advance command history. Native FW keeps its
+   own command contract and must not enter an MC velocity guard.
+7. Add canonical defaults/schema documentation through Config Sync. Preserve
+   sparse overrides and saved installations. Public target-altitude guidance
+   stays off, with altitude safeguards and the circuit breaker on.
+
+The AppController flight owner owns admission, continuity, final authorization,
+publication and teardown. Do not add strategy-local loss timers, Hold/RTL
+requests or reconnect action replay. Current VTOL admission stays unavailable
+until the transition-preserving release gate passes; declaring native phases
+does not grant it.
+
+## Verification
+
+Use real constructors and actual defaults as well as focused math fixtures.
+Cover complete fields/units, nonzero aim, both axis signs, finite output,
+bounds, altitude off/on, configuration identity under class renaming, reset
+ordering, rejected submissions and Stop/takeover races. Preview compatibility
+does not imply permission to start live following.
+
+Run the relevant tests with the repository interpreter, then use the
+[SIH qualification workflow](sih-follower-qualification.md) for an independently
+defined moving world target and actual PX4 pose. A dry-run or synthetic replay
+is a contract check, not aircraft-response evidence. Preserve failed runs,
+exact revisions/configuration, publication traces and handoff reasons.
+
+Add one concise reference page linked from the
+[visual guide](../02-reference/follower-visual-guide.md). Show the declared input,
+command meaning and evidence status; reuse the existing read-only visualizer.
+See the [consolidation checkpoint](../../reporting/agent-ops/codex-modernization/checkpoints/2026-11-09-follower-consolidation.md)
+for currently completed boundaries and remaining qualification.

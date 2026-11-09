@@ -19,7 +19,7 @@ from classes.logging_manager import logging_manager
 from classes.runtime_logging import redact_text
 from classes.follower import Follower
 from classes.command_intent import CommandIntent
-from classes.aircraft_state import AircraftLayout, GuidanceSessionIdentity
+from classes.aircraft_state import AircraftKind, AircraftLayout, GuidanceSessionIdentity
 from classes.fixed_wing_guidance_policy import FixedWingGuidancePolicy
 from classes.native_follow_binding import NativeFollowBinding, requires_native_guidance
 from classes.native_guidance import DEFAULT_SOCKET_PATH
@@ -3040,10 +3040,12 @@ class AppController:
             reset()
 
     def _refuse_unqualified_live_profile(self, profile, result) -> bool:
-        phase = profile.get("airframe_phase")
-        if (phase not in {"fixed_wing", "vtol_transition"}
-                or phase in profile.get("native_phase_contracts", {})):
+        from classes.follower_catalog import FollowerProfile
+
+        descriptor = FollowerProfile.from_info(str(Parameters.FOLLOWER_MODE), profile)
+        if descriptor.live_eligibility.eligible:
             return False
+        phase = descriptor.airframe_phase
         from classes.airspeed_readiness import evaluate_following_start_airspeed
         message = (f"Live {phase} following is not qualified for the current "
                    "MAVSDK/PX4 integration; use COMMAND_PREVIEW")
@@ -3054,6 +3056,19 @@ class AppController:
         result["errors"].append(message)
         logging.warning("Follow start refused: %s", message)
         return True
+
+    def _require_live_aircraft_profile(self, profile, result) -> None:
+        """Apply the same catalog admission to every live Start before acquisition."""
+        from classes.follower_catalog import FollowerProfile, evaluate_aircraft
+
+        descriptor = FollowerProfile.from_info(str(Parameters.FOLLOWER_MODE), profile)
+        kind = self.px4_interface.get_aircraft_kind()
+        decision = evaluate_aircraft(
+            descriptor, kind.value if isinstance(kind, AircraftKind) else "unknown",
+        )
+        if not decision.eligible:
+            result["precondition"] = {"code": decision.reason_code}
+            raise ValueError(decision.reason_code)
 
     async def _prepare_native_follow_binding(self):
         """Prepare one owner; only the existing explicit start may engage it."""
@@ -3506,6 +3521,7 @@ class AppController:
                     "Complete follower telemetry confirmed "
                     f"({telemetry_readiness.get('source', 'unknown')})"
                 )
+                self._require_live_aircraft_profile(configured_profile, result)
                 native_required = False
                 if configured_profile.get("native_phase_contracts"):
                     native_required = requires_native_guidance(
@@ -3572,6 +3588,7 @@ class AppController:
                     # Treat that interval as possibly entered Offboard.
                     if native_required:
                         native_binding = await self._prepare_native_follow_binding()
+                        self._require_live_aircraft_profile(configured_profile, result)
                         offboard_cleanup_required = True
                         initial_native_intent = await native_binding.engage()
                         self.follower.follower.bind_airframe_session(native_binding.guidance)
@@ -5532,22 +5549,13 @@ class AppController:
             return False
 
         concrete = getattr(getattr(self, "follower", None), "follower", None)
-        limit = getattr(concrete, "limit_authorized_command", None)
-        guard = getattr(concrete, "guard_authorized_command", None)
+        prepare = getattr(concrete, "prepare_authorized_command", None)
         continuity_status = self._get_target_continuity_supervisor().get_status()
         loss_decay = (continuity_status.get("transition_phase") == "loss"
                       and intent.reason == "bounded_horizontal_decay")
-        shaping = guard if loss_decay else limit
-        gimbal_guidance = intent.profile_name in {"gm_velocity_chase", "gm_velocity_vector"}
-        session_limit = getattr(concrete, 'limit_session_control_command', None)
-        if callable(session_limit) or gimbal_guidance and callable(shaping):
+        if callable(prepare):
             try:
-                fields = session_limit(dict(intent.fields)) if callable(session_limit) else dict(intent.fields)
-                if gimbal_guidance and callable(shaping):
-                    fields = shaping(fields)
-                if gimbal_guidance and loss_decay:
-                    fields["yawspeed_deg_s"] = 0.0
-                    fields["vel_body_down"] = 0.0
+                fields = prepare(dict(intent.fields), loss_decay=loss_decay)
                 intent = dataclasses.replace(intent, fields=fields)
             except Exception:
                 logging.exception("Authorized command shaping failed")
@@ -5555,8 +5563,8 @@ class AppController:
                 return False
         accepted = self._submit_command_intent_to_commander(intent)
         if accepted:
-            record = getattr(concrete, "record_submitted_command", None)
-            if gimbal_guidance and callable(record):
+            record = getattr(concrete, "on_command_submitted", None)
+            if callable(record):
                 record(dict(intent.fields))
             self._get_target_continuity_supervisor().record_authorized_intent(intent)
         self._record_tracker_dispatch_trace(

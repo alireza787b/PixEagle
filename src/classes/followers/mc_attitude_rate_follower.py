@@ -880,6 +880,9 @@ class MCAttitudeRateFollower(BaseFollower):
         self.altitude_violation_count = 0
         logger.info("Emergency stop deactivated")
 
+    def reset_target_state(self, reason: str) -> bool:
+        return self.reset_follower_state() is not False
+
     def reset_follower_state(self) -> None:
         """Resets follower state to initial conditions."""
         self.dive_started = False

@@ -964,6 +964,9 @@ class FWAttitudeRateFollower(BaseFollower):
         except Exception as e:
             return f"Error generating status report: {e}"
 
+    def reset_target_state(self, reason: str) -> bool:
+        return self.reset_state() is not False
+
     def reset_state(self) -> None:
         """Reset all state variables to initial conditions."""
         try:

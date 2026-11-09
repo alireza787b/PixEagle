@@ -44,7 +44,7 @@ class FixedWingCommand:
         result["upper_speed_policy"] = self.upper_speed_policy.value
         return result
 
-    def intent(self, identity: GuidanceSessionIdentity, *, source: str) -> CommandIntent:
+    def intent(self, identity: GuidanceSessionIdentity, *, profile_name: str, source: str) -> CommandIntent:
         if self.upper_speed_policy is not UpperSpeedPolicy.PX4_CONFIGURED_MAX:
             # The firmware extension must join this contract before this policy
             # can pass through shared continuity. Never discard its ownership.
@@ -54,7 +54,7 @@ class FixedWingCommand:
             fields["height_rate_m_s"] = self.height_rate_m_s
         else:
             fields["altitude_amsl_m"] = self.altitude_amsl_m
-        return CommandIntent("gm_velocity_vector", "fixed_wing_external", fields, source,
+        return CommandIntent(profile_name, "fixed_wing_external", fields, source,
                              guidance_identity=identity)
 
     @classmethod

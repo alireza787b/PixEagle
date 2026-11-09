@@ -313,3 +313,10 @@ remain open. Integration work is unpublished.
   retirements. Required General loading remains strict; source upgrades must
   not assume preview can repair an incomplete required object. See the same
   consolidation checkpoint and Config Sync guide for tested scope.
+
+- **2026-11-09 — Strategy boundary, S3 (complete):** explicit configuration
+  identity, target reset and authorized-command hooks replace class/name
+  discovery. The flight owner now converges typed/legacy admission; legacy VTOL
+  Start is intentionally blocked pending S7. Characterization/owner gates pass;
+  algorithms, gains and hardware are unchanged. Public MC altitude behavior and
+  the moving-target harness are S4 work, not covered by this structural pass.

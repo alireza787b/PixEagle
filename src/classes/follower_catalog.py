@@ -34,6 +34,7 @@ class FollowerProfile:
     display_name: str
     description: str
     family: str
+    config_section: str
     visibility: str
     control_type: str
     airframe_phase: str
@@ -50,7 +51,7 @@ class FollowerProfile:
             raise ValueError("follower_catalog_metadata_invalid")
         return cls(
             mode=mode, display_name=info["display_name"], description=info["description"],
-            family=family, visibility=visibility, control_type=info["control_type"],
+            family=family, visibility=visibility, config_section=info["config_section"], control_type=info["control_type"],
             airframe_phase=info["airframe_phase"], required_fields=tuple(info["required_fields"]),
             required_tracker_data=tuple(info["required_tracker_data"]),
             native_phase_contracts=tuple(info.get("native_phase_contracts", {}).items()),

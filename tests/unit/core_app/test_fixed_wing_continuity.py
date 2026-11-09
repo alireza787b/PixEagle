@@ -16,7 +16,7 @@ def identity(generation=1):
 
 
 def intent(*, course=0., rate=-2., altitude=None, generation=1):
-    return FixedWingCommand(course, 18., rate, altitude).intent(identity(generation), source="fixture")
+    return FixedWingCommand(course, 18., rate, altitude).intent(identity(generation), profile_name="gm_velocity_vector", source="fixture")
 
 
 def evidence(confirmed=True, epoch=1):

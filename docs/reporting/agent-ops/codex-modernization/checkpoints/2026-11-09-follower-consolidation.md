@@ -104,7 +104,31 @@ Validation: the combined config/service/routes/CLI/schema/publication gate passe
 deprecation warning. Fatal CI lint, schema drift and whitespace checks passed.
 No saved/private configuration was applied, and no hardware or SIH run occurred.
 
-## Next — S3
+## S3 — explicit strategy/lifecycle boundaries complete
 
-Remove class/profile-name coupling at the strategy boundary, preserve command
-shaping/reset behavior, and converge live admission in the flight owner.
+- Command schema 2.3.0 requires explicit `config_section`; all eight existing
+  bindings are preserved. Class renaming/subclassing no longer selects limits.
+- Explicit `reset_target_state(reason)` hooks replace reset-method discovery.
+  Retarget invalidates intent before resetting established controller memory,
+  while preserving acknowledged session controls. Stateless paths remain no-op.
+- AppController delegates post-continuity shaping and accepted-submission
+  history through hooks. Session caps precede shaping/guarding; rejected
+  submission does not advance history. Native FW never enters an MC guard.
+- Native intents carry explicit profile identity rather than a hidden Vector ID.
+- The common flight owner applies catalog admission to typed and legacy Starts,
+  after fresh telemetry/pending configuration and again after awaited native
+  discovery. Unknown/mismatched aircraft and VTOL are rejected before acquisition.
+  VTOL remains blocked until S7; preview is separate and unchanged.
+
+Validation: 1,120 focused follower/owner/native/continuity/transport tests and
+65 preview/factory/retarget tests passed. Existing controller algorithms, units,
+gains, safety envelopes and transition behavior were not retuned. No simulation
+or hardware run is claimed by this structural slice. The independent review also
+updates a continuity-sync fixture to accept S2's nested leaf paths.
+Independent root review: 392 catalog/lifecycle/owner/API/provenance/documentation
+tests passed, including local Markdown links; fatal CI lint and whitespace passed.
+
+## Next — S4
+
+Audit actual public MC behavior, fix altitude-off violations, then run a canonical
+moving-world-target harness with measured PX4 pose and honest qualification.

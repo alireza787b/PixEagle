@@ -206,8 +206,7 @@ class BaseFollower(ABC):
 
         try:
             self.safety_manager = get_safety_manager()
-            # Derive follower config name from class (e.g., MCVelocityChaseFollower -> MC_VELOCITY_CHASE)
-            self._follower_config_name = self._derive_follower_config_name()
+            self._follower_config_name = self.setpoint_handler.profile_config["config_section"]
 
             # Warn if SafetyManager hasn't loaded config (using fallback values)
             if not self.safety_manager.is_initialized():
@@ -430,28 +429,12 @@ class BaseFollower(ABC):
         """
         prepared = self.reset_command_fields()
         if prepared:
-            # Retargeting keeps the active session controls (for example the
-            # requested Vector speed), but controller memory must not carry a
-            # previous target's integral, yaw, or rate state into the new one.
-            # Existing followers expose one of these established reset hooks;
-            # the base boundary keeps the lifecycle contract in one place.
-            for hook_name in (
-                "reset_chase_state",
-                "reset_follower_state",
-                "reset_pid_controllers",
-                "reset_state",
-            ):
-                hook = getattr(self, hook_name, None)
-                if not callable(hook):
-                    continue
-                try:
-                    result = hook()
-                except Exception:
-                    logger.exception("Follower target-transition reset failed: %s", hook_name)
+            try:
+                if self.reset_target_state(reason) is False:
                     return False
-                if result is False:
-                    return False
-                break
+            except Exception:
+                logger.exception("Follower target-transition reset failed")
+                return False
         if prepared and hasattr(self, '_telemetry_metadata'):
             self.update_telemetry_metadata(
                 'target_transition',
@@ -461,6 +444,26 @@ class BaseFollower(ABC):
                 },
             )
         return prepared
+
+    def reset_target_state(self, reason: str) -> bool:
+        """Reset target-specific controller memory while retaining session controls."""
+        return True
+
+    def prepare_authorized_command(self, fields: Dict[str, float], *, loss_decay: bool) -> Dict[str, float]:
+        """Apply session limits after continuity, before the sole publisher."""
+        return self.limit_session_control_command(dict(fields))
+
+    def prepare_shaped_authorized_command(self, fields: Dict[str, float], *, loss_decay: bool) -> Dict[str, float]:
+        """Preserve the gimbal guidance shaping order for authorized commands."""
+        fields = self.limit_session_control_command(dict(fields))
+        fields = self.guard_authorized_command(fields) if loss_decay else self.limit_authorized_command(fields)
+        if loss_decay:
+            fields["yawspeed_deg_s"] = 0.0
+            fields["vel_body_down"] = 0.0
+        return fields
+
+    def on_command_submitted(self, fields: Dict[str, float]) -> None:
+        """Only implementations with submitted-command history opt in."""
 
     # ==================== PID Utility Methods ====================
 
@@ -515,59 +518,6 @@ class BaseFollower(ABC):
             raise
 
     # ==================== Safety Management Methods ====================
-
-    def _derive_follower_config_name(self) -> str:
-        """
-        Derive the config section name from the class name.
-
-        Converts class names like 'MCVelocityChaseFollower' to 'MC_VELOCITY_CHASE'
-        for config lookup.
-
-        Returns:
-            str: The config section name (e.g., 'MC_VELOCITY_CHASE')
-        """
-        class_name = self.__class__.__name__
-
-        # Remove 'Follower' suffix if present
-        if class_name.endswith('Follower'):
-            class_name = class_name[:-8]
-
-        # Convert CamelCase to UPPER_SNAKE_CASE
-        # Handle special prefixes (MC, GM, FW)
-        result = []
-        i = 0
-        while i < len(class_name):
-            char = class_name[i]
-
-            # Handle uppercase sequences (like MC, GM, FW)
-            if char.isupper():
-                # Check if this is part of an acronym (consecutive uppercase)
-                acronym = char
-                j = i + 1
-                while j < len(class_name) and class_name[j].isupper():
-                    # If next char after this is lowercase, this uppercase belongs to next word
-                    if j + 1 < len(class_name) and class_name[j + 1].islower():
-                        break
-                    acronym += class_name[j]
-                    j += 1
-
-                if len(acronym) > 1:
-                    # This is an acronym
-                    if result:
-                        result.append('_')
-                    result.append(acronym)
-                    i = j
-                else:
-                    # Single uppercase - start of new word
-                    if result and result[-1] != '_':
-                        result.append('_')
-                    result.append(char)
-                    i += 1
-            else:
-                result.append(char.upper())
-                i += 1
-
-        return ''.join(result)
 
     # ==================== Dynamic Safety Limit Properties ====================
     # These properties read fresh from SafetyManager on each access, allowing

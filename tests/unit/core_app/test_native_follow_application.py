@@ -9,6 +9,7 @@ import pytest
 from classes.aircraft_state import AircraftKind
 from classes.app_controller import AppController
 from classes.parameters import Parameters
+from classes.follower import FollowerFactory
 from classes.api_v1_following_controls import session_control_snapshot
 from classes.api_v1_contracts import APITargetContinuityStatus
 from classes.api_v1_contracts import APIFollowingTelemetryResponse
@@ -19,7 +20,7 @@ from tests.unit.core_app.test_native_follow_binding import fixture, CONFIG
 
 @pytest.fixture
 def app(monkeypatch):
-    f = fixture()
+    f = fixture(is_vtol=False)
     ctrl = object.__new__(AppController)
     ctrl._follower_state_lock = asyncio.Lock()
     ctrl.following_active = False
@@ -35,7 +36,7 @@ def app(monkeypatch):
         connect=AsyncMock(return_value={"connected": True}),
         wait_for_telemetry_ready=AsyncMock(return_value={"ready": True, "source": "fixture"}),
         get_connection_status=Mock(return_value={"connected": True}),
-        get_aircraft_kind=Mock(return_value=AircraftKind.VTOL),
+        get_aircraft_kind=Mock(return_value=AircraftKind.FIXED_WING),
         get_aircraft_identity=Mock(return_value={"autopilot_uid": f.state.binding.aircraft_uid,
                                                 "connection_generation": f.state.binding.connection_generation}),
         is_command_connection_ready=Mock(return_value=True),
@@ -46,11 +47,7 @@ def app(monkeypatch):
     manager.follower.profile_name = "gm_velocity_vector"
     ctrl.px4_interface.setpoint_handler = manager.follower.setpoint_handler
     factory = Mock(return_value=manager)
-    factory.get_mode_info.return_value = {
-        "airframe_phase": "multicopter",
-        "native_phase_contracts": {"multicopter": "velocity_body_offboard",
-                                   "fixed_wing": "fixed_wing_external", "vtol_transition": "vtol_transition_external"},
-    }
+    factory.get_mode_info.return_value = FollowerFactory.get_follower_info("gm_velocity_vector")
     commander = SimpleNamespace(
         setpoint_handler=manager.follower.setpoint_handler,
         submit_intent=Mock(return_value=True), start=AsyncMock(return_value=True),
@@ -245,7 +242,7 @@ async def test_native_terminal_reason_survives_concurrent_publisher_cleanup(app)
 async def test_pending_config_cannot_bypass_live_profile_qualification(app, monkeypatch):
     factory = app.follower_factory
     current = factory.get_mode_info.return_value
-    factory.get_mode_info.side_effect = lambda mode: ({"airframe_phase": "fixed_wing"}
+    factory.get_mode_info.side_effect = lambda mode: (FollowerFactory.get_follower_info("fw_attitude_rate")
                                                      if mode == "fw_attitude_rate" else current)
 
     async def apply():
@@ -289,3 +286,32 @@ async def test_native_api_reports_published_fw_contract_and_never_falls_back_to_
     assert retired["fields"] == {}
     assert retired["field_source"] == "unavailable"
     assert retired["last_command_intent"] is None
+
+
+@pytest.mark.parametrize("kind,reason", [
+    (AircraftKind.UNKNOWN, "aircraft_kind_unavailable"),
+    (AircraftKind.VTOL, "vtol_transition_release_unqualified"),
+])
+@pytest.mark.parametrize("typed", [False, True])
+async def test_live_owner_admission_is_shared_by_typed_and_legacy_start(app, kind, reason, typed):
+    app.ctrl.px4_interface.get_aircraft_kind.return_value = kind
+    guard = Mock() if typed else None
+    result = await app.ctrl._connect_px4_on_flight_loop(native_start_guard=guard)
+    assert result['precondition']['code'] == reason
+    assert not app.ctrl.following_active
+    app.follower_factory.assert_not_called()
+    app.ctrl.px4_interface.start_offboard_mode.assert_not_called()
+    app.ctrl._prepare_native_follow_binding.assert_not_called()
+    app.commander_factory.assert_not_called()
+
+
+async def test_aircraft_admission_is_rechecked_after_native_discovery(app):
+    app.ctrl.px4_interface.get_aircraft_kind.side_effect = [
+        AircraftKind.FIXED_WING, AircraftKind.FIXED_WING, AircraftKind.VTOL,
+    ]
+    result = await app.ctrl._connect_px4_on_flight_loop()
+    assert result['precondition']['code'] == 'vtol_transition_release_unqualified'
+    assert not app.ctrl.following_active
+    app.f.client.engage.assert_not_called()
+    app.ctrl.px4_interface.start_offboard_mode.assert_not_called()
+    app.commander_factory.assert_not_called()

@@ -205,6 +205,12 @@ class GMVelocityChaseFollower(BaseFollower):
     def authorized_command_acceleration(self) -> float:
         return self.forward_acceleration
 
+    def prepare_authorized_command(self, fields: Dict[str, float], *, loss_decay: bool) -> Dict[str, float]:
+        return self.prepare_shaped_authorized_command(fields, loss_decay=loss_decay)
+
+    def on_command_submitted(self, fields: Dict[str, float]) -> None:
+        self.record_submitted_command(fields)
+
     def reset_control_session(self) -> None:
         super().reset_control_session()
         self.current_forward_velocity = 0.0

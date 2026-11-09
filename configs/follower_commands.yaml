@@ -6,7 +6,7 @@
 # profile definitions and enables extensible follower modes.
 
 # Schema version for future compatibility
-schema_version: "2.2.0"
+schema_version: "2.3.0"
 
 # ==============================================================================
 # Command Field Definitions
@@ -95,6 +95,7 @@ follower_profiles:
   
   # MC Velocity Ground Follower - Full velocity control for ground target tracking
   mc_velocity_ground:
+    config_section: MC_VELOCITY_GROUND
     family: multicopter
     visibility: advanced
     display_name: "MC Velocity Ground"
@@ -109,6 +110,7 @@ follower_profiles:
     
   # Historical key retained for visual-centering compatibility
   mc_velocity_distance:
+    config_section: MC_VELOCITY_DISTANCE
     family: multicopter
     visibility: advanced
     display_name: "MC Visual Centering"
@@ -123,6 +125,7 @@ follower_profiles:
 
   # MC Velocity Position Follower - Limited movement, yaw and altitude only
   mc_velocity_position:
+    config_section: MC_VELOCITY_POSITION
     family: multicopter
     visibility: basic
     display_name: "MC Velocity Position"
@@ -138,6 +141,7 @@ follower_profiles:
     
   # MC Velocity Chase Follower - Quadcopter offboard velocity control
   mc_velocity_chase:
+    config_section: MC_VELOCITY_CHASE
     family: multicopter
     visibility: basic
     display_name: "MC Velocity Chase"
@@ -152,6 +156,7 @@ follower_profiles:
 
   # GM PID Pursuit Follower - PID-based pursuit with coordinated turn guidance
   gm_velocity_chase:
+    config_section: GM_VELOCITY_CHASE
     family: external
     visibility: advanced
     display_name: "GM PID Pursuit"
@@ -166,6 +171,7 @@ follower_profiles:
 
   # GM Velocity Vector Follower - Direct vector pursuit using gimbal angles
   gm_velocity_vector:
+    config_section: GM_VELOCITY_VECTOR
     family: external
     visibility: advanced
     display_name: "GM Velocity Vector"
@@ -189,6 +195,7 @@ follower_profiles:
 
   # FW Attitude Rate Follower - visual L1/TECS-inspired control
   fw_attitude_rate:
+    config_section: FW_ATTITUDE_RATE
     family: fixed_wing
     visibility: experimental
     display_name: "FW Attitude Rate"
@@ -204,6 +211,7 @@ follower_profiles:
 
   # MC Attitude Rate Follower - direct angular-rate and thrust control
   mc_attitude_rate:
+    config_section: MC_ATTITUDE_RATE
     family: multicopter
     visibility: experimental
     display_name: "MC Attitude Rate"

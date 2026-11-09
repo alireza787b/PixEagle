@@ -1624,6 +1624,9 @@ class MCVelocityChaseFollower(BaseFollower):
         except Exception as e:
             return f"Error generating body velocity chase status report: {e}"
 
+    def reset_target_state(self, reason: str) -> bool:
+        return self.reset_chase_state() is not False
+
     def reset_chase_state(self) -> None:
         """
         Resets chase-specific state variables to initial conditions including mode state.

@@ -142,8 +142,10 @@ def test_missing_continuity_is_explicit_config_sync_addition(tmp_path):
     assert service.get_config() == before
     migrated = copy.deepcopy(before)
     for operation in plan["operations"]:
-        section, parameter = operation["path"]
-        migrated.setdefault(section, {})[parameter] = operation["target_value"]
+        cursor = migrated
+        for component in operation["path"][:-1]:
+            cursor = cursor.setdefault(component, {})
+        cursor[operation["path"][-1]] = operation["target_value"]
     assert {k: v for k, v in migrated.items() if k != "TargetContinuity"} == before
     for follower in ("gm_velocity_chase", "gm_velocity_vector"):
         policy = ContinuityPolicy.resolve(migrated["TargetContinuity"], follower)

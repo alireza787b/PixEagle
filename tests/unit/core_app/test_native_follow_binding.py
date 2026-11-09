@@ -22,8 +22,8 @@ CONFIG = dict(MODE="bounded_decay", MAX_COAST_TIME_S=8., MAX_COAST_DISTANCE_M=4.
               PhaseOverrides={"fixed_wing": dict(MODE="bounded_flight")})
 
 
-def fixture(*, phase=AirframePhase.FIXED_WING):
-    guidance, clock, state = session(state=aircraft_state(phase=phase, is_vtol=True, is_tailsitter=True))
+def fixture(*, phase=AirframePhase.FIXED_WING, is_vtol=True):
+    guidance, clock, state = session(state=aircraft_state(phase=phase, is_vtol=is_vtol, is_tailsitter=is_vtol))
     states = AircraftStateOwner(clock=lambda: clock[0])
     states.bind(state.binding)
     states.commit(state)

@@ -20,4 +20,8 @@ overrides and selected-leaf baselines. It retires three unused GM Chase keys
 without changing gains. Combined config gates: 389 passed, one Windows-only ACL
 skip; fatal lint and schema (44/613) passed. Required General loading remains
 strict and is documented. Saved/private configuration and hardware are unchanged.
-Continue with S3's strategy/owner boundary.
+S3 now adds explicit configuration identity, reset/shaping/submission hooks and
+common owner-side live admission. Its 1,120-test main gate and 65-test preview/
+retarget gate passed; algorithms and gains remain unchanged. The checkpoint
+records the intentional legacy VTOL admission restriction and developer schema
+2.3 migration. Continue with S4's public MC behavior and actual SIH evidence.

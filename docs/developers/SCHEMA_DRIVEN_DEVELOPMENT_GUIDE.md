@@ -63,8 +63,8 @@ tightening `Safety.FollowerOverrides`. Supported session controls can explicitly
 replace saved velocity caps through SafetyManager; other protections remain
 separate. Do not duplicate operational limits in `follower_commands.yaml`.
 
-The shipped command schema is version `2.2.0`. Developer-owned command-schema
-files must declare `family` and `visibility` on every profile. Native strategies
+The shipped command schema is version `2.3.0`. Developer-owned command-schema
+files must declare `family`, `visibility` and explicit `config_section` on every profile. Native strategies
 declare `native_phase_contracts` as a phase-to-command-type mapping; the old
 `native_airframe_phases` list is not a runtime alias. This tracked contract asset
 is distinct from persisted operator configuration.

@@ -601,6 +601,9 @@ class MCVelocityPositionFollower(BaseFollower):
     
     # ==================== Utility and Debugging Methods ====================
     
+    def reset_target_state(self, reason: str) -> bool:
+        return self.reset_pid_controllers() is not False
+
     def reset_pid_controllers(self) -> bool:
         """
         Resets all PID controllers to initial state.

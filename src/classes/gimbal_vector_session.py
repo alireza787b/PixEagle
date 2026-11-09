@@ -24,11 +24,12 @@ from classes.safety_types import AltitudeLimits
 
 class GimbalVectorSession:
     def __init__(self, identity: GuidanceSessionIdentity, capabilities: NativeCapabilities, *,
-                 multicopter_control: SessionControl, geometry_policy: GimbalGuidancePolicy,
+                 profile_name: str, multicopter_control: SessionControl, geometry_policy: GimbalGuidancePolicy,
                  altitude_control: bool, altitude_limits: AltitudeLimits, confirmation_s: float,
                  observation_timeout_s: float, transition_timeout_s: float, clock=time.monotonic,
                  fixed_wing_policy: FixedWingGuidancePolicy | None = None,
                  expected_layout: AircraftLayout = AircraftLayout.AUTO):
+        self.profile_name = profile_name
         self.phase_owner = GuidancePhaseSession(
             identity, capabilities, confirmation_s=confirmation_s,
             observation_timeout_s=observation_timeout_s, transition_timeout_s=transition_timeout_s,
@@ -126,7 +127,7 @@ class GimbalVectorSession:
                 identity=self.identity, altitude_limits=self.altitude_limits, now=self.clock(),
                 timeout_s=self.phase_owner.observation_timeout_s,
             )
-            return replace(command.intent(self.identity, source=type(self).__name__),
+            return replace(command.intent(self.identity, profile_name=self.profile_name, source=type(self).__name__),
                            reason="phase_confirmation_pending", created_at_monotonic_s=self.clock())
         elif self.phase is AirframePhase.VTOL_TRANSITION:
             reference = self._transition_reference
@@ -136,7 +137,7 @@ class GimbalVectorSession:
             fields = replace(reference, equivalent_airspeed_m_s=speed).wire_payload()
         else:
             raise ValueError("aircraft_phase_unknown")
-        return CommandIntent("gm_velocity_vector", self.control_type, fields, type(self).__name__,
+        return CommandIntent(self.profile_name, self.control_type, fields, type(self).__name__,
                              reason="native_transition_in_progress" if state.phase is AirframePhase.VTOL_TRANSITION
                              else "phase_confirmation_pending", created_at_monotonic_s=self.clock(),
                              guidance_identity=self.identity)
@@ -155,7 +156,7 @@ class GimbalVectorSession:
                 timeout_s=self.phase_owner.observation_timeout_s,
             )
             self._last_fw_command = self.last_guidance.command
-            return replace(self.last_guidance.command.intent(self.identity, source=type(self).__name__),
+            return replace(self.last_guidance.command.intent(self.identity, profile_name=self.profile_name, source=type(self).__name__),
                            created_at_monotonic_s=self.clock())
         if self.phase is not AirframePhase.MULTICOPTER:
             raise ValueError("aircraft_phase_unknown")
@@ -164,7 +165,7 @@ class GimbalVectorSession:
         intent = multicopter_calculate(ray)
         if intent.control_type != "velocity_body_offboard":
             raise ValueError("multicopter_command_contract_invalid")
-        return replace(intent, guidance_identity=self.identity)
+        return replace(intent, profile_name=self.profile_name, guidance_identity=self.identity)
 
     def end(self, reason: str) -> None:
         self.phase_owner.end(reason)
@@ -181,7 +182,7 @@ class GimbalVectorSession:
             command = NativeTransitionCommand(**fields)
             speed, _ = self.fixed_wing.resolve_speed(state, command.equivalent_airspeed_m_s)
             return replace(command, equivalent_airspeed_m_s=speed).wire_payload()
-        intent = CommandIntent("gm_velocity_vector", self.control_type, dict(fields), type(self).__name__,
+        intent = CommandIntent(self.profile_name, self.control_type, dict(fields), type(self).__name__,
                                guidance_identity=self.identity)
         command = FixedWingCommand.from_intent(intent)
         control = self.controls.current_control
@@ -194,4 +195,4 @@ class GimbalVectorSession:
             command, state, identity=self.identity,
             altitude_limits=self.altitude_limits, now=self.clock(), timeout_s=self.phase_owner.observation_timeout_s,
         )
-        return command.intent(self.identity, source=type(self).__name__).fields
+        return command.intent(self.identity, profile_name=self.profile_name, source=type(self).__name__).fields

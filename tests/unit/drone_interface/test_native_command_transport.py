@@ -29,7 +29,7 @@ def setup_transport(state=None):
 
 async def test_published_snapshot_requires_current_contract_owner_and_intent_freshness():
     transport, client, identity = setup_transport()
-    intent = replace(FixedWingCommand(.3, 18., 0., None).intent(identity, source="test"),
+    intent = replace(FixedWingCommand(.3, 18., 0., None).intent(identity, profile_name="gm_velocity_vector", source="test"),
                      created_at_monotonic_s=100.)
     assert transport.published_intent(ttl_s=.5) is None
     await transport.publish(intent, reason="heartbeat", ttl_s=.5)
@@ -50,7 +50,7 @@ async def test_published_snapshot_requires_current_contract_owner_and_intent_fre
 
 async def test_native_publication_count_excludes_previous_owners_and_local_acks_alone():
     transport, client, identity = setup_transport()
-    intent = replace(FixedWingCommand(.3, 18., 0., None).intent(identity, source="test"),
+    intent = replace(FixedWingCommand(.3, 18., 0., None).intent(identity, profile_name="gm_velocity_vector", source="test"),
                      created_at_monotonic_s=100.)
     await transport.publish(intent, reason="heartbeat", ttl_s=.5)
     assert transport.observed_publications is None
@@ -68,7 +68,7 @@ async def test_native_publication_count_excludes_previous_owners_and_local_acks_
 async def test_missing_or_invalid_native_count_is_unknown_without_blocking_control(bad):
     transport, client, identity = setup_transport()
     client.observe.return_value["publications"] = bad
-    intent = replace(FixedWingCommand(.3, 18., 0., None).intent(identity, source="test"),
+    intent = replace(FixedWingCommand(.3, 18., 0., None).intent(identity, profile_name="gm_velocity_vector", source="test"),
                      created_at_monotonic_s=100.)
     assert await transport.publish(intent, reason="heartbeat", ttl_s=.5)
     assert transport.observed_publications is None
@@ -76,7 +76,7 @@ async def test_missing_or_invalid_native_count_is_unknown_without_blocking_contr
 
 async def test_a_counter_reset_cannot_be_reported_as_current_session_publication():
     transport, client, identity = setup_transport()
-    intent = replace(FixedWingCommand(.3, 18., 0., None).intent(identity, source="test"),
+    intent = replace(FixedWingCommand(.3, 18., 0., None).intent(identity, profile_name="gm_velocity_vector", source="test"),
                      created_at_monotonic_s=100.)
     for count in (20, 21, 0, 30):
         client.observe.return_value["publications"] = count
@@ -99,7 +99,7 @@ async def test_shared_commander_uses_native_fw_contract_without_mavsdk_or_zero_d
     transport, client, identity = setup_transport()
     monkeypatch.setattr("classes.offboard_commander.time.monotonic", lambda: 100.1)
     commander = OffboardCommander(None, None, command_transport=transport, command_ttl_s=.5)
-    command = FixedWingCommand(.3, 18., None, 550.).intent(identity, source="test")
+    command = FixedWingCommand(.3, 18., None, 550.).intent(identity, profile_name="gm_velocity_vector", source="test")
     command = replace(command, created_at_monotonic_s=100.)
     assert commander.submit_intent(command)
     assert await commander.publish_once()
@@ -116,7 +116,7 @@ async def test_shared_commander_uses_native_fw_contract_without_mavsdk_or_zero_d
 @pytest.mark.asyncio
 async def test_publication_refresh_does_not_extend_the_original_intent_deadline():
     transport, client, identity = setup_transport()
-    intent = replace(FixedWingCommand(0., 18., 0., None).intent(identity, source="test"), created_at_monotonic_s=100.)
+    intent = replace(FixedWingCommand(0., 18., 0., None).intent(identity, profile_name="gm_velocity_vector", source="test"), created_at_monotonic_s=100.)
     intent = transport.accept_intent(intent)
     await transport.publish(intent, reason="heartbeat", ttl_s=.5)
     transport.clock = lambda: 100.4
@@ -132,7 +132,7 @@ async def test_publication_refresh_does_not_extend_the_original_intent_deadline(
 @pytest.mark.asyncio
 async def test_takeover_prevents_publication_and_never_sends_hold():
     transport, client, identity = setup_transport()
-    intent = replace(FixedWingCommand(0., 18., 0., None).intent(identity, source="test"), created_at_monotonic_s=100.)
+    intent = replace(FixedWingCommand(0., 18., 0., None).intent(identity, profile_name="gm_velocity_vector", source="test"), created_at_monotonic_s=100.)
     client.observe.return_value["owner_confirmed"] = False
     with pytest.raises(ValueError, match="owner_unavailable"):
         await transport.publish(intent, reason="heartbeat", ttl_s=.5)
@@ -143,7 +143,7 @@ async def test_takeover_prevents_publication_and_never_sends_hold():
 @pytest.mark.asyncio
 async def test_rejected_source_cannot_supply_native_command_geometry():
     transport, client, identity = setup_transport()
-    intent = replace(FixedWingCommand(0., 18., 0., None).intent(identity, source="test"), created_at_monotonic_s=100.)
+    intent = replace(FixedWingCommand(0., 18., 0., None).intent(identity, profile_name="gm_velocity_vector", source="test"), created_at_monotonic_s=100.)
     client.observe.return_value["aircraft_state"]["source"] = "superseded_source"
     with pytest.raises(ValueError, match="state_rejected"):
         await transport.publish(intent, reason="heartbeat", ttl_s=.5)
@@ -165,7 +165,7 @@ def test_mc_velocity_boundary_rotates_heading_only_and_keeps_ned_vertical():
 
 def test_native_phase_contract_and_old_generation_cannot_mix():
     transport, _, identity = setup_transport()
-    intent = FixedWingCommand(0., 18., 0., None).intent(identity, source="test")
+    intent = FixedWingCommand(0., 18., 0., None).intent(identity, profile_name="gm_velocity_vector", source="test")
     intent = replace(intent, created_at_monotonic_s=100.)
     with pytest.raises(ValueError, match="identity_stale"):
         transport.accept_intent(replace(intent, guidance_identity=replace(identity, guidance_generation=0)))
@@ -206,7 +206,7 @@ async def test_phase_callback_rebinds_before_publication_and_records_the_effecti
     transport.on_observation = on_observation
     events = []
     commander = OffboardCommander(None, None, command_transport=transport, on_publish_result=events.append)
-    previous = replace(FixedWingCommand(0., 18., 0., None).intent(identity, source="old_fw"),
+    previous = replace(FixedWingCommand(0., 18., 0., None).intent(identity, profile_name="gm_velocity_vector", source="old_fw"),
                        created_at_monotonic_s=100.)
     assert commander.submit_intent(previous)
     assert await commander.publish_once()
@@ -227,7 +227,7 @@ async def test_new_generation_intent_is_accepted_during_ack_without_overwriting_
     monkeypatch.setattr("classes.offboard_commander.time.monotonic", lambda: 100.1)
     requested, release = asyncio.Event(), asyncio.Event()
     next_identity = replace(identity, guidance_generation=2)
-    baseline = replace(FixedWingCommand(.2, 18., 0., None).intent(next_identity, source="phase_owner"),
+    baseline = replace(FixedWingCommand(.2, 18., 0., None).intent(next_identity, profile_name="gm_velocity_vector", source="phase_owner"),
                        created_at_monotonic_s=100.05)
     newer = replace(baseline, fields=baseline.fields | {"course_rad": .4}, created_at_monotonic_s=100.08)
 
@@ -244,7 +244,7 @@ async def test_new_generation_intent_is_accepted_during_ack_without_overwriting_
 
     transport.on_observation = on_observation
     commander = OffboardCommander(None, None, command_transport=transport)
-    previous = replace(FixedWingCommand(0., 18., 0., None).intent(identity, source="old"),
+    previous = replace(FixedWingCommand(0., 18., 0., None).intent(identity, profile_name="gm_velocity_vector", source="old"),
                        created_at_monotonic_s=100.)
     assert commander.submit_intent(previous)
     pending = asyncio.create_task(commander.publish_once())

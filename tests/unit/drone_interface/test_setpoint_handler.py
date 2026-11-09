@@ -28,7 +28,7 @@ import os
 def mock_schema():
     """Create a mock schema for testing."""
     return {
-        'schema_version': '2.2.0',
+        'schema_version': '2.3.0',
         'follower_profiles': {
             'mc_velocity_chase': {
                 'control_type': 'velocity_body_offboard',
@@ -564,7 +564,7 @@ class TestFollowerCommandSchemaContract:
         path = Path(__file__).resolve().parents[3] / 'configs' / 'follower_commands.yaml'
         contract = SetpointHandler.load_and_validate_schema(path)
 
-        assert contract['schema_version'] == '2.2.0'
+        assert contract['schema_version'] == '2.3.0'
         assert contract['removed_profile_aliases']['mc_velocity'] == 'mc_velocity_chase'
         assert contract['control_types']['velocity_body_offboard']['mavsdk_method'] == (
             'set_velocity_body'
