@@ -8,9 +8,11 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+import yaml
 
 from classes.app_controller import AppController
 from classes.command_preview import CommandPreviewController
+from classes.parameters import Parameters
 from classes.followers.gm_velocity_vector_follower import GMVelocityVectorFollower
 from classes.followers.mc_velocity_position_follower import MCVelocityPositionFollower
 from classes.followers.yaw_rate_smoother import YawRateSmoother
@@ -54,6 +56,17 @@ CLIP_FIXTURE = (
     / "tracker_clips"
     / "linear_green_target.json"
 )
+
+
+@pytest.fixture(autouse=True)
+def initialized_factory_configuration():
+    previous = Parameters.get_runtime_config_snapshot()
+    defaults = Path(__file__).resolve().parents[3] / "configs/config_default.yaml"
+    Parameters.publish_config_mapping(yaml.safe_load(defaults.read_text()))
+    try:
+        yield
+    finally:
+        Parameters.publish_config_mapping(previous)
 
 
 def _build_position_follower_stub() -> MCVelocityPositionFollower:

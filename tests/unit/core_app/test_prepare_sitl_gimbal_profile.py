@@ -67,6 +67,10 @@ def test_bounded_continuity_is_explicit_in_private_sih_profile(tmp_path):
         "RETARGET_ANGLE_BLEND_FRACTION": 0.7,
         "RETARGET_PROVISIONAL_AUTHORITY_FRACTION": 0.5,
         "RETARGET_RESTORE_TIME_S": 0.5,
+        "PhaseOverrides": {"fixed_wing": {
+            "MODE": "bounded_flight", "MAX_COAST_TIME_S": 8.0,
+            "MAX_RETARGET_TIME_S": 8.0, "AUTHORITY_RESTORE_TIME_S": 0.5,
+        }},
     }
     assert config["Follower"]["FollowerOverrides"]["GM_VELOCITY_VECTOR"]["LATERAL_GUIDANCE_MODE"] == "coordinated_turn"
     assert validate(directory)["continuity_mode"] == "bounded_decay"

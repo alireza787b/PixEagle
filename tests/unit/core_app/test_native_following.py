@@ -541,7 +541,7 @@ async def test_pending_native_start_can_be_stopped_without_waiting_for_activatio
     assert stopped["errors"] == []
     assert (await task)["precondition"]["code"] == "native_follow_start_canceled"
     app._disconnect_px4_internal.assert_awaited_once_with(
-        commander_publish_final=True, attempt_offboard_stop=True,
+        commander_publish_final=True, attempt_offboard_stop=True, reason_code="operator_stop",
     )
 
 

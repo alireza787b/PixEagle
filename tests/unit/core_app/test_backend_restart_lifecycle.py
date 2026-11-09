@@ -7,6 +7,7 @@ import pytest
 
 from classes.app_controller import AppController
 from classes.fastapi_handler import FastAPIHandler
+from classes.follower import FollowerFactory
 from classes.gimbal_provider import create_gimbal_provider
 
 
@@ -46,7 +47,8 @@ async def test_follow_start_queued_on_restart_barrier_is_rejected(preview):
     controller._is_command_preview_configured = lambda: preview
     controller._get_command_preview_readiness = MagicMock()
     await controller._follower_state_lock.acquire()
-    with patch("classes.app_controller.Follower.get_mode_info", return_value={}), patch(
+    profile = FollowerFactory.get_follower_info("mc_velocity_position")
+    with patch("classes.app_controller.Follower.get_mode_info", return_value=profile), patch(
         "classes.app_controller.FollowerCircuitBreaker.get_activation_state"
     ) as activation:
         start = asyncio.create_task(controller._connect_px4_on_flight_loop())
