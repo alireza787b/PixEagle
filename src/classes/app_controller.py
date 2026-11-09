@@ -1205,18 +1205,32 @@ class AppController:
                 "following_continued": True,
                 "execution_mode": execution_mode,
             }
+        if not supervisor.supports_target_transition_intent(previous_intent):
+            return {
+                "prepared": False,
+                "reason": "retarget_requires_stop",
+                "message": (
+                    "Stop following before selecting a new target; bounded retarget "
+                    "guidance is unavailable for this command contract."
+                ),
+                "command_hold_applied": False,
+                "following_continued": True,
+                "execution_mode": execution_mode,
+            }
 
         try:
-            if previous_intent is None:
-                raise RuntimeError("No prior command intent is available")
             carryover_fields = dict(previous_intent.fields)
-            carryover_fields.update(vel_body_down=0.0, yawspeed_deg_s=0.0)
+            if previous_intent.control_type == "velocity_body_offboard":
+                carryover_fields.update(vel_body_down=0.0, yawspeed_deg_s=0.0)
+            elif previous_intent.control_type == "fixed_wing_external" and "height_rate_m_s" in carryover_fields:
+                carryover_fields["height_rate_m_s"] = 0.0
             carryover = CommandIntent(
                 profile_name=previous_intent.profile_name,
                 control_type=previous_intent.control_type,
                 fields=carryover_fields,
                 source="target_continuity",
                 reason=reason,
+                guidance_identity=previous_intent.guidance_identity,
             )
             if not prepare_follower(reason):
                 raise RuntimeError("follower rejected target-transition preparation")

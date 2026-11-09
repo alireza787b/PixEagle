@@ -119,6 +119,12 @@ camera mounting, telemetry source, and thrust model in SITL/HIL before any
 controlled field acceptance. A valid visual target alone does not establish
 safe thrust or attitude authority.
 
+Live rate/thrust retargeting currently requires **Stop following**, select the
+new target, then a fresh Start. The shared continuity owner does not implement
+rate/thrust coasting. An attempted live retarget preserves the active target and
+command; it cannot insert velocity fields, reset the follower or change target
+generation first. Local command preview retains its no-aircraft defaults path.
+
 ## References
 
 - [MAVSDK AttitudeRate field signs](https://mavsdk.mavlink.io/main/en/cpp/api_reference/structmavsdk_1_1_offboard_1_1_attitude_rate.html)

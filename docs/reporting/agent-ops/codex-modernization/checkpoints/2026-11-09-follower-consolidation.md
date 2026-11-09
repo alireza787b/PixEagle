@@ -235,3 +235,12 @@ unchanged. Factory/unit checks pass. Its 1 Hz cached altitude stream also fed
 camera-rate I/D and saturated thrust. Source-progress-aware height/vertical-speed
 feedback and actual response requalification are in progress; this profile is
 not accepted. Saved/private configuration and hardware remain unchanged.
+
+Retarget admission follow-up: the application previously inserted velocity
+fields into a live rate/thrust command and reset the follower before continuity
+could reject its unsupported contract. One pure intent validator now runs
+before mutation and is reused by the continuity supervisor. Unsupported live
+rates return `retarget_requires_stop`, preserving target, generation, authority
+and command. Native FW carryover retains its identity and own level/altitude
+fields. Preview is unchanged. Focused and broader controller/native/camera/API
+gates passed 549 tests. No rate-coasting policy was invented or qualified.

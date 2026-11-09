@@ -430,27 +430,36 @@ class TargetContinuitySupervisor:
         decision = self._last_decision
         return decision.authorized_intent if decision is not None else None
 
+    @staticmethod
+    def supports_target_transition_intent(previous_intent: Optional[CommandIntent]) -> bool:
+        """Validate the prior command without changing target or authority state."""
+        if not isinstance(previous_intent, CommandIntent) or not isinstance(previous_intent.fields, dict):
+            return False
+        fields = previous_intent.fields
+        required = {"vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s"}
+        try:
+            if previous_intent.control_type == "fixed_wing_external":
+                FixedWingCommand.from_intent(previous_intent)
+            elif previous_intent.control_type == "vtol_transition_external":
+                if previous_intent.guidance_identity is None:
+                    return False
+                NativeTransitionCommand(**fields)
+            elif (previous_intent.control_type != "velocity_body_offboard"
+                    or set(fields) != required
+                    or any(isinstance(value, bool) or not isinstance(value, (int, float))
+                           or not math.isfinite(value) for value in fields.values())):
+                return False
+        except (TypeError, ValueError, OverflowError):
+            return False
+        return True
+
     def begin_target_transition(
         self, *, session_epoch: int, previous_intent: CommandIntent,
     ) -> bool:
         """Continue bounded prior motion while a replacement target is confirmed."""
-        fields = previous_intent.fields
-        required = {"vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s"}
-        native_flight = previous_intent.control_type in {"fixed_wing_external", "vtol_transition_external"}
-        if native_flight:
-            try:
-                if previous_intent.control_type == "fixed_wing_external":
-                    FixedWingCommand.from_intent(previous_intent)
-                else:
-                    if previous_intent.guidance_identity is None:
-                        return False
-                    NativeTransitionCommand(**previous_intent.fields)
-            except (TypeError, ValueError):
-                return False
-        elif (previous_intent.control_type != "velocity_body_offboard"
-                or not required.issubset(fields)
-                or any(not math.isfinite(float(value)) for value in fields.values())):
+        if not self.supports_target_transition_intent(previous_intent):
             return False
+        native_flight = previous_intent.control_type in {"fixed_wing_external", "vtol_transition_external"}
         now = self._clock()
         if self._loss_started_at is None:
             if not native_flight and self._last_active_yaw_deg is None:
