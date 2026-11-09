@@ -235,6 +235,7 @@ def test_response_rejects_altitude_off_command_or_saved_limit_violation():
     ({"command_ready": True}, False),
     ({"submitted_fields": {}}, False),
     ({"monotonic_s": 9.}, False),
+    ({"monotonic_s": 13.081}, False),
 ])
 def test_only_explicit_pre_submission_refusals_after_a_telemetry_fault_are_expected(alter, accepted):
     scenario, observations, publications, kwargs = response_inputs()

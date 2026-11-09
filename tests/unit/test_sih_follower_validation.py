@@ -105,6 +105,37 @@ def test_px4_gate_rejects_command_only_evidence(tmp_path):
         validate_px4_evidence(tmp_path, scenario)
 
 
+@pytest.mark.parametrize("late_publish", [False, True])
+def test_px4_gate_distinguishes_released_owner_from_obsolete_publication(tmp_path, late_publish):
+    scenario = VisualizationScenario.from_yaml(scenario_path("mc_velocity_position"))
+    paths = {
+        "px4/pose_trace.jsonl": [dict(timestamp=t, vehicle_ned=[0., 0., -20.],
+                                      vehicle_quaternion=[1., 0., 0., 0.]) for t in (0., .5, 1.)],
+        "trace/target_truth.jsonl": [dict(timestamp=t, target_ned=[5., 0., -20.]) for t in (0., .5, 1.)],
+        "trace/offboard_publish_trace.jsonl": [dict(timestamp=0., record_type="offboard_publish", publish_success=True,
+            submitted_fields=dict(vel_body_fwd=0., vel_body_right=0., vel_body_down=0., yawspeed_deg_s=0.))],
+        "trace/follower_state.jsonl": [dict(timestamp=t, state="INACTIVE", authority_state="INACTIVE",
+            command_expected=False, observed_hold=True, publisher_running=False, publisher_task_active=False,
+            command_owner_released_at=.5) for t in (.5, 1.)],
+    }
+    if late_publish:
+        paths["trace/offboard_publish_trace.jsonl"].append({
+            **paths["trace/offboard_publish_trace.jsonl"][0], "timestamp": 1.,
+        })
+    for path, rows in paths.items():
+        target = tmp_path / path
+        target.parent.mkdir(exist_ok=True)
+        target.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    (tmp_path / "result.json").write_text(json.dumps({
+        "passed": True, "scope": "actual_mc_follower_component_only", "follower": "mc_velocity_position",
+    }))
+    if late_publish:
+        with pytest.raises(VisualizationValidationError):
+            validate_px4_evidence(tmp_path, scenario)
+    else:
+        assert validate_px4_evidence(tmp_path, scenario)["stale_after_fresh_samples"] == 0
+
+
 def test_failed_run_keeps_visual_evidence_without_an_acceptance_claim(tmp_path):
     scenario = VisualizationScenario.from_yaml(scenario_path("mc_velocity_position"))
     (tmp_path / "px4").mkdir()

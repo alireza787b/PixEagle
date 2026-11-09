@@ -19,6 +19,24 @@ def forbidden(*args, **kwargs):
     raise AssertionError("A dry-run/test tried to execute an external process")
 
 
+@pytest.mark.parametrize("hold,running,task_active,expected", [
+    (True, False, False, True),
+    (False, False, False, False),
+    (True, True, False, False),
+    (True, False, True, False),
+    (True, None, False, False),
+])
+def test_release_evidence_requires_observed_hold_and_a_quiescent_publisher(hold, running, task_active, expected):
+    row = runner.observed_command_release(
+        {"hold": hold}, {"running": running, "task_active": task_active}, 12., 11.,
+    )
+    assert (row is not None) is expected
+    if expected:
+        assert row["command_owner_released_at"] == 11.
+        assert row["timestamp"] == 12.
+        assert row["command_expected"] is False
+
+
 def test_telemetry_identity_is_requested_from_the_simulator_not_copied_from_command_link():
     from unittest.mock import Mock
 
@@ -176,6 +194,72 @@ def test_missing_target_has_no_invented_image_measurement():
     assert not output.tracking_active
     assert output.position_2d is None
     assert "measurement_epoch_s" not in output.raw_data
+
+
+def freshness_refusal_event():
+    reason = "altitude_sample_unavailable"
+    return dict(
+        command_intent=SimpleNamespace(fields=dict(
+            rollspeed_deg_s=0., pitchspeed_deg_s=0., yawspeed_deg_s=.5, thrust=.49,
+        )),
+        publication_attempted=False, submitted_fields=None,
+        publish_status=dict(last_publish_success=False, terminal_failure=True,
+                            terminal_failure_reason=reason, last_error=reason,
+                            attitude_guard=dict(rejected=True, reason=reason)),
+    )
+
+
+def test_publication_record_preserves_general_readiness_when_height_guard_refuses_before_a_write():
+    event = freshness_refusal_event()
+    row = runner.publication_observation(event, general_connection_ready=True, timestamp=100., monotonic_s=10.)
+    assert row["general_connection_ready"] is True
+    assert row["final_guard_ready"] is False
+    assert row["command_ready"] is False
+    assert row["guard_refusal_reason"] == "altitude_sample_unavailable"
+    assert row["attempted"] is False
+    assert row["submitted_fields"] is None
+    assert row["success"] is False
+    assert row["fields"] == event["command_intent"].fields
+    assert row["timestamp"] == 100.
+    assert row["monotonic_s"] == 10.
+
+
+@pytest.mark.parametrize("change", [
+    {"publication_attempted": True}, {"publication_attempted": None}, {"submitted_fields": {}},
+    {"last_publish_success": True}, {"terminal_failure": False},
+    {"terminal_failure_reason": "different_failure"}, {"last_error": "rpc_failed"},
+    {"guard": {"rejected": False, "reason": "altitude_sample_unavailable"}},
+    {"guard": "unqualified_guard_metadata"},
+    {"guard": {"rejected": True, "reason": "attitude_envelope_exceeded"},
+     "terminal_failure_reason": "attitude_envelope_exceeded", "last_error": "attitude_envelope_exceeded"},
+])
+def test_publication_record_does_not_reclassify_actual_attempts_or_unverified_guard_refusals(change):
+    event = freshness_refusal_event()
+    for key, value in change.items():
+        if key in {"publication_attempted", "submitted_fields"}:
+            event[key] = value
+        elif key == "guard":
+            event["publish_status"]["attitude_guard"] = value
+        else:
+            event["publish_status"][key] = value
+    row = runner.publication_observation(event, general_connection_ready=True)
+    assert row["general_connection_ready"] is True
+    assert row["command_ready"] is True
+    assert row["final_guard_ready"] is None
+    assert row["guard_refusal_reason"] is None
+    assert row["attempted"] is event["publication_attempted"]
+    assert row["submitted_fields"] == event["submitted_fields"]
+    assert row["success"] is event["publish_status"]["last_publish_success"]
+
+
+def test_publication_record_keeps_an_actual_failed_write_despite_stale_guard_details():
+    event = freshness_refusal_event()
+    event.update(publication_attempted=True, submitted_fields=dict(event["command_intent"].fields))
+    row = runner.publication_observation(event, general_connection_ready=False)
+    assert row["attempted"] is True
+    assert row["success"] is False
+    assert row["submitted_fields"] == event["submitted_fields"]
+    assert row["final_guard_ready"] is None
 
 
 def test_worker_refuses_host_namespace_before_importing_or_connecting(monkeypatch):

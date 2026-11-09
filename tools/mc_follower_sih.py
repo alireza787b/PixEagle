@@ -171,6 +171,46 @@ def tracker_observation(coordinates, *, measurement_epoch_s, measurement_monoton
     )
 
 
+def observed_command_release(sample, publisher_status, timestamp, released_at=None):
+    """Read-only proof of Hold with no live publication task; never infer from a gap."""
+    if (sample.get("hold") is not True or publisher_status.get("running") is not False
+            or publisher_status.get("task_active") is not False):
+        return None
+    return dict(
+        timestamp=timestamp, state="INACTIVE", authority_state="INACTIVE", command_expected=False,
+        observed_hold=True, publisher_running=False, publisher_task_active=False,
+        command_owner_released_at=timestamp if released_at is None else released_at,
+        reason_code="observed_hold_after_local_publication_stop", events=["Hold"],
+    )
+
+
+def publication_observation(event, *, general_connection_ready, timestamp=None, monotonic_s=None):
+    """Keep actual writes distinct from a production freshness-guard refusal."""
+    status = event["publish_status"]
+    guard = status.get("attitude_guard")
+    guard = guard if isinstance(guard, dict) else {}
+    reason = guard.get("reason")
+    freshness_refusal = (
+        event.get("publication_attempted") is False and event.get("submitted_fields") is None
+        and status.get("last_publish_success") is False and guard.get("rejected") is True
+        and reason in {"altitude_sample_unavailable", "attitude_sample_unavailable", "attitude_sample_stale"}
+        and status.get("terminal_failure") is True
+        and status.get("terminal_failure_reason") == reason and status.get("last_error") == reason
+    )
+    intent = event.get("command_intent")
+    return dict(
+        timestamp=time.time() if timestamp is None else timestamp,
+        monotonic_s=time.monotonic() if monotonic_s is None else monotonic_s,
+        success=status["last_publish_success"] is True,
+        fields=event.get("submitted_fields") if intent is None else dict(intent.fields),
+        submitted_fields=event.get("submitted_fields"), attempted=event.get("publication_attempted"),
+        general_connection_ready=general_connection_ready,
+        final_guard_ready=False if freshness_refusal else None,
+        guard_refusal_reason=reason if freshness_refusal else None,
+        command_ready=False if freshness_refusal else general_connection_ready,
+    )
+
+
 class PoseProgress:
     """Cached REST polls do not create a measurement or renew source freshness."""
 
@@ -270,12 +310,8 @@ async def worker(args):
 
     def publication(event):
         app._record_offboard_publish_result(event)
-        intent = event.get("command_intent")
-        publications.append(dict(timestamp=time.time(), monotonic_s=time.monotonic(),
-                                 success=event["publish_status"]["last_publish_success"] is True,
-                                 fields=event.get("submitted_fields") if intent is None else dict(intent.fields),
-                                 submitted_fields=event.get("submitted_fields"), attempted=event.get("publication_attempted"),
-                                 command_ready=manager.is_command_connection_ready(require_fresh_telemetry=True)))
+        publications.append(publication_observation(event,
+            general_connection_ready=manager.is_command_connection_ready(require_fresh_telemetry=True)))
 
     async def snapshot():
         payload = await asyncio.to_thread(
@@ -304,11 +340,16 @@ async def worker(args):
     async def observe_handoff(operation):
         """Keep actual pose evidence flowing while awaiting control-owner cleanup."""
         task = asyncio.create_task(operation)
+        released_at = None
         try:
             while not task.done():
                 sample = await snapshot()
                 epoch = time.time()
                 retain_pose(sample, epoch)
+                release = observed_command_release(sample, commander.get_status(), epoch, released_at)
+                if release is not None:
+                    released_at = release["command_owner_released_at"]
+                    log("trace/follower_state.jsonl", release)
                 target = scenario.target_at(min(time.monotonic() - started, scenario.duration_s), anchor)
                 log("trace/target_truth.jsonl", dict(timestamp=epoch, target_ned=target))
                 await asyncio.sleep(1. / scenario.visual.rate_hz)

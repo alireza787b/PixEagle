@@ -157,6 +157,13 @@ send is awaited, separately from a fresh guidance intent. The replay must show
 those actual submitted defaults rather than retain an older proposed command.
 Canonical capture traces are counted and never overwritten by legacy aliases.
 
+During Stop or takeover cleanup, the independent pose observer keeps recording.
+Only a fresh observed Hold together with a stopped publication task marks commands
+as no longer expected. The replay then shows measured aircraft movement without
+inventing zero commands or treating the deliberate shutdown as a publication gap.
+Missing active commands or pose remain failures, as does any successful publication
+after the recorded owner release.
+
 For a separately verified source build, pass `--sih-build-manifest PATH` to the
 MC runner. The host verifies the manifest, packaged executable/ROMFS and immutable
 image binding before staging an experiment. See the [native build guide](../../../native/README.md).

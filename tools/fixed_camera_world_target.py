@@ -237,6 +237,7 @@ def evaluate_response(scenario, records, publications, *, velocity_limits, rate_
         "pre_submission_rejections_expected": all(
             scenario.telemetry_outage is not None and expected_rejection_after_monotonic_s is not None
             and row["monotonic_s"] >= expected_rejection_after_monotonic_s
+            and row["monotonic_s"] <= expected_rejection_after_monotonic_s + scenario.telemetry_outage[1]
             and row.get("command_ready") is False and row.get("submitted_fields") is None
             and row.get("success") is False for row in refused
         ),

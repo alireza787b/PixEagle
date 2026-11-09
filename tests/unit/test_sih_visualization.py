@@ -244,6 +244,72 @@ def test_submitted_defaults_replace_old_guidance_in_replay_without_fabricating_a
     assert "fallback_defaults" in sample.events
 
 
+def released_owner_evidence():
+    return {
+        "pose": [{"timestamp": t, "vehicle_ned": [0., 0., -20.], "vehicle_quaternion": [1., 0., 0., 0.]}
+                 for t in (0., .5, 1., 1.5)],
+        "published": [{"timestamp": 0., "publish_success": True, "submitted_fields": {
+            "vel_body_fwd": 1., "vel_body_right": 0., "vel_body_down": 0., "yawspeed_deg_s": 0.,
+        }}],
+        "state": [{"timestamp": t, "state": "INACTIVE", "authority_state": "INACTIVE",
+                   "command_expected": False, "observed_hold": True, "publisher_running": False,
+                   "publisher_task_active": False, "command_owner_released_at": .5}
+                  for t in (.5, 1., 1.5)],
+    }
+
+
+def test_observed_hold_after_publisher_release_keeps_pose_without_fabricating_commands(tmp_path):
+    scenario = VisualizationScenario.from_yaml(ROOT / "tools/sih_visualization_scenarios/camera-chase-2d.yaml")
+    samples = build_timeline(scenario, released_owner_evidence())
+    assert samples[0].command["vel_body_fwd"] == 1.
+    for sample in samples[1:]:
+        assert sample.command_expected is False
+        assert sample.command == {}
+        assert sample.command_ned is None
+        assert sample.effective_speed is None
+        assert not sample.published
+        assert not sample.stale
+        assert sample.vehicle_ned == (0., 0., -20.)
+    assert analyze_timeline(scenario, samples)["stale_after_fresh_samples"] == 0
+    write_csv(tmp_path / "trace.csv", samples)
+    with (tmp_path / "trace.csv").open() as stream:
+        assert list(csv.DictReader(stream))[-1]["command_expected"] == "False"
+
+
+@pytest.mark.parametrize("changed_field,value", [
+    ("observed_hold", False), ("publisher_running", True), ("publisher_task_active", True),
+    ("authority_state", "ACTIVE"), ("command_expected", True), ("command_owner_released_at", None),
+])
+def test_missing_active_command_remains_a_failure_without_complete_release_evidence(changed_field, value):
+    scenario = VisualizationScenario.from_yaml(ROOT / "tools/sih_visualization_scenarios/camera-chase-2d.yaml")
+    evidence = released_owner_evidence()
+    for row in evidence["state"]:
+        row[changed_field] = value
+    assert analyze_timeline(scenario, build_timeline(scenario, evidence))["stale_after_fresh_samples"] > 0
+
+
+def test_old_release_cannot_hide_missing_pose_new_active_session_or_late_publication():
+    scenario = VisualizationScenario.from_yaml(ROOT / "tools/sih_visualization_scenarios/camera-chase-2d.yaml")
+    evidence = released_owner_evidence()
+    evidence["pose"] = evidence["pose"][:2]
+    assert build_timeline(scenario, evidence)[-1].stale
+    evidence = released_owner_evidence()
+    evidence["state"][-1] = {"timestamp": 1.5, "state": "ACTIVE", "command_expected": True}
+    assert build_timeline(scenario, evidence)[-1].stale
+    evidence = released_owner_evidence()
+    evidence["published"].append({**evidence["published"][0], "timestamp": 1.})
+    samples = build_timeline(scenario, evidence)
+    late = next(sample for sample in samples if sample.timestamp == 1.)
+    assert late.published
+    assert late.command["vel_body_fwd"] == 1.
+    assert any(flag["type"] == "publication_after_authority_release"
+               for flag in analyze_timeline(scenario, samples)["flags"])
+    evidence["pose"].append({**evidence["pose"][-1], "timestamp": 3.})
+    evidence["published"].append({**evidence["published"][0], "timestamp": 3.})
+    late = build_timeline(scenario, evidence)[-1]
+    assert "publication_after_authority_release" in late.events
+
+
 def test_analysis_flags_altitude_disabled_and_constraint_violation():
     scenario = VisualizationScenario.from_yaml(
         ROOT / "tools/sih_visualization_scenarios/camera-chase-baseline.yaml"

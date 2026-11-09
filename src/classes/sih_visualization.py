@@ -240,6 +240,7 @@ class VisualizationSample:
     native_effective_eas_m_s: Optional[float] = None
     command: dict[str, float] = field(default_factory=dict)
     published: bool = False
+    command_expected: Optional[bool] = None
     tracker_state: Optional[str] = None
     continuity_state: Optional[str] = None
     limiting_reason: Optional[str] = None
@@ -266,6 +267,7 @@ class VisualizationSample:
             "native_effective_eas_m_s": self.native_effective_eas_m_s,
             "command": self.command,
             "published": self.published,
+            "command_expected": self.command_expected,
             "tracker_state": self.tracker_state,
             "continuity_state": self.continuity_state,
             "limiting_reason": self.limiting_reason,
@@ -475,6 +477,7 @@ def build_timeline(
         for record in records
     })
     result: list[VisualizationSample] = []
+    released_owner_at = None
     for timestamp in timestamps:
         tracker_record = _nearest_fresh(tracker, timestamp, max_command_age_s)
         publish_record = _nearest_fresh(published, timestamp, max_command_age_s)
@@ -483,12 +486,36 @@ def build_timeline(
         command_record = (publish_record if publish_record and publish_record.get("publish_success") is True
                           and _command_fields(publish_record) else tracker_record or publish_record or {})
         command = _command_fields(command_record)
+        # A fresh observed Hold plus a stopped publisher proves that no command
+        # is expected. Absence alone never proves release of command authority.
+        release = state_record or {}
+        released = (
+            release.get("command_expected") is False
+            and release.get("authority_state") == "INACTIVE"
+            and release.get("observed_hold") is True
+            and release.get("publisher_running") is False
+            and release.get("publisher_task_active") is False
+        )
+        released_at = _optional_measurement(release.get("command_owner_released_at"))
+        released = released and released_at is not None and released_at <= timestamp
+        if release.get("command_expected") is True and release.get("authority_state") == "ACTIVE":
+            released_owner_at = None
+        elif released and released_owner_at is None:
+            released_owner_at = released_at
+        published_after_release = bool(
+            released_owner_at is not None and publish_record and publish_record.get("publish_success") is True
+            and _record_timestamp(publish_record) > released_owner_at
+        )
+        if released and not published_after_release:
+            command = {}
         tracker_output = (tracker_record or {}).get("tracker_output") or {}
         command_intent = command_record.get("command_intent") or {}
         metadata = tracker_output.get("metadata") if isinstance(tracker_output, Mapping) else {}
         if not isinstance(metadata, Mapping):
             metadata = {}
         events: list[str] = []
+        if published_after_release:
+            events.append("publication_after_authority_release")
         state_events = (state_record or {}).get("events")
         if isinstance(state_events, list):
             events.extend(event for event in state_events if isinstance(event, str) and event)
@@ -556,7 +583,9 @@ def build_timeline(
             observed_eas_m_s=_optional_measurement((state_record or {}).get("observed_eas_m_s")),
             native_effective_eas_m_s=_optional_measurement((state_record or {}).get("native_effective_eas_m_s")),
             command=command,
-            published=bool(publish_record and publish_record.get("publish_success") is True),
+            published=bool(publish_record and publish_record.get("publish_success") is True
+                           and (not released or published_after_release)),
+            command_expected=False if released else None,
             tracker_state=(
                 metadata.get("guidance_state")
                 or metadata.get("tracking_status")
@@ -568,7 +597,7 @@ def build_timeline(
             effective_speed=speed,
             speed_source=speed_source,
             measurement_age_s=measurement_age,
-            stale=vehicle is None or (tracker_record is None and publish_record is None),
+            stale=vehicle is None or (not released and tracker_record is None and publish_record is None),
             events=events,
         )
         result.append(sample)
@@ -618,6 +647,8 @@ def analyze_timeline(
         else:
             previous_target = previous_target_time = None
         command = sample.command
+        if "publication_after_authority_release" in sample.events:
+            flags.append({"timestamp": sample.timestamp, "type": "publication_after_authority_release"})
         for field_name, limit_name in (
             ("vel_body_fwd", "velocity_forward"),
             ("vel_body_right", "velocity_right"),
@@ -793,7 +824,7 @@ def write_csv(path: Path, samples: Iterable[VisualizationSample]) -> None:
         "course_rad", "equivalent_airspeed_m_s", "height_rate_m_s", "altitude_amsl_m",
         "command_contract", "aircraft_phase", "observed_eas_m_s", "native_effective_eas_m_s",
         "vel_body_fwd", "vel_body_right", "vel_body_down", "rollspeed_deg_s", "pitchspeed_deg_s",
-        "yawspeed_deg_s", "thrust", "published", "tracker_state", "continuity_state",
+        "yawspeed_deg_s", "thrust", "published", "command_expected", "tracker_state", "continuity_state",
         "limiting_reason", "requested_speed", "effective_speed", "speed_source",
         "measurement_age_s", "stale", "events",
     ]
@@ -813,6 +844,7 @@ def write_csv(path: Path, samples: Iterable[VisualizationSample]) -> None:
             row.update(sample.command)
             row.update({
                 "published": sample.published,
+                "command_expected": sample.command_expected if sample.command_expected is not None else "",
                 "command_contract": sample.command_contract,
                 "aircraft_phase": sample.aircraft_phase,
                 "observed_eas_m_s": sample.observed_eas_m_s,
