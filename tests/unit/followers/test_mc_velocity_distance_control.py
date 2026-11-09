@@ -28,7 +28,9 @@ def test_active_yaw_telemetry_uses_the_final_smoothed_command():
         return_value=math.radians(6.0)
     )
     follower.command_smoothing_enabled = False
-    follower._last_update_time = time.time() - 0.05
+    follower.altitude_control_enabled = True
+    follower.control_update_rate = 20.0
+    follower._last_update_time = time.monotonic() - 0.05
     follower.yaw_smoother = MagicMock()
     follower.yaw_smoother.apply.return_value = 4.0
     follower.set_command_fields = MagicMock(return_value=True)

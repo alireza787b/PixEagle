@@ -76,7 +76,7 @@ class MCVelocityDistanceFollower(BaseFollower):
         # Smoothing state for velocity EMA (initialized to 0; updated each control cycle)
         self._last_vel_right = 0.0
         self._last_vel_down = 0.0
-        self._last_update_time = time.time()
+        self._last_update_time = time.monotonic()
 
         # Initialize control system components
         self._initialize_pid_controllers()
@@ -336,7 +336,10 @@ class MCVelocityDistanceFollower(BaseFollower):
                 self.pid_y,
                 target_coords[0],
             )
-            vel_body_down = self._control_altitude_bidirectional(target_coords[1])
+            vel_body_down = (
+                self._control_altitude_bidirectional(target_coords[1])
+                if self.altitude_control_enabled else 0.0
+            )
             yaw_rate_rad_s = self._calculate_yaw_control(target_coords[0])
             
             # Update command fields using schema-aware interface (body offboard with deg/s yaw)
@@ -348,14 +351,15 @@ class MCVelocityDistanceFollower(BaseFollower):
             if self.command_smoothing_enabled:
                 alpha = self.smoothing_factor
                 vel_body_right = alpha * self._last_vel_right + (1.0 - alpha) * vel_body_right
-                vel_body_down = alpha * self._last_vel_down + (1.0 - alpha) * vel_body_down
+                if self.altitude_control_enabled:
+                    vel_body_down = alpha * self._last_vel_down + (1.0 - alpha) * vel_body_down
                 self._last_vel_right = vel_body_right
-                self._last_vel_down = vel_body_down
+            self._last_vel_down = vel_body_down
 
             # Apply YawRateSmoother (deadzone + rate-limiting + speed-scaling + EMA)
-            now = time.time()
-            dt = now - self._last_update_time
-            self._last_update_time = now
+            self._last_update_time, dt = self.bounded_control_delta(
+                self._last_update_time, self.control_update_rate,
+            )
             yawspeed_deg_s = self.yaw_smoother.apply(yawspeed_deg_s, dt)
 
             if not self.set_command_fields(

@@ -42,6 +42,10 @@ above. The configured yaw acceleration limit and smoother can make the first
 reported command smaller than the final PID request; that ramp is intentional,
 not command quantization.
 
+`ENABLE_YAW_CONTROL: false` suppresses yaw and clears previous smoother history.
+Control intervals use bounded monotonic time; a wall-clock change or stalled
+update cannot bypass the configured yaw ramp.
+
 ### Altitude Control
 
 Altitude control is disabled by default. When enabled, positive

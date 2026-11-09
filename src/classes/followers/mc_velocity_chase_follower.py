@@ -1369,7 +1369,7 @@ class MCVelocityChaseFollower(BaseFollower):
 
             # === ADAPTIVE DIVE/CLIMB CONTROL ===
             # Calculate vertical rate and apply adaptive corrections if enabled
-            if self.adaptive_mode_enabled:
+            if self.adaptive_mode_enabled and self.enable_altitude_control:
                 try:
                     # Phase 1: Calculate vertical rate error
                     smoothed_rate, expected_rate, rate_error = self._calculate_target_vertical_rate(
@@ -1393,6 +1393,13 @@ class MCVelocityChaseFollower(BaseFollower):
                 except Exception as e:
                     logger.error(f"Adaptive dive/climb failed: {e}")
                     # Continue with non-adaptive velocities on error
+
+            if not self.enable_altitude_control:
+                down_velocity = 0.0
+                self.smoothed_down_velocity = 0.0
+                self.adaptive_correction_down = 0.0
+                self.adaptive_correction_fwd = 0.0
+                self.adaptive_active = False
 
             raw_yaw_rate_deg_s = 0.0
 

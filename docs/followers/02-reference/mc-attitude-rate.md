@@ -63,6 +63,12 @@ Attitude-rate control requires an explicit thrust command. `HOVER_THRUST` is
 the baseline. Optional altitude hold adds a bounded correction, and optional
 pitch compensation adjusts for reduced vertical thrust while tilted.
 
+With resolved `Follower` altitude guidance off, altitude hold captures the
+engagement altitude and ignores `TARGET_ALTITUDE_OFFSET`. It does not command an
+automatic climb. With guidance explicitly enabled, the configured offset is
+applied; the factory offset is zero. Image-directed pitch/rate steering remains
+the declared rate strategy, not a velocity or guaranteed flight-path controller.
+
 `HOVER_THRUST`, thrust limits, and altitude gains are vehicle-specific. The
 checked-in values are software defaults, not flight-accepted tuning.
 
@@ -83,7 +89,7 @@ MC_ATTITUDE_RATE:
   ENABLE_PITCH_THRUST_COMPENSATION: true
 
   ENABLE_ALTITUDE_HOLD: true
-  TARGET_ALTITUDE_OFFSET: 15.0
+  TARGET_ALTITUDE_OFFSET: 0.0
 
   ENABLE_YAW_ERROR_GATING: true
   YAW_ERROR_THRESHOLD: 0.3

@@ -77,7 +77,7 @@ class MCVelocityPositionFollower(BaseFollower):
     - yawspeed_deg_s: Yaw speed for horizontal target centering (always enabled)
     
     Attributes:
-        yaw_control_enabled (bool): Always True - yaw control is core to this mode
+        yaw_control_enabled (bool): Whether image tracking may command yaw
         altitude_control_enabled (bool): Configurable altitude control enablement
         initial_target_coords (Tuple[float, float]): Initial target coordinates for PID setpoints
         pid_yaw_rate (CustomPID): PID controller for yaw rate commands
@@ -115,7 +115,7 @@ class MCVelocityPositionFollower(BaseFollower):
         config = getattr(Parameters, 'MC_VELOCITY_POSITION', {})
 
         # Control configuration
-        self.yaw_control_enabled = config.get('ENABLE_YAW_CONTROL', True)  # Always enabled for this mode
+        self.yaw_control_enabled = config.get('ENABLE_YAW_CONTROL', True)
 
         # Shared params from FollowerConfigManager (General → FollowerOverrides → Fallback)
         fcm = get_follower_config_manager()
@@ -140,7 +140,7 @@ class MCVelocityPositionFollower(BaseFollower):
         # Command smoothing state
         self._last_yaw_command = 0.0
         self._last_vertical_velocity_up_m_s = 0.0
-        self._last_update_time = time.time()
+        self._last_update_time = time.monotonic()
 
         # Performance tracking
         self._control_statistics = {
@@ -301,7 +301,7 @@ class MCVelocityPositionFollower(BaseFollower):
             yaw_error = self.image_axis_error(target_x, self.pid_yaw_rate.setpoint)
 
             # Apply yaw control with PID dead zone gating
-            if abs(yaw_error) > self.yaw_control_threshold:
+            if self.yaw_control_enabled and abs(yaw_error) > self.yaw_control_threshold:
                 yaw_rate_raw = self.positive_image_axis_pid_command(
                     self.pid_yaw_rate,
                     target_x,
@@ -316,10 +316,14 @@ class MCVelocityPositionFollower(BaseFollower):
             yaw_rate_raw_deg_s = degrees(yaw_rate_raw)
 
             # Apply YawRateSmoother (deadzone + rate-limiting + speed-scaling + EMA)
-            now = time.time()
-            dt = now - self._last_update_time
-            self._last_update_time = now
-            yawspeed_deg_s = self.yaw_smoother.apply(yaw_rate_raw_deg_s, dt)
+            self._last_update_time, dt = self.bounded_control_delta(
+                self._last_update_time, self.control_update_rate,
+            )
+            if self.yaw_control_enabled:
+                yawspeed_deg_s = self.yaw_smoother.apply(yaw_rate_raw_deg_s, dt)
+            else:
+                self.yaw_smoother.reset()
+                yawspeed_deg_s = 0.0
             self._last_yaw_command = yawspeed_deg_s
             logger.debug(
                 "Yaw command: raw=%.3f rad/s (%.3f deg/s), smoothed=%.3f deg/s",

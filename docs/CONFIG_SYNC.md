@@ -122,6 +122,14 @@ come from the command profile, protections from the shared safety envelope, and
 GM Chase publishes velocity rather than thrust. Cleanup removes only the selected
 exact keys; it does not change gains or apply a new flight policy.
 
+The MC behavior repair changes the fresh rate-profile altitude offset to zero.
+Saved offsets are preserved; the resolved shared altitude-guidance flag now
+controls whether they are applied. With it off, rate-mode altitude hold captures
+engagement altitude. Visual Centering and adaptive Chase also respect that flag;
+Ground descent requires it in addition to selecting the descent behavior.
+Ground's swapped forward/lateral PID lookup is corrected. Review unequal custom
+axis gains before a new acceptance test; factory gains remain numerically equal.
+
 The QGC 4b.4 closeout adds `TargetContinuity.FollowerOverrides` for both gimbal
 followers and changes the fresh Vector lateral-mode default to coordinated turn.
 An existing flat continuity policy and an explicit saved sideslip choice remain

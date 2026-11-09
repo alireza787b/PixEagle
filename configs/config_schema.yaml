@@ -3951,7 +3951,7 @@ sections:
           ENABLE_ALTITUDE_CONTROL:
             type: boolean
             default: false
-            description: false = safe default (no altitude commands)
+            description: No target-directed vertical guidance; rate-mode altitude hold remains separate
             reload_tier: follower_restart
             reboot_required: false
           ALTITUDE_CHECK_INTERVAL:
@@ -4161,7 +4161,7 @@ sections:
                 unit: s
               ENABLE_ALTITUDE_CONTROL:
                 type: boolean
-                description: false = safe default (no altitude commands)
+                description: No target-directed vertical guidance; rate-mode altitude hold remains separate
                 reload_tier: follower_restart
                 reboot_required: false
               ALTITUDE_CHECK_INTERVAL:
@@ -4319,7 +4319,7 @@ sections:
                 unit: s
               ENABLE_ALTITUDE_CONTROL:
                 type: boolean
-                description: false = safe default (no altitude commands)
+                description: No target-directed vertical guidance; rate-mode altitude hold remains separate
                 reload_tier: follower_restart
                 reboot_required: false
               ALTITUDE_CHECK_INTERVAL:
@@ -4477,7 +4477,7 @@ sections:
                 unit: s
               ENABLE_ALTITUDE_CONTROL:
                 type: boolean
-                description: false = safe default (no altitude commands)
+                description: No target-directed vertical guidance; rate-mode altitude hold remains separate
                 reload_tier: follower_restart
                 reboot_required: false
               ALTITUDE_CHECK_INTERVAL:
@@ -4635,7 +4635,7 @@ sections:
                 unit: s
               ENABLE_ALTITUDE_CONTROL:
                 type: boolean
-                description: false = safe default (no altitude commands)
+                description: No target-directed vertical guidance; rate-mode altitude hold remains separate
                 reload_tier: follower_restart
                 reboot_required: false
               ALTITUDE_CHECK_INTERVAL:
@@ -4794,7 +4794,7 @@ sections:
                 unit: s
               ENABLE_ALTITUDE_CONTROL:
                 type: boolean
-                description: false = safe default (no altitude commands)
+                description: No target-directed vertical guidance; rate-mode altitude hold remains separate
                 reload_tier: follower_restart
                 reboot_required: false
               ALTITUDE_CHECK_INTERVAL:
@@ -4955,7 +4955,7 @@ sections:
                 unit: s
               ENABLE_ALTITUDE_CONTROL:
                 type: boolean
-                description: false = safe default (no altitude commands)
+                description: No target-directed vertical guidance; rate-mode altitude hold remains separate
                 reload_tier: follower_restart
                 reboot_required: false
               ALTITUDE_CHECK_INTERVAL:
@@ -5114,7 +5114,7 @@ sections:
                 unit: s
               ENABLE_ALTITUDE_CONTROL:
                 type: boolean
-                description: false = safe default (no altitude commands)
+                description: No target-directed vertical guidance; rate-mode altitude hold remains separate
                 reload_tier: follower_restart
                 reboot_required: false
               ALTITUDE_CHECK_INTERVAL:
@@ -5274,7 +5274,7 @@ sections:
                 unit: s
               ENABLE_ALTITUDE_CONTROL:
                 type: boolean
-                description: false = safe default (no altitude commands)
+                description: No target-directed vertical guidance; rate-mode altitude hold remains separate
                 reload_tier: follower_restart
                 reboot_required: false
               ALTITUDE_CHECK_INTERVAL:
@@ -6985,7 +6985,7 @@ sections:
       ENABLE_YAW_CONTROL:
         type: boolean
         default: true
-        description: Always enabled for this mode
+        description: Allow image-guided yaw; false holds yaw command at zero
         reload_tier: follower_restart
         reboot_required: false
       YAW_CONTROL_THRESHOLD:
@@ -7451,13 +7451,14 @@ sections:
         reboot_required: false
       TARGET_ALTITUDE_OFFSET:
         type: float
-        default: 15.0
-        description: meters — offset from initial capture altitude
+        default: 0.0
+        description: meters from engagement; applied only with shared altitude guidance enabled
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
         max: 100.0
         step: 0.1
+        unit: m
       ALTITUDE_PID_MIN_OUTPUT:
         type: float
         default: -0.3

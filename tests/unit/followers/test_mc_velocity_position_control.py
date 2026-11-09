@@ -79,7 +79,8 @@ def _build_position_stub(
     follower.smoothing_factor = smoothing_factor
     follower._last_yaw_command = 0.0
     follower._last_vertical_velocity_up_m_s = 0.0
-    follower._last_update_time = time.time()
+    follower.control_update_rate = 20.0
+    follower._last_update_time = time.monotonic()
 
     # YawRateSmoother stub (disabled — tests verify PID/threshold logic, not smoother)
     from classes.followers.yaw_rate_smoother import YawRateSmoother
@@ -233,7 +234,7 @@ def test_enabled_yaw_smoother_receives_degrees_per_second():
         smoothing_alpha=1.0,
         enable_speed_scaling=False,
     )
-    follower._last_update_time = time.time() - 0.1
+    follower._last_update_time = time.monotonic() - 0.1
 
     _run_control(follower, target_x=0.3, target_y=0.0)
 

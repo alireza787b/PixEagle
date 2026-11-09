@@ -114,6 +114,7 @@ class MCVelocityGroundFollower(BaseFollower):
         # GainScheduling removed in v6.0 — all gains from PID.PID_GAINS
         fcm = get_follower_config_manager()
         self.control_update_rate = fcm.get_param('CONTROL_UPDATE_RATE', 'MC_VELOCITY_GROUND')
+        self.altitude_control_enabled = fcm.get_param('ENABLE_ALTITUDE_CONTROL', 'MC_VELOCITY_GROUND')
         self.coordinate_corrections_enabled = config.get('COORDINATE_CORRECTIONS_ENABLED', True)
         
         # Initialize control system components
@@ -151,14 +152,14 @@ class MCVelocityGroundFollower(BaseFollower):
             
             # Initialize X-axis PID controller (lateral movement)
             self.pid_x = CustomPID(
-                *self._get_pid_gains('mc_vel_forward'),
+                *self._get_pid_gains('mc_vel_lateral'),
                 setpoint=setpoint_x,
                 output_limits=(-self.max_velocity_x, self.max_velocity_x)
             )
 
             # Initialize Y-axis PID controller (longitudinal movement)
             self.pid_y = CustomPID(
-                *self._get_pid_gains('mc_vel_lateral'),
+                *self._get_pid_gains('mc_vel_forward'),
                 setpoint=setpoint_y,
                 output_limits=(-self.max_velocity_y, self.max_velocity_y)
             )
@@ -215,8 +216,8 @@ class MCVelocityGroundFollower(BaseFollower):
             The method includes error handling to ensure system stability.
         """
         try:
-            self.pid_x.tunings = self._get_pid_gains('mc_vel_forward')
-            self.pid_y.tunings = self._get_pid_gains('mc_vel_lateral')
+            self.pid_x.tunings = self._get_pid_gains('mc_vel_lateral')
+            self.pid_y.tunings = self._get_pid_gains('mc_vel_forward')
             self.pid_z.tunings = self._get_pid_gains('mc_altitude')
             
             logger.debug("PID gains updated successfully for MCVelocityGroundFollower")
@@ -244,8 +245,7 @@ class MCVelocityGroundFollower(BaseFollower):
             - Uses current drone orientation (pitch, roll) for compensation
             - Correction factors are configurable via Parameters
         """
-        # Skip correction for gimbaled cameras
-        if self.is_camera_gimbaled:
+        if self.is_camera_gimbaled or not self.coordinate_corrections_enabled:
             logger.debug("Camera is gimbaled - skipping gimbal corrections")
             return target_coords
         
@@ -343,7 +343,7 @@ class MCVelocityGroundFollower(BaseFollower):
             - Integrates with PID controller for smooth altitude control
         """
         # Check if descent is enabled
-        if not self.enable_descend_to_target:
+        if not self.altitude_control_enabled or not self.enable_descend_to_target:
             logger.debug("Descent to target is disabled")
             return 0.0
         

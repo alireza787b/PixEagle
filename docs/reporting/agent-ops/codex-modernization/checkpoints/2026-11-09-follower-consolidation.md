@@ -128,7 +128,29 @@ updates a continuity-sync fixture to accept S2's nested leaf paths.
 Independent root review: 392 catalog/lifecycle/owner/API/provenance/documentation
 tests passed, including local Markdown links; fatal CI lint and whitespace passed.
 
-## Next — S4
+## S4 — MC behavior repair verified; actual SIH pending
 
-Audit actual public MC behavior, fix altitude-off violations, then run a canonical
-moving-world-target harness with measured PX4 pose and honest qualification.
+Real factory/default tests reproduced and repaired these configuration defects:
+
+- Visual Centering ignored altitude-off and could replay vertical EMA history.
+- Chase's optional adaptive path could add vertical guidance while disabled.
+- Stationary tracking ignored yaw-disable and retained old smoother output.
+- Ground used swapped forward/lateral PID keys and ignored correction-disable
+  for attitude correction. Descent now also respects shared altitude permission.
+- MC rate's saved altitude offset applied while shared altitude guidance was off.
+  It now captures engagement altitude in that case; the fresh offset is zero.
+  Saved values remain intact. This is not native FW-style flight-path guidance.
+- Position/Centering use bounded monotonic intervals. Nonprogressing smoother
+  time retains the previous output instead of bypassing acceleration limiting.
+
+Factory Ground gains are numerically equal, so correcting key ownership does
+not retune them. Unequal custom gains must be reviewed against the corrected
+axis names. PID rate-key labels/internal-unit history remains a characterization
+item; no blind gain-unit rescaling occurred. Ground's heuristic attitude
+correction still needs actual fixed-camera/tilted-flight evidence.
+
+Validation: 603 follower/envelope/schema tests and 85 config/API/provenance/
+documentation tests passed (overlapping gates). Schema retains the existing
+0–100 m offset range, including saved 15 m values. No saved/private configuration
+was applied. A PixEagle-owned moving-world-target SIH harness is being verified;
+S4 and all-mode response qualification remain open until its actual runs pass.

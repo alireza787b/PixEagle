@@ -25,3 +25,9 @@ common owner-side live admission. Its 1,120-test main gate and 65-test preview/
 retarget gate passed; algorithms and gains remain unchanged. The checkpoint
 records the intentional legacy VTOL admission restriction and developer schema
 2.3 migration. Continue with S4's public MC behavior and actual SIH evidence.
+
+S4's MC behavior fixes pass 603 follower/envelope/schema and 85 config/API/docs
+tests: altitude-off paths/history, yaw-disable, Ground tuning/correction switches,
+rate altitude-offset permission and monotonic yaw intervals. Existing saved
+offset range is retained. These are software gates; the canonical moving-target
+runner and actual PX4 response remain pending, so S4 is not closed.

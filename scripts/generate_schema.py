@@ -1456,6 +1456,9 @@ SCHEMA_OVERRIDES = {
     'FW_ATTITUDE_RATE.MAX_BANK_ANGLE': {'min': 0.0, 'max': 90.0, 'step': 1.0, 'unit': 'deg',
         'description': 'Maximum bank angle for coordinated turns (degrees)'},
 
+    'MC_ATTITUDE_RATE.TARGET_ALTITUDE_OFFSET': {
+        'min': 0.0, 'max': 100.0, 'step': 0.1, 'unit': 'm',
+    },
     # MC_ATTITUDE_RATE — same issue for pitch/bank/roll angle limits
     'MC_ATTITUDE_RATE.MAX_PITCH_ANGLE': {'min': 1.0, 'max': 89.0, 'step': 1.0, 'unit': 'deg',
         'description': 'Measured pitch envelope (degrees); must stay below the Euler singularity at 90 degrees'},

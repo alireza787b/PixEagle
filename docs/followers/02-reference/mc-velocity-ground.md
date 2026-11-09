@@ -22,6 +22,11 @@ The desired image aim is resolved once by `AppController` from
 altitude response scaling are applied to the error around that aim point, so a
 nonzero desired aim remains an equilibrium.
 
+The image-X/body-right PID uses `mc_vel_lateral` gains; image-Y/body-forward uses
+`mc_vel_forward`. This corrects the former swapped tuning lookup. Equal factory
+gains are unchanged; installations with unequal custom gains should review the
+axis mapping before adopting this repair.
+
 ## Configuration
 
 ```yaml
@@ -49,7 +54,8 @@ profile.
 ## Camera Corrections
 
 When `IS_CAMERA_GIMBALED` is false, current roll and pitch are used to correct
-the observed image coordinates. When coordinate corrections are enabled, the
+the observed image coordinates only if `COORDINATE_CORRECTIONS_ENABLED` is true.
+That flag controls both attitude correction and altitude-dependent scaling. The
 resulting image error is scaled using current altitude before entering the
 lateral and forward PIDs.
 
@@ -58,9 +64,11 @@ before any flight test.
 
 ## Descent Control
 
-`ENABLE_DESCEND_TO_TARGET` permits positive-down velocity only while the shared
-minimum-altitude limit allows it. It does not provide autonomous landing or
-terrain-relative range estimation.
+Resolved shared `ENABLE_ALTITUDE_CONTROL` permits vertical guidance;
+`ENABLE_DESCEND_TO_TARGET` then selects descent toward the configured relative
+altitude floor. Both are off in the factory profile. The shared limits still
+apply. This does not provide autonomous landing or terrain-relative range
+estimation.
 
 ## Tracker Contract
 

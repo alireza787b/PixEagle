@@ -55,6 +55,10 @@ limits live under `Safety`; command authority after evidence loss lives
 under `TargetContinuity`. See
 [Parameter Reference](../04-configuration/parameter-reference.md).
 
+When resolved `ENABLE_ALTITUDE_CONTROL` is false, down velocity is exactly zero,
+including retained smoothing state. With it enabled, image-Y controls the
+bounded climb/descent component; it is not a measured height or range error.
+
 ## Limitations
 
 - No forward/backward range command is generated.

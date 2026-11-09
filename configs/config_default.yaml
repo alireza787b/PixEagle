@@ -1050,7 +1050,7 @@ Follower:
     GUIDANCE_MODE_SWITCH_VELOCITY: 3.0       # m/s — velocity threshold for mode switch
     MODE_SWITCH_HYSTERESIS: 0.5              # m/s — hysteresis band around switch threshold
     MIN_MODE_SWITCH_INTERVAL: 2.0            # seconds — minimum time between mode switches
-    ENABLE_ALTITUDE_CONTROL: false           # false = safe default (no altitude commands)
+    ENABLE_ALTITUDE_CONTROL: false           # No target-directed vertical guidance; rate-mode altitude hold remains separate
     ALTITUDE_CHECK_INTERVAL: 0.1             # seconds — altitude safety check frequency
 
     # === Yaw Rate Smoothing Pipeline ===
@@ -1361,7 +1361,7 @@ MC_VELOCITY_CHASE:
 MC_VELOCITY_POSITION:
   # === Control Enablement ===
   # ENABLE_ALTITUDE_CONTROL now in Follower.General (default: false)
-  ENABLE_YAW_CONTROL: true                # Always enabled for this mode
+  ENABLE_YAW_CONTROL: true                # Allow image-guided yaw; false holds yaw command at zero
 
   # === Yaw Control ===
   # MAX_YAW_RATE now in Safety.FollowerOverrides.MC_VELOCITY_POSITION
@@ -1511,7 +1511,7 @@ MC_ATTITUDE_RATE:
   # === ALTITUDE CONTROL ===
   # Explicit altitude hold using thrust PID
   ENABLE_ALTITUDE_HOLD: true                 # Enable altitude PID for hover
-  TARGET_ALTITUDE_OFFSET: 15.0               # meters — offset from initial capture altitude
+  TARGET_ALTITUDE_OFFSET: 0.0                # meters from engagement; applied only with shared altitude guidance enabled
   ALTITUDE_PID_MIN_OUTPUT: -0.3              # Min altitude PID correction (thrust units)
   ALTITUDE_PID_MAX_OUTPUT: 0.3               # Max altitude PID correction (thrust units)
 

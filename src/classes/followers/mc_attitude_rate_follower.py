@@ -114,7 +114,7 @@ class MCAttitudeRateFollower(BaseFollower):
 
         # === ALTITUDE CONTROL ===
         self.enable_altitude_hold = config.get('ENABLE_ALTITUDE_HOLD', True)
-        self.target_altitude_offset = config.get('TARGET_ALTITUDE_OFFSET', 15.0)
+        self.target_altitude_offset = config.get('TARGET_ALTITUDE_OFFSET', 0.0)
         self.altitude_pid_min_output = config.get('ALTITUDE_PID_MIN_OUTPUT', -0.3)
         self.altitude_pid_max_output = config.get('ALTITUDE_PID_MAX_OUTPUT', 0.3)
         self.initial_altitude = None  # Set on first update
@@ -134,6 +134,7 @@ class MCAttitudeRateFollower(BaseFollower):
 
         fcm = get_follower_config_manager()
         _fn = 'MC_ATTITUDE_RATE'
+        self.altitude_control_enabled = fcm.get_param('ENABLE_ALTITUDE_CONTROL', _fn)
 
         # === ALTITUDE SAFETY (limits from SafetyManager; per-follower flag via is_altitude_safety_enabled()) ===
         self.min_altitude_limit = self.altitude_limits.min_altitude
@@ -327,7 +328,8 @@ class MCAttitudeRateFollower(BaseFollower):
                 # Set initial altitude on first call
                 if self.initial_altitude is None:
                     self.initial_altitude = current_altitude
-                    target_altitude = current_altitude + self.target_altitude_offset
+                    offset = self.target_altitude_offset if self.altitude_control_enabled else 0.0
+                    target_altitude = current_altitude + offset
                     self.pid_altitude.setpoint = target_altitude
                     logger.info(f"Initial altitude captured: {current_altitude:.1f}m, "
                                f"target: {target_altitude:.1f}m")

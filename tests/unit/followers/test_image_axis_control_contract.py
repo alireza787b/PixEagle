@@ -438,6 +438,7 @@ def test_attitude_yaw_gate_uses_error_from_resolved_aim_point():
 
 def test_chase_emergency_stop_bypasses_yaw_smoothing_history():
     follower = MCVelocityChaseFollower.__new__(MCVelocityChaseFollower)
+    follower.enable_altitude_control = True
     follower.last_ramp_update_time = 99.9
     follower.ramp_update_rate = 10.0
     follower.extract_target_coordinates = MagicMock(return_value=(0.4, 0.0))
@@ -476,6 +477,7 @@ def test_chase_emergency_stop_bypasses_yaw_smoothing_history():
 
 def test_chase_uses_prequalified_evidence_and_preserves_yaw_direction():
     follower = MCVelocityChaseFollower.__new__(MCVelocityChaseFollower)
+    follower.enable_altitude_control = True
     follower.last_ramp_update_time = 99.0
     follower.ramp_update_rate = 10.0
     follower.extract_target_coordinates = MagicMock(return_value=(0.4, 0.0))

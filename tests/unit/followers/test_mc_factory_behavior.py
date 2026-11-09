@@ -1,0 +1,165 @@
+"""Registered MC strategies resolve real defaults before generating command intent."""
+
+from copy import deepcopy
+import math
+from pathlib import Path
+import time
+from types import SimpleNamespace
+
+import pytest
+import yaml
+
+from classes.follower import FollowerFactory
+from classes.parameters import Parameters
+from classes.tracker_output import TrackerDataType, TrackerOutput
+
+
+pytestmark = pytest.mark.unit
+ROOT = Path(__file__).resolve().parents[3]
+VELOCITY_MODES = (
+    "mc_velocity_position", "mc_velocity_chase", "mc_velocity_ground", "mc_velocity_distance",
+)
+
+
+@pytest.fixture
+def factory():
+    previous = Parameters.get_runtime_config_snapshot()
+    defaults = yaml.safe_load((ROOT / "configs/config_default.yaml").read_text())
+
+    def build(mode, *, altitude=False, configure=None, aim=(0., 0.)):
+        config = deepcopy(defaults)
+        config["Follower"]["General"]["ENABLE_ALTITUDE_CONTROL"] = altitude
+        if configure is not None:
+            configure(config)
+        Parameters.publish_config_mapping(config)
+        controller = SimpleNamespace(
+            is_command_preview=False, current_altitude=30., current_pitch=0.,
+            current_roll=0., current_ground_speed=0.,
+            get_orientation=lambda: (0., 0., 0.),
+            is_command_connection_ready=lambda **kwargs: True,
+        )
+        return FollowerFactory.create_follower(mode, controller, aim)
+
+    try:
+        yield build
+    finally:
+        Parameters.publish_config_mapping(previous)
+
+
+def observe(follower, x, y):
+    sample = TrackerOutput(
+        TrackerDataType.POSITION_2D, timestamp=time.time(), tracking_active=True,
+        position_2d=(x, y), confidence=.99, tracker_id="image_contract_test",
+    )
+    follower.calculate_control_commands(sample)
+    intent = follower.get_last_command_intent()
+    assert intent is not None
+    assert all(math.isfinite(value) for value in intent.fields.values())
+    return intent.fields
+
+
+@pytest.mark.parametrize("mode", VELOCITY_MODES)
+@pytest.mark.parametrize("target", [(.3, .4), (-.3, -.4)])
+def test_factory_altitude_off_never_requests_vertical_motion(factory, mode, target):
+    follower = factory(mode)
+    fields = observe(follower, *target)
+    assert fields["vel_body_down"] == 0.
+    if mode in {"mc_velocity_position", "mc_velocity_distance"}:
+        assert fields["vel_body_fwd"] == 0.
+    if mode == "mc_velocity_position":
+        assert fields["vel_body_right"] == 0.
+
+
+@pytest.mark.parametrize("y", [-.4, .4])
+def test_centering_altitude_on_preserves_image_vertical_direction(factory, y):
+    follower = factory("mc_velocity_distance", altitude=True)
+    assert observe(follower, .2, y)["vel_body_down"] * y > 0.
+
+
+def test_centering_altitude_off_cannot_replay_vertical_smoothing_history(factory):
+    follower = factory("mc_velocity_distance")
+    follower._last_vel_down = .5
+    assert observe(follower, .2, -.4)["vel_body_down"] == 0.
+    assert follower._last_vel_down == 0.
+
+
+def test_position_yaw_disable_clears_previous_guidance(factory):
+    def configure(config):
+        config["MC_VELOCITY_POSITION"]["ENABLE_YAW_CONTROL"] = False
+
+    follower = factory("mc_velocity_position", configure=configure)
+    follower.yaw_smoother.last_yaw_rate = 10.
+    follower.yaw_smoother.filtered_yaw_rate = 10.
+    assert observe(follower, .5, .2)["yawspeed_deg_s"] == 0.
+    assert follower.yaw_smoother.last_yaw_rate == 0.
+    assert follower.yaw_smoother.filtered_yaw_rate == 0.
+
+
+def test_chase_adaptation_cannot_enable_disabled_altitude_guidance(factory):
+    def configure(config):
+        config["MC_VELOCITY_CHASE"]["ENABLE_ADAPTIVE_DIVE_CLIMB"] = True
+
+    follower = factory("mc_velocity_chase", configure=configure)
+    follower.adaptive_active = True
+    follower._calculate_target_vertical_rate = lambda *args: (20., 0., 20.)
+    follower._check_adaptive_oscillation = lambda: False
+    follower._check_adaptive_divergence = lambda: False
+    assert observe(follower, .1, .4)["vel_body_down"] == 0.
+    assert follower.adaptive_correction_down == 0.
+
+
+def test_ground_pid_tuning_matches_command_axis(factory):
+    def configure(config):
+        config["PID"]["PID_GAINS"]["mc_vel_forward"]["p"] = .7
+        config["PID"]["PID_GAINS"]["mc_vel_lateral"]["p"] = .2
+
+    follower = factory("mc_velocity_ground", configure=configure)
+    assert follower.pid_x.Kp == .2  # Image X commands body-right.
+    assert follower.pid_y.Kp == .7  # Image Y commands body-forward.
+    follower._update_pid_gains()
+    assert follower.pid_x.Kp == .2
+    assert follower.pid_y.Kp == .7
+
+
+@pytest.mark.parametrize("altitude,expected", [(False, 30.), (True, 33.)])
+def test_mc_rates_respect_altitude_guidance_permission_for_saved_offset(factory, altitude, expected):
+    def configure(config):
+        config["MC_ATTITUDE_RATE"]["TARGET_ALTITUDE_OFFSET"] = 3.
+
+    follower = factory("mc_attitude_rate", altitude=altitude, configure=configure)
+    follower._calculate_thrust_command(30., 0.)
+    assert follower.pid_altitude.setpoint == expected
+
+
+def test_ground_coordinate_correction_disable_applies_to_attitude(factory):
+    def configure(config):
+        config["MC_VELOCITY_GROUND"]["COORDINATE_CORRECTIONS_ENABLED"] = False
+
+    follower = factory("mc_velocity_ground", configure=configure)
+    follower.px4_controller.get_orientation = lambda: (0., 7., 8.)
+    fields = observe(follower, 0., 0.)
+    assert fields["vel_body_fwd"] == 0.
+    assert fields["vel_body_right"] == 0.
+
+
+@pytest.mark.parametrize("altitude", [False, True])
+def test_ground_descent_requires_shared_altitude_guidance_permission(factory, altitude):
+    def configure(config):
+        config["MC_VELOCITY_GROUND"]["ENABLE_DESCEND_TO_TARGET"] = True
+
+    follower = factory("mc_velocity_ground", altitude=altitude, configure=configure)
+    down = observe(follower, .1, .1)["vel_body_down"]
+    assert down > 0. if altitude else down == 0.
+
+
+@pytest.mark.parametrize("mode", ["mc_velocity_position", "mc_velocity_distance"])
+def test_clock_discontinuity_cannot_bypass_yaw_acceleration(factory, monkeypatch, mode):
+    def configure(config):
+        config[mode.upper()]["ENABLE_YAW_CONTROL"] = True
+
+    follower = factory(mode, configure=configure)
+    follower._last_update_time = 100.
+    follower.yaw_smoother.last_yaw_rate = 4.
+    follower.yaw_smoother.filtered_yaw_rate = 3.
+    monkeypatch.setattr("classes.followers.base_follower.time.monotonic", lambda: 99.)
+    assert observe(follower, -.8, 0.)["yawspeed_deg_s"] == 3.

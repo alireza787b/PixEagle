@@ -52,6 +52,17 @@ def test_extract_options_with_parenthetical_descriptions_and_prefix_text():
     ]
 
 
+def test_zero_mc_altitude_offset_default_preserves_existing_metres_range():
+    field = generate_parameter_schema(
+        'TARGET_ALTITUDE_OFFSET', 0.0, 'Offset from engagement altitude',
+        'MC_ATTITUDE_RATE.TARGET_ALTITUDE_OFFSET',
+    )
+    assert field['default'] == 0.0
+    assert field['min'] == 0.0
+    assert field['max'] == 100.0
+    assert field['unit'] == 'm'
+
+
 def test_ground_speed_fallback_schema_is_false_boolean_in_existing_fw_group():
     schema = yaml.safe_load((CONFIGS_DIR / "config_schema.yaml").read_text())
     field = schema["sections"]["FW_ATTITUDE_RATE"]["parameters"]["ALLOW_GROUND_SPEED_FALLBACK"]
