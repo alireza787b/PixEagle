@@ -438,7 +438,39 @@ async def test_offboard_commander_publish_callback_uses_completed_send_evidence(
     assert events[0]["publish_status"]["last_publish_success"] is True
     assert events[1]["reason"] == "failsafe_default"
     assert events[1]["command_intent"] is None
+    assert events[1]["submitted_fields"] == {key: 0. for key in intent.fields}
     assert events[1]["publish_status"]["last_publish_success"] is False
+
+
+@pytest.mark.asyncio
+async def test_fallback_publication_snapshots_fields_before_await_without_inventing_fresh_intent():
+    events = []
+    handler = _handler()
+
+    async def send():
+        # Another measurement can arrive while the concrete send is awaited.
+        handler.set_fields(_intent().fields)
+        return True
+
+    commander = OffboardCommander(SimpleNamespace(send_commands_unified=send), handler,
+                                  on_publish_result=events.append)
+    assert await commander.publish_once(reason="no_intent")
+    assert events[0]["command_intent"] is None
+    assert events[0]["submitted_fields"] == {key: 0. for key in _intent().fields}
+    assert events[0]["publish_status"]["last_intent_fresh"] is False
+    assert events[0]["publication_attempted"] is True
+
+
+@pytest.mark.asyncio
+async def test_readiness_refusal_is_distinct_from_a_failed_concrete_submission():
+    events = []
+    px4 = SimpleNamespace(send_commands_unified=AsyncMock())
+    commander = OffboardCommander(px4, _handler(), on_publish_result=events.append)
+    commander.validate_configuration = MagicMock(return_value=False)
+    assert not await commander.publish_once(reason="readiness_refused")
+    px4.send_commands_unified.assert_not_called()
+    assert events[0]["publication_attempted"] is False
+    assert events[0]["submitted_fields"] is None
 
 
 def test_offboard_commander_rejects_mismatched_command_intent():

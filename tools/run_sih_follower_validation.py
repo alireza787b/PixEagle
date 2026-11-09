@@ -88,6 +88,9 @@ def validate_scenario(scenario: VisualizationScenario) -> dict[str, Any]:
 
 
 def _copy_jsonl(source: Path, destination: Path, transform) -> int:
+    if destination.is_file():
+        with destination.open(encoding="utf-8") as stream:
+            return sum(bool(line.strip()) for line in stream)
     if not source.is_file():
         return 0
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -235,6 +238,7 @@ def write_failed_visualization(root: Path, scenario: VisualizationScenario, fail
     result.setdefault("reason", str(failure))
     summary = analyze_timeline(scenario, build_timeline(scenario, evidence))
     summary.update(evidence_kind="px4_sih", qualification_result=result)
+    (root / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     return write_visualization(root, scenario, summary)
 
 
@@ -272,6 +276,8 @@ def main() -> int:
     parser.add_argument("--scenario", type=Path, help="Explicit supported world-target YAML for this profile")
     parser.add_argument("--sih-build-manifest", type=Path,
                         help="Verified source-build manifest for isolated MC SIH; omission retains compatibility baseline")
+    parser.add_argument("--telemetry-source", choices=("mavlink2rest", "mavsdk"), default="mavlink2rest",
+                        help="Stage the existing MC follower telemetry setting; independent evidence still uses REST")
     parser.add_argument("--qgc-repo", type=Path, default=Path.home() / "qgroundcontrol-pixeagle")
     parser.add_argument("--backend-repo", type=Path, default=PROJECT_ROOT)
     parser.add_argument("--python", type=Path, default=Path(sys.executable))
@@ -291,6 +297,8 @@ def main() -> int:
         parser.error("Custom scenarios are supported by the MC runner only; use the native FW runner separately")
     if args.sih_build_manifest is not None and args.follower not in MC_PROFILES:
         parser.error("--sih-build-manifest is supported by the isolated MC runner only")
+    if args.telemetry_source != "mavlink2rest" and args.follower not in MC_PROFILES:
+        parser.error("--telemetry-source is supported by the isolated MC runner only")
     if args.enable_altitude_control:
         scenario = replace(scenario, altitude_control=True)
     plan = validate_scenario(scenario)
@@ -301,20 +309,20 @@ def main() -> int:
             parser.error("evidence root already exists; use a new run directory")
         try:
             run_external(args, scenario)
+            args.evidence_root.mkdir(parents=True, exist_ok=True)
+            (args.evidence_root / "scenario.json").write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
+            captured_scenario = args.evidence_root / "scenario.yaml"
+            if args.follower in MC_PROFILES:
+                scenario = VisualizationScenario.from_yaml(captured_scenario)
+            summary = validate_px4_evidence(args.evidence_root, scenario)
+            (args.evidence_root / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+            write_visualization(args.evidence_root, scenario, summary)
         except Exception as failure:
             try:
                 write_failed_visualization(args.evidence_root, scenario, failure)
             except Exception as report_error:
                 print(f"Failed-run visualization unavailable: {report_error}", file=sys.stderr)
             raise
-        args.evidence_root.mkdir(parents=True, exist_ok=True)
-        (args.evidence_root / "scenario.json").write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
-        captured_scenario = args.evidence_root / "scenario.yaml"
-        if args.follower in MC_PROFILES:
-            scenario = VisualizationScenario.from_yaml(captured_scenario)
-        summary = validate_px4_evidence(args.evidence_root, scenario)
-        (args.evidence_root / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
-        write_visualization(args.evidence_root, scenario, summary)
         print(json.dumps({"passed": True, "evidence_root": str(args.evidence_root), "summary": summary}, indent=2))
         return 0
     print(json.dumps({"passed": True, "mode": "dry_run", "scenario": plan}, indent=2))

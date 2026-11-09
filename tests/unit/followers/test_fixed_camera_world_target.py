@@ -141,6 +141,58 @@ def test_supported_loss_scenario_is_explicit_and_terminal():
     assert scenario.loss_windows == ((4., 5.),)
 
 
+@pytest.mark.parametrize("time_s", [0., 12., -1., float("nan")])
+def test_takeover_outside_active_response_is_rejected(tmp_path, time_s):
+    raw = yaml.safe_load(scenario_path("mc_velocity_chase").read_text())
+    raw["faults"] = [{"kind": "pilot_takeover", "at_s": time_s}]
+    raw["qualification"]["expected_handoff"] = True
+    path = tmp_path / "takeover.yaml"
+    path.write_text(yaml.safe_dump(raw))
+    with pytest.raises(ValueError):
+        MCScenario.from_yaml(path)
+
+
+def test_takeover_is_explicit_and_not_a_loss_budget_reset(tmp_path):
+    raw = yaml.safe_load(scenario_path("mc_velocity_chase").read_text())
+    raw["faults"] = [{"kind": "pilot_takeover", "at_s": 6.}]
+    raw["qualification"]["expected_handoff"] = True
+    path = tmp_path / "takeover.yaml"
+    path.write_text(yaml.safe_dump(raw))
+    scenario = MCScenario.from_yaml(path)
+    assert scenario.takeover_at_s == 6.
+    assert scenario.loss_windows == ()
+    raw["faults"].append({"kind": "target_loss", "at_s": 3., "duration_s": 1.})
+    path.write_text(yaml.safe_dump(raw))
+    with pytest.raises(ValueError, match="separately"):
+        MCScenario.from_yaml(path)
+
+
+def test_retarget_offsets_are_independent_world_truth_and_do_not_reanchor_to_the_drone():
+    path = scenario_path("mc_velocity_chase").with_name("mc_velocity_chase-qualification-retarget.yaml")
+    scenario = MCScenario.from_yaml(path)
+    anchor = (10., 20., -1.)
+    for at, shift in ((3., 0.), (4., -3.), (4.2, -2.), (8., 0.)):
+        original = scenario.visual.target_at(at)
+        target = scenario.target_at(at, anchor)
+        assert target == pytest.approx(tuple(original[i] + anchor[i] + (shift if i == 1 else 0.) for i in range(3)))
+    assert not scenario.expected_handoff
+
+
+def test_rate_retarget_scenario_cannot_enable_an_unimplemented_continuity_strategy(tmp_path):
+    raw = yaml.safe_load(scenario_path("mc_attitude_rate").read_text())
+    raw["faults"] = [{"kind": "retarget", "at_s": 4., "target_offset_ned": [0., 1., 0.]}]
+    path = tmp_path / "rates.yaml"
+    path.write_text(yaml.safe_dump(raw))
+    with pytest.raises(ValueError, match="requires Stop"):
+        MCScenario.from_yaml(path)
+
+
+def test_stale_control_telemetry_scenario_declares_a_bounded_terminal_outage():
+    scenario = MCScenario.from_yaml(scenario_path("mc_velocity_chase").with_name("mc_velocity_chase-qualification-stale.yaml"))
+    assert scenario.telemetry_outage == (6., 3.)
+    assert scenario.expected_handoff
+
+
 def response_inputs():
     scenario = MCScenario.from_yaml(scenario_path("mc_velocity_position"))
     # Synthetic analysis fixtures only. These do not become qualification artifacts.
@@ -174,6 +226,26 @@ def test_response_rejects_altitude_off_command_or_saved_limit_violation():
     assert not report["checks"]["altitude_off_zero_intent"]
     publications[0]["fields"]["yawspeed_deg_s"] = 11.
     assert not evaluate_response(scenario, observations, publications, **kwargs)["checks"]["saved_rate_bounds"]
+
+
+@pytest.mark.parametrize("alter,accepted", [
+    ({}, True),
+    ({"attempted": True}, False),
+    ({"attempted": None}, False),
+    ({"command_ready": True}, False),
+    ({"submitted_fields": {}}, False),
+    ({"monotonic_s": 9.}, False),
+])
+def test_only_explicit_pre_submission_refusals_after_a_telemetry_fault_are_expected(alter, accepted):
+    scenario, observations, publications, kwargs = response_inputs()
+    scenario = replace(scenario, telemetry_outage=(6., 3.))
+    refusal = dict(success=False, monotonic_s=10.1, attempted=False, fields=None,
+                   submitted_fields=None, command_ready=False)
+    refusal.update(alter)
+    report = evaluate_response(scenario, observations, publications + [refusal], **kwargs,
+                               expected_rejection_after_monotonic_s=10.08)
+    assert report["passed"] is accepted
+    assert report["metrics"]["pre_submission_rejection_count"] == (1 if refusal["attempted"] is False else 0)
 
 
 VELOCITY_PROFILES = sorted(MC_PROFILES - {"mc_attitude_rate"})

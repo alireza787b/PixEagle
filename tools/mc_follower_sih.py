@@ -75,6 +75,10 @@ def run_host(args, scenario_path):
         staged_scenario = yaml.safe_load(scenario_path.read_text(encoding="utf-8"))
         staged_scenario["follower"]["altitude_control"] = scenario.visual.altitude_control
         config["Tracking"]["DEFAULT_TRACKING_ALGORITHM"] = "CSRT"
+        telemetry_source = getattr(args, "telemetry_source", "mavlink2rest")
+        if telemetry_source not in {"mavlink2rest", "mavsdk"}:
+            raise ValueError("Unsupported MC control telemetry source")
+        config["Follower"]["USE_MAVLINK2REST"] = telemetry_source == "mavlink2rest"
         config["Follower"]["FollowerOverrides"].setdefault(args.follower.upper(), {})[
             "ENABLE_ALTITUDE_CONTROL"
         ] = scenario.visual.altitude_control
@@ -95,6 +99,7 @@ def run_host(args, scenario_path):
             "scenario_sha256": hashlib.sha256((stage / "scenario.yaml").read_bytes()).hexdigest(),
             "source_scenario_sha256": hashlib.sha256(scenario_path.read_bytes()).hexdigest(),
             "qualification_scope": "MC component with simulated fixed-camera measurements",
+            "control_telemetry_source": telemetry_source,
             "camera_projection": asdict(scenario.camera),
             "tools": {name: hashlib.sha256((ROOT / "tools" / name).read_bytes()).hexdigest()
                       for name in ("fixed_camera_world_target.py", "mc_follower_sih.py", "sih_isolated_host.py")},
@@ -122,9 +127,13 @@ def pose_observation(payload, flight_state, manager, *, expected_aircraft_uid, m
     q = Quaternion(*quaternion)
     roll = math.atan2(2 * (q.w * q.x + q.y * q.z), 1 - 2 * (q.x * q.x + q.y * q.y))
     pitch = math.asin(max(-1., min(1., 2 * (q.w * q.y - q.z * q.x))))
-    altitude = manager.current_altitude
-    if altitude is None or not math.isfinite(altitude):
-        raise ValueError("Relative altitude unavailable")
+    global_position = messages["GLOBAL_POSITION_INT"]["message"]
+    home = messages["HOME_POSITION"]["message"]
+    relative_mm, absolute_mm, home_mm = (global_position["relative_alt"], global_position["alt"], home["altitude"])
+    if (any(type(value) is not int for value in (relative_mm, absolute_mm, home_mm))
+            or abs(absolute_mm - relative_mm - home_mm) > 2):
+        raise ValueError("Independent relative altitude/home reference unavailable")
+    altitude = relative_mm / 1000.
     if not flight_state.get("fresh"):
         raise ValueError("Flight state is not fresh")
     return dict(
@@ -143,7 +152,7 @@ def pose_observation(payload, flight_state, manager, *, expected_aircraft_uid, m
     )
 
 
-def tracker_observation(coordinates, *, measurement_epoch_s, measurement_monotonic_s, lost=False):
+def tracker_observation(coordinates, *, measurement_epoch_s, measurement_monotonic_s, lost=False, target_id=0):
     """A missing target has no fabricated image coordinate or measurement time."""
     from classes.tracker_output import TrackerDataType, TrackerOutput
 
@@ -157,7 +166,7 @@ def tracker_observation(coordinates, *, measurement_epoch_s, measurement_monoton
     return TrackerOutput(
         data_type=TrackerDataType.POSITION_2D, timestamp=measurement_epoch_s,
         tracking_active=visible, tracker_id="fixed_camera_world_fixture",
-        position_2d=coordinates if visible else None, target_id=0 if visible else None,
+        position_2d=coordinates if visible else None, target_id=target_id if visible else None,
         confidence=1. if visible else None, raw_data=raw,
     )
 
@@ -217,7 +226,12 @@ async def worker(args):
             or config["MAVLink"]["MAVLINK_HOST"] != "127.0.0.1"):
         raise RuntimeError("MC worker refuses non-loopback flight endpoints")
     app = AppController.__new__(AppController)
+    app.bind_flight_event_loop(asyncio.get_running_loop())
     app.mavlink_data_manager = MavlinkDataManager(
+        Parameters.MAVLINK_HOST, Parameters.MAVLINK_PORT,
+        Parameters.MAVLINK_POLLING_INTERVAL, Parameters.MAVLINK_DATA_POINTS, enabled=True,
+    )
+    observer = MavlinkDataManager(
         Parameters.MAVLINK_HOST, Parameters.MAVLINK_PORT,
         Parameters.MAVLINK_POLLING_INTERVAL, Parameters.MAVLINK_DATA_POINTS, enabled=True,
     )
@@ -231,6 +245,7 @@ async def worker(args):
     app.telemetry_handler = SimpleNamespace(follower=None)
     app._following_session_id = uuid.uuid4().hex
     app._following_stopping = False
+    app.mavlink_data_manager.register_offboard_exit_callback(app._schedule_offboard_mode_exit)
     app.camera_runtime = SimpleNamespace(provider=None)
     app._get_video_frame_status_for_following = lambda: dict(
         source="simulated_fixed_camera", usable_for_following=True, replay_source=False,
@@ -258,13 +273,15 @@ async def worker(args):
         intent = event.get("command_intent")
         publications.append(dict(timestamp=time.time(), monotonic_s=time.monotonic(),
                                  success=event["publish_status"]["last_publish_success"] is True,
-                                 fields=None if intent is None else dict(intent.fields)))
+                                 fields=event.get("submitted_fields") if intent is None else dict(intent.fields),
+                                 submitted_fields=event.get("submitted_fields"), attempted=event.get("publication_attempted"),
+                                 command_ready=manager.is_command_connection_ready(require_fresh_telemetry=True)))
 
     async def snapshot():
         payload = await asyncio.to_thread(
             lambda: requests.get("http://127.0.0.1:8088/v1/mavlink", timeout=2).json()
         )
-        flight = app.mavlink_data_manager.get_flight_state()
+        flight = observer.get_flight_state()
         sample = pose_observation(
             payload, flight, manager, expected_aircraft_uid=identity["autopilot_uid"],
         )
@@ -281,6 +298,7 @@ async def worker(args):
 
     try:
         app.mavlink_data_manager.start_polling()
+        observer.start_polling()
         await manager.connect()
         await wait_for(lambda: manager.is_command_connection_ready(require_fresh_telemetry=True))
         await manager.observe_aircraft_identity()
@@ -296,6 +314,10 @@ async def worker(args):
         write_json(output / "telemetry-identity.json", telemetry_identity)
         if telemetry_identity.get("autopilot_uid") != identity["autopilot_uid"]:
             raise RuntimeError("Independent telemetry/command identities disagree")
+        await wait_for(lambda: observer.get_flight_state().get("fresh") is True)
+        if observer.get_aircraft_identity().get("autopilot_uid") != identity["autopilot_uid"]:
+            raise RuntimeError("Read-only observer aircraft UID disagrees")
+        write_json(output / "observer-identity.json", observer.get_aircraft_identity())
         Parameters.FOLLOWER_CIRCUIT_BREAKER = False
         async def armable():
             async for health in manager.drone.telemetry.health():
@@ -366,9 +388,35 @@ async def worker(args):
         started = time.monotonic()
         progress_guard = PoseProgress()
         expected_loss_seen = False
+        takeover_requested_at = None
+        takeover_cleanup = None
+        retarget_count = 0
+        telemetry_outage_injected = False
+        telemetry_outage_started_at = None
         while time.monotonic() - started < scenario.duration_s and app.following_active:
             sample = await snapshot()
             elapsed = time.monotonic() - started
+            if (scenario.telemetry_outage is not None and not telemetry_outage_injected
+                    and elapsed >= scenario.telemetry_outage[0]):
+                app.mavlink_data_manager.inject_timeout_for_validation(
+                    timeout_window_s=scenario.telemetry_outage[1], force_stale=True,
+                    reason="sih_control_telemetry_outage",
+                )
+                telemetry_outage_injected = True
+                telemetry_outage_started_at = time.monotonic()
+                log("fault-events.jsonl", dict(timestamp=time.time(), event="stale_telemetry",
+                    duration_s=scenario.telemetry_outage[1], observer="separate unaffected read-only client"))
+            if scenario.takeover_at_s is not None and elapsed >= scenario.takeover_at_s:
+                # A separate simulator pilot changes PX4 mode. The backend must
+                # observe that change and release its owner without another Hold.
+                takeover_requested_at = time.monotonic()
+                log("fault-events.jsonl", dict(timestamp=time.time(), event="pilot_takeover", mode="Hold"))
+                await manager.drone.action.hold()
+                await wait_for(lambda: not app.following_active, timeout=manager.get_mavsdk_command_timeout_s())
+                cleanup = getattr(app, "_following_stop_future", None)
+                if cleanup is not None:
+                    takeover_cleanup = await asyncio.shield(cleanup)
+                break
             target = scenario.target_at(elapsed, anchor)
             if target is None:
                 break
@@ -380,13 +428,32 @@ async def worker(args):
                 await asyncio.sleep(1. / scenario.visual.rate_hz)
                 continue
             coordinates = scenario.camera.project(sample["position_ned"], sample["quaternion_wxyz"], target)
+            due = sum(at <= elapsed for at, _offset in scenario.retargets)
+            while retarget_count < due:
+                if coordinates is None:
+                    raise RuntimeError("Retarget candidate is outside the camera FOV; ownership remains unchanged")
+                before = app.get_target_continuity_status()
+                transition = app._prepare_following_target_transition("sih_operator_retarget")
+                if not transition.get("prepared"):
+                    raise RuntimeError("Production retarget preparation was refused")
+                app._advance_tracking_session_generation(for_retarget=True)
+                after = app.get_target_continuity_status()
+                log("fault-events.jsonl", dict(timestamp=time.time(), event="retarget", before=before,
+                    after=after, generation=app._tracking_session_generation, transition=transition))
+                if before.get("target_transition_pending") and (
+                        after.get("episode_id") != before.get("episode_id")
+                        or after.get("coast_distance_m", 0.) < before.get("coast_distance_m", 0.)
+                        or after.get("loss_elapsed_s", 0.) < before.get("loss_elapsed_s", 0.)):
+                    raise RuntimeError("Repeated retarget reset the active recovery episode or travel budget")
+                retarget_count += 1
             lost = any(start <= elapsed < end for start, end in scenario.loss_windows)
             expected_loss_seen |= lost
             if coordinates is None and not lost:
                 raise RuntimeError("Independent world target left the declared fixed-camera FOV")
             measurement_epoch = time.time()
             observation = tracker_observation(coordinates, measurement_epoch_s=measurement_epoch,
-                                              measurement_monotonic_s=sample["monotonic_s"], lost=lost)
+                                              measurement_monotonic_s=sample["monotonic_s"], lost=lost,
+                                              target_id=retarget_count)
             accepted = await app._dispatch_tracker_output_on_flight_loop(observation)
             row = dict(timestamp=measurement_epoch, elapsed_s=elapsed, target_ned=target,
                        image_position=coordinates if not lost else None, loss_active=lost, **sample)
@@ -395,7 +462,7 @@ async def worker(args):
                 vehicle_quaternion=sample["quaternion_wxyz"], source=sample["source"],
                 source_boot_ms=sample["source_boot_ms"]))
             log("trace/follower_state.jsonl", dict(timestamp=measurement_epoch, **app.get_target_continuity_status()))
-            if not accepted and (not lost or not scenario.expected_handoff or app.following_active):
+            if not accepted and (not scenario.expected_handoff or app.following_active):
                 raise RuntimeError("Production dispatch refused a nominal measurement")
             await asyncio.sleep(1. / scenario.visual.rate_hz)
         if app.following_active:
@@ -417,13 +484,26 @@ async def worker(args):
             after.append(await snapshot())
         write_json(output / "post-stop-observations.json", after)
         checks = dict(
-            hold_confirmed=(handoff.get("result") == "confirmed_hold"
+            hold_confirmed=(handoff.get("result") == ("stopped" if takeover_requested_at is not None else "confirmed_hold")
                             and bool(convergence) and convergence[-1]["hold"]
                             and all(s["hold"] for s in after)),
             no_publication_after_stop=len(publications) == stop_count,
-            expected_loss_executed=expected_loss_seen == scenario.expected_handoff,
+            expected_faults_executed=(expected_loss_seen == bool(scenario.loss_windows)
+                                     and (takeover_requested_at is not None) == (scenario.takeover_at_s is not None)
+                                     and retarget_count == len(scenario.retargets)
+                                     and telemetry_outage_injected == (scenario.telemetry_outage is not None)),
             no_following_replay=not app.following_active,
         )
+        if scenario.takeover_at_s is not None:
+            quiesce = (takeover_cleanup or {}).get("sender_quiesce", {})
+            checks["takeover_released_without_backend_hold"] = (
+                not (takeover_cleanup or {}).get("errors")
+                and quiesce.get("authority_released") is True
+                and quiesce.get("local_sender_quiesced") is True
+                and quiesce.get("vehicle_hold_acknowledged") is False
+                and "offboard_stop_action" not in (takeover_cleanup or {})
+            )
+            write_json(output / "takeover-cleanup.json", takeover_cleanup)
         Parameters.FOLLOWER_CIRCUIT_BREAKER = True
         gate = _evaluate_px4_command_gate("mc_sih_post_stop_probe")
         checks["post_stop_circuit_breaker"] = gate.blocked and not gate.degraded and gate.reason == "circuit_breaker_active"
@@ -434,7 +514,8 @@ async def worker(args):
             attitude_limits_deg={"roll": config["MC_ATTITUDE_RATE"]["MAX_ROLL_ANGLE"],
                                  "pitch": config["MC_ATTITUDE_RATE"]["MAX_PITCH_ANGLE"]},
             publication_gap_limit_s=min(commander.get_status()["command_ttl_s"],
-                                        commander.get_status()["publish_timeout_s"]))
+                                        commander.get_status()["publish_timeout_s"]),
+            expected_rejection_after_monotonic_s=telemetry_outage_started_at)
         report["checks"].update(checks)
         report.update(passed=all(report["checks"].values()), scope="actual_mc_follower_component_only",
                       follower=args.follower, physical_camera=False, application_startup_qualified=False,
@@ -459,6 +540,7 @@ async def worker(args):
         finally:
             await manager.stop()
             app.mavlink_data_manager.stop_polling()
+            observer.stop_polling()
 
 
 def main():

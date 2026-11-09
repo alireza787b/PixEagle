@@ -1,0 +1,95 @@
+schema_version: 1
+name: MC Chase rapid accepted retargets
+rate_hz: 20
+frame: local_ned
+mount_type: HORIZONTAL
+airframe: multicopter
+evidence_provenance: synthetic_fixture
+stable_flight:
+  required: true
+  settle_samples: 7
+initial_conditions:
+  vehicle_ned:
+  - 0.0
+  - 0.0
+  - -20.0
+follower:
+  profile: mc_velocity_chase
+  purpose: Independent moving world target through a simulated fixed camera
+  input_contract: image_position_2d
+  command_contract: velocity_body_offboard
+  speed_source_policy: none
+  altitude_control: false
+  requested_speed: null
+fixed_camera:
+  forward_body:
+  - 1.0
+  - 0.0
+  - 0.0
+  right_body:
+  - 0.0
+  - 1.0
+  - 0.0
+  down_body:
+  - 0.0
+  - 0.0
+  - 1.0
+  offset_body_m:
+  - 0.0
+  - 0.0
+  - 0.0
+  horizontal_fov_deg: 90.0
+  vertical_fov_deg: 60.0
+constraints:
+  velocity:
+    forward: 0.5
+    right: 0.5
+    down: 0.0
+  rate:
+    yaw: 45.0
+  altitude:
+    min: 3.0
+    max: 120.0
+continuity_policy:
+  mode: immediate_handoff
+target:
+  waypoints:
+  - time_s: 0.0
+    position_ned:
+    - 18.0
+    - 3.0
+    - -20.0
+  - time_s: 12.0
+    position_ned:
+    - 20.4
+    - 3.0
+    - -20.0
+faults:
+- kind: retarget
+  at_s: 4.0
+  target_offset_ned:
+  - 0.0
+  - -3.0
+  - 0.0
+- kind: retarget
+  at_s: 4.2
+  target_offset_ned:
+  - 0.0
+  - 1.0
+  - 0.0
+- kind: retarget
+  at_s: 8.0
+  target_offset_ned:
+  - 0.0
+  - 2.0
+  - 0.0
+qualification:
+  expected_handoff: false
+  altitude_tolerance_m: 2.0
+  position_tolerance_m: 2.0
+acceptance:
+- Actual PX4 motion reduces projected image error independently of target motion
+- Published commands obey saved limits and the profile axis contract
+- Confirmed Hold after Stop with no later publication
+- Accepted retargets preserve production ownership and do not renew an active recovery
+  episode

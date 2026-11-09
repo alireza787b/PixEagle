@@ -128,12 +128,34 @@ target motion or camera pitch alone cannot earn credit. This is a direction/
 response gate, not a claim of interception or stable range keeping. An explicit
 altitude-off scenario cannot silently become an altitude-on test through a flag.
 The retained scenario records actual resolved limits/policy and the once-frozen
-target anchor. Nominal and loss cases are separate: use
-`tools/sih_visualization_scenarios/mc_velocity_chase-qualification-loss.yaml`
-with Chase to check its default immediate handoff. Current scenarios do not
-claim retarget, takeover or all fault coverage. Rate-mode qualification still
+target anchor. Separate Chase scenarios have `-loss`, `-retarget`, `-takeover`
+and `-stale` suffixes. The same validated fault shapes apply to the other MC
+profiles. `target_loss` checks the default immediate handoff; `retarget` supplies
+explicit cumulative world-target offsets and uses production target preparation/
+generation changes, without renewing an active recovery episode. Live rate/thrust
+retarget is explicitly unsupported and requires Stop. `pilot_takeover` represents
+an independent simulator pilot selecting Hold; the backend must observe it and
+quiesce without requesting another Hold. `stale_telemetry` uses the existing
+bounded local client-timeout validation hook. Fault families are qualified
+separately; declaring a fault does not silently change continuity policy.
+Rate-mode qualification still
 requires its observed attitude and thrust envelope; successful commands alone
 cannot pass it.
+
+`--telemetry-source mavsdk` stages the existing telemetry setting for a comparison
+without REST control feedback. The read-only evidence client remains independent
+and unaffected by injected control-client outages; pose and relative height come
+from actual PX4 messages, not the controller cache. No extra flight-control owner
+or real network outage is introduced. These runs remain component tests with
+simulated image measurements, not HTTP/App startup or optical-tracker acceptance.
+
+Publication traces distinguish pre-submission refusals, attempted sends and
+successful sends. During a declared telemetry outage, an explicitly recorded
+readiness refusal after the injection is expected; a failed concrete send or an
+unexplained refusal still fails. Default setpoint fields are captured before the
+send is awaited, separately from a fresh guidance intent. The replay must show
+those actual submitted defaults rather than retain an older proposed command.
+Canonical capture traces are counted and never overwritten by legacy aliases.
 
 For a separately verified source build, pass `--sih-build-manifest PATH` to the
 MC runner. The host verifies the manifest, packaged executable/ROMFS and immutable

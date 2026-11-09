@@ -10,10 +10,10 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from classes.app_controller import AppController
+from classes.command_preview import CommandPreviewController
 from classes.followers.gm_velocity_vector_follower import GMVelocityVectorFollower
 from classes.followers.mc_velocity_position_follower import MCVelocityPositionFollower
 from classes.followers.yaw_rate_smoother import YawRateSmoother
-from classes.setpoint_handler import SetpointHandler
 from classes.target_continuity import (
     AirframePhase,
     ContinuityContext,
@@ -57,8 +57,7 @@ CLIP_FIXTURE = (
 
 
 def _build_position_follower_stub() -> MCVelocityPositionFollower:
-    follower = MCVelocityPositionFollower.__new__(MCVelocityPositionFollower)
-    follower.setpoint_handler = SetpointHandler("mc_velocity_position")
+    follower = MCVelocityPositionFollower(CommandPreviewController(), (0., 0.))
     follower._telemetry_metadata = {}
     follower.update_telemetry_metadata = MagicMock(
         side_effect=lambda key, value: follower._telemetry_metadata.__setitem__(key, value)
@@ -98,8 +97,7 @@ def _build_position_follower_stub() -> MCVelocityPositionFollower:
 
 
 def _build_gimbal_vector_follower_stub(*, active_path: bool = False) -> GMVelocityVectorFollower:
-    follower = GMVelocityVectorFollower.__new__(GMVelocityVectorFollower)
-    follower.setpoint_handler = SetpointHandler("gm_velocity_vector")
+    follower = GMVelocityVectorFollower(CommandPreviewController(), (0., 0.))
     follower.current_velocity_magnitude = 1.25
     follower.last_velocity_vector = object()
     follower.following_active = True

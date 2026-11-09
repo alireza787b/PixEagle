@@ -2319,6 +2319,7 @@ class AppController:
                 commander_publish_final=False,
                 attempt_offboard_stop=False,
                 cancel_pending_start=True,
+                reason_code="offboard_mode_exited",
             )
 
             logging.info("Follow mode automatically disabled due to Offboard mode exit")
@@ -2347,6 +2348,7 @@ class AppController:
         await self._disconnect_px4_on_flight_loop(
             commander_publish_final=False,
             attempt_offboard_stop=False,
+            reason_code="aircraft_connection_lost",
             cancel_pending_start=True,
         )
 
@@ -4169,6 +4171,7 @@ class AppController:
         attempt_offboard_stop: bool = True,
         cancel_pending_start: bool = True,
         expected_aircraft_uid: Optional[str] = None,
+        reason_code: str = "operator_stop",
     ) -> Dict[str, Any]:
         """Abort pending startup, then stop one follow session on its owner loop."""
         start_task = getattr(self, "_follow_start_task", None)
@@ -4221,6 +4224,7 @@ class AppController:
             return await self._disconnect_px4_internal(
                 commander_publish_final=commander_publish_final,
                 attempt_offboard_stop=attempt_offboard_stop,
+                reason_code=reason_code,
             )
 
     async def _handle_offboard_commander_failure(self, status: Dict[str, Any]):
@@ -4863,6 +4867,8 @@ class AppController:
                 sequence=sequence,
                 command_intent=event.get("command_intent"),
                 publish_status=event.get("publish_status"),
+                submitted_fields=event.get("submitted_fields"),
+                publication_attempted=event.get("publication_attempted"),
                 vehicle_observation={
                     "yaw_deg": getattr(px4, "current_yaw", None),
                     "relative_altitude_m": getattr(px4, "current_altitude", None),

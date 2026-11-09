@@ -71,6 +71,18 @@ def test_harness_normalization_preserves_production_command_fields(tmp_path):
     assert record["command_intent"]["fields"] == {"vel_body_fwd": 1.25, "vel_body_down": -0.5}
 
 
+def test_existing_canonical_capture_is_counted_and_never_replaced_by_legacy_alias(tmp_path):
+    trace = tmp_path / "trace"
+    trace.mkdir()
+    canonical = trace / "offboard_publish_trace.jsonl"
+    original = json.dumps({"record_type": "offboard_publish", "timestamp": 1., "publish_success": True}) + "\n"
+    canonical.write_text(original)
+    (tmp_path / "publish.jsonl").write_text(json.dumps({"timestamp": 2., "publish_status": {}}) + "\n")
+    counts = normalize_harness_evidence(tmp_path)
+    assert counts["published"] == 1
+    assert canonical.read_text() == original
+
+
 def test_px4_gate_rejects_command_only_evidence(tmp_path):
     scenario = VisualizationScenario.from_yaml(
         ROOT / "tools/sih_visualization_scenarios/camera-chase-2d.yaml"
@@ -115,3 +127,26 @@ def test_no_pose_cannot_be_rendered_as_observed_aircraft_motion(tmp_path):
     scenario = VisualizationScenario.from_yaml(scenario_path("mc_velocity_position"))
     assert write_failed_visualization(tmp_path, scenario, RuntimeError("no pose")) is None
     assert not (tmp_path / "visualization").exists()
+
+
+def test_post_capture_acceptance_failure_also_renders_failed_evidence(tmp_path, monkeypatch):
+    import tools.run_sih_follower_validation as entry
+    output = tmp_path / "run"
+    calls = []
+
+    def capture(args, scenario):
+        output.mkdir()
+        (output / "scenario.yaml").write_bytes(entry.scenario_path(args.follower).read_bytes())
+
+    def reject(*args):
+        raise VisualizationValidationError("source gap")
+
+    monkeypatch.setattr("sys.argv", ["runner", "--execute", "--follower", "mc_velocity_position",
+                                     "--evidence-root", str(output)])
+    monkeypatch.setattr(entry, "run_external", capture)
+    monkeypatch.setattr(entry, "validate_px4_evidence", reject)
+    monkeypatch.setattr(entry, "write_failed_visualization", lambda *args: calls.append(args))
+    with pytest.raises(VisualizationValidationError, match="source gap"):
+        entry.main()
+    assert len(calls) == 1
+    assert calls[0][0] == output

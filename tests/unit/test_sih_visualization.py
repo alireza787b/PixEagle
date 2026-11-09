@@ -229,6 +229,21 @@ def test_vertical_body_axis_cannot_invent_heading_for_the_command_arrow(heading,
     assert samples[0].vehicle_forward_ned == pytest.approx((0., 0., -1.), abs=1e-12)
 
 
+def test_submitted_defaults_replace_old_guidance_in_replay_without_fabricating_a_target_lock():
+    scenario = VisualizationScenario.from_yaml(ROOT / "tools/sih_visualization_scenarios/camera-chase-2d.yaml")
+    defaults = dict(vel_body_fwd=0., vel_body_right=0., vel_body_down=0., yawspeed_deg_s=0.)
+    evidence = {
+        "pose": [{"timestamp": 0., "vehicle_ned": [0., 0., -20.],
+                  "vehicle_quaternion": [1., 0., 0., 0.]}],
+        "tracker": [{"timestamp": 0., "command_intent": {"fields": {**defaults, "vel_body_fwd": 3.}}}],
+        "published": [{"timestamp": 0., "publish_success": True, "command_intent": None,
+                       "submitted_fields": defaults, "publish_status": {"failsafe_defaults_active": True}}],
+    }
+    sample = build_timeline(scenario, evidence)[0]
+    assert sample.command == defaults
+    assert "fallback_defaults" in sample.events
+
+
 def test_analysis_flags_altitude_disabled_and_constraint_violation():
     scenario = VisualizationScenario.from_yaml(
         ROOT / "tools/sih_visualization_scenarios/camera-chase-baseline.yaml"

@@ -1552,6 +1552,7 @@ async def test_px4_connection_loss_stops_following_without_link_commands():
     ctrl._disconnect_px4_internal.assert_awaited_once_with(
         commander_publish_final=False,
         attempt_offboard_stop=False,
+        reason_code="aircraft_connection_lost",
     )
 
 

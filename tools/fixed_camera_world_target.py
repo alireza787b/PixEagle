@@ -85,6 +85,9 @@ class MCScenario:
     altitude_tolerance_m: float
     position_tolerance_m: float
     minimum_vertical_response_m: float | None = None
+    takeover_at_s: float | None = None
+    retargets: tuple[tuple[float, tuple[float, float, float]], ...] = ()
+    telemetry_outage: tuple[float, float] | None = None
 
     def __post_init__(self):
         if self.minimum_vertical_response_m is not None:
@@ -118,9 +121,39 @@ class MCScenario:
         if visual.continuity_policy and visual.continuity_policy != {"mode": "immediate_handoff"}:
             raise VisualizationValidationError("Scenario cannot override saved continuity policy")
         windows = []
+        takeover = None
+        retargets = []
+        telemetry_outage = None
         for fault in visual.faults:
+            if fault.get("kind") == "stale_telemetry":
+                if set(fault) != {"kind", "at_s", "duration_s"} or telemetry_outage is not None:
+                    raise VisualizationValidationError("One explicit stale_telemetry window is supported")
+                at = finite_number(fault["at_s"], "telemetry_outage_at_s")
+                length = finite_number(fault["duration_s"], "telemetry_outage_duration_s")
+                if not 1. <= at < duration or not 0. < length <= duration - at:
+                    raise VisualizationValidationError("Telemetry outage must fit after the initial response interval")
+                telemetry_outage = (at, length)
+                continue
+            if fault.get("kind") == "retarget":
+                if set(fault) != {"kind", "at_s", "target_offset_ned"}:
+                    raise VisualizationValidationError("Retarget requires time and an independent world-target offset")
+                at = finite_number(fault["at_s"], "retarget_at_s")
+                offset = _vector(fault["target_offset_ned"], "retarget_offset")
+                if not 1. <= at < duration - 1. or any(at == item[0] for item in retargets):
+                    raise VisualizationValidationError("Retarget times must be distinct and leave a response interval")
+                if visual.follower_profile == "mc_attitude_rate":
+                    raise VisualizationValidationError("Live rate retarget requires Stop; no rate recovery strategy exists")
+                retargets.append((at, (offset.x, offset.y, offset.z)))
+                continue
+            if fault.get("kind") == "pilot_takeover":
+                if set(fault) != {"kind", "at_s"} or takeover is not None:
+                    raise VisualizationValidationError("One pilot_takeover time is supported")
+                takeover = finite_number(fault["at_s"], "takeover_at_s")
+                if not 1. <= takeover < duration:
+                    raise VisualizationValidationError("Takeover must follow the initial response interval")
+                continue
             if set(fault) != {"kind", "at_s", "duration_s"} or fault["kind"] != "target_loss":
-                raise VisualizationValidationError("MC runner supports only explicit target_loss windows")
+                raise VisualizationValidationError("MC runner supports target_loss, retarget and pilot_takeover")
             start = finite_number(fault["at_s"], "loss_start")
             length = finite_number(fault["duration_s"], "loss_duration")
             if not 1. <= start < duration or length <= 0. or start + length > duration:
@@ -128,13 +161,17 @@ class MCScenario:
             windows.append((start, start + length))
         if any(right[0] < left[1] for left, right in zip(sorted(windows), sorted(windows)[1:])):
             raise VisualizationValidationError("Loss windows cannot overlap")
+        if takeover is not None and windows:
+            raise VisualizationValidationError("Qualify loss and takeover separately")
+        if sum((bool(retargets), bool(windows), takeover is not None, telemetry_outage is not None)) > 1:
+            raise VisualizationValidationError("Qualify distinct fault families separately")
         qualification = raw.get("qualification", {})
         required = {"expected_handoff", "altitude_tolerance_m", "position_tolerance_m"}
         if not required <= set(qualification) or set(qualification) - required - {"minimum_vertical_response_m"}:
             raise VisualizationValidationError("Explicit qualification tolerances and expected handoff are required")
         expected = qualification["expected_handoff"]
-        if type(expected) is not bool or expected != bool(windows):
-            raise VisualizationValidationError("Loss scenarios must explicitly expect terminal handoff")
+        if type(expected) is not bool or expected != (bool(windows) or takeover is not None or telemetry_outage is not None):
+            raise VisualizationValidationError("Loss/takeover/telemetry scenarios must explicitly expect terminal handoff")
         altitude = finite_number(qualification["altitude_tolerance_m"], "altitude_tolerance")
         position = finite_number(qualification["position_tolerance_m"], "position_tolerance")
         if not 0. < altitude <= 2. or not 0. < position <= 2.:
@@ -149,14 +186,17 @@ class MCScenario:
         initial_quaternion = raw.get("initial_conditions", {}).get("quaternion_wxyz", (1., 0., 0., 0.))
         if camera.project(visual.initial_vehicle_ned, initial_quaternion, visual.target_at(0.)) is None:
             raise VisualizationValidationError("Initial world target must be in the declared camera FOV")
-        return cls(visual, camera, duration, tuple(windows), expected, altitude, position, minimum_vertical)
+        return cls(visual, camera, duration, tuple(windows), expected, altitude, position, minimum_vertical,
+                   takeover, tuple(sorted(retargets)), telemetry_outage)
 
     def target_at(self, elapsed_s, anchor_ned):
         """Use one frozen pre-engagement world anchor, never the latest aircraft pose."""
         target = self.visual.target_at(elapsed_s)
         if target is None:
             return None
-        return tuple(target[index] + anchor_ned[index] for index in range(3))
+        return tuple(target[index] + anchor_ned[index]
+                     + sum(offset[index] for at, offset in self.retargets if elapsed_s >= at)
+                     for index in range(3))
 
 
 def stable_hold_window(samples, *, expected_altitude_m):
@@ -180,9 +220,11 @@ def stable_hold_window(samples, *, expected_altitude_m):
 
 
 def evaluate_response(scenario, records, publications, *, velocity_limits, rate_limits_deg_s,
-                      attitude_limits_deg, publication_gap_limit_s=.25):
+                      attitude_limits_deg, publication_gap_limit_s=.25, expected_rejection_after_monotonic_s=None):
     """Assess independent observed motion and actual publications, never integrate commands."""
     mode = scenario.visual.follower_profile
+    refused = [row for row in publications if row.get("attempted") is False]
+    publications = [row for row in publications if row.get("attempted") is not False]
     fields = [row["fields"] for row in publications if row.get("fields") is not None]
     expected = ({"rollspeed_deg_s", "pitchspeed_deg_s", "yawspeed_deg_s", "thrust"}
                 if mode == "mc_attitude_rate" else
@@ -192,6 +234,12 @@ def evaluate_response(scenario, records, publications, *, velocity_limits, rate_
         "complete_publications": bool(fields) and len(fields) == len(publications) and all(set(row) == expected for row in fields),
         "publication_success": bool(publications) and all(row["success"] for row in publications),
         "finite_commands": all(math.isfinite(value) for row in fields for value in row.values()),
+        "pre_submission_rejections_expected": all(
+            scenario.telemetry_outage is not None and expected_rejection_after_monotonic_s is not None
+            and row["monotonic_s"] >= expected_rejection_after_monotonic_s
+            and row.get("command_ready") is False and row.get("submitted_fields") is None
+            and row.get("success") is False for row in refused
+        ),
     }
     checks["saved_velocity_bounds"] = all(
         all(abs(row.get(key, 0.)) <= velocity_limits[axis] + 1e-6
@@ -211,7 +259,7 @@ def evaluate_response(scenario, records, publications, *, velocity_limits, rate_
         checks["zero_yaw_intent"] = all(abs(row.get("yawspeed_deg_s", 0.)) <= 1e-9 for row in fields)
     if mode != "mc_attitude_rate" and not scenario.visual.altitude_control:
         checks["altitude_off_zero_intent"] = all(abs(row.get("vel_body_down", 0.)) <= 1e-9 for row in fields)
-    metrics = {}
+    metrics = {"pre_submission_rejection_count": len(refused)}
     gaps = [current["monotonic_s"] - previous["monotonic_s"]
             for previous, current in zip(publications, publications[1:])]
     checks["bounded_publication_gaps"] = bool(gaps) and all(0. < gap <= publication_gap_limit_s for gap in gaps)

@@ -162,6 +162,8 @@ def build_offboard_publish_trace_record(
     vehicle_observation: dict[str, Any] | None = None,
     target_generation: int | None = None,
     timestamp: float | None = None,
+    submitted_fields: dict[str, float] | None = None,
+    publication_attempted: bool | None = None,
 ) -> dict[str, Any]:
     """Build one normalized record from an actual commander publish result.
 
@@ -175,6 +177,8 @@ def build_offboard_publish_trace_record(
     return {
         "schema_version": TRACE_SCHEMA_VERSION,
         "record_type": "offboard_publish",
+        "submitted_fields": _jsonable(submitted_fields),
+        "publication_attempted": publication_attempted,
         "timestamp": record_time,
         "sequence": int(sequence),
         "source": source,
@@ -266,6 +270,8 @@ class TrackerTraceRecorder:
         publish_status: dict[str, Any] | None,
         vehicle_observation: dict[str, Any] | None = None,
         target_generation: int | None = None,
+        submitted_fields: dict[str, float] | None = None,
+        publication_attempted: bool | None = None,
     ) -> dict[str, Any]:
         """Record a completed OffboardCommander publication result."""
         record = build_offboard_publish_trace_record(
@@ -275,6 +281,8 @@ class TrackerTraceRecorder:
             source=self.source,
             vehicle_observation=vehicle_observation,
             target_generation=target_generation,
+            submitted_fields=submitted_fields,
+            publication_attempted=publication_attempted,
         )
         append_trace_jsonl(self.offboard_publish_trace_path, record)
         return record

@@ -564,6 +564,8 @@ class OffboardCommander:
     ) -> bool:
         terminal_failure_triggered = False
         published_intent: Optional[CommandIntent] = None
+        submitted_fields = None
+        publication_attempted = False
         async with self._publish_lock:
             if reason == "heartbeat" and not self.running:
                 return False
@@ -584,7 +586,11 @@ class OffboardCommander:
                 else:
                     published_intent = self._last_intent
 
+                if self.command_transport is None:
+                    submitted_fields = dict(self.setpoint_handler.get_fields())
+
                 try:
+                    publication_attempted = True
                     publication = (self.command_transport.publish(
                         published_intent, reason=force_default_reason or reason, ttl_s=self.command_ttl_s,
                     ) if self.command_transport is not None else self.px4_interface.send_commands_unified())
@@ -611,6 +617,7 @@ class OffboardCommander:
                         if self._last_intent is published_intent:
                             self._last_intent = effective
                         published_intent = effective
+                        submitted_fields = dict(effective.fields)
                 guard_reason = getattr(self.px4_interface, '_terminal_attitude_guard_reason', None)
                 if (not success and isinstance(guard_reason, str) and guard_reason
                         and self.setpoint_handler.profile_name == 'mc_attitude_rate'):
@@ -618,6 +625,10 @@ class OffboardCommander:
                     if enforce_failure_policy:
                         terminal_failure_triggered = self._mark_terminal_failure(guard_reason)
                 guard = getattr(self.px4_interface, '_last_attitude_guard', None)
+                if (success and self.command_transport is None
+                        and self.setpoint_handler.get_control_type() == 'attitude_rate'
+                        and isinstance(guard, dict) and isinstance(guard.get('effective_fields'), dict)):
+                    submitted_fields = dict(guard['effective_fields'])
                 if (success and published_intent is not None
                         and published_intent.profile_name == 'mc_attitude_rate'
                         and isinstance(guard, dict) and isinstance(guard.get('effective_fields'), dict)):
@@ -626,6 +637,8 @@ class OffboardCommander:
         await self._notify_publish_result(
             reason,
             command_intent=published_intent,
+            submitted_fields=submitted_fields,
+            publication_attempted=publication_attempted,
         )
         if terminal_failure_triggered:
             await self._invoke_failure_threshold_callback()
@@ -721,6 +734,8 @@ class OffboardCommander:
         reason: str,
         *,
         command_intent: Optional[CommandIntent] = None,
+        submitted_fields: Optional[dict] = None,
+        publication_attempted: Optional[bool] = None,
     ) -> None:
         """Emit evidence only after the concrete publication attempt completed."""
         if self._on_publish_result is None:
@@ -728,6 +743,8 @@ class OffboardCommander:
         event = {
             "reason": reason,
             "command_intent": command_intent,
+            "submitted_fields": submitted_fields,
+            "publication_attempted": publication_attempted,
             "publish_status": self.get_status(),
         }
         try:

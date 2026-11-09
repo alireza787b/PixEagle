@@ -424,6 +424,8 @@ def _command_fields(record: Mapping[str, Any]) -> dict[str, float]:
     intent = record.get("command_intent") or {}
     fields = intent.get("fields") if isinstance(intent, Mapping) else None
     if not isinstance(fields, Mapping):
+        fields = record.get("submitted_fields")
+    if not isinstance(fields, Mapping):
         return {}
     result: dict[str, float] = {}
     for key in (
@@ -495,6 +497,8 @@ def build_timeline(
             events.append(reason)
         if publish_record and publish_record.get("publish_success") is False:
             events.append("publish_failed")
+        if publish_record and (publish_record.get("publish_status") or {}).get("failsafe_defaults_active") is True:
+            events.append("fallback_defaults")
         target_record = _nearest_fresh(evidence.get("target", []), timestamp, max_command_age_s)
         target = _vector((target_record or {}).get("target_ned"))
         target_timestamp = _record_timestamp(target_record) if target is not None else None

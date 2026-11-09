@@ -58,7 +58,8 @@ def test_existing_archive_is_rejected_before_host_start(tmp_path, monkeypatch):
     assert marker.read_text() == "existing evidence"
 
 
-def test_host_staging_preserves_actual_gains_limits_policy_and_altitude_mode(tmp_path, monkeypatch):
+@pytest.mark.parametrize("telemetry_source", ["mavlink2rest", "mavsdk"])
+def test_host_staging_preserves_actual_gains_limits_policy_and_altitude_mode(tmp_path, monkeypatch, telemetry_source):
     captured = {}
     config = yaml.safe_load((runner.ROOT / "configs/config_default.yaml").read_text())
     config["Safety"]["GlobalLimits"]["MAX_VELOCITY_FORWARD"] = .31
@@ -72,7 +73,8 @@ def test_host_staging_preserves_actual_gains_limits_policy_and_altitude_mode(tmp
 
     monkeypatch.setattr(sih_isolated_host, "host", fake_host)
     args = SimpleNamespace(backend_repo=runner.ROOT, evidence_root=tmp_path / "staged",
-                           follower="mc_velocity_position", enable_altitude_control=False)
+                           follower="mc_velocity_position", enable_altitude_control=False,
+                           telemetry_source=telemetry_source)
     runner.run_host(args, entry.scenario_path(args.follower))
     assert captured["scenario"]["constraints"]["velocity"]["forward"] == .31
     assert captured["scenario"]["constraints"]["velocity"]["down"] == 0.
@@ -81,6 +83,8 @@ def test_host_staging_preserves_actual_gains_limits_policy_and_altitude_mode(tmp
     assert config["PID"] == before["PID"]
     assert config["TargetContinuity"] == before["TargetContinuity"]
     assert config["MC_ATTITUDE_RATE"] == before["MC_ATTITUDE_RATE"]
+    assert config["Follower"]["USE_MAVLINK2REST"] == (telemetry_source == "mavlink2rest")
+    assert json.loads((args.output / "harness-inputs.json").read_text())["control_telemetry_source"] == telemetry_source
     assert not config["Follower"]["FollowerOverrides"]["MC_VELOCITY_POSITION"]["ENABLE_ALTITUDE_CONTROL"]
     assert (args.output / "backend/tools/fixed_camera_world_target.py").is_file()
 
@@ -191,6 +195,9 @@ def test_pose_observation_uses_raw_quaternion_and_independent_velocity():
         "ATTITUDE_QUATERNION": message(dict(type="ATTITUDE_QUATERNION", time_boot_ms=1005,
             q1=1., q2=0., q3=0., q4=0., repr_offset_q=[0., 1., 0., 0.])),
         "ATTITUDE": message(dict(type="ATTITUDE", time_boot_ms=1004, yaw=0.)),
+        "GLOBAL_POSITION_INT": message(dict(type="GLOBAL_POSITION_INT", time_boot_ms=1000,
+                                            relative_alt=20000, alt=520000)),
+        "HOME_POSITION": message(dict(type="HOME_POSITION", altitude=500000)),
     }}}}}}
     manager = SimpleNamespace(current_altitude=20., get_flight_mode_text=lambda _: "Hold")
     flight = dict(fresh=True, flight_mode=1, arm_status="Armed", landed_state="MAV_LANDED_STATE_IN_AIR",
@@ -199,6 +206,9 @@ def test_pose_observation_uses_raw_quaternion_and_independent_velocity():
     assert sample["quaternion_wxyz"] == (1., 0., 0., 0.)
     assert sample["velocity_ned"] == (.1, .2, 0.)
     assert sample["position_ned"] == (1., 2., -20.)
+    assert sample["altitude_m"] == 20.
+    manager.current_altitude = None
+    assert runner.pose_observation(data, flight, manager, expected_aircraft_uid="123456789")["altitude_m"] == 20.
     assert sample["source_boot_ms"] == (1000, 1005)
     assert sample["monotonic_s"] == 42.
     # Read-only post-Stop observation has no active following session to consult.
