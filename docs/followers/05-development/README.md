@@ -14,6 +14,7 @@ This section covers developing new followers for PixEagle.
 | [Testing Followers](testing-followers.md) | Testing methodology |
 | [Best Practices](best-practices.md) | Code standards |
 | [Follower SIH qualification](sih-follower-qualification.md) | Scenario contracts, isolated PX4 runner, and evidence gates |
+| [Follower consolidation plan](follower-consolidation-plan.md) | Draft MC/FW/VTOL profiles, input/frame contracts, migration and qualification slices |
 
 ---
 
