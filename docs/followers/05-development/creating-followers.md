@@ -39,6 +39,16 @@ requests or reconnect action replay. Current VTOL admission stays unavailable
 until the transition-preserving release gate passes; declaring native phases
 does not grant it.
 
+## Calibrated image input boundary (S5/S6 preparation)
+
+The dormant `guidance_observation.py` and `image_bearing.py` contracts preserve
+exact capture identity, source/target generations, geometry, dimensions and the
+actual pixel. Unknown calibration or inverse mapping is `None`; bearing conversion
+requires explicit matching calibration and mapping. Receipt time remains receipt
+time; geometry alone does not establish exposure timing, attitude alignment or
+flight authority. They are not yet wired into tracker output or live admission.
+Repeated/predicted frames must never manufacture a newly measured observation.
+
 ## Verification
 
 Use real constructors and actual defaults as well as focused math fixtures.
