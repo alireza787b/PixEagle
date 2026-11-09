@@ -7577,47 +7577,6 @@ sections:
         description: Enable automatic descent to target
         reload_tier: follower_restart
         reboot_required: false
-      IS_CAMERA_GIMBALED:
-        type: boolean
-        default: false
-        description: Camera stabilization status
-        reload_tier: follower_restart
-        reboot_required: false
-      BASE_ADJUSTMENT_FACTOR_X:
-        type: float
-        default: 0.1
-        description: Base correction factor for roll (X-axis)
-        reload_tier: follower_restart
-        reboot_required: false
-        min: 0.0
-        max: 1.0
-        step: 0.01
-        unit: x-axis
-      BASE_ADJUSTMENT_FACTOR_Y:
-        type: float
-        default: 0.1
-        description: Base correction factor for pitch (Y-axis)
-        reload_tier: follower_restart
-        reboot_required: false
-        min: 0.0
-        max: 1.0
-        step: 0.01
-        unit: y-axis
-      ALTITUDE_FACTOR:
-        type: float
-        default: 0.005
-        description: Altitude scaling factor for distance compensation
-        reload_tier: follower_restart
-        reboot_required: false
-        min: 0.0
-        max: 1.0
-        step: 0.01
-      COORDINATE_CORRECTIONS_ENABLED:
-        type: boolean
-        default: true
-        description: Enable gimbal and altitude corrections
-        reload_tier: follower_restart
-        reboot_required: false
       ERROR_LOGGING_ENABLED:
         type: boolean
         default: true

@@ -320,18 +320,13 @@ def test_chase_pid_initialization_honors_resolved_aim_point():
     assert follower.pid_down.setpoint == pytest.approx(-0.3)
 
 
-def test_ground_altitude_scaling_preserves_nonzero_aim_equilibrium():
+def test_ground_raw_image_mapping_preserves_nonzero_aim_equilibrium():
     follower = MCVelocityGroundFollower.__new__(MCVelocityGroundFollower)
     follower.pid_x = _unit_pid(setpoint=0.2)
     follower.pid_y = _unit_pid(setpoint=-0.3)
     follower.extract_target_coordinates = MagicMock(return_value=(0.2, -0.3))
     follower.validate_target_coordinates = MagicMock(return_value=True)
     follower._update_pid_gains = MagicMock()
-    follower._apply_gimbal_corrections = MagicMock(return_value=(0.2, -0.3))
-    follower.coordinate_corrections_enabled = True
-    follower.base_adjustment_factor_x = 0.1
-    follower.base_adjustment_factor_y = 0.1
-    follower.altitude_factor = 0.005
     follower.px4_controller = type('PX4', (), {'current_altitude': 50.0})()
     follower._control_descent = MagicMock(return_value=0.0)
     follower.set_command_fields = MagicMock(return_value=True)

@@ -3,6 +3,41 @@ registry_version: 1
 # Only exact paths listed here may be removed by config migration. Absence from
 # config_default.yaml or config_schema.yaml never makes an extension obsolete.
 retirements:
+  - id: retire-ground-coordinate-corrections-enabled-v1
+    path: [MC_VELOCITY_GROUND, COORDINATE_CORRECTIONS_ENABLED]
+    action: remove
+    retired_in_schema_version: 1.7.0
+    reason: Ground now uses raw image aim errors; the enabled attitude and altitude heuristic could reinforce camera tilt and saturate commands. Saved true cannot reactivate it.
+    replacement: null
+
+  - id: retire-ground-camera-gimbaled-v1
+    path: [MC_VELOCITY_GROUND, IS_CAMERA_GIMBALED]
+    action: remove
+    retired_in_schema_version: 1.7.0
+    reason: The stabilization flag selected an uncalibrated attitude heuristic that has been removed; camera calibration has no automatic replacement mapping.
+    replacement: null
+
+  - id: retire-ground-base-adjustment-factor-x-v1
+    path: [MC_VELOCITY_GROUND, BASE_ADJUSTMENT_FACTOR_X]
+    action: remove
+    retired_in_schema_version: 1.7.0
+    reason: Ground no longer adds a roll-degree correction with the wrong sign for the canonical down camera or reuses that factor as an altitude gain. The old value cannot map to calibrated geometry.
+    replacement: null
+
+  - id: retire-ground-base-adjustment-factor-y-v1
+    path: [MC_VELOCITY_GROUND, BASE_ADJUSTMENT_FACTOR_Y]
+    action: remove
+    retired_in_schema_version: 1.7.0
+    reason: Ground no longer applies a pitch-degree correction that can reverse image error or reuses that factor as an altitude gain. The old value cannot map to calibrated geometry.
+    replacement: null
+
+  - id: retire-ground-altitude-factor-v1
+    path: [MC_VELOCITY_GROUND, ALTITUDE_FACTOR]
+    action: remove
+    retired_in_schema_version: 1.7.0
+    reason: Ground's coupled heuristic altitude scaling has been removed as a behavior correction; raw image PID control keeps the configured gains and shared limits without this scaling.
+    replacement: null
+
   - id: remove-unused-gm-chase-required-tracker-fields-v1
     path: [GM_VELOCITY_CHASE, REQUIRED_TRACKER_FIELDS]
     action: remove

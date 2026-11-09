@@ -228,12 +228,18 @@ def test_mc_rate_thrust_compensation_includes_roll_as_well_as_pitch(factory):
     assert tilted - baseline == pytest.approx(expected)
 
 
-def test_ground_coordinate_correction_disable_applies_to_attitude(factory):
+@pytest.mark.parametrize("legacy_enabled", [False, True])
+def test_ground_cannot_reactivate_uncalibrated_corrections_from_saved_legacy_values(factory, legacy_enabled):
     def configure(config):
-        config["MC_VELOCITY_GROUND"]["COORDINATE_CORRECTIONS_ENABLED"] = False
+        config["MC_VELOCITY_GROUND"].update(
+            COORDINATE_CORRECTIONS_ENABLED=legacy_enabled, IS_CAMERA_GIMBALED=False,
+            BASE_ADJUSTMENT_FACTOR_X=100., BASE_ADJUSTMENT_FACTOR_Y=100., ALTITUDE_FACTOR=100.,
+        )
 
     follower = factory("mc_velocity_ground", configure=configure)
-    follower.px4_controller.get_orientation = lambda: (0., 7., 8.)
+    def no_uncalibrated_pose_correction():
+        raise AssertionError("Image centering cannot infer a calibrated pose correction")
+    follower.px4_controller.get_orientation = no_uncalibrated_pose_correction
     fields = observe(follower, 0., 0.)
     assert fields["vel_body_fwd"] == 0.
     assert fields["vel_body_right"] == 0.

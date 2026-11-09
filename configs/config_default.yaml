@@ -1563,17 +1563,8 @@ MC_VELOCITY_GROUND:
   # Resolution: FollowerOverrides -> GlobalLimits -> Hardcoded Fallbacks
   ENABLE_DESCEND_TO_TARGET: false       # Enable automatic descent to target
 
-  # === Gimbal Corrections ===
-  IS_CAMERA_GIMBALED: false             # Camera stabilization status
-  BASE_ADJUSTMENT_FACTOR_X: 0.1         # Base correction factor for roll (X-axis)
-  BASE_ADJUSTMENT_FACTOR_Y: 0.1         # Base correction factor for pitch (Y-axis)
-
-  # === Altitude Adjustments ===
-  ALTITUDE_FACTOR: 0.005                # Altitude scaling factor for distance compensation
-
   # === Performance Tuning ===
   # CONTROL_UPDATE_RATE now in Follower.General (default: 20.0 Hz)
-  COORDINATE_CORRECTIONS_ENABLED: true  # Enable gimbal and altitude corrections
   ERROR_LOGGING_ENABLED: true           # Enable detailed error logging
 
 # ==============================================================================
