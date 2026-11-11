@@ -7,6 +7,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from classes.aircraft_state import Quaternion
 from classes.followers.gm_velocity_chase_follower import GMVelocityChaseFollower
 from classes.followers.gm_velocity_vector_follower import GMVelocityVectorFollower
 from classes.gimbal_geometry import (
@@ -272,6 +273,9 @@ def test_chase_guidance_errors_use_the_same_body_direction():
     follower.max_pitch_angle = 90.0
     follower.lateral_invert = False
     follower.vertical_invert = False
+    follower.px4_controller = SimpleNamespace(
+        get_guidance_attitude=lambda: (Quaternion(1., 0., 0., 0.), 0.),
+    )
 
     left, level = follower._transform_gimbal_to_control_frame(20, 90, 30)
     center, up = follower._transform_gimbal_to_control_frame(0, 60, 0)
@@ -293,6 +297,9 @@ def test_pitch_based_forward_speed_uses_camera_mount_neutral_and_override():
 def test_both_followers_reject_rearward_target_direction():
     chase = GMVelocityChaseFollower.__new__(GMVelocityChaseFollower)
     chase.mount_type = "VERTICAL"
+    chase.px4_controller = SimpleNamespace(
+        get_guidance_attitude=lambda: (Quaternion(1., 0., 0., 0.), 0.),
+    )
     vector = GMVelocityVectorFollower.__new__(GMVelocityVectorFollower)
     vector.mount_type = "VERTICAL"
 

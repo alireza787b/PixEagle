@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from classes.aircraft_state import Quaternion
 from classes.followers.mc_attitude_rate_follower import MCAttitudeRateFollower
 from classes.followers.base_follower import BaseFollower
 from classes.followers.fw_attitude_rate_follower import FWAttitudeRateFollower
@@ -30,6 +31,7 @@ def _attach_fresh_safe_altitude(follower):
     follower.px4_controller = SimpleNamespace(
         current_altitude=20.0,
         is_command_connection_ready=lambda **_: True,
+        get_guidance_attitude=lambda: (Quaternion(1., 0., 0., 0.), 0.),
     )
     follower._follower_config_name = "GM_VELOCITY_CHASE"
     follower.safety_manager = SimpleNamespace(
@@ -260,6 +262,9 @@ def test_gimbal_chase_disables_vertical_command_with_shared_altitude_setting(mou
     follower.pid_right = _unit_pid()
     follower.pid_down = _unit_pid()
     follower.enable_altitude_control = False
+    follower.px4_controller = SimpleNamespace(
+        get_guidance_attitude=lambda: (Quaternion(1., 0., 0., 0.), 0.),
+    )
     follower.set_command_fields = MagicMock(return_value=True)
     follower._log_velocity_changes = MagicMock()
     tracker_data = MagicMock(

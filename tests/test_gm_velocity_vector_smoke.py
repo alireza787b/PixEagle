@@ -138,12 +138,14 @@ def test_tracker_data_processing():
     """Test 6: Verify tracker data can be processed."""
     try:
         from classes.followers.gm_velocity_vector_follower import GMVelocityVectorFollower
+        from classes.aircraft_state import Quaternion
         from classes.tracker_output import TrackerOutput, TrackerDataType
         from unittest.mock import Mock
         import time
 
         mock_px4 = Mock()
         mock_px4.current_altitude = 10.0
+        mock_px4.get_guidance_attitude.return_value = (Quaternion(1., 0., 0., 0.), 0.)
 
         follower = GMVelocityVectorFollower(mock_px4, (0.5, 0.5))
 
