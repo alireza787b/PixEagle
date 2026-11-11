@@ -2602,6 +2602,16 @@ class ConfigService:
                 errors.extend(result.errors)
                 warnings.extend(result.warnings)
 
+        video_source = candidate.get("VideoSource")
+        calibration = video_source.get("FIXED_CAMERA_CALIBRATION") if isinstance(video_source, dict) else None
+        if calibration is not None:
+            try:
+                from classes.fixed_camera_calibration import FixedCameraCalibration
+
+                FixedCameraCalibration.from_mapping(calibration)
+            except (TypeError, ValueError) as exc:
+                errors.append(f"Fixed-camera calibration semantic validation failed: {exc}")
+
         if "Safety" in candidate or require_safety:
             try:
                 from classes.config_validator import normalize_safety_config

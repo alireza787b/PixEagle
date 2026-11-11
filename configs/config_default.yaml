@@ -124,6 +124,9 @@ VideoSource:
   # Universal frame orientation (applies to all source types/backends)
   FRAME_ROTATION_DEG: 0     # Options: 0, 90, 180, 270
   FRAME_FLIP_MODE: none     # Options: none, horizontal, vertical, both
+
+  # Optional measured fixed-camera decoder-grid calibration; null stays uncalibrated.
+  FIXED_CAMERA_CALIBRATION: null
   
   # Custom GStreamer pipeline (advanced users)
   # Example: "videotestsrc ! video/x-raw,width=640,height=480 ! videoconvert ! appsink"

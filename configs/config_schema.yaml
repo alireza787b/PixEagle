@@ -308,6 +308,62 @@ sections:
           label: Vertical
         - value: both
           label: Both
+      FIXED_CAMERA_CALIBRATION:
+        type: object
+        default: null
+        description: Optional measured fixed-camera calibration for the exact selected decoder output before application orientation.
+          Null remains uncalibrated; this does not enable following or qualify timing.
+        reload_tier: system_restart
+        reboot_required: true
+        nullable: true
+        properties:
+          source_signature:
+            type: string
+          revision:
+            type: string
+          pixel_grid:
+            type: string
+            options:
+            - decoder_pre_orientation
+          image_size_px:
+            type: array
+            item_type: integer
+            min_items: 2
+            max_items: 2
+          focal_length_px:
+            type: array
+            item_type: number
+            min_items: 2
+            max_items: 2
+          principal_point_px:
+            type: array
+            item_type: number
+            min_items: 2
+            max_items: 2
+          optical_to_body_frd_wxyz:
+            type: array
+            item_type: number
+            min_items: 4
+            max_items: 4
+          distortion_model:
+            type: string
+            options:
+            - none
+          mount_kind:
+            type: string
+            options:
+            - fixed
+        required:
+        - source_signature
+        - revision
+        - pixel_grid
+        - image_size_px
+        - focal_length_px
+        - principal_point_px
+        - optical_to_body_frd_wxyz
+        - distortion_model
+        - mount_kind
+        additional_properties: false
       CUSTOM_PIPELINE:
         type: string
         default: ''

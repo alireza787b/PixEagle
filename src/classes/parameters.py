@@ -472,6 +472,17 @@ class Parameters(metaclass=_ParametersMeta):
             failures.append(f"aircraft-guidance config validation failed: {exc}")
             logger.warning("Could not validate aircraft-guidance config: %s", exc)
 
+        video_source = normalized_config.get("VideoSource")
+        calibration = video_source.get("FIXED_CAMERA_CALIBRATION") if isinstance(video_source, dict) else None
+        if calibration is not None:
+            try:
+                from classes.fixed_camera_calibration import FixedCameraCalibration
+
+                FixedCameraCalibration.from_mapping(calibration)
+            except (TypeError, ValueError) as exc:
+                failures.append(f"fixed-camera calibration validation failed: {exc}")
+                logger.warning("Could not validate fixed-camera calibration: %s", exc)
+
         if strict and failures:
             raise RuntimeError("; ".join(failures))
         return normalized_config

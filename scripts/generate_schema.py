@@ -268,6 +268,33 @@ def load_tracker_artifact_options(
 # Manual schema overrides for parameters where comment parsing is ambiguous.
 # Applied AFTER auto-generation. Keys are "SectionName.PARAM_NAME".
 SCHEMA_OVERRIDES = {
+    'VideoSource.FIXED_CAMERA_CALIBRATION': {
+        'type': 'object',
+        'nullable': True,
+        'reload_tier': 'system_restart',
+        'description': (
+            'Optional measured fixed-camera calibration for the exact selected '
+            'decoder output before application orientation. Null remains '
+            'uncalibrated; this does not enable following or qualify timing.'
+        ),
+        'properties': {
+            'source_signature': {'type': 'string'},
+            'revision': {'type': 'string'},
+            'pixel_grid': {'type': 'string', 'options': ['decoder_pre_orientation']},
+            'image_size_px': {'type': 'array', 'item_type': 'integer', 'min_items': 2, 'max_items': 2},
+            'focal_length_px': {'type': 'array', 'item_type': 'number', 'min_items': 2, 'max_items': 2},
+            'principal_point_px': {'type': 'array', 'item_type': 'number', 'min_items': 2, 'max_items': 2},
+            'optical_to_body_frd_wxyz': {'type': 'array', 'item_type': 'number', 'min_items': 4, 'max_items': 4},
+            'distortion_model': {'type': 'string', 'options': ['none']},
+            'mount_kind': {'type': 'string', 'options': ['fixed']},
+        },
+        'required': [
+            'source_signature', 'revision', 'pixel_grid', 'image_size_px',
+            'focal_length_px', 'principal_point_px', 'optical_to_body_frd_wxyz',
+            'distortion_model', 'mount_kind',
+        ],
+        'additional_properties': False,
+    },
     'VitTrack_Tracker.artifact_id': {
         'options': load_tracker_artifact_options(tracker='VitTrack', role='model'),
         'description': 'Checksum-pinned model entry from configs/tracker_artifacts.json',
