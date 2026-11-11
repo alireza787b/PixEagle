@@ -225,6 +225,17 @@ publication while still retaining authority. Safe setpoints until confirmed
 release belong to the transport handoff, not continuing target pursuit. No
 transition baseline is required from a session after its release is confirmed.
 
+S7 also covers the MAVSDK release boundary. Review reproduced a queued Stop
+race with the official Python 3.10/3.11 timeout implementations: takeover or
+aircraft replacement can occur after the existing release check but before the
+SDK coroutine starts. Recheck the retained session/aircraft/activation authority
+inside the actual Stop invocation; reuse read-only sender cleanup when authority
+has changed. Do not apply pursuit source/target requirements to authorized safety
+teardown. Once handed to SDK/gRPC, a request cannot be promised retractable;
+native/firmware conditional release must be qualified separately. See the
+[pinned MAVSDK Stop implementation](https://github.com/mavlink/MAVSDK/blob/v3.12.0/src/mavsdk/plugins/offboard/offboard_impl.cpp#L56)
+and [Python scheduling boundary](https://github.com/python/cpython/blob/v3.11.14/Lib/asyncio/tasks.py#L431).
+
 Retargets and tracking flaps within a session do not renew continuity deadlines.
 An ended session cannot be revived by a phase change or redetection. Apply the
 selected phase's recovery, not MC decay/4 m travel rules to FW flight. Do not

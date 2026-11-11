@@ -141,3 +141,13 @@ frame audit reproduces a real PID roll-to-yaw/vertical coupling on both mounts.
 pass, with component CSV/PNG rather than invented aircraft movement.
 `359218ffd` supplies the queued-dispatch foundation (206 focused tests); session
 source ownership, cleanup and coherent end-to-end software renewal remain open.
+
+S6b consumer (`fdb303b3d`) now pins the original source through startup/retarget
+and rechecks semantic command ownership at the actual write. Delayed continuity
+cleanup retains its original session rather than adopting a replacement. The
+focused gate passes 549 tests. Broad renewal found only older sender/provenance
+fixture failures: corrected sender integration now passes 196 checks, Phase 0
+passes 155, and the tracker fixture renewal passes 584 tests. Full unit renewal
+on the combined reviewed source is pending. Failed runs remain retained; no new
+SIH, hardware or full-pass claim follows from these fixture corrections. The
+capability-policy and attitude-association steps still precede S6 closeout.

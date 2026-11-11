@@ -670,3 +670,37 @@ uses the existing read-only sender cleanup without an unrelated Hold. This is
 the transport foundation only: the original-source session consumer and its
 integrated software gate are still in progress. Explicit Stop stays separate
 from stale pursuit/retarget work. See plan section 4 for the shared semantics.
+
+### S6b — retained source and final-dispatch consumer
+
+`fdb303b3d` freezes the observation owner before awaited startup and retains it
+through same-source retargets. Missing observations use the existing continuity
+budget; a definitely changed owner terminates the original session. The final
+write guard checks captured session, target, source, aircraft and control
+revision after queued waits. Superseded work is skipped without a failed-link
+count; explicit Stop remains independently reachable. Accepted fields and their
+source context are traced rather than rereading a mutable handler after an ACK.
+
+Startup distinguishes possible mode acquisition from local sender priming.
+Refusal before acquisition cannot request Hold. Unconfirmed sender cleanup keeps
+the original binding and blocks another Start. Independent review also found and
+fixed delayed continuity tasks capturing a newer session: their synchronous
+schedulers now retain the original session/supervisor before task execution.
+The focused source/owner/dispatch gate passes 549 tests. These are software
+checks, not renewed aircraft-response evidence.
+
+The frozen broad run in `software-gates-s6bc-r1/` passes 5,794 unit tests with
+two obsolete tracker-provenance fixtures failing; integration passes 194 with
+two fake senders rejecting the new immutable command arguments. The original
+failures remain retained. `7b409aefd` updates those fake senders and the frozen
+`software-gates-s6bc-r2/` renewal passes all 196 integration and 155 Phase 0
+checks, schema/inventory and fatal lint. `56c2b33c0` gives the synthetic tracker
+fixtures actual source/frame bindings and pixel positions; 62 focused and 584
+tracker tests pass. Preview publications remain explicitly non-physical. A
+combined full unit renewal is still required after the reviewed SIH-tooling
+change; neither the earlier failing run nor the focused tests establish it.
+
+S6 remains open for separating observation limits from aircraft manoeuvre
+support, bounded attitude association and renewed actual horizontal/vertical
+gimbal SIH. Physical timing and native-FW installation gates stay closed. Public
+defaults, the saved private profile, QGC, hardware and services are unchanged.

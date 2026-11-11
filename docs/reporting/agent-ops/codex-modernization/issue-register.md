@@ -361,3 +361,10 @@ remain open. Integration work is unpublished.
   476 final focused checks pass. The pure source-comparison foundation is tested,
   but the active original-source pin and queued publication fence remain open.
   Physical timing, target identity and capability qualification remain separate.
+- **2026-11-11 — Guidance frame and release review:** GM PID's physical-FRD
+  errors were incorrectly treated as heading-frame commands at aircraft tilt.
+  The canonical pre-PID conversion repairs both mounts; 251 component tests and
+  before/after evidence are retained. Original-source and queued pursuit fences
+  now have focused evidence; full renewal is in progress. A separate mocked
+  Python 3.10/3.11 pre-Stop scheduling race remains a required S7 release gate.
+  No field pass or SDK post-dispatch cancellation guarantee is claimed.
