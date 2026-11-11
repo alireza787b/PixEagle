@@ -11,7 +11,8 @@ from classes.command_intent import CommandIntent
 from classes.follower_session_controls import SessionControl
 from classes.gimbal_geometry import body_line_of_sight
 from classes.gimbal_guidance import GimbalGuidanceCapabilities, GimbalGuidancePolicy
-from classes.gimbal_vector_session import GimbalVectorSession
+from classes.vector_guidance_session import VectorGuidanceSession
+from classes.airframe_session_controls import AirframeSessionControls
 from classes.native_guidance import NativeCapabilities
 from classes.safety_types import AltitudeLimits
 from tests.unit.drone_interface.test_aircraft_state import aircraft_state
@@ -25,11 +26,15 @@ CAPABILITIES = GimbalGuidanceCapabilities(known=True, supports_vertical=True, su
 def session(*, altitude=True, state=None):
     state = state or aircraft_state(is_vtol=True, is_tailsitter=True)
     now = [100.]
-    owner = GimbalVectorSession(
-        GuidanceSessionIdentity("follow", state.binding, 1),
+    identity = GuidanceSessionIdentity("follow", state.binding, 1)
+    owner = VectorGuidanceSession(
+        identity,
         NativeCapabilities("native", "test", 2, True, True, False),
-        profile_name="gm_velocity_vector", multicopter_control=SessionControl("requested_speed", "3D speed", "m/s", 0., None, .5, 0.,
-                                          configured_maximum=6.), geometry_policy=GimbalGuidancePolicy(),
+        profile_name="gm_velocity_vector",
+        controls=AirframeSessionControls.from_multicopter_control(identity,
+            SessionControl("requested_speed", "3D speed", "m/s", 0., None, .5, 0., configured_maximum=6.)),
+        supported_phases=frozenset({AirframePhase.MULTICOPTER, AirframePhase.FIXED_WING, AirframePhase.VTOL_TRANSITION}),
+        geometry_policy=GimbalGuidancePolicy(),
         altitude_control=altitude, altitude_limits=AltitudeLimits(5., 120., 2.), confirmation_s=.3,
         observation_timeout_s=.75, transition_timeout_s=10., clock=lambda: now[0],
     )
@@ -48,6 +53,97 @@ def settle(owner, now, state):
     result, state = observe(owner, now, state)
     assert result.pursuit_allowed
     return state
+
+
+def fixed_wing_session(*, altitude=True):
+    state = aircraft_state(phase=AirframePhase.FIXED_WING)
+    identity = GuidanceSessionIdentity('fw_fixture', state.binding, 1)
+    now = [100.]
+    owner = VectorGuidanceSession(
+        identity, NativeCapabilities('native', 'test', 2, True, True, False),
+        profile_name='fw_navigation_fixture', controls=AirframeSessionControls.for_fixed_wing(identity, step_m_s=.5),
+        supported_phases=frozenset({AirframePhase.FIXED_WING}), geometry_policy=GimbalGuidancePolicy(),
+        altitude_control=altitude, altitude_limits=AltitudeLimits(5., 120., 2.), confirmation_s=.3,
+        observation_timeout_s=.75, transition_timeout_s=10., clock=lambda: now[0],
+    )
+    return owner, now, state
+
+
+@pytest.mark.parametrize('altitude', [False, True])
+def test_fw_only_session_uses_native_startup_and_shared_world_ray_objective(altitude):
+    owner, now, state = fixed_wing_session(altitude=altitude)
+    assert owner.controls.current_control is None
+    _, state = observe(owner, now, state)
+    baseline = owner.baseline()
+    assert baseline.fields['equivalent_airspeed_m_s'] == 20.
+    assert not any(field.startswith('vel_body_') for field in baseline.fields)
+    now[0] += .31
+    decision, state = observe(owner, now, state)
+    assert decision.pursuit_allowed
+    command = owner.calculate_ned(Vector3(1., .3, .1).normalized(), frame='ned')
+    assert command.guidance_identity == owner.identity
+    assert command.control_type == 'fixed_wing_external'
+    assert command.fields['course_rad'] == pytest.approx(math.atan2(.3, 1.))
+    assert command.fields['equivalent_airspeed_m_s'] == 20.
+    if altitude:
+        assert command.fields['height_rate_m_s'] < 0.
+        assert 'altitude_amsl_m' not in command.fields
+    else:
+        assert command.fields['altitude_amsl_m'] == state.altitude_amsl_m
+        assert 'height_rate_m_s' not in command.fields
+
+
+@pytest.mark.parametrize('phase,reason', [
+    (AirframePhase.MULTICOPTER, 'phase_changed_without_observed_transition'),
+    (AirframePhase.VTOL_TRANSITION, 'unsupported_aircraft_phase'),
+])
+def test_fw_only_session_ends_when_phase_changes_and_never_resumes(phase, reason):
+    owner, now, state = fixed_wing_session()
+    state = settle(owner, now, state)
+    now[0] += .1
+    state = replace(state, is_vtol=True)
+    decision, state = observe(owner, now, state, phase=phase)
+    assert not decision.pursuit_allowed
+    assert decision.reason == reason
+    assert not decision.transition_setpoints_required
+    assert owner.controls.snapshot(client_contract_version=2) is None
+    now[0] += .1
+    decision, state = observe(owner, now, state, phase=AirframePhase.FIXED_WING)
+    assert decision.reason == reason
+    with pytest.raises(ValueError, match='guidance_session_ended'):
+        owner.calculate_ned(Vector3(1., 0., 0.), frame='ned')
+
+
+def test_fw_session_ned_entry_cannot_double_rotate_or_accept_another_frame(monkeypatch):
+    owner, now, state = fixed_wing_session()
+    settle(owner, now, state)
+    monkeypatch.setattr(Quaternion, 'rotate', Mock(side_effect=AssertionError('world ray rotated again')))
+    assert owner.calculate_ned(Vector3(1., 0., 0.), frame='ned').fields['course_rad'] == 0.
+    with pytest.raises(ValueError, match='guidance_ray_frame_invalid'):
+        owner.calculate_ned(Vector3(1., 0., 0.), frame='physical_body_frd')
+
+
+@pytest.mark.parametrize('phases', [set(), [], frozenset(), frozenset({AirframePhase.UNKNOWN}), frozenset({'fixed_wing'})])
+def test_supported_phase_declaration_is_explicit_and_typed(phases):
+    owner, now, state = fixed_wing_session()
+    with pytest.raises(ValueError, match='session_supported_phases_invalid'):
+        VectorGuidanceSession(
+            owner.identity, owner.phase_owner.capabilities, profile_name='fw_fixture', controls=owner.controls,
+            supported_phases=phases, geometry_policy=GimbalGuidancePolicy(), altitude_control=True,
+            altitude_limits=owner.altitude_limits, confirmation_s=.3, observation_timeout_s=.75, transition_timeout_s=10.,
+        )
+
+
+def test_controls_from_another_session_cannot_be_adopted():
+    owner, now, state = fixed_wing_session()
+    foreign = AirframeSessionControls.for_fixed_wing(replace(owner.identity, follow_session_id='other'), step_m_s=.5)
+    with pytest.raises(ValueError, match='session_controls_binding_invalid'):
+        VectorGuidanceSession(
+            owner.identity, owner.phase_owner.capabilities, profile_name='fw_fixture', controls=foreign,
+            supported_phases=frozenset({AirframePhase.FIXED_WING}), geometry_policy=GimbalGuidancePolicy(),
+            altitude_control=True, altitude_limits=owner.altitude_limits, confirmation_s=.3,
+            observation_timeout_s=.75, transition_timeout_s=10.,
+        )
 
 
 @pytest.mark.parametrize("altitude", [True, False])

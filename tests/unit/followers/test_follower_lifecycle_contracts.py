@@ -13,7 +13,7 @@ from classes.followers.mc_velocity_position_follower import MCVelocityPositionFo
 from classes.followers.mc_attitude_rate_follower import MCAttitudeRateFollower
 from classes.followers.fw_attitude_rate_follower import FWAttitudeRateFollower
 from classes.fixed_wing_vector_guidance import FixedWingCommand
-from tests.unit.followers.test_gimbal_vector_session import session
+from tests.unit.followers.test_vector_guidance_session import session
 from classes.aircraft_state import AirframePhase
 from tests.unit.drone_interface.test_aircraft_state import aircraft_state
 

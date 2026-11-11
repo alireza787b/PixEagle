@@ -15,6 +15,11 @@ from classes.follower_session_controls import SessionControl
 
 class AirframeSessionControls:
     @classmethod
+    def for_fixed_wing(cls, identity: GuidanceSessionIdentity, *, step_m_s: float):
+        """Wait for measured engagement airspeed or native trim; invent no MC request."""
+        return cls(identity, multicopter_startup_m_s=None, multicopter_ceiling_m_s=None, step_m_s=step_m_s)
+
+    @classmethod
     def from_multicopter_control(cls, identity: GuidanceSessionIdentity, control: SessionControl):
         """Adopt the existing MC declaration rather than resolving its limits again."""
         if (not isinstance(control, SessionControl) or control.control_id != "requested_speed"
@@ -29,17 +34,21 @@ class AirframeSessionControls:
         owner._revision = control.revision
         return owner
 
-    def __init__(self, identity: GuidanceSessionIdentity, *, multicopter_startup_m_s: float,
-                 multicopter_ceiling_m_s: float, step_m_s: float):
-        startup = finite_number(multicopter_startup_m_s, "startup_speed")
-        ceiling = finite_number(multicopter_ceiling_m_s, "speed_ceiling")
+    def __init__(self, identity: GuidanceSessionIdentity, *, multicopter_startup_m_s: float | None,
+                 multicopter_ceiling_m_s: float | None, step_m_s: float):
         step = finite_number(step_m_s, "speed_step")
-        if not 0 <= startup <= ceiling or ceiling <= 0 or step <= 0:
+        if (step <= 0 or (multicopter_startup_m_s is None) != (multicopter_ceiling_m_s is None)):
             raise ValueError("session_speed_configuration_invalid")
+        startup = ceiling = None
+        if multicopter_startup_m_s is not None:
+            startup = finite_number(multicopter_startup_m_s, "startup_speed")
+            ceiling = finite_number(multicopter_ceiling_m_s, "speed_ceiling")
+            if not 0 <= startup <= ceiling or ceiling <= 0:
+                raise ValueError("session_speed_configuration_invalid")
         self.identity = identity
         self._mc_ceiling = ceiling
         self._step = step
-        self._requests = {AirframePhase.MULTICOPTER: SessionControl(
+        self._requests = {} if startup is None else {AirframePhase.MULTICOPTER: SessionControl(
             "requested_speed", "3D speed", "m/s", 0., None, step, startup, configured_maximum=ceiling,
         )}
         self._phase = AirframePhase.UNKNOWN
@@ -72,11 +81,15 @@ class AirframeSessionControls:
         if self._phase is not AirframePhase.UNKNOWN and identity.guidance_generation <= self.identity.guidance_generation:
             raise ValueError("session_control_generation_not_advanced")
         if state.phase is AirframePhase.VTOL_TRANSITION:
+            if self._mc_ceiling is None:
+                raise ValueError("session_control_phase_unavailable")
             self.identity, self._phase = identity, state.phase
             self._revision += 1
             return
         retained = self._requests.get(state.phase)
         if state.phase is AirframePhase.MULTICOPTER:
+            if retained is None or self._mc_ceiling is None:
+                raise ValueError("session_control_phase_unavailable")
             minimum, ceiling = 0., self._mc_ceiling
             value, label = retained.value, "3D speed"
         elif state.phase is AirframePhase.FIXED_WING:

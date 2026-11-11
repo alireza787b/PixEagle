@@ -15,6 +15,48 @@ def controls():
     return owner, state, identity
 
 
+@pytest.mark.parametrize('measured,expected', [(True, 20.), (False, 18.)])
+def test_fixed_wing_only_controls_start_from_native_eas_or_trim_without_an_mc_request(measured, expected):
+    state = aircraft_state(phase=AirframePhase.FIXED_WING)
+    if not measured:
+        state = replace(state, airspeed=AirspeedObservation('unavailable', None, None, 100., False))
+    identity = GuidanceSessionIdentity('fw_follow', state.binding, 1)
+    owner = AirframeSessionControls.for_fixed_wing(identity, step_m_s=.5)
+    assert owner.current_control is None
+    assert owner.snapshot(client_contract_version=2) is None
+    owner.enter_phase(identity, state, now=100., timeout_s=.5)
+    snapshot = owner.snapshot(client_contract_version=2)
+    assert snapshot['value'] == expected
+    assert snapshot['minimum'] == state.fixed_wing_envelope.minimum_eas_m_s
+    assert snapshot['maximum'] == state.fixed_wing_envelope.maximum_eas_m_s
+    assert snapshot['speed_basis'] == 'equivalent_airspeed'
+    assert snapshot['step'] == .5
+    with pytest.raises(ValueError, match='out_of_range'):
+        owner.update(0., identity=identity, expected_revision=snapshot['revision'])
+    assert owner.current_control.value == expected
+
+
+@pytest.mark.parametrize('phase', [AirframePhase.MULTICOPTER, AirframePhase.VTOL_TRANSITION])
+def test_fixed_wing_only_control_refuses_other_phases_without_changing_current_request(phase):
+    state = aircraft_state(phase=AirframePhase.FIXED_WING, is_vtol=True)
+    identity = GuidanceSessionIdentity('fw_follow', state.binding, 1)
+    owner = AirframeSessionControls.for_fixed_wing(identity, step_m_s=.5)
+    owner.enter_phase(identity, state, now=100., timeout_s=.5)
+    before = owner.snapshot(client_contract_version=2)
+    with pytest.raises(ValueError, match='phase_unavailable'):
+        owner.enter_phase(replace(identity, guidance_generation=2), replace(state, phase=phase), now=100., timeout_s=.5)
+    assert owner.identity == identity
+    assert owner.snapshot(client_contract_version=2) == before
+
+
+@pytest.mark.parametrize('step', [0., -1., float('nan'), float('inf'), True])
+def test_fixed_wing_only_control_step_is_explicit_and_validated(step):
+    state = aircraft_state()
+    identity = GuidanceSessionIdentity('fw_follow', state.binding, 1)
+    with pytest.raises(ValueError):
+        AirframeSessionControls.for_fixed_wing(identity, step_m_s=step)
+
+
 def test_zero_mc_request_never_becomes_fixed_wing_request_and_each_phase_retains_its_value():
     owner, state, identity = controls()
     assert owner.snapshot(client_contract_version=2)["value"] == 0.

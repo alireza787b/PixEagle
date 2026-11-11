@@ -39,15 +39,26 @@ requests or reconnect action replay. Current VTOL admission stays unavailable
 until the transition-preserving release gate passes; declaring native phases
 does not grant it.
 
+`VectorGuidanceSession` accepts preconstructed phase controls and an explicit
+supported-phase set. Gimbal Vector supplies its existing MC declaration; a
+FW-only strategy uses `AirframeSessionControls.for_fixed_wing`, which waits for
+native measured EAS or trim without inventing an MC request or ceiling. An
+unsupported phase ends the session and cannot revive it. Associated world rays
+use `calculate_ned`; provider/body rays use the existing capability-checked path.
+These are calculation/lifecycle boundaries, not camera timing or VTOL release
+qualification.
+
 ## Calibrated image input boundary (S5/S6 preparation)
 
-The dormant `guidance_observation.py` and `image_bearing.py` contracts preserve
+The `guidance_observation.py` and `image_bearing.py` contracts preserve
 exact capture identity, source/target generations, geometry, dimensions and the
 actual pixel. Unknown calibration or inverse mapping is `None`; bearing conversion
 requires explicit matching calibration and mapping. Receipt time remains receipt
 time; geometry alone does not establish exposure timing, attitude alignment or
-flight authority. They are not yet wired into tracker output or live admission.
-Repeated/predicted frames must never manufacture a newly measured observation.
+flight authority. Classic/Smart output now carries a committed measured image
+sample; reads reuse it without refreshing its timestamp. Repeated, predicted,
+failed, cached or superseded frames cannot create a new measured sample.
+Calibration/attitude alignment and live image-FW admission remain separate gates.
 
 ## Verification
 

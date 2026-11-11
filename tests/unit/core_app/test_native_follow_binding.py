@@ -13,7 +13,7 @@ from classes.native_follow_binding import NativeFollowBinding, requires_native_g
 from classes.native_guidance import NativeGuidanceError
 from classes.target_continuity import ContinuityContext, ContinuityPolicy, TargetContinuitySupervisor
 from tests.unit.core_app.test_fixed_wing_continuity import evidence
-from tests.unit.followers.test_gimbal_vector_session import session
+from tests.unit.followers.test_vector_guidance_session import session
 from tests.unit.drone_interface.test_aircraft_state import aircraft_state
 
 
