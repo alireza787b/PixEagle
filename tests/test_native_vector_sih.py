@@ -142,19 +142,21 @@ def test_loss_windows_reject_overlap_and_unimplemented_faults():
         component_loss_windows([dict(kind="pilot_takeover", at_s=1., duration_s=2.)], 10.)
 
 
-@pytest.mark.parametrize("unsafe", ["host_network", "privileged", "devices", "ports", None])
+@pytest.mark.parametrize("unsafe", ["host_network", "bridge_network", "container_network", "privileged", "devices", "ports", None])
 def test_simulator_isolation_is_checked_before_control(monkeypatch, tmp_path, unsafe):
     path = tmp_path / "native.sock"
     listener = socket.socket(socket.AF_UNIX)
     listener.bind(str(path))
     inspect = {
         "Id": "container-id", "Image": "sha256:test-image",
-        "HostConfig": {"NetworkMode": "bridge", "Privileged": False, "Devices": []},
+        "HostConfig": {"NetworkMode": "none", "Privileged": False, "Devices": []},
         "NetworkSettings": {"Ports": {}},
         "Mounts": [{"Source": str(tmp_path), "Destination": "/sih"}],
     }
     if unsafe == "host_network":
         inspect["HostConfig"]["NetworkMode"] = "host"
+    if unsafe in {"bridge_network", "container_network"}:
+        inspect["HostConfig"]["NetworkMode"] = "bridge" if unsafe == "bridge_network" else "container:unverified"
     if unsafe == "privileged":
         inspect["HostConfig"]["Privileged"] = True
     if unsafe == "devices":
@@ -185,3 +187,35 @@ def test_simulator_isolation_is_checked_before_control(monkeypatch, tmp_path, un
             assert all("arm" not in call and "takeoff" not in call for call in calls)
     finally:
         listener.close()
+
+
+@pytest.mark.parametrize('matching', [True, False])
+def test_source_build_verifies_actual_process_bytes_without_a_checkout_path_convention(monkeypatch, tmp_path, matching):
+    path = tmp_path / 'native.sock'
+    with socket.socket(socket.AF_UNIX) as listener:
+        listener.bind(str(path))
+        baseline = {'binary_sha256': 'a'*64, 'kind': 'verified_source_build'}
+        monkeypatch.setattr('tools.sih_baseline.validate_build_manifest', lambda _: baseline)
+
+        def read_command(*args):
+            if args[1] == 'inspect':
+                return json.dumps([{'Id': 'sim-id', 'Image': 'native-runtime-image',
+                    'HostConfig': {'NetworkMode': 'none', 'Privileged': False, 'Devices': []},
+                    'NetworkSettings': {'Ports': {}},
+                    'Mounts': [{'Source': str(tmp_path), 'Destination': '/runtime'}]}])
+            if 'python3' in args:
+                assert args[-1] == 'verify'
+                return json.dumps([{'args': ['/firmware/bin/px4', '-d', '-i', '0'],
+                    'model': 'sihsim_airplane', 'cwd': '/runtime/rootfs',
+                    'binary_sha256': ('a' if matching else 'b')*64}])
+            assert '/firmware/bin/px4-listener' in args
+            return 'autopilot_uid: 123456789\n'
+
+        monkeypatch.setattr('tools.run_native_vector_sih.command', read_command)
+        if matching:
+            result = verify_simulator('sim', 0, path, sih_build_manifest=tmp_path/'manifest.json')
+            assert result['firmware_build'] is baseline
+            assert result['native_socket'] == '/runtime/native.sock'
+        else:
+            with pytest.raises(ValueError, match='differs from the verified source build'):
+                verify_simulator('sim', 0, path, sih_build_manifest=tmp_path/'manifest.json')

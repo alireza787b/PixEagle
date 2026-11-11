@@ -52,6 +52,13 @@ state-trace values separately from tracker classification.
 
 For native Vector component checks, `tools/run_native_vector_sih.py` verifies an
 already-running isolated Docker SIH instance and its UID before control. It
+requires Docker network mode `none`, no devices, no privilege and no published
+ports. With `--sih-build-manifest PATH`, it verifies the reviewed packaged build
+and hashes the actual running executable through `/proc`; a relocated firmware
+bundle need not imitate a compiler checkout path. The runtime image and firmware
+build identities are recorded separately. A mismatch refuses before control.
+Without that argument, the historical compiler-path check remains compatibility
+verification, not source-build attestation. It
 defaults to read-only verification; `--execute` waits for seven stable airborne
 FW Hold samples near `--test-altitude`, then joins the production follower, phase binding, continuity
 supervisor and existing command publisher. It never arms or takes off. The

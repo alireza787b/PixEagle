@@ -42,29 +42,41 @@ def command(*args):
     return subprocess.check_output(args, text=True, timeout=15)
 
 
-def verify_simulator(container: str, instance: int, socket: Path) -> dict:
+def verify_simulator(container: str, instance: int, socket: Path, *, sih_build_manifest: Path | None = None) -> dict:
     info = json.loads(command("docker", "inspect", container))[0]
-    if (info["HostConfig"]["NetworkMode"] == "host" or info["HostConfig"]["Privileged"]
+    if (info["HostConfig"]["NetworkMode"] != "none" or info["HostConfig"]["Privileged"]
             or info["HostConfig"].get("Devices") or info["NetworkSettings"]["Ports"]):
         raise ValueError("SIH requires an isolated container without hardware or published ports")
+    baseline = None
+    if sih_build_manifest is not None:
+        from tools.sih_baseline import validate_build_manifest
+
+        baseline = validate_build_manifest(sih_build_manifest)
     # Inspect the real process and inherited model, not an operator-supplied label.
-    script = """import json, pathlib
+    script = """import hashlib, json, pathlib, sys
 out=[]
 for p in pathlib.Path('/proc').iterdir():
  try:
   args=(p/'cmdline').read_bytes().split(b'\\0'); args=[x.decode() for x in args if x]
   env=dict(x.split('=',1) for x in (p/'environ').read_bytes().decode().split('\\0') if '=' in x)
-  if args and args[0].endswith('/build/px4_sitl_sih/bin/px4'):
-   out.append(dict(args=args, model=env.get('PX4_SIM_MODEL'), cwd=str((p/'cwd').resolve())))
+  if args and pathlib.Path(args[0]).name=='px4':
+   value=dict(args=args, model=env.get('PX4_SIM_MODEL'), cwd=str((p/'cwd').resolve()))
+   if sys.argv[1]=='verify':
+    value['binary_sha256']=hashlib.sha256((p/'exe').read_bytes()).hexdigest()
+   out.append(value)
  except (OSError, UnicodeError): pass
 print(json.dumps(out))
 """
     matches = [p for p in json.loads(command("docker", "exec", "--user", str(socket.stat().st_uid),
-                                            container, "python3", "-c", script))
-               if "-i" in p["args"] and p["args"][p["args"].index("-i") + 1] == str(instance)]
+                                            container, "python3", "-c", script, "verify" if baseline else "legacy"))
+               if "-i" in p["args"] and p["args"].index("-i") + 1 < len(p["args"])
+               and p["args"][p["args"].index("-i") + 1] == str(instance)
+               and (baseline is not None or p["args"][0].endswith('/build/px4_sitl_sih/bin/px4'))]
     if len(matches) != 1 or not str(matches[0]["model"]).startswith("sihsim_"):
         raise ValueError("An unambiguous running PX4 SIH instance is required")
     process = matches[0]
+    if baseline is not None and process.get("binary_sha256") != baseline["binary_sha256"]:
+        raise ValueError("Running SIH binary differs from the verified source build")
     mapped = [str(Path(m["Destination"]) / socket.resolve().relative_to(Path(m["Source"])))
               for m in info["Mounts"] if socket.resolve().is_relative_to(Path(m["Source"]))]
     if len(mapped) != 1 or not socket.is_socket():
@@ -77,7 +89,7 @@ print(json.dumps(out))
         raise ValueError("Simulator aircraft UID is unavailable")
     return dict(container_id=info["Id"], image_id=info["Image"], instance=instance,
                 process=process, aircraft_uid=uid.group(1), native_socket=mapped[0],
-                initial_native_status=status)
+                initial_native_status=status, firmware_build=baseline)
 
 
 def stable_window(states: list[AircraftState], *, minimum_relative_altitude_m=15., expected_altitude_m=None) -> bool:
@@ -477,6 +489,7 @@ def main():
     parser.add_argument("--socket", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--config", type=Path, default=ROOT / "configs/config_default.yaml")
+    parser.add_argument("--sih-build-manifest", type=Path, help="Verify the running executable against a pinned source-built SIH bundle")
     parser.add_argument("--scenario", type=Path, help="Version-2 world-target YAML; must match mount, altitude and actual airframe")
     parser.add_argument("--expect-handoff", help="Expected production reason code; an absent or different handoff fails the test")
     parser.add_argument("--mount", choices=("HORIZONTAL", "VERTICAL"), required=True)
@@ -493,7 +506,7 @@ def main():
         parser.error("SIH altitude must be 15–120 m; hold tolerance must be (0,10] m")
     if args.mc_request is not None and (not math.isfinite(args.mc_request) or args.mc_request < 0.):
         parser.error("MC request must be finite and nonnegative")
-    isolation = verify_simulator(args.container, args.instance, args.socket)
+    isolation = verify_simulator(args.container, args.instance, args.socket, sih_build_manifest=args.sih_build_manifest)
     if not args.execute:
         print(json.dumps(dict(execute=False, isolation=isolation), indent=2))
         return
