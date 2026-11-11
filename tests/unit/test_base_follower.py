@@ -156,12 +156,14 @@ class TestErrorAggregator:
 class TestFollowerConfigIdentity:
     def test_declared_sections_preserve_existing_safety_keys(self):
         from classes.follower_catalog import get_follower_catalog
-        assert {profile.mode: profile.config_section for profile in get_follower_catalog()} == {
+        declared = {profile.mode: profile.config_section for profile in get_follower_catalog()}
+        existing = {
             "mc_velocity_chase": "MC_VELOCITY_CHASE", "mc_velocity_ground": "MC_VELOCITY_GROUND",
             "mc_velocity_distance": "MC_VELOCITY_DISTANCE", "mc_velocity_position": "MC_VELOCITY_POSITION",
             "mc_attitude_rate": "MC_ATTITUDE_RATE", "fw_attitude_rate": "FW_ATTITUDE_RATE",
             "gm_velocity_chase": "GM_VELOCITY_CHASE", "gm_velocity_vector": "GM_VELOCITY_VECTOR",
         }
+        assert {mode: declared[mode] for mode in existing} == existing
 
 
 # =============================================================================

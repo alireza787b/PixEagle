@@ -2,7 +2,8 @@
 """Run or validate a follower's isolated PX4-SIH qualification evidence.
 
 The default operation is a side-effect-free contract check. ``--execute`` is
-an explicit opt-in. MC image profiles use the PixEagle-owned fixed-camera
+an explicit opt-in; ``--validate-existing`` reads a captured run and refreshes
+only derived reports. MC image profiles use the PixEagle-owned fixed-camera
 world-target worker; legacy gimbal/FW drivers remain separate. The visualizer remains read-only:
 it never starts following, sends a target, or integrates a command into a
 vehicle pose. A run is accepted only when the evidence contains independent
@@ -232,9 +233,12 @@ def _native_response_result(root: Path, scenario: VisualizationScenario, evidenc
     return result
 
 
-def validate_px4_evidence(root: Path, scenario: VisualizationScenario) -> dict[str, Any]:
-    counts = normalize_harness_evidence(root)
+def validate_px4_evidence(root: Path, scenario: VisualizationScenario, *, normalize: bool = True) -> dict[str, Any]:
+    """Validate observed response; normalize=False preserves captured raw files."""
+    counts = normalize_harness_evidence(root) if normalize else None
     evidence = load_evidence(root)
+    if counts is None:
+        counts = {name: len(records) for name, records in evidence.items()}
     if not evidence["target"]:
         raise VisualizationValidationError(
             "PX4 acceptance requires an independent trace/target_truth.jsonl; command records alone are insufficient"
@@ -336,9 +340,11 @@ def run_external(args: argparse.Namespace, scenario: VisualizationScenario) -> N
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--follower", choices=sorted(PROFILE_SCENARIOS), required=True)
+    parser.add_argument("--follower", help="Required for dry-run/execute; must match the capture when validating existing evidence")
     parser.add_argument("--evidence-root", type=Path)
-    parser.add_argument("--execute", action="store_true")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--execute", action="store_true")
+    modes.add_argument("--validate-existing", action="store_true", help="Read captured scenario and regenerate its validated report without running SIH")
     parser.add_argument("--enable-altitude-control", action="store_true")
     parser.add_argument("--scenario", type=Path, help="Explicit supported world-target YAML for this profile")
     parser.add_argument("--sih-build-manifest", type=Path,
@@ -351,6 +357,32 @@ def main() -> int:
     parser.add_argument("--bin-dir", type=Path, default=PROJECT_ROOT / "bin")
     parser.add_argument("--opencv-lib", type=Path, default=PROJECT_ROOT / ".venv/lib")
     args = parser.parse_args()
+    if args.validate_existing:
+        if args.evidence_root is None or not args.evidence_root.is_dir():
+            parser.error("--validate-existing requires --evidence-root pointing to an existing run directory")
+        if (args.scenario is not None or args.enable_altitude_control or args.sih_build_manifest is not None
+                or args.telemetry_source != "mavlink2rest"):
+            parser.error("--validate-existing uses the captured scenario; run/configuration overrides are unavailable")
+        scenario = VisualizationScenario.from_yaml(args.evidence_root / "scenario.yaml")
+        if args.follower is not None and args.follower != scenario.follower_profile:
+            parser.error("Captured scenario profile differs from --follower")
+        try:
+            summary = validate_px4_evidence(args.evidence_root, scenario, normalize=False)
+            (args.evidence_root / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+            output = write_visualization(args.evidence_root, scenario, summary)
+        except Exception as failure:
+            try:
+                write_failed_visualization(args.evidence_root, scenario, failure)
+            except Exception as report_error:
+                print(f"Failed-run visualization unavailable: {report_error}", file=sys.stderr)
+            raise
+        print(json.dumps({"passed": True, "mode": "validate_existing", "follower": scenario.follower_profile,
+                          "evidence_root": str(args.evidence_root), "visualization": str(output)}, indent=2))
+        return 0
+    if args.follower is None:
+        parser.error("--follower is required for dry-run or --execute")
+    if args.follower not in PROFILE_SCENARIOS:
+        parser.error(f"Unsupported dry-run/execute follower: {args.follower}; use the native runner for native capture")
     selected_path = args.scenario or scenario_path(args.follower, args.enable_altitude_control)
     scenario = VisualizationScenario.from_yaml(selected_path)
     if scenario.follower_profile != args.follower:

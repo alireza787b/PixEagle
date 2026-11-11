@@ -5,6 +5,7 @@ import hashlib
 import os
 import sys
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 import yaml
@@ -25,6 +26,119 @@ from classes.sih_visualization import VisualizationScenario  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def raw_capture_bytes(root):
+    return {str(path.relative_to(root)): path.read_bytes() for path in root.rglob("*") if path.is_file()
+            and path.relative_to(root).parts[0] != "visualization" and path.relative_to(root) != Path("summary.json")}
+
+
+@pytest.fixture
+def readonly_cli(monkeypatch):
+    import tools.run_sih_follower_validation as entry
+    forbidden = Mock(side_effect=AssertionError("read-only validation attempted external execution or raw normalization"))
+    monkeypatch.setattr(entry, "run_external", forbidden)
+    monkeypatch.setattr(entry.subprocess, "run", forbidden)
+    monkeypatch.setattr(entry, "normalize_harness_evidence", forbidden)
+    monkeypatch.setattr(entry, "write_png", Mock())
+    return entry
+
+
+@pytest.mark.parametrize("explicit_profile", [False, True])
+def test_readonly_cli_validates_native_ninth_profile_without_starting_any_process(
+        tmp_path, monkeypatch, capsys, readonly_cli, explicit_profile):
+    native_case(tmp_path)
+    (tmp_path / "tracker.jsonl").write_text(json.dumps({"timestamp": 0., "command_intent": {"fields": {}}})+"\n")
+    before = raw_capture_bytes(tmp_path)
+    argv = ["validator", "--validate-existing", "--evidence-root", str(tmp_path)]
+    if explicit_profile:
+        argv += ["--follower", "fw_navigation_chase"]
+    monkeypatch.setattr(sys, "argv", argv)
+    assert readonly_cli.main() == 0
+    response = json.loads(capsys.readouterr().out)
+    assert response["mode"] == "validate_existing"
+    assert response["follower"] == "fw_navigation_chase"
+    assert 'id="qualification">Scenario passed' in (tmp_path / "visualization/index.html").read_text()
+    assert (tmp_path / "visualization/trace.csv").is_file()
+    assert not (tmp_path / "trace/tracker_command_trace.jsonl").exists()
+    assert raw_capture_bytes(tmp_path) == before
+
+
+@pytest.mark.parametrize("failure", ["malformed_result", "missing_result", "failed_result", "malformed_manifest"])
+def test_readonly_cli_retains_failed_visualization_and_preserves_every_raw_byte(
+        tmp_path, monkeypatch, readonly_cli, failure):
+    _, result, _ = native_case(tmp_path)
+    if failure == "malformed_result":
+        (tmp_path / "result.json").write_text("{")
+    elif failure == "missing_result":
+        (tmp_path / "result.json").unlink()
+    elif failure == "failed_result":
+        result["passed"] = False
+        (tmp_path / "result.json").write_text(json.dumps(result))
+    else:
+        (tmp_path / "manifest.json").write_text("{")
+    before = raw_capture_bytes(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["validator", "--validate-existing", "--evidence-root", str(tmp_path)])
+    with pytest.raises(VisualizationValidationError):
+        readonly_cli.main()
+    assert 'id="qualification">Scenario failed' in (tmp_path / "visualization/index.html").read_text()
+    assert raw_capture_bytes(tmp_path) == before
+
+
+def test_readonly_cli_rejects_optional_profile_mismatch_without_changing_capture(tmp_path, monkeypatch, readonly_cli):
+    native_case(tmp_path)
+    before = raw_capture_bytes(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["validator", "--validate-existing", "--evidence-root", str(tmp_path),
+                                     "--follower", "mc_velocity_chase"])
+    with pytest.raises(SystemExit) as error:
+        readonly_cli.main()
+    assert error.value.code == 2
+    assert raw_capture_bytes(tmp_path) == before
+    assert not (tmp_path / "visualization").exists()
+
+
+@pytest.mark.parametrize("extra", [["--execute"], ["--enable-altitude-control"], ["--scenario", "other.yaml"],
+                                   ["--sih-build-manifest", "other.json"], ["--telemetry-source", "mavsdk"]])
+def test_readonly_cli_excludes_execution_and_capture_overrides(tmp_path, monkeypatch, readonly_cli, extra):
+    native_case(tmp_path)
+    before = raw_capture_bytes(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["validator", "--validate-existing", "--evidence-root", str(tmp_path), *extra])
+    with pytest.raises(SystemExit) as error:
+        readonly_cli.main()
+    assert error.value.code == 2
+    assert raw_capture_bytes(tmp_path) == before
+    assert not (tmp_path / "visualization").exists()
+
+
+def test_readonly_cli_requires_an_existing_run_and_captured_scenario(tmp_path, monkeypatch, readonly_cli):
+    for argv in (["validator", "--validate-existing"],
+                 ["validator", "--validate-existing", "--evidence-root", str(tmp_path / "absent")]):
+        monkeypatch.setattr(sys, "argv", argv)
+        with pytest.raises(SystemExit) as error:
+            readonly_cli.main()
+        assert error.value.code == 2
+    assert not (tmp_path / "absent").exists()
+    monkeypatch.setattr(sys, "argv", ["validator", "--validate-existing", "--evidence-root", str(tmp_path)])
+    with pytest.raises(VisualizationValidationError, match="Cannot read scenario"):
+        readonly_cli.main()
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("argv", [[], ["--execute"], ["--follower", "unknown-profile"],
+    ["--follower", "fw_navigation_chase"], ["--execute", "--follower", "fw_navigation_chase"]])
+def test_original_cli_still_requires_supported_capture_profile(monkeypatch, readonly_cli, argv):
+    monkeypatch.setattr(sys, "argv", ["validator", *argv])
+    with pytest.raises(SystemExit) as error:
+        readonly_cli.main()
+    assert error.value.code == 2
+
+
+def test_original_default_dryrun_remains_contract_only(monkeypatch, capsys, readonly_cli):
+    monkeypatch.setattr(sys, "argv", ["validator", "--follower", "mc_velocity_position"])
+    assert readonly_cli.main() == 0
+    response = json.loads(capsys.readouterr().out)
+    assert response["mode"] == "dry_run"
+    assert response["scenario"]["profile"] == "mc_velocity_position"
 
 
 def native_case(root, *, altitude=False):

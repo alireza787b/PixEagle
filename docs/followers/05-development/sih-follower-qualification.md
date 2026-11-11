@@ -127,6 +127,18 @@ configuration/schema checksums, and complete pose/target/publication evidence.
 Failed or inconsistent results retain a failed animation; raw replay export alone
 does not grant response acceptance or physical-aircraft qualification.
 
+Regenerate a captured run's validated report without starting any simulator or
+control process:
+
+```bash
+PYTHONPATH=src .venv/bin/python tools/run_sih_follower_validation.py \
+  --validate-existing --evidence-root reports/sitl/<run>
+```
+
+This reads `scenario.yaml` and its profile from the capture, including native
+image profiles. An optional `--follower` must agree. Raw results, manifests,
+configuration, scenarios and traces remain unchanged; derived reports are refreshed.
+
 ## Safe command
 
 The dry-run validates the selected checked-in scenario and never starts a process:
