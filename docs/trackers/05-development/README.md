@@ -11,9 +11,12 @@ optical-to-physical-FRD quaternion, and a selected-source digest, then binds the
 to an explicitly supplied stream/epoch and decoder-output geometry. The saved
 pixel grid is before PixEagle orientation, not an inferred sensor grid. Its
 full-frame inverse affine includes resize pixel-centre offsets, rotation and
-flip; overlay integer mappings are unsuitable. Unknown crop/zoom, moving-gimbal
-extrinsics and exposure/attitude timing remain unqualified. This pure foundation
-does not wire calibration into capture/tracker production or enable a follower.
+flip; overlay integer mappings are unsuitable. The capture owner supplies its
+actual opening-path signature and freezes this binding before Classic/Smart
+inference. Missing/mismatched calibration preserves ordinary image tracking.
+Unknown crop/zoom, moving-gimbal extrinsics and exposure/attitude timing remain
+unqualified; this does not enable a live FW follower. See the concise
+[frame lifecycle](../../video/01-architecture/frame-state-management.md).
 
 ---
 

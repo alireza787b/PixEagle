@@ -50,7 +50,7 @@ def capture_context(owner, *, receipt=100.0):
     frame = video._apply_frame_orientation(np.zeros((720, 1280, 3), np.uint8))
     video.current_raw_frame = frame
     video._reset_failure_counters(captured_at=receipt)
-    stamp, geometry = video.get_capture_context(frame)
+    stamp, geometry, _ = video.get_capture_context(frame)
     analysis = video.analysis_frame(frame)
     owner._publish_tracking_input_frame(analysis, capture=stamp, capture_geometry=geometry)
     return analysis, owner.tracking_input_context
@@ -117,9 +117,9 @@ def test_uncommitted_new_pixels_cannot_inherit_the_previous_capture_stamp(contro
     committed = controller.video_handler.current_raw_frame
     arriving = np.ones_like(committed)
     controller.video_handler.current_raw_frame = arriving
-    stamp, geometry = controller.video_handler.get_capture_context(arriving)
+    stamp, geometry, _ = controller.video_handler.get_capture_context(arriving)
     assert stamp.capture_id is None and geometry is None
-    original, _ = controller.video_handler.get_capture_context(committed)
+    original, _, _ = controller.video_handler.get_capture_context(committed)
     assert original.captured_at == 100.0
 
 
@@ -162,7 +162,7 @@ def test_retarget_cannot_rebind_old_pixels_to_the_new_generation(controller):
     update_classic(controller, frame, context)
     controller._advance_tracking_session_generation()
     assert controller.tracker.get_output().image_measurement is None
-    stamp, geometry = controller.video_handler.get_capture_context(controller.video_handler.current_raw_frame)
+    stamp, geometry, _ = controller.video_handler.get_capture_context(controller.video_handler.current_raw_frame)
     controller._publish_tracking_input_frame(frame, capture=stamp, capture_geometry=geometry)
     assert controller.tracking_input_context is context
     assert update_classic(controller, frame, context).image_measurement is None
@@ -177,7 +177,7 @@ def test_source_epoch_change_refuses_old_context_and_retired_pixels(controller):
     original = controller.video_handler.current_raw_frame
     controller.video_handler._advance_source_epoch()
     assert controller.tracker.get_output().image_measurement is None
-    stamp, geometry = controller.video_handler.get_capture_context(original)
+    stamp, geometry, _ = controller.video_handler.get_capture_context(original)
     assert stamp.capture_id is None and geometry is None
     assert update_classic(controller, frame, context).image_measurement is None
     frame, following = capture_context(controller, receipt=101.0)
@@ -189,7 +189,7 @@ def test_geometry_is_captured_atomically_and_dimension_change_cannot_reuse_conte
     frame, context = capture_context(controller)
     original = controller.video_handler.current_raw_frame
     controller.video_handler._frame_rotation_deg = 90
-    stamp, geometry = controller.video_handler.get_capture_context(original)
+    stamp, geometry, _ = controller.video_handler.get_capture_context(original)
     assert geometry == (1280, 720, 0, 'none')
     assert stamp is not None
     assert update_classic(controller, frame[:200], context).image_measurement is None

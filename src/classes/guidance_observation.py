@@ -34,6 +34,16 @@ def _image_size(value: tuple[int, int]) -> None:
         raise ValueError("image_size_invalid")
 
 
+def _image_affine(value) -> None:
+    if value is None:
+        return
+    _finite_tuple(value, 6, "image_affine")
+    a, b, _, c, d, _ = value
+    scale = max(abs(a), abs(b), abs(c), abs(d))
+    if scale == 0 or math.isclose((a / scale) * (d / scale) - (b / scale) * (c / scale), 0.0, abs_tol=1e-12):
+        raise ValueError("image_affine_singular")
+
+
 @dataclass(frozen=True)
 class ObservationProvenance:
     """Source/target revisions and the unchanged receipt identity of a sample."""
@@ -119,13 +129,7 @@ is unknown; uncalibrated pixels remain valid image measurements.
         _finite_tuple(self.pixel_xy, 2, "image_pixel")
         if any(not 0 <= point <= dimension - 1 for point, dimension in zip(self.pixel_xy, self.image_size_px)):
             raise ValueError("image_pixel_outside_image")
-        if self.image_to_calibration is not None:
-            _finite_tuple(self.image_to_calibration, 6, "image_affine")
-            a, b, _, c, d, _ = self.image_to_calibration
-            scale = max(abs(a), abs(b), abs(c), abs(d))
-            if scale == 0 or math.isclose((a / scale) * (d / scale) - (b / scale) * (c / scale),
-                                         0.0, abs_tol=1e-12):
-                raise ValueError("image_affine_singular")
+        _image_affine(self.image_to_calibration)
         if type(self.measured) is not bool:
             raise ValueError("image_measurement_validity_invalid")
 
@@ -153,15 +157,17 @@ class ImageFrameContext:
 
     provenance: ObservationProvenance
     image_size_px: tuple[int, int]
+    image_to_calibration: tuple[float, float, float, float, float, float] | None = None
 
     def __post_init__(self):
         if not isinstance(self.provenance, ObservationProvenance):
             raise ValueError("observation_provenance_invalid")
         _image_size(self.image_size_px)
+        _image_affine(self.image_to_calibration)
 
     def at_pixel(self, pixel_xy: tuple[float, float]) -> ImageMeasurement:
-        """Image pixels remain uncalibrated until a real mapping is supplied."""
-        return ImageMeasurement(self.provenance, pixel_xy, self.image_size_px, None, True)
+        """Preserve the mapping frozen before inference; never derive it on reads."""
+        return ImageMeasurement(self.provenance, pixel_xy, self.image_size_px, self.image_to_calibration, True)
 
 
 def image_measurement_for_output(

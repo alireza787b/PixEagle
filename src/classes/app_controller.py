@@ -47,6 +47,7 @@ from classes.storage_manager import StorageManager
 from classes.mavlink_data_manager import MavlinkDataManager
 from classes.frame_publisher import FramePublisher
 from classes.guidance_observation import ImageFrameContext, ObservationProvenance
+from classes.fixed_camera_calibration import ActiveImageGeometry, PIXEL_GRID, bind_fixed_camera_calibration
 from classes.frame_preprocessor import FramePreprocessor
 from classes.video_geometry import FrameScale
 from classes.estimators.estimator_factory import create_estimator
@@ -1079,7 +1080,38 @@ class AppController:
             )
             return display_frame
 
-    def _publish_tracking_input_frame(self, frame: np.ndarray, *, capture=None, capture_geometry=None) -> np.ndarray:
+    def _calibration_for_tracking_frame(self, capture, capture_geometry, source_signature, source_id, size):
+        """Bind fixed optics to the actual source; moving-camera pose is not inferred."""
+        video = self.video_handler
+        saved = getattr(video, 'fixed_camera_calibration', None)
+        self._image_calibration_error = getattr(video, 'calibration_configuration_error', None)
+        binding = getattr(self, '_image_calibration_binding', None)
+        self._image_calibration_binding = None
+        if saved is None:
+            return None
+        camera_settings = getattr(getattr(self, 'camera_runtime', None), 'settings', {})
+        if camera_settings.get('CONTROL_ENABLED') is True:
+            self._image_calibration_error = 'moving_camera_extrinsics_unqualified'
+            return None
+        try:
+            if source_signature is None:
+                raise ValueError('capture_source_identity_unavailable')
+            width, height, rotation, flip = capture_geometry
+            geometry = ActiveImageGeometry(source_signature, source_id, getattr(capture, 'source_epoch', None),
+                (width, height), rotation, flip, size, PIXEL_GRID)
+            if (binding is not None and binding.geometry == geometry
+                    and getattr(self, '_image_calibration_saved', None) is saved):
+                self._image_calibration_binding = binding
+            else:
+                self._image_calibration_binding = bind_fixed_camera_calibration(saved, geometry)
+                self._image_calibration_saved = saved
+            return self._image_calibration_binding
+        except ValueError as exc:
+            self._image_calibration_error = str(exc)
+            return None
+
+    def _publish_tracking_input_frame(self, frame: np.ndarray, *, capture=None, capture_geometry=None,
+                                      capture_source_signature=None) -> np.ndarray:
         """Publish one clean pre-overlay frame for operator target selection."""
         snapshot = frame.copy()
         state_lock = getattr(self, "_tracker_model_state_lock", None)
@@ -1095,18 +1127,31 @@ class AppController:
                     and isinstance(source_id, str)):
                 try:
                     size = (int(frame.shape[1]), int(frame.shape[0]))
-                    revision = repr(('analysis_full_frame', capture_geometry, size))
+                    revision = repr(('analysis_full_frame', capture_geometry, size, capture_source_signature))
+                    binding = self._calibration_for_tracking_frame(capture, capture_geometry,
+                        capture_source_signature, source_id, size)
+                    calibration_revision = None
+                    affine = None
+                    if binding is not None:
+                        revision = binding.geometry_revision
+                        calibration_revision = binding.calibration_revision
+                        affine = binding.image_to_calibration
                     provenance = ObservationProvenance(
-                        source_id, int(getattr(self, '_tracking_session_generation', 0)), revision, None, capture,
+                        source_id, int(getattr(self, '_tracking_session_generation', 0)), revision, calibration_revision, capture,
                     )
-                    context = ImageFrameContext(provenance, size)
+                    context = ImageFrameContext(provenance, size, affine)
                     if (isinstance(previous, ImageFrameContext)
                             and previous.provenance.capture == capture
-                            and previous.provenance.geometry_revision == revision):
+                            and previous.provenance.geometry_revision == revision
+                            and previous.provenance.calibration_revision == calibration_revision):
                         context = previous
                     self.tracking_input_context = context
                 except ValueError:
+                    self._image_calibration_binding = None
                     logging.debug('Image frame has no complete capture provenance')
+            else:
+                self._image_calibration_binding = None
+                self._image_calibration_error = 'capture_geometry_unavailable'
         return snapshot
 
     def _publish_segmentation_selection_snapshot(
@@ -1657,10 +1702,11 @@ class AppController:
         self._capture_app_event_loop()
         capture_context = getattr(self.video_handler, 'get_capture_context', None)
         capture_pair = capture_context(frame) if callable(capture_context) else None
-        if isinstance(capture_pair, tuple) and len(capture_pair) == 2:
-            capture_stamp, capture_geometry = capture_pair
+        if isinstance(capture_pair, tuple) and len(capture_pair) == 3:
+            capture_stamp, capture_geometry, capture_source_signature = capture_pair
         else:
             capture_stamp, capture_geometry = self.video_handler.get_capture_stamp(frame), None
+            capture_source_signature = None
         capture_frame = frame
 
         # DEBUG: Log every 100th frame to verify update_loop is running
@@ -1693,6 +1739,7 @@ class AppController:
             with self._tracker_model_state_lock:
                 tracking_frame_snapshot = self._publish_tracking_input_frame(
                     analysis_frame, capture=capture_stamp, capture_geometry=capture_geometry,
+                    capture_source_signature=capture_source_signature,
                 )
                 image_context = self.tracking_input_context
                 selection_snapshot = {"revision": int(getattr(self, "_tracking_session_generation", 0)),
