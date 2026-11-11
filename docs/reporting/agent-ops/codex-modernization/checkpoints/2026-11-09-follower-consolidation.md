@@ -504,7 +504,102 @@ contracts in the pinned network-isolated environment. Its source hashes, binary
 checksum and dependency/extension identity are retained for the upcoming SIH
 run. No service was installed or aircraft firmware changed.
 
-Next: native image-FW strategy integration and actual moving-target airplane
-SIH, including separate altitude modes and recovery/Stop evidence. Backend
-receipt is not exposure time; physical alignment remains unqualified. S5 is
-still open, with no new public live profile or hardware readiness claim.
+`c19b5c879` adds the calibrated image strategy through the shared native FW
+session. `d9c151161` registers experimental `fw_navigation_chase` with explicit
+configuration and no live-qualified phase. Its four geometry thresholds are
+separate from native EAS/envelope/altitude authority. Focused registration gates
+pass; generated schema is current at 45 sections and 613 parameters. Ordinary
+camera timing remains unqualified; synthetic SIH pairing is explicitly labelled.
+
+`6c7f181e5` derives command-preview availability from the canonical transport.
+Native-only profiles refuse before construction or connection, including a
+pending-configuration race, rather than recommending an unsupported preview.
+Existing MAVSDK preview behavior remains; 523 relevant tests pass.
+
+The current adapter and attested source-built airplane also pass renewed native
+gimbal component checks on clean PixEagle `65cbf4967`:
+
+| Mount / altitude guidance | Observed target range | Maximum altitude-hold error | Stop |
+| --- | --- | --- | --- |
+| Horizontal / off | 163.78 -> 25.25 m | 0.245 m | Hold confirmed; no later publication |
+| Vertical / off | 163.78 -> 27.49 m | 0.204 m | Hold confirmed; no later publication |
+
+Raw results, source/config/firmware identities and interactive replays are under
+`reports/sitl/follower-consolidation-20261111/gm-fw-*-hold-r1/`. These are observed
+PX4 approaches with simulated gimbal input, not camera/installation acceptance.
+
+`dd5af2902` retains the original SIH image, paired attitude and measured target
+truth during partial telemetry progress. `9b23bf6e2` fixes the reproduced
+command-TTL mismatch: a new authoritative aircraft sample recalculates guidance
+against the still-current world bearing; frozen polling cannot renew a command.
+Expired images enter the existing recovery, without extending its deadline.
+The original failing reproduction and the passing 389-test regression remain
+in `software-gates-r1/`.
+
+### S5 — actual calibrated-image component response
+
+Clean source `3cb7a8355` passes four `fw_navigation_chase` cases on the attested
+SIH airplane and current native adapter. Independent moving world targets are
+projected into explicitly synthetic pixels; production calibration, alignment,
+guidance, continuity, native ownership and publication remain in the loop.
+
+| Case directory | Observed range | Response | Successful publications |
+| --- | --- | --- | --- |
+| `fw-navigation-image-hold-r2` | 161.22 -> 28.03 m | Maximum altitude-hold error 0.220 m | 290 |
+| `fw-navigation-image-altitude-r1` | 162.51 -> 34.41 m | 7.86 m descent toward the lower target | 290 |
+| `fw-navigation-image-reacquisition-r2` | 431.82 -> 296.33 m | 1 s loss; 0.5 s confirmation and 0.5 s restoration | 290 |
+| `fw-navigation-image-expiry-r2` | 430.17 -> 331.15 m | Genuine loss handed off after 8.014 s | 216 |
+
+Every case has zero failed publications, confirmed native Hold and no later
+publication. Per-case config/schema checksums, parameters, commands, observations
+and interactive HTML/CSV/JSON/PNG are retained under
+`reports/sitl/follower-consolidation-20261111/`. The canonical read-only validator
+(`1954a51dd`) requires matching native response, captured scenario and configuration
+bytes before assigning a passed replay. All four have no timeline flags; Chrome
+verified target/PX4 points, populated command fields, views and orbit without
+page errors. Actual pose receipt times and source timestamps are preserved.
+
+The subsequent source-change case `fw-navigation-image-airspeed-r2` passes on
+clean `0dd2fcccd`: 483 successful publications, 0.255 m maximum altitude-hold
+error, sensorless continuation after genuine sensor loss, and qualified sensor
+return after restoration. Stop confirms Hold with no later publication. Its
+explicit simulator-only overlay `ASPD_FS_T_START=2` is recorded separately and
+restored to the original `-1` afterward. The first `airspeed-r1` remains failed
+for its requested sensor-return assertion: native PX4's default `-1` latches a
+failed sensor out in flight even when raw packets return. All its publication,
+path and Stop checks passed; it never claimed selected-sensor recovery. Native
+policy, not a timeout extension or invented groundspeed measurement, explains
+the difference. See the shared FW policy and `airspeed-case-inputs-r{1,2}/`.
+
+The failed `hold-r1` identified a harness-only engagement packet mismatch; the
+shared acquisition/publication observer fixes it without relaxing association.
+An initial loss fixture put the target outside the camera FOV after stable
+loiter and correctly refused before acquisition. Its replacement defines a
+visible fixed world trajectory before Start; no guidance gain, limit or
+within-run target anchor was changed. Both failures remain retained.
+
+S6's bounded lifecycle prerequisite is also repaired: `aea29d844` clears GM
+target-specific PID/filter/classifier memory and invokes the canonical native
+target reset while preserving acknowledged controls, submitted-command slew
+history and continuity ownership (1,281-test regression). `d6ad4656a` replaces
+broken handwritten proportional-on-measurement with the PID library's feature
+and handles its initial manual-mode `None` result (1,304-test regression).
+Gains, anti-windup equations, defaults and private configuration are unchanged.
+
+The first renewed full unit gate on `1954a51dd` passed 5,484 tests with one stale
+catalog expectation: the original-eight configuration identity test rejected
+the additional ninth profile. It now checks that those eight mappings remain
+unchanged without prohibiting additions; 61 affected tests pass. The renewed full
+gate on frozen `132396744` passes 5,514 unit tests (11 optional GStreamer skips),
+196 integration tests and 155 Phase 0 checks. Schema is current (45/613), API
+inventory matches, and fatal lint has zero errors. Exact source and logs are in
+`software-gates-r4/`; earlier failures remain in `software-gates-r3/`.
+
+S5's native image **component/software** checkpoint is closed. Physical timing,
+optical tracking, whole-application qualified input, platform and installation
+acceptance remain separate; live qualification stays empty. Next is S6's
+provider identity/receipt hygiene, then its reviewed capability, timing and frame
+cutover. The first sub-slice preserves accepted MC angular calculations and does
+not pretend that GAC/TRC proves target-centre alignment or physical exposure.
+Backend receipt is not exposure time. No Pi, private-profile, QGC, service or
+firmware deployment occurred.

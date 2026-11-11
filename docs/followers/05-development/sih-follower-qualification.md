@@ -139,6 +139,17 @@ This reads `scenario.yaml` and its profile from the capture, including native
 image profiles. An optional `--follower` must agree. Raw results, manifests,
 configuration, scenarios and traces remain unchanged; derived reports are refreshed.
 
+Native source-change scenarios use `airspeed_loss` with `at_s` and `duration_s`.
+Only one fault family is allowed per run. The harness requires an attested isolated
+source build and already-enabled `SYS_FAILURE_EN=1`; it never changes parameters
+to enable injection. PX4's own failure command runs off the control loop, and
+cleanup quiesces publication/releases ownership before restoring the sensor.
+The result requires observed degradation and sensor reacceptance, not just a
+successful CLI command. PX4's default `ASPD_FS_T_START=-1` disables in-flight
+reacceptance and therefore cannot pass that assertion. Keep its failed comparison;
+an explicitly documented simulator-only recovery overlay is a separate case and
+must restore the baseline afterward. See the [shared FW policy](../04-configuration/fixed-wing-guidance-policy.md#airspeed-sensor-recovery).
+
 ## Safe command
 
 The dry-run validates the selected checked-in scenario and never starts a process:

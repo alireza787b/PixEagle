@@ -1,7 +1,7 @@
 # Follower consolidation and aircraft qualification plan
 
-Date: 2026-11-09; updated 2026-11-11. S0–S3 and the S4 MC component/software
-checkpoint are complete; S5 implementation is in progress. Application, optical,
+Date: 2026-11-09; updated 2026-11-11. S0–S3 and the S4/S5 MC/native-image-FW
+component/software checkpoints are complete; S6 implementation is in progress. Application, optical,
 installation and release qualification remain separate. Follow the [checkpoint](../../reporting/agent-ops/codex-modernization/checkpoints/2026-11-09-follower-consolidation.md)
 for actual verification; later slices and qualification remain pending.
 
@@ -37,7 +37,8 @@ are separate future behaviors. Do not advertise them through names or presets.
 
 ## 2. Truthful mode inventory
 
-The eight current IDs remain stable while behavior is preserved. Operator labels
+The eight original IDs remain stable while behavior is preserved. S5 adds the
+experimental, live-gated `fw_navigation_chase` profile. Operator labels
 describe purpose; velocity/rates describe command contracts; gimbal describes an
 input family. A profile's implementation, input compatibility, current readiness
 and qualification are separate facts.
@@ -50,15 +51,17 @@ and qualification are separate facts.
 | `mc_velocity_distance` | Visual centering | Zero forward motion, lateral/yaw and optional vertical centering; no measured range hold |
 | `mc_attitude_rate` | MC visual chase, direct rates | Rates/thrust; advanced qualification and recovery contract |
 | `fw_attitude_rate` | FW visual guidance, direct rates | Existing research implementation; current live gate remains until qualified |
+| `fw_navigation_chase` | Calibrated FW image pursuit | New native course/EAS/vertical contract; explicit calibration and timing association; live gate remains closed |
 | `gm_velocity_chase` | Gimbal PID pursuit | Provider observations; MC velocity guidance |
 | `gm_velocity_vector` | External/gimbal Vector pursuit | MC Vector and developing native FW/transition strategies; qualification is phase-specific |
 
-**Public FW pursuit is additional work.** There is no general image-based FW
-body-velocity Chase today. The preferred navigation strategy commands course,
+**Public FW qualification remains open.** There is no general image-based FW
+body-velocity Chase today. The new navigation strategy commands course,
 equivalent airspeed (EAS), and altitude/height rate through native PX4 control.
-Image input needs a calibrated bearing adapter or a separately specified visual
-guidance strategy. Do not rename the existing gimbal implementation to imply
-that ordinary camera support exists.
+Image input uses a calibrated bearing adapter with explicit sample association;
+physical capture timing and installation acceptance remain unqualified. It
+reuses the native strategy without renaming a gimbal implementation to imply
+ordinary camera support.
 
 Keep direct-rate implementations separately identifiable for research. Do not
 duplicate the native FW energy controller, force rates through a navigation
@@ -108,6 +111,25 @@ and receipt time, time basis/clock mapping and uncertainty, plus actual evidence
 validity. Optional real range/position can be added later without manufacturing
 it from a monocular box. A synthesized gimbal `position_2d` is not an actual image
 measurement and must not imply image-follower compatibility.
+
+Keep strategy manoeuvre support, provider observation semantics and installation
+bounds separate. A fresh GAC/TRC pair supports the accepted **boresight-guided MC**
+behavior; it does not prove target-centre alignment, exposure time or a full-sphere
+mechanical envelope. Unknown mechanics remain unqualified without cancelling an
+already observed valid MC direction under its accepted installation semantics.
+They cannot authorize invented observations or automatic gimbal aiming. Existing
+filtering, feasible aircraft steering and bounded continuity remain command
+intent derived from evidence, not new measurements. Unknown convention/frame,
+stale evidence and unsupported aircraft phases still refuse guidance.
+
+S6 first adds source/receipt identity and removes synthetic pixels without
+changing accepted angular calculations. The capability-policy cutover then uses
+Config Sync and an effective-before/after comparison: current Topotek metadata
+masks fallback flags, so copying their default false values into new active
+restrictions would silently disable accepted MC behavior. Preserve applicable
+non-default restrictions and intersect declared installation bounds; no provider
+may widen them. Record each authority's origin instead of adding a second
+SafetyManager. Physical native FW timing/installation gates remain closed.
 
 Installation geometry is camera/provider-owned. Fixed cameras have a fixed
 optical-to-physical-body transform; moving cameras add measured pose. Converting

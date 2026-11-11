@@ -13,8 +13,8 @@ operator contract; see the [consolidation plan](../05-development/follower-conso
 | Setting | Factory value | Meaning |
 | --- | --- | --- |
 | `Follower.AIRFRAME_LAYOUT` | `AUTO` | Use fresh PX4 state; an explicit MC/FW/VTOL/tailsitter choice verifies the installation |
-| `Follower.AIRFRAME_PHASE_CONFIRMATION_S` | `0.5` | Fresh settled phase before resuming pursuit |
-| `Follower.VTOL_TRANSITION_TIMEOUT_S` | `30` | Maximum transition/settlement duration; never renews target recovery |
+| `Follower.AIRFRAME_PHASE_CONFIRMATION_S` | `0.5` | Fresh settled phase required before a new Start |
+| `Follower.VTOL_TRANSITION_TIMEOUT_S` | `30` | Historical transition-session timeout; not permission to follow through transition |
 | `FixedWingGuidance.UPPER_SPEED_POLICY` | `px4_configured_max` | Respect the current native PX4 airspeed envelope |
 | `FixedWingGuidance.MIN_DIVE_THROTTLE` | `null` | Keep native throttle behavior |
 
@@ -53,13 +53,32 @@ commands. They cannot restore an older, higher request. PX4's current native
 minimum still takes precedence; an acknowledged request below a rising
 load-dependent minimum is reported separately from the effective reference.
 
+## Airspeed sensor recovery
+
+Native guidance follows PX4's selected, validated airspeed source. Restored raw
+sensor packets do not establish a valid selected measurement: PX4's
+[`ASPD_FS_T_START`](https://docs.px4.io/v1.17/en/advanced_config/parameter_reference#ASPD_FS_T_START)
+defaults to `-1`, disabling in-flight reacceptance after a sensor failure.
+PixEagle does not change that aircraft parameter or substitute groundspeed.
+When PX4 supplies no qualified airspeed, the existing native sensorless behavior
+and explicit `unavailable` observation remain; actual stall margin is unknown.
+A request is still an EAS reference, not a measured or guaranteed aircraft speed.
+
+The isolated SIH comparison retained this default-latched result, then explicitly
+tested `ASPD_FS_T_START=2` as a simulator-only overlay. That case observed sensor
+loss, native sensorless continuation and later qualified sensor reacceptance.
+The simulator's original `-1` value was restored afterward. The comparison
+documents the native policy; the recovery-enabled test setting stays out of
+aircraft profiles.
+
 ## Aircraft and camera frames
 
 | Installation / observed phase | Reused implementation |
 | --- | --- |
-| Pure MC, or VTOL in MC flight | Existing MC vector math; pure MC uses MAVSDK, VTOL keeps its native owner |
-| Pure FW, or VTOL in FW flight | The same native course, vertical-path and airspeed strategy |
-| Standard VTOL or tailsitter during transition | PX4's native transition interface; pursuit paused |
+| Pure MC | Existing MC vector math and MAVSDK owner |
+| Pure FW | Native course, vertical-path and airspeed strategy |
+| Settled VTOL MC or FW | Intended reuse of the corresponding strategy; admission remains gated until S7 |
+| Standard VTOL or tailsitter during transition | End following and release to PX4; require a fresh Start afterward; S7 implementation pending |
 | Different gimbal or mounting | Provider adapter and mounting geometry produce the same physical ray |
 
 There is no separate tailsitter pursuit law. Public defaults provide the base
@@ -98,6 +117,9 @@ altitude, speed controls and the last feasible recovery course. A validated
 retarget can use this hook; it does not reset the continuity owner's deadlines
 or grant another session authority. A stopped session rejects the reset.
 
+The following describes the historical, gated transition implementation and its
+retained regression evidence, not the accepted end-on-transition workflow.
+S7 must replace its ownership/release behavior before VTOL admission opens.
 Transition holding latches the preceding feasible course and FW request for the
 transition episode. It does not chase physical yaw changes as a tailsitter
 pitches through vertical, or reuse an old FW course after returning to MC.

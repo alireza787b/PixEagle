@@ -1,13 +1,18 @@
 # Native PX4 guidance — development checkpoint
 
-This is the companion adapter for the experimental FW/VTOL extension to
-`gm_velocity_vector`. It is **not installed or enabled by ordinary PixEagle
+This is the shared companion adapter for experimental native FW guidance,
+including `gm_velocity_vector` and calibrated-image `fw_navigation_chase`.
+It is **not installed or enabled by ordinary PixEagle
 setup yet**. Existing multicopter following continues through MAVSDK.
 
 PX4 owns coordinated turns, energy management, attitude/rate control and VTOL
 transition. The adapter publishes navigation objectives, not a second TECS or
-attitude controller. A single native owner handles the entire VTOL session;
-there must not be simultaneous MAVSDK and DDS command publishers.
+attitude controller. There must not be simultaneous MAVSDK and DDS command
+publishers. VTOL admission remains closed: the accepted
+[consolidation plan](../docs/followers/05-development/follower-consolidation-plan.md)
+ends following on transition and requires a fresh Start afterward. The existing
+phase-retaining prototype and cycle reports below are historical component
+evidence; transition-preserving authority release remains S7 work.
 
 | Boundary | Contract |
 | --- | --- |
@@ -31,7 +36,8 @@ be replaced by MC yaw. No camera mount is changed during a VTOL transition.
 
 ## Reproduce the software build
 
-At phase changes the adapter invalidates the old pursuit objective. It can
+The current gated prototype invalidates the old pursuit objective on a phase
+change. It can
 publish phase-appropriate holding setpoints under the same unexpired lease
 until the backend binds the new generation. This does not renew the lease,
 extend target recovery, or survive takeover/rescue.
@@ -187,6 +193,18 @@ Linux x86-64 compilation, contracts, sanitizers, live SIH DDS observations and
 an initial airborne FW controller probe have passed. The controller probe
 confirmed native course response, continuous publication and observed loiter.
 This is **not full follower or VTOL qualification**.
+
+Calibrated image-input native FW components also pass four moving-target airplane
+cases on clean PixEagle `3cb7a8355`: altitude hold, target-directed descent,
+one-second loss/reacquisition and eight-second loss expiry. Every case confirms
+Hold with no later publication. Exact source/config/firmware identity, parameters
+and browser-checked replays are retained under
+`reports/sitl/follower-consolidation-20261111/fw-navigation-image-*/`.
+Pixels come from explicit synthetic optics and actual PX4 observations, not a
+physical tracker. `fw_navigation_chase` stays live-gated; calibration alone does
+not qualify physical capture/attitude timing. The
+[consolidation checkpoint](../docs/reporting/agent-ops/codex-modernization/checkpoints/2026-11-09-follower-consolidation.md)
+records current scope and remaining gates.
 
 The normal-envelope FW component matrix now has actual moving-target response
 for horizontal/vertical mounts with altitude guidance off/on. Its four runs

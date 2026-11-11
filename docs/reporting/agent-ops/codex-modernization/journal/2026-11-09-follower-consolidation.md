@@ -91,3 +91,35 @@ The shared native retarget reset preserves session controls and altitude
 reference. Focused gates pass (384, 143 and 261 tests; overlapping broader checks
 recorded in the checkpoint). The native adapter rebuild passes 38 contracts;
 image-FW integration and actual airplane response remain next, without hardware.
+
+The ninth profile, `fw_navigation_chase`, is registered experimentally with four
+explicit geometry settings and no live-qualified phase. Native-only preview
+refuses before construction, including pending-config races (523 tests). Exact
+SIH frame retention and genuine aircraft-progress command recalculation repair
+a reproduced premature-TTL handoff without refreshing image timestamps or
+extending recovery budgets (389 relevant tests; focused cases overlap).
+
+Renewed actual airplane gimbal components pass for both mounts with altitude
+guidance off: range closes from 163.78 m to 25.25/27.49 m, altitude errors stay
+below 0.25 m, and Stop confirms Hold without later publication. The first image
+attempt safely rejected a harness packet mismatch immediately after engagement;
+the failed run is retained for the startup handoff repair. Source, replay and
+per-case scope remain in the checkpoint. No Pi, aircraft installation, private
+configuration or QGC build has been changed.
+
+The paired engagement observer repair is now verified on actual SIH. Image-FW
+altitude off/on and loss/reacquisition/expiry all pass on frozen `3cb7a8355`;
+each confirms Hold with no subsequent publication. Strict native evidence
+validation, four browser-checked interactive replays and the retained failures
+are linked by directory in the checkpoint. GM retarget memory and shared PID
+PoM/manual-start defects are repaired without changing gains or the public/private
+configuration. Actual airspeed-source changes and S6 provider qualification are
+next; no new live phase has been admitted.
+
+S5 component/software checkpoint closed on November 11: the source-change case
+passes when the simulator explicitly enables native sensor reacceptance; its
+default-latched failed assertion remains retained and explained. The native
+parameter was restored, with no aircraft change. Full frozen `132396744` renewal
+passes 5,514 unit, 196 integration and 155 Phase 0 tests plus schema/inventory/fatal
+lint. S6 now begins with source/receipt metadata and removal of synthetic gimbal
+pixels; timing/capability policy and physical qualification are separate steps.

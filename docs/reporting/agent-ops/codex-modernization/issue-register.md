@@ -338,5 +338,20 @@ remain open. Integration work is unpublished.
   ordinary image tracking when unavailable. Five reproduced capture-mode/epoch
   failures are fixed; 334 video/provenance tests pass. Command schema 2.5.0
   separates native capability from explicit phase admission. Physical exposure/
-  attitude timing, native image-FW response and VTOL release remain unqualified;
+  attitude timing, full native image-FW qualification and VTOL release remain open;
   see the consolidation checkpoint for revisions, evidence and next gates.
+
+- **2026-11-11 — Image-FW lifecycle and S6 review:** native-only preview is now
+  refused before component construction. A reproduced command-TTL mismatch is
+  repaired: real aircraft-source progress recalculates against a still-current
+  image, without refreshing its measurement time; frozen polling cannot renew
+  the command. Actual image-SIH startup exposed a separate harness packet-pair
+  handoff defect and safely returned to Hold; its failed evidence is retained.
+  Four actual image-input airplane cases now pass altitude off/on and loss/
+  reacquisition/expiry, with confirmed Hold and no later publication. No-op GM
+  target resets and shared PID reset/PoM/manual-start defects are also repaired.
+  S6's unqualified angle/attitude timing, misleading legacy image projections and
+  unverified provider capabilities remain explicit work, not new live permissions.
+  The native source-change comparison and full software renewal now close S5's
+  component/software gate; S6 source hygiene is in progress. Physical, application
+  input and hardware qualification remain open in the same checkpoint.
