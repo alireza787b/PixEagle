@@ -724,6 +724,13 @@ class GMVelocityVectorFollower(BaseFollower):
         self._guidance_state_identity = None
         self._reset_guidance_state()
 
+    def reset_target_state(self, reason: str) -> bool:
+        self._reset_guidance_state()
+        session = getattr(self, '_airframe_session', None)
+        if session is not None:
+            session.reset_target_state()
+        return True
+
     def _reset_guidance_state(self) -> None:
         self.current_velocity_magnitude = self.config.get('INITIAL_VELOCITY', 0.0)
         self.filtered_body_ray = None

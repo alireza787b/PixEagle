@@ -10,9 +10,10 @@ class CustomPID(PID):
     Attributes:
         last_output (float): Stores the last output value to assist in anti-windup calculations.
     """
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.last_output = 0  # Initialize last output for anti-windup calculation
+    def reset(self):
+        """Clear both the base controller and subclass anti-windup history."""
+        super().reset()
+        self.last_output = 0.0
 
     def __call__(self, input_, dt=None):
         # Apply Proportional on Measurement if enabled

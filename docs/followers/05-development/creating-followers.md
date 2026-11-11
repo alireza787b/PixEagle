@@ -26,6 +26,9 @@ not establish range; a provider bearing is not a measured pixel.
    Retarget preparation invalidates intent and calls this hook; the base hook
    is an explicit no-op for stateless implementations. A target transition
    preserves acknowledged session controls; ending the session clears them.
+   GM PID/Vector clear target controller/filter history through this hook;
+   a bound Vector also resets its canonical session's target planner. Preserve
+   submitted-command slew history and the shared recovery deadline across taps.
 6. Only if needed, override `prepare_authorized_command(fields, loss_decay=...)`
    for post-continuity shaping and `on_command_submitted(fields)` for accepted
    submission history. Preserve session-limit resolution before shaping;

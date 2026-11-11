@@ -93,8 +93,10 @@ def test_explicit_retarget_hooks_preserve_existing_reset_result(follower_class, 
 def test_retarget_does_not_discover_unrelated_reset_names():
     follower = object.__new__(GMVelocityVectorFollower)
     follower.reset_command_fields = Mock(return_value=True)
+    follower._reset_guidance_state = Mock()
     follower.reset_state = Mock(side_effect=AssertionError)
     assert follower.prepare_for_target_transition("new_target")
+    follower._reset_guidance_state.assert_called_once_with()
     follower.reset_state.assert_not_called()
 
 

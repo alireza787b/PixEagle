@@ -213,9 +213,17 @@ class GMVelocityChaseFollower(BaseFollower):
 
     def reset_control_session(self) -> None:
         super().reset_control_session()
+        self._reset_target_control_state()
+
+    def reset_target_state(self, reason: str) -> bool:
+        self._reset_target_control_state()
+        return True
+
+    def _reset_target_control_state(self) -> None:
         self.current_forward_velocity = 0.0
         self.last_ramp_update_time = None
         self.last_velocity_command = None
+        self.last_tracker_output = None
         self.yaw_smoother.reset()
         for controller in (self.pid_right, self.pid_yaw_speed, self.pid_down):
             if controller is not None:

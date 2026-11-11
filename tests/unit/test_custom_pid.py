@@ -566,9 +566,37 @@ class TestResetFunctionality:
         assert pid.last_output != 0
 
         pid.reset()
+        assert pid.last_output == 0.0
         # After reset, next call should update last_output fresh
         pid(5.0)
         assert pid.last_output == pytest.approx(5.0)
+
+    def test_constructor_initializes_subclass_history_through_reset(self):
+        class CountingPID(CustomPID):
+            def reset(self):
+                super().reset()
+                self.reset_count = getattr(self, 'reset_count', 0) + 1
+
+        pid = CountingPID(Kp=2., Ki=1., output_limits=(-1., 1.))
+        assert pid.reset_count == 1
+        assert pid.last_output == 0.0
+
+    @pytest.mark.parametrize('reenable', [False, True])
+    def test_reset_saturated_anti_windup_history_matches_fresh_controller(self, mock_parameters, reenable):
+        mock_parameters.ENABLE_ANTI_WINDUP = True
+        settings = dict(Kp=2., Ki=1., Kd=.5, setpoint=1., output_limits=(-1., 1.), time_fn=lambda: 100.)
+        pid = CustomPID(**settings)
+        assert pid(-10., dt=.1) == 1.
+        if reenable:
+            pid.set_auto_mode(False)
+            pid.set_auto_mode(True)
+        else:
+            pid.reset()
+        fresh = CustomPID(**settings)
+        assert pid.last_output == fresh.last_output == 0.
+        for measured in (-10., .8, 1.2):
+            assert pid(measured, dt=.1) == pytest.approx(fresh(measured, dt=.1))
+            assert pid.components == pytest.approx(fresh.components)
 
 
 # =============================================================================
