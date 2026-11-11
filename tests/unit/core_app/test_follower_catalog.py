@@ -58,6 +58,31 @@ def test_native_command_contract_cannot_grant_live_qualification():
     assert evaluate_aircraft(profile, "fixed_wing").reason_code == "profile_not_live_qualified"
 
 
+@pytest.mark.parametrize("mode,transport,eligible", [
+    ("mc_velocity_chase", "mavsdk", True),
+    ("gm_velocity_vector", "mavsdk", True),
+    ("fw_attitude_rate", "mavsdk", True),
+    ("fw_navigation_chase", "px4_native", False),
+])
+def test_preview_admission_uses_the_nominal_transport_not_live_qualification(mode, transport, eligible):
+    profile = get_follower_profile(mode)
+    assert profile.command_transport == transport
+    assert profile.preview_eligibility.eligible is eligible
+    assert profile.preview_eligibility.reason_code == (None if eligible else "command_preview_transport_unsupported")
+
+
+def test_preview_transport_admission_is_generic_and_never_grants_live_authority():
+    profile = replace(get_follower_profile("fw_navigation_chase"), mode="future_native_follower",
+                      live_qualified_phases=("fixed_wing",))
+    assert profile.live_eligibility.eligible
+    assert profile.preview_eligibility.reason_code == "command_preview_transport_unsupported"
+    profile = replace(profile, command_transport="mavsdk", live_qualified_phases=())
+    assert profile.preview_eligibility.eligible
+    assert not profile.live_eligibility.eligible
+    assert replace(profile, implementation_available=False).preview_eligibility.reason_code == "follower_implementation_unavailable"
+    assert replace(profile, command_transport="future_transport").preview_eligibility.reason_code == "command_preview_transport_unsupported"
+
+
 def test_qualification_for_one_phase_does_not_admit_another_declared_phase():
     profile = replace(get_follower_profile("gm_velocity_vector"), live_qualified_phases=("multicopter",))
     assert profile.live_eligibility.eligible

@@ -11,7 +11,8 @@ from fastapi.responses import JSONResponse
 from classes.api_security_types import APIPrincipal
 from classes.app_controller import AppController
 from classes.api_v1_contracts import (APINativeFollowStartRequest, APINativeFollowStopRequest,
-                                      APINativeFollowerSelectRequest)
+                                      APINativeFollowerSelectRequest, APINativeFollowingProfile,
+                                      APICommandPreviewReadiness)
 from classes.api_v1_native_following import (following_snapshot, get_native_following,
                                              native_follow_action, native_follower_select)
 from classes.parameters import Parameters
@@ -75,6 +76,32 @@ def test_catalog_separates_selection_from_live_qualification(owner):
     assert row["live_qualified_phases"] == []
     vector = next(item for item in snapshot["profiles"] if item["mode"] == "gm_velocity_vector")
     assert vector["live_qualified_phases"] == ["multicopter", "fixed_wing"]
+
+
+def test_preview_catalog_explains_native_only_refusal_without_disabling_rate_preview(owner):
+    owner._get_following_status_snapshot = lambda: {
+        "execution_mode": "COMMAND_PREVIEW", "following_active": False,
+        "status": "inactive", "profile": {"current_mode": "mc_velocity_position"},
+    }
+    snapshot = following_snapshot(owner, owner.principal_test)
+    rows = {row["mode"]: row for row in snapshot["profiles"]}
+    native = rows["fw_navigation_chase"]
+    assert native["selection_eligible"] is True
+    assert native["live_qualified_phases"] == [] and native["live_eligible"] is False
+    assert native["preview_eligible"] is False and native["compatible"] is False
+    assert native["preview_reason_code"] == native["reason_code"] == "command_preview_transport_unsupported"
+    assert rows["fw_attitude_rate"]["preview_eligible"] is True
+    assert rows["fw_attitude_rate"]["compatible"] is True
+    assert rows["mc_velocity_position"]["preview_eligible"] is True
+    owner.app_controller.px4_interface.connect.assert_not_called()
+
+
+def test_preview_api_fields_are_optional_for_older_payloads():
+    old_profile = dict(mode="older_profile", display_name="Older profile", control_type="attitude_rate",
+                       airframe_phase="fixed_wing", compatible=False)
+    parsed = APINativeFollowingProfile.model_validate(old_profile)
+    assert parsed.preview_eligible is False and parsed.preview_reason_code is None
+    assert APICommandPreviewReadiness.model_validate({"ready": False}).reason_code is None
 
 
 def test_catalog_generation_and_saved_selection_do_not_follow_aircraft_readiness(owner, monkeypatch):

@@ -336,6 +336,24 @@ def evaluate_command_preview_start_readiness(
             "Command preview requires the circuit breaker to remain active."
         )
         return result
+    from classes.follower_catalog import get_follower_profile
+
+    try:
+        profile = get_follower_profile(str(Parameters.FOLLOWER_MODE))
+        preview = profile.preview_eligibility
+    except Exception:
+        result["reason_code"] = "command_preview_contract_unavailable"
+        result["reason"] = "The selected follower's command-preview contract is unavailable."
+        return result
+    if not preview.eligible:
+        result["reason_code"] = preview.reason_code
+        result["reason"] = (
+            "Local command preview is unavailable for this follower; native guidance "
+            "requires the separate qualified native simulation workflow."
+            if profile.command_transport == "px4_native"
+            else "The selected follower implementation is unavailable for local command preview."
+        )
+        return result
     if not base_runtime.get("usable_for_following", False):
         result["reason"] = str(
             base_runtime.get("reason")

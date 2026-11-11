@@ -8,6 +8,8 @@ PX4 handles coordinated turns, energy management and attitude control.
 closed (`live_qualified_phases: []`). Deterministic strategy/fixture tests do not
 qualify a camera installation or actual aircraft response. See the
 [qualification inventory](../05-development/follower-sih-validation-matrix.md).
+Local `COMMAND_PREVIEW` is unavailable for its native-only contract; use the
+isolated native SIH runner for component evidence.
 
 ```text
 measured image pixel + exact calibration + qualified sample-time attitude

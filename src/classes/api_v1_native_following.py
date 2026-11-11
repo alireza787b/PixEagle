@@ -61,7 +61,9 @@ def following_snapshot(owner, principal, *, client_control_contract_version: int
     for profile in catalog:
         selection = evaluate_input(profile, schema_manager, output_type, tracker_name=tracker_name)
         live = profile.live_eligibility
-        reason = selection.reason_code or (live.reason_code if execution_mode == "PX4" else None)
+        preview = profile.preview_eligibility
+        execution = preview if execution_mode == "COMMAND_PREVIEW" else live
+        reason = selection.reason_code or execution.reason_code
         if not selection.eligible and reason != "follower_implementation_unavailable":
             # Existing clients retain their generic compatibility reason; new
             # clients can explain the precise selection failure separately.
@@ -76,6 +78,7 @@ def following_snapshot(owner, principal, *, client_control_contract_version: int
             compatible=reason is None, reason_code=reason,
             selection_eligible=selection.eligible, selection_reason_code=selection.reason_code,
             live_eligible=live.eligible, live_reason_code=live.reason_code,
+            preview_eligible=preview.eligible, preview_reason_code=preview.reason_code,
         ))
 
     reasons = []

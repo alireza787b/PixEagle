@@ -46,6 +46,7 @@ class FollowerProfile:
     config_section: str
     visibility: str
     control_type: str
+    command_transport: str
     airframe_phase: str
     required_fields: tuple[str, ...]
     required_tracker_data: tuple[str, ...]
@@ -55,6 +56,8 @@ class FollowerProfile:
 
     @classmethod
     def from_info(cls, mode: str, info: Mapping) -> FollowerProfile:
+        from classes.setpoint_handler import SetpointHandler
+
         family = info.get("family")
         visibility = info.get("visibility")
         if family not in PROFILE_FAMILIES or visibility not in PROFILE_VISIBILITIES:
@@ -67,6 +70,7 @@ class FollowerProfile:
         return cls(
             mode=mode, display_name=info["display_name"], description=info["description"],
             family=family, visibility=visibility, config_section=info["config_section"], control_type=info["control_type"],
+            command_transport=SetpointHandler.get_control_type_metadata(info["control_type"])["transport"],
             airframe_phase=info["airframe_phase"], required_fields=tuple(info["required_fields"]),
             required_tracker_data=tuple(info["required_tracker_data"]),
             native_phase_contracts=tuple(info.get("native_phase_contracts", {}).items()),
@@ -93,6 +97,15 @@ class FollowerProfile:
             return summary
         if phase not in self.live_qualified_phases:
             return Eligibility(False, "profile_not_live_qualified")
+        return Eligibility(True)
+
+    @property
+    def preview_eligibility(self) -> Eligibility:
+        """Local preview implements MAVSDK-shaped intent, not native mode ownership."""
+        if not self.implementation_available:
+            return Eligibility(False, "follower_implementation_unavailable")
+        if self.command_transport != "mavsdk":
+            return Eligibility(False, "command_preview_transport_unsupported")
         return Eligibility(True)
 
 

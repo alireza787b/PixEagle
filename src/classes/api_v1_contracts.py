@@ -234,6 +234,8 @@ class APINativeFollowingProfile(BaseModel):
     selection_reason_code: Optional[str] = None
     live_eligible: bool = False
     live_reason_code: Optional[str] = None
+    preview_eligible: bool = False
+    preview_reason_code: Optional[str] = None
 
 
 class APIFollowingSessionControl(BaseModel):
@@ -1589,6 +1591,7 @@ class APICommandPreviewReadiness(BaseModel):
     finite_validation_required: bool = True
     warnings: List[str] = Field(default_factory=list)
     reason: Optional[str] = None
+    reason_code: Optional[str] = None
     circuit_breaker: Optional[Dict[str, Any]] = None
     video_frame_status: Dict[str, Any] = Field(default_factory=dict)
 

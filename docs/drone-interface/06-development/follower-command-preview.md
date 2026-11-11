@@ -6,6 +6,15 @@ same tracker-to-follower and schema-aware `CommandIntent` boundary used by the
 live path, but replaces the vehicle command publisher with a bounded local
 intent recorder.
 
+Preview supports implemented profiles whose nominal command transport is
+`mavsdk`, including the MC branch of Gimbal Vector and the local FW rate
+calculation. Native-only profiles require a registered PX4 native owner and
+are not implemented by this local recorder. The shared catalog advertises
+`preview_eligible` and `preview_reason_code` independently of selection and
+live qualification; Start checks the same decision before constructing a
+follower, including after pending configuration applies. Use the isolated
+native SIH workflow for native-only development, not fabricated aircraft state.
+
 It is **not** autonomous Following, a PX4 simulator, a MAVLink test, or proof of
 vehicle response. `commands_sent_to_px4` remains `false` by contract.
 
@@ -157,3 +166,5 @@ If Start Follower Test is disabled, read the command-preview reason shown by
 the typed following status. The common causes are no active target, a closed
 video source, a cached/EOF frame, a tentative or prediction-only target, or an
 inactive or unavailable circuit breaker.
+`command_preview_transport_unsupported` means the selected profile is native-only;
+it cannot be tested by changing the circuit breaker or supplying a replay alone.

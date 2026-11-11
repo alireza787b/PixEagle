@@ -3234,8 +3234,11 @@ class AppController:
             return False
         phase = descriptor.airframe_phase
         from classes.airspeed_readiness import evaluate_following_start_airspeed
-        message = (f"Live {phase} following is not qualified for the current "
-                   "MAVSDK/PX4 integration; use COMMAND_PREVIEW")
+        message = f"Live {phase} following is not qualified for this profile."
+        if descriptor.preview_eligibility.eligible:
+            message += " Use COMMAND_PREVIEW for local intent testing."
+        elif descriptor.command_transport == "px4_native":
+            message += " Local command preview is unavailable; native simulation qualification remains required."
         result["precondition"] = {
             "code": "continuity_profile_not_live_qualified", "airframe_phase": phase, "reason": message,
             "airspeed_readiness": evaluate_following_start_airspeed(self, mode=Parameters.FOLLOWER_MODE),
@@ -3478,7 +3481,7 @@ class AppController:
                     )
                 )
                 result["precondition"] = {
-                    "code": "command_preview_not_ready",
+                    "code": readiness.get("reason_code") or "command_preview_not_ready",
                     "reason": readiness.get("reason"),
                 }
                 logging.warning(
@@ -3511,6 +3514,13 @@ class AppController:
 
             try:
                 publication = await self._apply_pending_follower_config()
+                readiness = self._get_command_preview_readiness()
+                result["command_preview_readiness_after_config"] = readiness
+                if not readiness.get("ready", False):
+                    reason = str(readiness.get("reason") or "Command preview readiness changed during configuration apply")
+                    result["precondition"] = {"code": readiness.get("reason_code") or "command_preview_not_ready",
+                                              "reason": reason}
+                    raise RuntimeError(reason)
                 self._refresh_target_continuity_policy()
                 if publication["applied_count"]:
                     result["steps"].append(

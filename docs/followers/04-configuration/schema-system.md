@@ -99,6 +99,12 @@ clients. Selection, implementation/live gating and current Start readiness are
 different results. Preserve unavailable saved selections and explain the reason;
 do not silently choose another mode or infer capability from an ID prefix.
 
+Local preview eligibility is derived from the nominal control type's canonical
+transport: implemented MAVSDK contracts can record local intent; native-only
+contracts cannot acquire a native owner in `COMMAND_PREVIEW`. The additive
+`preview_eligible` / `preview_reason_code` catalog fields describe that separate
+decision. A live-qualified phase does not grant preview support or vice versa.
+
 Profile selection is saved through ConfigService while following is inactive.
 A new session resolves it; changing the selected profile does not require a
 process reboot. Existing clients retain the `compatible` projection until their
