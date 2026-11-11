@@ -132,3 +132,12 @@ comparison foundation (`a4ebef4cf`) passes 47 focused tests. Tracker docs no lon
 recommend synthetic gimbal pixels or duplicated mount/Euler transforms. Active
 session pinning and final queued-write admission remain the next consumer gate;
 receipt identity does not establish physical target/exposure qualification.
+
+Frozen S6a renewal passes 5,633 unit tests after two stale factory mocks were
+replaced; integration (196), Phase 0 (155) and static/schema checks retain their
+exact earlier revision. Both failed and renewed gates are preserved. The next
+frame audit reproduces a real PID roll-to-yaw/vertical coupling on both mounts.
+`f6793260c` repairs the command-frame boundary without retuning; 251 focused tests
+pass, with component CSV/PNG rather than invented aircraft movement.
+`359218ffd` supplies the queued-dispatch foundation (206 focused tests); session
+source ownership, cleanup and coherent end-to-end software renewal remain open.

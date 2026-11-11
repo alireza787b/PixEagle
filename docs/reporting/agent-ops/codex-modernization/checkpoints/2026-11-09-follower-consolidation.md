@@ -643,3 +643,30 @@ duplicate Euler-transform examples. Physical target, mechanical capability and
 timing/frame qualification remain open. S6 is not closed, and no new live phase
 is admitted. The completed S5 isolated simulator was stopped to release resources;
 its container, evidence and software-only shutdown record remain retained.
+
+Full S6a renewal on frozen `b0228d991` passes integration (196), Phase 0 (155),
+schema/inventory and fatal lint. Its unit sweep passes 5,631 with two obsolete
+factory mocks for the removed `CoordinateTransformer`. `5a4fbb4bf` replaces those
+mocks with actual inactive-provider construction; the frozen unit renewal passes
+5,633 tests (11 optional GStreamer skips). Both exact revisions and logs remain
+in `software-gates-s6a-r{1,2}/`; the later gate excludes ongoing consumer work.
+
+### S6 — command frame and queued publication prerequisites
+
+`f6793260c` corrects GM PID's physical-FRD versus MAVLink-heading mismatch. With
++30-degree roll and a target directly ahead/below in NED, both mounts previously
+commanded +0.353 deg/s yaw despite zero target bearing. The canonical conversion
+now precedes angular PID error extraction and gives zero yaw. The 251-test gate
+includes 84 real-constructor cases covering both mounts, lateral/altitude modes,
+combined attitudes, wrap, level-flight characterization and stale refusal. Gains,
+ramps, limits and forward-speed laws remain unchanged. Component CSV/PNG and
+failed/passing logs are retained under `software-gates-r1/s6c-pid-frame-*`.
+These are calculation proofs; actual SIH response renewal remains pending.
+
+`359218ffd` adds a reusable synchronous dispatch guard to the native client and
+MAVSDK boundary (206 focused checks). Accepted command fields survive queued
+waits; mode/setter dispatch is recorded conservatively, and pre-acquire refusal
+uses the existing read-only sender cleanup without an unrelated Hold. This is
+the transport foundation only: the original-source session consumer and its
+integrated software gate are still in progress. Explicit Stop stays separate
+from stale pursuit/retarget work. See plan section 4 for the shared semantics.

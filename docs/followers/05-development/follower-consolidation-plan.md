@@ -131,6 +131,23 @@ non-default restrictions and intersect declared installation bounds; no provider
 may widen them. Record each authority's origin instead of adding a second
 SafetyManager. Physical native FW timing/installation gates remain closed.
 
+Pin the observation source before awaited follow startup and retain it through
+same-source retargets. Compare independent current ownership and analysis geometry
+with the original sample binding; video delivery epochs cannot substitute for
+camera ownership. Missing data enters the existing continuity policy. A definite
+source change ends that session. At the actual command write, recheck a captured
+semantic session/target guard after queued waits, without inference/model locks.
+Ordinary frame progress must not invalidate every pending command. Superseded
+targets/sessions skip without failed-link counts; source changes in the current
+session use existing authority-bound teardown after publication locks release.
+Record the exact accepted fields sent, not a later mutable handler snapshot.
+
+Startup records whether mode acquisition may actually have been dispatched.
+Refusal beforehand cannot request Hold on an aircraft it never acquired. MAVSDK's
+normal Stop also requests Hold; use the existing read-only sender-quiescence path
+when no such mode change is authorized, and retain cleanup ownership/block a new
+Start if quiescence is unconfirmed. Do not add another publisher or loss timer.
+
 Installation geometry is camera/provider-owned. Fixed cameras have a fixed
 optical-to-physical-body transform; moving cameras add measured pose. Converting
 an off-centre pixel requires calibration and dynamic orientation, including
