@@ -121,12 +121,12 @@ class NativeCommandTransport:
         finally:
             self._pending_identity = None
 
-    async def publish(self, intent: CommandIntent | None, *, reason: str, ttl_s: float) -> bool:
+    async def publish(self, intent: CommandIntent | None, *, reason: str, ttl_s: float, before_dispatch=None) -> bool:
         self.last_published_intent = None
         if intent is None:
             if self.client.session_identity != self.identity:
                 return False
-            self.last_handoff = await self.client.handoff(self.identity, reason=reason)
+            self.last_handoff = await self.client.handoff(self.identity, reason=reason, before_dispatch=before_dispatch)
             return self.last_handoff.get("hold_observed") is True
         observation = await self.client.observe()
         if (observation.get("fresh") is not True or observation.get("owner_confirmed") is not True
@@ -154,7 +154,8 @@ class NativeCommandTransport:
         expires = intent.created_at_monotonic_s + ttl_s
         command = self._command(intent, state)
         external = ExternalModeIntent(self.identity, self._sequence, now, expires, command)
-        await self.client.submit(external, circuit_breaker_active=self.circuit_breaker())
+        await self.client.submit(external, circuit_breaker_active=self.circuit_breaker(),
+                                 before_dispatch=before_dispatch)
         self._sequence += 1
         self.last_published_intent = replace(intent, fields=dict(intent.fields))
         self.last_feedback = observation.get("native_guidance_feedback")

@@ -64,6 +64,7 @@ class TargetEvidenceSnapshot:
     target_id: Optional[str]
     identity_verdict: IdentityVerdict
     reason_code: str
+    observation_source_changed: bool = False
 
     @classmethod
     def from_tracker_output(
@@ -509,6 +510,8 @@ class TargetContinuitySupervisor:
             if any(candidate is not None and candidate.guidance_identity != context.guidance_identity
                    for candidate in candidates):
                 return self._request_handoff("guidance_context_changed", now)
+        if evidence.observation_source_changed:
+            return self._request_handoff("following_observation_source_changed", now)
         if evidence.state is TargetEvidenceState.AMBIGUOUS:
             return self._request_handoff("target_identity_ambiguous", now)
         if self._state is ContinuityAuthorityState.HANDOFF_PENDING:

@@ -17,6 +17,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
 
 from classes.frame_publisher import CaptureStamp
+from tests.fixtures.following_observation import bind_controller_source, bind_image_source, image_output, gimbal_output
 from classes.app_controller import AppController
 from classes.command_intent import CommandIntent
 from classes.circuit_breaker import FollowerCircuitBreaker
@@ -70,14 +71,14 @@ def _permit_reviewed_command_path_by_default(monkeypatch):
 
 
 def _active_gimbal_output() -> TrackerOutput:
-    return TrackerOutput(
+    return gimbal_output(TrackerOutput(
         data_type=TrackerDataType.GIMBAL_ANGLES,
         timestamp=time.time(),
         tracking_active=True,
         tracker_id='gimbal_tracker',
         angular=(0.0, 0.0, 0.0),
         raw_data={'usable_for_following': True},
-    )
+    ))
 
 
 def _ready_offboard_preflight(_owner):
@@ -143,7 +144,7 @@ def _inactive_position_output() -> TrackerOutput:
 def _active_position_output(**raw_overrides) -> TrackerOutput:
     raw_data = {'usable_for_following': True, 'measurement_source': 'measurement'}
     raw_data.update(raw_overrides)
-    return TrackerOutput(
+    return image_output(TrackerOutput(
         data_type=TrackerDataType.POSITION_2D,
         timestamp=time.time(),
         tracking_active=True,
@@ -152,11 +153,11 @@ def _active_position_output(**raw_overrides) -> TrackerOutput:
         confidence=0.8,
         raw_data=raw_data,
         metadata={'usable_for_following': raw_data.get('usable_for_following', True)},
-    )
+    ))
 
 
 def _active_position_output_without_usability_metadata() -> TrackerOutput:
-    return TrackerOutput(
+    return image_output(TrackerOutput(
         data_type=TrackerDataType.POSITION_2D,
         timestamp=time.time(),
         tracking_active=True,
@@ -165,7 +166,7 @@ def _active_position_output_without_usability_metadata() -> TrackerOutput:
         confidence=0.8,
         raw_data={'measurement_source': 'measurement'},
         metadata={},
-    )
+    ))
 
 
 def _start_event_loop_thread(loop):
@@ -237,6 +238,7 @@ def _visible_multi_target_output() -> TrackerOutput:
 def _follower_manager_stub(control_type='velocity_body_offboard'):
     follower = MagicMock()
     follower.follower.require_guidance_input.return_value = None
+    follower.follower.session_controls.return_value = []
     follower.follower.altitude_limits = SimpleNamespace(safety_enabled=False)
     follower.validate_tracker_compatibility.return_value = True
     follower.follow_target.return_value = True
@@ -295,14 +297,19 @@ def _commander_stub(accepted=True):
     )
 
 
-def _prepare_dispatch_controller(ctrl):
+def _prepare_dispatch_controller(ctrl, output=None):
     """Complete the lifecycle fields required by the authority boundary."""
     ctrl._follower_state_lock = asyncio.Lock()
     ctrl._tracking_session_generation = 0
     ctrl.following_execution_mode = 'COMMAND_PREVIEW'
+    Parameters.FOLLOWER_CIRCUIT_BREAKER = True
     ctrl._active_following_controller = SimpleNamespace(current_yaw=0.0)
     ctrl.setpoint_sender = None
     ctrl.telemetry_handler = SimpleNamespace(follower=getattr(ctrl, 'follower', None))
+    if output is None:
+        getter = ctrl.__dict__.get('get_tracker_output')
+        output = getter() if callable(getter) else _active_position_output()
+    bind_controller_source(ctrl, output, active=True)
     return ctrl
 
 
@@ -1577,6 +1584,7 @@ async def test_connect_px4_rejects_unconfirmed_mavsdk_connection_without_stop_co
         stop_offboard_mode=AsyncMock(),
     )
 
+    bind_image_source(ctrl)
     result = await ctrl.connect_px4()
 
     assert ctrl.following_active is False
@@ -1629,6 +1637,7 @@ async def test_connect_px4_does_not_mark_following_active_when_offboard_start_fa
         stop_offboard_mode=AsyncMock(),
     )
 
+    bind_image_source(ctrl)
     with patch('classes.app_controller.Follower', return_value=follower_manager) as factory:
         factory.get_mode_info.return_value = FollowerFactory.get_follower_info("mc_velocity_position")
         result = await ctrl.connect_px4()
@@ -1687,6 +1696,7 @@ async def test_connect_px4_rechecks_target_readiness_after_telemetry_wait(monkey
         stop_offboard_mode=AsyncMock(),
     )
 
+    bind_image_source(ctrl)
     with patch('classes.app_controller.Follower', return_value=follower_manager) as factory:
         factory.get_mode_info.return_value = FollowerFactory.get_follower_info("mc_velocity_position")
         result = await ctrl.connect_px4()
@@ -1727,6 +1737,7 @@ async def test_connect_px4_rejects_low_altitude_before_offboard():
         stop_offboard_mode=AsyncMock(),
     )
 
+    bind_image_source(ctrl)
     with patch('classes.app_controller.Follower', return_value=follower_manager) as factory:
         factory.get_mode_info.return_value = FollowerFactory.get_follower_info("mc_velocity_position")
         result = await ctrl.connect_px4()
@@ -1765,6 +1776,7 @@ async def test_connect_px4_refuses_follow_when_link_has_no_usable_telemetry():
         stop_offboard_mode=AsyncMock(),
     )
 
+    bind_image_source(ctrl)
     result = await ctrl.connect_px4()
 
     assert ctrl.following_active is False
@@ -1827,6 +1839,7 @@ async def test_connect_px4_starts_offboard_commander_instead_of_setpoint_sender(
         get_status=MagicMock(return_value={"running": True}),
     )
 
+    bind_image_source(ctrl)
     with patch('classes.app_controller.Follower', return_value=follower_manager) as factory, \
             patch('classes.app_controller.OffboardCommander', return_value=commander) as commander_ctor:
         factory.get_mode_info.return_value = FollowerFactory.get_follower_info("mc_velocity_position")
@@ -1838,7 +1851,7 @@ async def test_connect_px4_starts_offboard_commander_instead_of_setpoint_sender(
     assert ctrl.setpoint_sender is None
     commander.start.assert_awaited_once()
     commander_ctor.assert_called_once()
-    assert commander_ctor.call_args.kwargs["on_failure_threshold"] == ctrl._schedule_offboard_commander_failure
+    assert callable(commander_ctor.call_args.kwargs["on_failure_threshold"])
     assert result["offboard_action"]["executed"] is True
     assert any("start command acknowledged" in step for step in result["steps"])
 
@@ -2180,7 +2193,7 @@ async def test_dispatch_records_only_successfully_submitted_shaped_gimbal_comman
     ctrl = object.__new__(AppController)
     ctrl.following_active = True
     ctrl.follower = _follower_manager_stub()
-    _prepare_dispatch_controller(ctrl)
+    _prepare_dispatch_controller(ctrl, _active_gimbal_output())
     original = _command_intent(fields={"vel_body_fwd": .5, "vel_body_right": .2,
                                      "vel_body_down": -.1, "yawspeed_deg_s": 4.0})
     original = CommandIntent(profile_name=mode, control_type=original.control_type,
@@ -2214,7 +2227,7 @@ async def test_confirmed_loss_restoration_reuses_the_normal_slew_limiter(reason)
     ctrl = object.__new__(AppController)
     ctrl.following_active = True
     ctrl.follower = _follower_manager_stub()
-    _prepare_dispatch_controller(ctrl)
+    _prepare_dispatch_controller(ctrl, _active_gimbal_output())
     original = CommandIntent(profile_name='gm_velocity_vector', control_type='velocity_body_offboard',
                              fields=dict(vel_body_fwd=.5, vel_body_right=.1, vel_body_down=-.1, yawspeed_deg_s=4),
                              source='target_continuity', reason=reason)
@@ -2607,6 +2620,7 @@ async def test_offboard_exit_callback_from_worker_thread_uses_app_loop():
     ctrl = object.__new__(AppController)
     ctrl._app_event_loop = asyncio.get_running_loop()
     ctrl.following_active = True
+    ctrl._following_session_id = 'fixture-follow-session'
     ctrl._handle_offboard_mode_exit = AsyncMock()
 
     worker = threading.Thread(
@@ -2618,7 +2632,7 @@ async def test_offboard_exit_callback_from_worker_thread_uses_app_loop():
     await asyncio.sleep(0.05)
 
     assert not worker.is_alive()
-    ctrl._handle_offboard_mode_exit.assert_awaited_once_with(393216, 196608)
+    ctrl._handle_offboard_mode_exit.assert_awaited_once_with(393216, 196608, expected_session_id='fixture-follow-session')
 
 
 def test_offboard_exit_callback_without_loop_fails_closed_locally():
@@ -2648,6 +2662,7 @@ async def test_target_continuity_handoff_records_confirmed_px4_stop():
         }
     )
     supervisor = MagicMock()
+    ctrl.target_continuity = supervisor
     ctrl._get_target_continuity_supervisor = MagicMock(return_value=supervisor)
 
     await ctrl._execute_target_continuity_handoff("target_evidence_absent")
@@ -2700,6 +2715,7 @@ async def test_target_continuity_handoff_does_not_overstate_unconfirmed_stop():
         return_value={"steps": ["local cleanup complete"], "errors": []}
     )
     supervisor = MagicMock()
+    ctrl.target_continuity = supervisor
     ctrl._get_target_continuity_supervisor = MagicMock(return_value=supervisor)
 
     await ctrl._execute_target_continuity_handoff("target_evidence_absent")
@@ -6113,6 +6129,7 @@ async def test_app_controller_tracker_switch_allows_command_preview_hold(
     controller.video_handler = object()
     controller.detector = object()
 
+    bind_image_source(controller, active=True)
     result = await controller.switch_tracker_type("KCF")
 
     assert result["success"] is True

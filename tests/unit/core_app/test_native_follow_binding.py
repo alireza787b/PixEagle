@@ -32,7 +32,10 @@ def fixture(*, phase=AirframePhase.FIXED_WING, is_vtol=True):
     client = SimpleNamespace(session_identity=None, abort=Mock(), submit=AsyncMock(),
                              handoff=AsyncMock(return_value={"hold_observed": True}))
 
-    async def engage(identity, **_):
+    async def engage(identity, **kwargs):
+        from classes.command_dispatch_guard import validate_before_dispatch
+        validate_before_dispatch(kwargs.get("before_dispatch"))
+        validate_before_dispatch(kwargs.get("on_mode_dispatch"))
         client.session_identity = identity
 
     async def advance(identity):

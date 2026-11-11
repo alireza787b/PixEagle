@@ -110,7 +110,7 @@ async def test_shared_commander_uses_native_fw_contract_without_mavsdk_or_zero_d
     assert commander.get_status()["command_publication_source"] == "px4_native_external_mode"
     await commander.stop()
     assert client.submit.await_count == 1
-    client.handoff.assert_awaited_once_with(identity, reason="operator_stop")
+    client.handoff.assert_awaited_once_with(identity, reason="operator_stop", before_dispatch=None)
 
 
 @pytest.mark.asyncio

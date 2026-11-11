@@ -11,6 +11,7 @@ import pytest
 
 from classes.aircraft_state import AircraftBinding, AirframePhase, GuidanceSessionIdentity
 from classes.app_controller import AppController
+from tests.fixtures.following_observation import bind_image_source
 from classes.command_intent import CommandIntent
 from classes.fixed_wing_vector_guidance import FixedWingCommand
 from classes.target_continuity import (
@@ -69,6 +70,7 @@ def _controller(intent):
         submit_intent=Mock(return_value=True),
         get_status=lambda: {"failsafe_defaults_active": False},
     )
+    bind_image_source(controller, active=True)
     controller.target_continuity = owner
     controller._activate_offboard_commander_failsafe_defaults = Mock()
     return controller

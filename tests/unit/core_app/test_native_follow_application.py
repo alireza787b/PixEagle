@@ -9,6 +9,7 @@ import pytest
 from classes.aircraft_state import AircraftKind
 from classes.app_controller import AppController
 from classes.parameters import Parameters
+from tests.fixtures.following_observation import bind_image_source
 from classes.follower import FollowerFactory
 from classes.api_v1_following_controls import session_control_snapshot
 from classes.api_v1_contracts import APITargetContinuityStatus
@@ -26,6 +27,7 @@ def app(monkeypatch):
     ctrl.following_active = False
     ctrl.follower = ctrl.offboard_commander = ctrl.setpoint_sender = None
     ctrl.tracker = SimpleNamespace(normalized_center=(.5, .5))
+    bind_image_source(ctrl)
     ctrl.telemetry_handler = SimpleNamespace(follower=None)
     ctrl._apply_pending_follower_config = AsyncMock(return_value={"applied_count": 0})
     ctrl._get_follow_start_readiness = Mock(return_value={"usable_for_following": True})

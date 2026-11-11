@@ -712,7 +712,6 @@ class GimbalTracker(BaseTracker):
                     'guidance_capabilities': self.provider_metadata.get('guidance_capabilities'),
                     'timestamp': sample_timestamp,
                     'angle_sample_timestamp': sample_timestamp,
-                    'camera_provider_instance': str(id(self.gimbal_provider)),
                     'angle_sample_monotonic': sample_monotonic,
                     'angle_sample_sequence': getattr(gimbal_data, 'angle_sample_sequence', None),
                     'angle_sample_age_s': sample_age,

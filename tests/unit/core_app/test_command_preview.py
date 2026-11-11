@@ -27,6 +27,7 @@ from classes.api_v1_snapshots import (
     get_following_command_publication_status,
 )
 from classes.app_controller import AppController
+from tests.fixtures.following_observation import bind_image_source, image_output
 from classes.fastapi_handler import FastAPIHandler
 from classes.following_readiness import (
     evaluate_command_preview_start_readiness,
@@ -38,7 +39,7 @@ from classes.tracker_output import TrackerDataType, TrackerOutput
 
 
 def _active_tracker_output() -> TrackerOutput:
-    return TrackerOutput(
+    return image_output(TrackerOutput(
         data_type=TrackerDataType.POSITION_2D,
         timestamp=time.time(),
         tracking_active=True,
@@ -52,7 +53,7 @@ def _active_tracker_output() -> TrackerOutput:
             "usable_for_following": True,
             "data_is_stale": False,
         },
-    )
+    ))
 
 
 class _PreviewVideo:
@@ -64,6 +65,17 @@ class _PreviewVideo:
 
 
 class _PreviewApp:
+    _freeze_following_observation_source = AppController._freeze_following_observation_source
+    _guidance_source_readiness = AppController._guidance_source_readiness
+    _guidance_source_verdict = AppController._guidance_source_verdict
+    _tracker_observation_source = staticmethod(AppController._tracker_observation_source)
+    _following_source_verdict = AppController._following_source_verdict
+    _following_source_context = AppController._following_source_context
+    _follow_start_input_identity = AppController._follow_start_input_identity
+
+    def __init__(self):
+        bind_image_source(self, _active_tracker_output())
+
     current_tracker_type = "CSRT"
     tracker = SimpleNamespace()
     smart_mode_active = False
@@ -362,6 +374,7 @@ async def test_typed_preview_start_has_no_px4_command_path(monkeypatch):
     app.current_tracker_type = "CSRT"
     app.smart_mode_active = False
     app.tracker = SimpleNamespace(normalized_center=(0.0, 0.0))
+    bind_image_source(app, _active_tracker_output())
     app.video_handler = _PreviewVideo(
         {
             "source": "fresh",
@@ -371,7 +384,7 @@ async def test_typed_preview_start_has_no_px4_command_path(monkeypatch):
             "usable_for_following": False,
         }
     )
-    app.get_tracker_output = _active_tracker_output
+    bind_image_source(app, _active_tracker_output())
     app._tracker_requires_video_for_following = lambda: True
     app.telemetry_handler = SimpleNamespace(follower=None)
     app.px4_interface = SimpleNamespace(
@@ -542,6 +555,7 @@ async def test_app_controller_preview_lifecycle_uses_no_px4_start_or_stop_path(
     app.offboard_commander = None
     app.setpoint_sender = None
     app.tracker = SimpleNamespace(normalized_center=(0.0, 0.0))
+    bind_image_source(app, _active_tracker_output())
     app.telemetry_handler = SimpleNamespace(follower=None)
     app.px4_interface = SimpleNamespace(setpoint_handler=None)
     app._active_following_controller = app.px4_interface

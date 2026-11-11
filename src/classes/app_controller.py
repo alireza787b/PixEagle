@@ -19,6 +19,11 @@ from classes.logging_manager import logging_manager
 from classes.runtime_logging import redact_text
 from classes.follower import Follower
 from classes.command_intent import CommandIntent
+from classes.command_dispatch_guard import DispatchRefused, DispatchRefusalKind, validate_before_dispatch
+from classes.following_observation_source import (
+    GimbalFollowingSource, ImageFollowingSource, ImageObservationOwner, ObservationSourceVerdict,
+    compare_following_observation_source, project_following_observation_source,
+)
 from classes.aircraft_state import AircraftKind, AircraftLayout, GuidanceSessionIdentity
 from classes.fixed_wing_guidance_policy import FixedWingGuidancePolicy
 from classes.native_follow_binding import NativeFollowBinding, requires_native_guidance
@@ -123,6 +128,7 @@ class AppController:
         self.requested_process_exit_code = None
         self.following_active = False
         self._following_session_id = None
+        self._following_observation_source = None
         self._native_follow_binding = None
         self._following_session_aircraft_uid = None
         self._following_session_connection_generation = None
@@ -1328,6 +1334,12 @@ class AppController:
                 "execution_mode": execution_mode,
             }
 
+        pin = getattr(self, "_following_observation_source", None)
+        source_verdict = self._following_source_verdict(pin)
+        if source_verdict is not ObservationSourceVerdict.UNCHANGED:
+            return {"prepared": False, "reason": ("following_observation_source_changed"
+                    if source_verdict is ObservationSourceVerdict.DEFINITELY_CHANGED
+                    else "following_observation_source_unavailable")}
         follower = getattr(self, "follower", None)
         prepare_follower = getattr(follower, "prepare_for_target_transition", None)
         commander = getattr(self, "offboard_commander", None)
@@ -1395,7 +1407,7 @@ class AppController:
             )
             if not prepare_follower(reason):
                 raise RuntimeError("follower rejected target-transition preparation")
-            if not submit_intent(carryover):
+            if not self._submit_command_intent_to_commander(carryover):
                 raise RuntimeError("commander rejected bounded transition intent")
             commander_status_getter = getattr(commander, "get_status", None)
             commander_status = (
@@ -1425,6 +1437,7 @@ class AppController:
             reason,
         )
         self._target_transition_previous_intent = previous_intent
+        self._target_transition_carryover_intent = carryover
         return {
             "prepared": True,
             "command_hold_applied": False,
@@ -2002,6 +2015,9 @@ class AppController:
             prior = getattr(self, "_target_transition_previous_intent", None)
             if for_retarget and prior is not None:
                 if supervisor.begin_target_transition(session_epoch=generation, previous_intent=prior):
+                    carryover = getattr(self, "_target_transition_carryover_intent", None)
+                    if carryover is not None:
+                        self._submit_command_intent_to_commander(carryover)
                     self._ensure_continuity_watchdog()
                 else:
                     supervisor.reset_session(session_epoch=generation, reason="target_transition_intent_invalid")
@@ -2015,6 +2031,7 @@ class AppController:
                     reason="target_session_changed",
                 )
         self._target_transition_previous_intent = None
+        self._target_transition_carryover_intent = None
         return generation
 
     def _ensure_continuity_watchdog(self) -> None:
@@ -2438,13 +2455,13 @@ class AppController:
     async def handle_failsafe(self):
         await self.disconnect_px4()
 
-    async def _handle_offboard_mode_exit(self, old_mode, new_mode):
+    async def _handle_offboard_mode_exit(self, old_mode, new_mode, *, expected_session_id=None):
         """Route observed Offboard-exit cleanup to the flight owner loop."""
         return await self._run_on_flight_event_loop(
-            lambda: self._handle_offboard_mode_exit_on_flight_loop(old_mode, new_mode)
+            lambda: self._handle_offboard_mode_exit_on_flight_loop(old_mode, new_mode, expected_session_id=expected_session_id)
         )
 
-    async def _handle_offboard_mode_exit_on_flight_loop(self, old_mode, new_mode):
+    async def _handle_offboard_mode_exit_on_flight_loop(self, old_mode, new_mode, *, expected_session_id=None):
         """
         Automatically disable follow mode when drone exits Offboard mode.
 
@@ -2463,6 +2480,8 @@ class AppController:
         - Dashboard UI → Updates to show follow mode disabled
         - Telemetry → Updates following_active status
         """
+        if expected_session_id is not None and expected_session_id != getattr(self, "_following_session_id", None):
+            return
         # Registered native-mode ownership is observed by its own contract;
         # a delayed MAVLink Offboard-exit event cannot revoke that newer owner.
         if getattr(self, "_native_follow_binding", None) is not None:
@@ -2491,7 +2510,7 @@ class AppController:
                 commander_publish_final=False,
                 attempt_offboard_stop=False,
                 cancel_pending_start=True,
-                reason_code="offboard_mode_exited",
+                reason_code="offboard_mode_exited", expected_session_id=expected_session_id,
             )
 
             logging.info("Follow mode automatically disabled due to Offboard mode exit")
@@ -2620,13 +2639,19 @@ class AppController:
         MavlinkDataManager polls in a worker thread, so this cannot rely on
         `asyncio.create_task()` being available in the caller's thread.
         """
-        def fail_closed(_exc) -> None:
+        session = getattr(self, "_following_session_id", None)
+        if session is None:
             self.following_active = False
+            return
+        def fail_closed(_exc) -> None:
+            if session == getattr(self, "_following_session_id", None):
+                self.following_active = False
 
         self._schedule_on_flight_event_loop(
             lambda: self._handle_offboard_mode_exit(
                 old_mode,
                 new_mode,
+                expected_session_id=session,
             ),
             failure_message=(
                 "Offboard exit detected but the flight event loop is unavailable; "
@@ -3176,6 +3201,7 @@ class AppController:
         self.following_execution_mode = PX4_EXECUTION_MODE
         self._active_following_controller = getattr(self, "px4_interface", None)
         self._following_session_id = None
+        self._following_observation_source = None
         self._following_session_aircraft_uid = None
         self._following_session_connection_generation = None
         self._operator_stop_pending_session_id = None
@@ -3276,7 +3302,6 @@ class AppController:
         create = getattr(concrete, "create_airframe_session", None)
         if not callable(create):
             raise RuntimeError("follower_native_strategy_unavailable")
-        self._following_session_id = uuid.uuid4().hex
         identity = GuidanceSessionIdentity(self._following_session_id, state.binding, 0)
         guidance = create(
             identity, capabilities,
@@ -3391,30 +3416,164 @@ class AppController:
         }
         raise RuntimeError(f"Following readiness changed during startup: {reason}")
 
+    def _following_source_context(self, pinned):
+        """Read source ownership without inference, media locks or a fresh sample."""
+        if isinstance(pinned, ImageFollowingSource):
+            publisher = getattr(self, "frame_publisher", None)
+            try:
+                owner = ImageObservationOwner(publisher.stream_id, publisher.control_source_epoch)
+            except (AttributeError, TypeError, ValueError):
+                owner = None
+            return owner, getattr(self, "tracking_input_context", None)
+        if isinstance(pinned, GimbalFollowingSource):
+            from classes.camera_runtime import CameraRuntime
+            runtime = getattr(self, "camera_runtime", None)
+            owner = runtime.angle_source_identity() if isinstance(runtime, CameraRuntime) else None
+            tracker = getattr(self, "tracker", None)
+            metadata = getattr(tracker, "provider_metadata", None)
+            try:
+                context = GimbalFollowingSource(owner, metadata.get("provider"), tracker._geometry_revision)
+            except (AttributeError, TypeError, ValueError):
+                context = None
+            return owner, context
+        return None, None
+
+    def _following_source_verdict(self, sample=None, *, pinned=None):
+        pinned = getattr(self, "_following_observation_source", None) if pinned is None else pinned
+        owner, context = self._following_source_context(pinned)
+        return compare_following_observation_source(pinned, current=owner, current_context=context, sample=sample)
+
+    @staticmethod
+    def _tracker_observation_source(output):
+        observation = (getattr(output, "gimbal_observation", None)
+                       if getattr(output, "data_type", None) is TrackerDataType.GIMBAL_ANGLES
+                       else getattr(output, "image_measurement", None))
+        try:
+            return project_following_observation_source(observation)
+        except (AttributeError, TypeError, ValueError):
+            return None
+
+    def _guidance_source_verdict(self, output):
+        """One provenance check for startup, preview and active evidence."""
+        sample = self._tracker_observation_source(output)
+        pin = getattr(self, "_following_observation_source", None)
+        if pin is None and not getattr(self, "following_active", False):
+            pin = sample
+        return self._following_source_verdict(sample, pinned=pin)
+
+    def _guidance_source_readiness(self, output):
+        verdict = self._guidance_source_verdict(output)
+        code = ("following_observation_source_changed" if verdict is ObservationSourceVerdict.DEFINITELY_CHANGED
+                else "following_observation_source_unavailable")
+        return {"ready": verdict is ObservationSourceVerdict.UNCHANGED,
+                "reason_code": None if verdict is ObservationSourceVerdict.UNCHANGED else code}
+
+    def _freeze_following_observation_source(self) -> tuple:
+        output = self.get_tracker_output()
+        ready = self._guidance_source_readiness(output)
+        if not ready["ready"]:
+            raise ValueError(ready["reason_code"])
+        self._following_observation_source = self._tracker_observation_source(output)
+        self._following_session_id = uuid.uuid4().hex
+        return self._follow_start_input_identity()
+
     def _follow_start_input_identity(self) -> tuple:
-        """Retarget and image-source identity, without treating a new frame as a reset."""
-        with getattr(self, "_tracker_model_state_lock", None) or nullcontext():
-            generation = int(getattr(self, "_tracking_session_generation", 0))
-            if not self._tracker_requires_video_for_following():
-                from classes.camera_runtime import CameraRuntime
-                runtime = getattr(self, 'camera_runtime', None)
-                return generation, runtime.angle_source_identity() if isinstance(runtime, CameraRuntime) else None
-            context = getattr(self, "tracking_input_context", None)
-            provenance = context.provenance if isinstance(context, ImageFrameContext) else None
-            source_epoch = getattr(getattr(self, "frame_publisher", None), "control_source_epoch", None)
-            image_identity = None if provenance is None else (
-                provenance.source_id, provenance.capture.source_epoch,
-                provenance.geometry_revision, provenance.calibration_revision,
-            )
-            return generation, source_epoch, image_identity
+        """Source/target identity only; a new same-source frame is not a reset."""
+        pin = getattr(self, "_following_observation_source", None)
+        owner, context = self._following_source_context(pin)
+        try:
+            context = project_following_observation_source(context)
+        except (TypeError, ValueError):
+            context = None
+        return int(getattr(self, "_tracking_session_generation", 0)), owner, context
 
     def _require_follow_start_input_identity(self, expected: tuple, result: dict, *, stage: str) -> None:
-        if self._follow_start_input_identity() == expected:
+        pin = getattr(self, "_following_observation_source", None)
+        if (self._follow_start_input_identity() == expected
+                and self._following_source_verdict(pin) is ObservationSourceVerdict.UNCHANGED):
             return
         code = "following_input_context_changed"
         result["precondition"] = {"code": code, "stage": stage,
-                                  "reason": "Target or image source changed during following startup."}
+                                  "reason": "Target or observation source changed during following startup."}
         raise RuntimeError(code)
+
+    def _command_dispatch_context(self):
+        return {"follow_session_id": getattr(self, "_following_session_id", None),
+                "target_generation": int(getattr(self, "_tracking_session_generation", 0)),
+                "observation_source": getattr(self, "_following_observation_source", None),
+                "session_control_revisions": self._session_control_revision_key()}
+
+    def _session_control_revision_key(self):
+        concrete = getattr(getattr(self, "follower", None), "follower", None)
+        getter = getattr(concrete, "session_controls", None)
+        if getter is None:
+            return ()
+        controls = getter()
+        if not isinstance(controls, list):
+            raise ValueError("session_controls_contract_invalid")
+        keys = []
+        for control in controls:
+            if (not isinstance(control, dict) or not isinstance(control.get("control_id"), str)
+                    or not control["control_id"] or type(control.get("revision")) is not int
+                    or control["revision"] < 0 or control.get("guidance_generation") is not None
+                    and (type(control["guidance_generation"]) is not int or control["guidance_generation"] < 0)):
+                raise ValueError("session_controls_contract_invalid")
+            keys.append((control["control_id"], control["revision"], control.get("guidance_generation")))
+        return tuple(sorted(keys))
+
+    def _command_dispatch_guard(self, intent=None, *, teardown=False):
+        """Capture semantic ownership at acceptance, not when a queued RPC runs."""
+        session = getattr(self, "_following_session_id", None)
+        target = int(getattr(self, "_tracking_session_generation", 0))
+        pin = getattr(self, "_following_observation_source", None)
+        aircraft = getattr(self, "px4_interface", None)
+        identity_getter = getattr(aircraft, "get_aircraft_identity", None)
+        identity = identity_getter() if callable(identity_getter) else {}
+        aircraft_key = identity.get("autopilot_uid"), identity.get("connection_generation")
+        guidance_identity = None if intent is None else intent.guidance_identity
+        preview = self._is_command_preview_session()
+        control_key = None if teardown else self._session_control_revision_key()
+
+        def before_dispatch():
+            if (session is None or session != getattr(self, "_following_session_id", None)
+                    or not teardown and (getattr(self, "_following_stopping", False)
+                    or getattr(self, "_operator_stop_pending_session_id", None) == session
+                    or target != int(getattr(self, "_tracking_session_generation", 0)))):
+                raise DispatchRefused("following_command_superseded", DispatchRefusalKind.SUPERSEDED)
+            if getattr(self, "shutdown_flag", False) and not teardown:
+                raise DispatchRefused("application_shutting_down", DispatchRefusalKind.TERMINAL)
+            circuit = FollowerCircuitBreaker.get_activation_state()
+            if circuit["available"] is not True:
+                raise DispatchRefused("circuit_breaker_state_unavailable", DispatchRefusalKind.TERMINAL)
+            if circuit["active"] is not preview:
+                raise DispatchRefused("command_preview_circuit_breaker_inactive" if preview
+                                      else "circuit_breaker_command_inhibit_active", DispatchRefusalKind.TERMINAL)
+            if not teardown and self._session_control_revision_key() != control_key:
+                raise DispatchRefused("following_control_superseded", DispatchRefusalKind.SUPERSEDED)
+            if pin is None and not teardown:
+                raise DispatchRefused("following_observation_source_unavailable", DispatchRefusalKind.TERMINAL)
+            if not teardown and self._following_source_verdict(pin, pinned=pin) is ObservationSourceVerdict.DEFINITELY_CHANGED:
+                raise DispatchRefused("following_observation_source_changed", DispatchRefusalKind.TERMINAL)
+            current = identity_getter() if callable(identity_getter) else {}
+            if (current.get("autopilot_uid"), current.get("connection_generation")) != aircraft_key:
+                raise DispatchRefused("following_aircraft_context_changed", DispatchRefusalKind.SUPERSEDED
+                                      if teardown else DispatchRefusalKind.TERMINAL)
+            binding = getattr(self, "_native_follow_binding", None)
+            if not preview and binding is None:
+                manager = getattr(aircraft, "mavlink_data_manager", None) or getattr(self, "mavlink_data_manager", None)
+                flight_getter = getattr(manager, "get_flight_state", None)
+                flight = flight_getter() if callable(flight_getter) else {}
+                exited = flight.get("offboard_exit_observed_at_monotonic_s")
+                started = getattr(aircraft, "_offboard_start_attempt_monotonic_s", None)
+                if (flight.get("fresh") is True and aircraft_key[0] is not None
+                        and flight.get("autopilot_uid") == aircraft_key[0]
+                        and type(exited) in (int, float) and math.isfinite(exited)
+                        and type(started) in (int, float) and math.isfinite(started) and exited > started):
+                    raise DispatchRefused("offboard_mode_exited", DispatchRefusalKind.SUPERSEDED
+                                          if teardown else DispatchRefusalKind.TERMINAL)
+            if not teardown and guidance_identity is not None and (binding is None or binding.guidance.identity != guidance_identity):
+                raise DispatchRefused("following_guidance_superseded", DispatchRefusalKind.SUPERSEDED)
+        return before_dispatch
 
     async def _connect_px4_once_on_flight_loop(
         self, native_start_guard=None, native_attempt_id=None, native_aircraft_uid=None,
@@ -3516,6 +3675,7 @@ class AppController:
                     )
 
             try:
+                start_input_identity = self._freeze_following_observation_source()
                 publication = await self._apply_pending_follower_config()
                 readiness = self._get_command_preview_readiness()
                 result["command_preview_readiness_after_config"] = readiness
@@ -3588,8 +3748,8 @@ class AppController:
                         or "Command preview capture failed to start"
                     )
 
+                self._require_follow_start_input_identity(start_input_identity, result, stage="before_preview_activation")
                 self._reset_follower_control_session()
-                self._following_session_id = uuid.uuid4().hex
                 self.following_active = True
                 self._ensure_continuity_watchdog()
                 self.last_offboard_commander_failure = None
@@ -3635,6 +3795,7 @@ class AppController:
         offboard_cleanup_required = False
         native_binding = None
         initial_native_intent = None
+        mavsdk_start_attempted = False
 
         configured_profile = Follower.get_mode_info(Parameters.FOLLOWER_MODE)
         if self._refuse_unqualified_live_profile(configured_profile, result):
@@ -3703,6 +3864,7 @@ class AppController:
             # Now proceed with starting follower
             try:
                 logging.info("Activating Follow Mode to PX4!")
+                start_input_identity = self._freeze_following_observation_source()
 
                 publication = await self._apply_pending_follower_config()
                 self._refresh_target_continuity_policy()
@@ -3725,6 +3887,10 @@ class AppController:
                         "MAVSDK returned without confirming a PX4 vehicle connection"
                     )
                 result["px4_connection"] = dict(connection_status)
+                identity_getter = getattr(self.px4_interface, "get_aircraft_identity", None)
+                connection_identity = identity_getter() if callable(identity_getter) else {}
+                self._following_session_aircraft_uid = connection_identity.get("autopilot_uid")
+                self._following_session_connection_generation = connection_identity.get("connection_generation")
                 if native_start_guard is not None:
                     self._native_follow_start_connection_generation = (
                         self.px4_interface.get_aircraft_identity().get("connection_generation")
@@ -3790,7 +3956,7 @@ class AppController:
                     result["errors"].append(error_msg)
                     raise
 
-                start_input_identity = self._follow_start_input_identity()
+                self._require_follow_start_input_identity(start_input_identity, result, stage="after_connection")
                 if native_required:
                     # Discovery supplies real native state, but acquires no mode.
                     native_binding = await self._prepare_native_follow_binding()
@@ -3810,25 +3976,30 @@ class AppController:
                 if native_start_guard is not None:
                     native_start_guard("before_offboard")
 
+                startup_dispatch_guard = self._command_dispatch_guard()
+                def mode_dispatched():
+                    nonlocal offboard_cleanup_required
+                    offboard_cleanup_required = True
+
                 # PX4InterfaceManager owns the required default-setpoint priming
                 # and mode transition as one fail-closed protocol operation.
                 try:
                     # Cancellation can arrive while MAVSDK is awaiting its ack.
                     # Treat that interval as possibly entered Offboard.
                     if native_required:
-                        offboard_cleanup_required = True
-                        initial_native_intent = await native_binding.engage()
+                        initial_native_intent = await native_binding.engage(
+                            before_dispatch=startup_dispatch_guard, on_mode_dispatch=mode_dispatched)
                         self.follower.follower.bind_airframe_session(native_binding.guidance)
                         offboard_result = {"executed": True, "command_owner": "px4_native_external_mode"}
                     else:
-                        offboard_cleanup_required = True
-                        offboard_result = await self.px4_interface.start_offboard_mode()
+                        mavsdk_start_attempted = True
+                        offboard_result = await self.px4_interface.start_offboard_mode(
+                            before_dispatch=startup_dispatch_guard, on_mode_dispatch=mode_dispatched)
                     if not isinstance(offboard_result, dict):
                         raise RuntimeError("PX4 Offboard start returned no action outcome")
                     result["offboard_action"] = dict(offboard_result)
-                    offboard_cleanup_required = bool(
-                        offboard_result.get("executed") is True
-                        and not offboard_result.get("degraded")
+                    offboard_cleanup_required = offboard_cleanup_required or bool(
+                        offboard_result.get("executed") is True and not offboard_result.get("degraded")
                     )
                     if offboard_result.get("steps"):
                         result["steps"].extend(offboard_result["steps"])
@@ -3868,6 +4039,8 @@ class AppController:
                     result["errors"].append(error_msg)
                     raise
 
+                if native_binding is None:
+                    self._reset_follower_control_session()
                 # Create the application-level MAVSDK setter owner. MAVSDK itself
                 # independently retransmits the latest setpoint for PX4's wire
                 # proof-of-life; follower updates submit CommandIntent snapshots.
@@ -3875,12 +4048,16 @@ class AppController:
                     self.offboard_commander = OffboardCommander(
                         self.px4_interface,
                         self.follower.follower.setpoint_handler,
-                        on_failure_threshold=self._schedule_offboard_commander_failure,
+                        on_failure_threshold=lambda status, session=self._following_session_id:
+                            self._schedule_offboard_commander_failure(status, expected_session_id=session),
+                        before_dispatch=self._command_dispatch_guard(initial_native_intent),
+                        stop_before_dispatch=self._command_dispatch_guard(teardown=True),
+                        dispatch_context=self._command_dispatch_context(),
                         on_publish_result=self._record_offboard_publish_result,
                         command_transport=native_binding.transport if native_binding is not None else None,
                     )
                     self._assert_setpoint_handler_ownership(require_commander=True)
-                    if native_binding is not None and not self.offboard_commander.submit_intent(initial_native_intent):
+                    if native_binding is not None and not self._submit_command_intent_to_commander(initial_native_intent):
                         raise RuntimeError("Initial native phase objective was rejected")
 
                     commander_started = await self.offboard_commander.start()
@@ -3912,12 +4089,8 @@ class AppController:
                     raise
 
                 # Mark as active
-                if native_binding is None:
-                    self._reset_follower_control_session()
                 self.following_active = True
                 self._ensure_continuity_watchdog()
-                if native_binding is None:
-                    self._following_session_id = uuid.uuid4().hex
                 identity_getter = getattr(self.px4_interface, "get_aircraft_identity", None)
                 identity = identity_getter() if callable(identity_getter) else {}
                 self._following_session_aircraft_uid = identity.get("autopilot_uid")
@@ -3934,6 +4107,7 @@ class AppController:
                 await self._cleanup_failed_follow_start(
                     result,
                     offboard_cleanup_required=offboard_cleanup_required,
+                    mavsdk_start_attempted=mavsdk_start_attempted,
                 )
                 raise
             except Exception as e:
@@ -3943,6 +4117,7 @@ class AppController:
                 await self._cleanup_failed_follow_start(
                     result,
                     offboard_cleanup_required=offboard_cleanup_required,
+                    mavsdk_start_attempted=mavsdk_start_attempted,
                 )
 
         return result
@@ -3952,8 +4127,10 @@ class AppController:
         result: Dict[str, Any],
         *,
         offboard_cleanup_required: bool,
+        mavsdk_start_attempted: bool = False,
     ) -> None:
         """Independently unwind every partial follow-start component."""
+        cleanup_unresolved = False
         commander = getattr(self, "offboard_commander", None)
         if commander is not None:
             try:
@@ -3966,6 +4143,7 @@ class AppController:
                 if self.offboard_commander is commander:
                     self.offboard_commander = None
             except Exception as exc:
+                cleanup_unresolved = True
                 error = f"Partial Offboard commander cleanup failed: {exc}"
                 logging.error(error)
                 result["errors"].append(error)
@@ -3982,14 +4160,18 @@ class AppController:
             finally:
                 self.setpoint_sender = None
 
+        preacquire = (getattr(self.px4_interface, "last_start_cleanup_outcome", None)
+                      if mavsdk_start_attempted else None)
+        if isinstance(preacquire, dict) and preacquire.get("local_sender_quiesced") is True:
+            offboard_cleanup_required = False
         if getattr(self, "_native_follow_binding", None) is not None:
             await self._stop_native_follow_binding(
                 result, reason="follow_start_failed", allow_handoff=offboard_cleanup_required,
             )
         elif offboard_cleanup_required:
             try:
-                expected_uid = getattr(self, "_native_follow_start_aircraft_uid", None)
-                expected_generation = getattr(self, "_native_follow_start_connection_generation", None)
+                expected_uid = getattr(self, "_following_session_aircraft_uid", None)
+                expected_generation = getattr(self, "_following_session_connection_generation", None)
                 identity_getter = getattr(self.px4_interface, "get_aircraft_identity", None)
                 identity = identity_getter() if callable(identity_getter) else {}
                 if expected_uid is not None and identity.get("autopilot_uid") != expected_uid:
@@ -3997,14 +4179,34 @@ class AppController:
                 if expected_generation is not None and identity.get("connection_generation") != expected_generation:
                     raise RuntimeError("Aircraft connection changed; Offboard stop was withheld")
                 stop_outcome = await self.px4_interface.stop_offboard_mode()
-                if isinstance(stop_outcome, dict) and stop_outcome.get("errors"):
-                    raise RuntimeError("; ".join(stop_outcome["errors"]))
+                if (not isinstance(stop_outcome, dict) or stop_outcome.get("errors")
+                        or not (stop_outcome.get("executed") or stop_outcome.get("local_sender_quiesced"))):
+                    raise RuntimeError("Partial Offboard release was not confirmed")
                 result["steps"].append("Partial Offboard start cleaned up")
             except Exception as exc:
+                cleanup_unresolved = True
                 error = f"Partial Offboard cleanup failed: {exc}"
                 logging.error(error)
                 result["errors"].append(error)
 
+        if not offboard_cleanup_required and isinstance(preacquire, dict):
+            result["sender_quiesce"] = dict(preacquire)
+            if preacquire.get("local_sender_quiesced") is not True:
+                cleanup_unresolved = True
+                result["errors"].append("Primed MAVSDK sender has not quiesced; aircraft mode was preserved.")
+        cleanup_unresolved = cleanup_unresolved or bool(getattr(self, "_following_offboard_cleanup_required", False))
+        self.following_active = False
+        if cleanup_unresolved:
+            self._following_offboard_cleanup_required = True
+            self._following_teardown_context = {
+                "follow_session_id": getattr(self, "_following_session_id", None),
+                "aircraft_uid": getattr(self, "_following_session_aircraft_uid", None),
+                "connection_generation": getattr(self, "_following_session_connection_generation", None),
+                "reason_code": "follow_start_failed", "execution_mode": self.following_execution_mode,
+                "acquire_dispatched": offboard_cleanup_required,
+            }
+            self._last_following_handoff = {**self._following_teardown_context, "result": "failed"}
+            return
         self.follower = None
         telemetry_handler = getattr(self, "telemetry_handler", None)
         if telemetry_handler is not None:
@@ -4156,6 +4358,9 @@ class AppController:
             logging.info("Deactivating Follow Mode...")
             context = teardown_context or getattr(self, "_following_teardown_context", None) or {}
             preview_session = context.get("execution_mode") == COMMAND_PREVIEW_EXECUTION_MODE
+            if context.get("acquire_dispatched") is False:
+                attempt_offboard_stop = False
+                commander_publish_final = False
 
             # Stop Offboard commander first while Offboard is still active so
             # it can publish a best-effort final default setpoint.
@@ -4269,9 +4474,10 @@ class AppController:
                             "MAVSDK local sender state: "
                             f"{quiesce.get('state_after', 'unknown')}"
                         )
-                        if quiesce.get("attempted") and not quiesce.get(
-                            "local_sender_quiesced"
-                        ):
+                        if quiesce.get("local_sender_quiesced") is True:
+                            self._following_offboard_cleanup_required = False
+                        else:
+                            self._following_offboard_cleanup_required = True
                             result["errors"].append(
                                 quiesce.get("error")
                                 or "MAVSDK local sender quiesce was not confirmed"
@@ -4300,7 +4506,8 @@ class AppController:
 
             # Mark as inactive
             self.following_active = False
-            self._reset_following_execution_state()
+            if not result["errors"] and not getattr(self, "_following_offboard_cleanup_required", False):
+                self._reset_following_execution_state()
 
             logging.info("Follow mode deactivated successfully!")
 
@@ -4309,8 +4516,9 @@ class AppController:
             logging.error(error_msg)
             result["errors"].append(error_msg)
 
-        # Keep the next start fail-closed even if one cleanup step raised.
-        self._reset_following_execution_state()
+        # Failed cleanup retains its original owner binding and blocks another Start.
+        if not result["errors"] and not getattr(self, "_following_offboard_cleanup_required", False):
+            self._reset_following_execution_state()
         if reset_continuity:
             self._reset_target_continuity("follow_session_stopped")
 
@@ -4388,8 +4596,11 @@ class AppController:
         cancel_pending_start: bool = True,
         expected_aircraft_uid: Optional[str] = None,
         reason_code: str = "operator_stop",
+        expected_session_id=None,
     ) -> Dict[str, Any]:
         """Abort pending startup, then stop one follow session on its owner loop."""
+        if expected_session_id is not None and expected_session_id != getattr(self, "_following_session_id", None):
+            return {"steps": [], "errors": [], "reason_code": "following_command_superseded"}
         start_task = getattr(self, "_follow_start_task", None)
         current_task = asyncio.current_task()
         if (
@@ -4429,6 +4640,8 @@ class AppController:
             follower_lock = asyncio.Lock()
             self._follower_state_lock = follower_lock
         async with follower_lock:
+            if expected_session_id is not None and expected_session_id != getattr(self, "_following_session_id", None):
+                return {"steps": [], "errors": [], "reason_code": "following_command_superseded"}
             if expected_aircraft_uid is not None:
                 identity = self.px4_interface.get_aircraft_identity()
                 same_aircraft = identity.get("autopilot_uid") == expected_aircraft_uid
@@ -4461,6 +4674,8 @@ class AppController:
         """
         if not self.following_active or getattr(self, "_following_stopping", False):
             return
+        if status.get("follow_session_id") is not None and status["follow_session_id"] != getattr(self, "_following_session_id", None):
+            return
         self.last_offboard_commander_failure = dict(status or {})
 
         logging.error(
@@ -4470,10 +4685,12 @@ class AppController:
 
         try:
             async with self._follower_state_lock:
-                if not self.following_active:
+                if (not self.following_active or status.get("follow_session_id") is not None
+                        and status["follow_session_id"] != getattr(self, "_following_session_id", None)):
                     return
+                reason = status.get("terminal_failure_reason") or "command_publisher_unhealthy"
                 disconnect_result = await self._disconnect_px4_internal(
-                    commander_publish_final=False, reason_code="command_publisher_unhealthy",
+                    commander_publish_final=False, reason_code=reason,
                 )
                 self.last_offboard_commander_failure["disconnect_result"] = disconnect_result
         except Exception as exc:
@@ -4484,9 +4701,15 @@ class AppController:
             self.last_offboard_commander_failure["handler_error"] = str(exc)
             self.following_active = False
 
-    def _schedule_offboard_commander_failure(self, status: Dict[str, Any]) -> None:
+    def _schedule_offboard_commander_failure(self, status: Dict[str, Any], *, expected_session_id=None) -> None:
         """Schedule commander failure cleanup from the commander task or any thread."""
+        if expected_session_id is not None and expected_session_id != getattr(self, "_following_session_id", None):
+            return
+        if expected_session_id is not None:
+            status = {**status, "follow_session_id": expected_session_id}
         def fail_closed(exc) -> None:
+            if expected_session_id is not None and expected_session_id != getattr(self, "_following_session_id", None):
+                return
             self.last_offboard_commander_failure = dict(status or {})
             if exc is not None:
                 self.last_offboard_commander_failure["schedule_error"] = str(exc)
@@ -5085,13 +5308,14 @@ class AppController:
                 publish_status=event.get("publish_status"),
                 submitted_fields=event.get("submitted_fields"),
                 publication_attempted=event.get("publication_attempted"),
+                dispatch_context=event.get("dispatch_context"),
                 vehicle_observation={
                     "yaw_deg": getattr(px4, "current_yaw", None),
                     "relative_altitude_m": getattr(px4, "current_altitude", None),
                     "vehicle_state_fresh": bool(ready(require_fresh_telemetry=True)) if callable(ready) else False,
                     "offboard_active": bool(getattr(px4, "active_mode", False)),
                 },
-                target_generation=int(getattr(self, "_tracking_session_generation", 0)),
+                target_generation=(event.get("dispatch_context") or {}).get("target_generation"),
             )
         except Exception as exc:
             logging.error("Failed to write Offboard publication trace: %s", exc)
@@ -5824,8 +6048,6 @@ class AppController:
         transition = getattr(self, "_camera_selection_dispatched_wall_time", None)
         dispatch_monotonic = getattr(self, "_camera_selection_dispatched_monotonic", None)
         runtime = getattr(self, "camera_runtime", None)
-        provider = getattr(runtime, "provider", None)
-        sample_provider = raw.get("camera_provider_instance")
         from classes.camera_runtime import CameraRuntime
         observation = getattr(output, 'gimbal_observation', None)
         if (not isinstance(runtime, CameraRuntime) or not isinstance(observation, GimbalAngleObservation)
@@ -5848,7 +6070,6 @@ class AppController:
             and numeric(monotonic) and 0 <= time.monotonic() - monotonic <= 0.35
             and monotonic >= dispatch_monotonic
             and isinstance(sequence, int) and not isinstance(sequence, bool) and sequence > 0
-            and provider is not None and sample_provider == str(id(provider))
             and (not require_tracking or numeric(tracking_received) and tracking_received >= transition)
         )
 
@@ -5893,6 +6114,14 @@ class AppController:
         evidence = TargetEvidenceSnapshot.from_tracker_output(
             tracker_output, session_epoch=int(getattr(self, "_tracking_session_generation", 0)),
         )
+        source = self._guidance_source_verdict(tracker_output)
+        if source is ObservationSourceVerdict.DEFINITELY_CHANGED:
+            return dataclasses.replace(evidence, state=TargetEvidenceState.UNCERTAIN,
+                identity_verdict=IdentityVerdict.UNCONFIRMED,
+                reason_code="following_observation_source_changed", observation_source_changed=True)
+        if source is ObservationSourceVerdict.UNAVAILABLE and evidence.state is TargetEvidenceState.CONFIRMED:
+            return dataclasses.replace(evidence, state=TargetEvidenceState.UNCERTAIN,
+                identity_verdict=IdentityVerdict.UNCONFIRMED, reason_code="following_observation_source_unavailable")
         transition_started = getattr(self, "_target_transition_started_wall_time", None)
         if (self._get_target_continuity_supervisor().get_status()["target_transition_pending"]
                 and (getattr(self, "_camera_selection_pending", False)
@@ -5969,64 +6198,43 @@ class AppController:
         binding = getattr(self, "_native_follow_binding", None)
         return binding.context(context) if binding is not None else context
 
-    async def _execute_target_continuity_handoff(self, reason: str) -> None:
-        """Stop command publication and record the observed handoff outcome."""
-        preview = self._is_command_preview_session()
-        async with self._follower_state_lock:
-            if not getattr(self, "following_active", False) or getattr(self, "_following_stopping", False):
-                return
-            result = await self._disconnect_px4_internal(
-                commander_publish_final=False,
-                attempt_offboard_stop=not preview,
-                reset_continuity=False,
-                reason_code=reason,
-            )
+    def _execute_target_continuity_handoff(self, reason: str):
+        """Capture the deciding owner before a cleanup coroutine can be queued."""
+        return self._continuity_cleanup(reason, require_active=True)
 
-        offboard_action = result.get("offboard_stop_action") or {}
-        success = not result.get("errors") and (
-            preview or offboard_action.get("executed") is True
-        )
-        detail = (
-            "command_preview_stopped"
-            if preview and success
-            else "px4_offboard_stop_confirmed"
-            if success
-            else "; ".join(result.get("errors") or ["handoff_not_confirmed"])
-        )
-        self._get_target_continuity_supervisor().record_handoff_result(
-            success=success,
-            detail=detail,
-        )
-        log = logging.info if success else logging.error
-        log("Target continuity handoff (%s): %s", reason, detail)
+    def _stop_following_after_continuity_failure(self, reason: str):
+        return self._continuity_cleanup(reason, require_active=False)
 
-    async def _stop_following_after_continuity_failure(self, reason: str) -> None:
-        """Fail closed if the authority supervisor itself cannot decide."""
+    def _continuity_cleanup(self, reason: str, *, require_active: bool):
+        session = getattr(self, "_following_session_id", None)
+        supervisor = self._get_target_continuity_supervisor()
         preview = self._is_command_preview_session()
-        async with self._follower_state_lock:
-            if getattr(self, "_following_stopping", False):
+
+        async def cleanup():
+            async with self._follower_state_lock:
+                if (session != getattr(self, "_following_session_id", None)
+                        or supervisor is not getattr(self, "target_continuity", None)
+                        or getattr(self, "_following_stopping", False)
+                        or require_active and not getattr(self, "following_active", False)):
+                    return
+                result = await self._disconnect_px4_internal(
+                    commander_publish_final=False, attempt_offboard_stop=not preview,
+                    reset_continuity=False, reason_code=reason,
+                )
+            if (getattr(self, "_following_session_id", None) not in (None, session)
+                    or supervisor is not getattr(self, "target_continuity", None)):
                 return
-            result = await self._disconnect_px4_internal(
-                commander_publish_final=False,
-                attempt_offboard_stop=not preview,
-                reset_continuity=False,
-                reason_code=reason,
-            )
-        offboard_action = result.get("offboard_stop_action") or {}
-        success = not result.get("errors") and (
-            preview or offboard_action.get("executed") is True
-        )
-        outcome = (
-            "command_preview_stopped"
-            if preview and success
-            else "px4_offboard_stop_confirmed"
-            if success
-            else "; ".join(result.get("errors") or ["handoff_not_confirmed"])
-        )
-        self._get_target_continuity_supervisor().record_handoff_result(
-            success=success,
-            detail=f"{reason}: {outcome}",
-        )
+            outcome = result.get("offboard_stop_action") or {}
+            success = not result.get("errors") and (preview or outcome.get("executed") is True)
+            detail = ("command_preview_stopped" if preview and success
+                      else "px4_offboard_stop_confirmed" if success
+                      else "; ".join(result.get("errors") or ["handoff_not_confirmed"]))
+            supervisor.record_handoff_result(success=success,
+                detail=detail if require_active else f"{reason}: {detail}")
+            if require_active:
+                log = logging.info if success else logging.error
+                log("Target continuity handoff (%s): %s", reason, detail)
+        return cleanup()
 
     def get_target_continuity_status(self) -> Dict[str, Any]:
         """Return bounded supervisor state for API and operator diagnostics."""
@@ -6073,7 +6281,13 @@ class AppController:
             return False
 
         try:
-            accepted = commander.submit_intent(intent)
+            guard = self._command_dispatch_guard(intent)
+            if self._is_command_preview_session():
+                validate_before_dispatch(guard)
+                accepted = commander.submit_intent(intent)
+            else:
+                accepted = commander.submit_intent(intent, before_dispatch=guard,
+                                                   dispatch_context=self._command_dispatch_context())
         except Exception as e:
             logging.error(f"OffboardCommander rejected command intent with exception: {e}")
             return False

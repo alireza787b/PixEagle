@@ -41,6 +41,7 @@ def _handler(fields=None, control_type="velocity_body_offboard"):
         )
 
     return SimpleNamespace(
+        profile_name="test_profile",
         get_control_type=MagicMock(return_value=control_type),
         get_fields=MagicMock(side_effect=lambda: state.copy()),
         set_fields=MagicMock(side_effect=set_fields),
@@ -93,7 +94,7 @@ async def test_offboard_commander_transient_publish_failure_recovers_before_thre
 
 @pytest.mark.asyncio
 async def test_offboard_commander_publish_and_final_stop_are_bounded():
-    async def never_finishes():
+    async def never_finishes(**_kwargs):
         await asyncio.Event().wait()
 
     px4 = SimpleNamespace(send_commands_unified=never_finishes)
@@ -273,7 +274,7 @@ async def test_offboard_commander_stop_serializes_final_publish_after_heartbeat(
     active_publishes = 0
     max_active_publishes = 0
 
-    async def send_commands_unified():
+    async def send_commands_unified(**kwargs):
         nonlocal active_publishes, max_active_publishes
         active_publishes += 1
         max_active_publishes = max(max_active_publishes, active_publishes)
@@ -385,7 +386,7 @@ def test_offboard_commander_failsafe_defaults_invalidate_prior_intent():
 async def test_offboard_commander_publishes_applied_command_intent_fields():
     handler = _handler()
 
-    async def send_commands_unified():
+    async def send_commands_unified(**kwargs):
         assert handler.get_fields()["vel_body_fwd"] == 3.0
         assert handler.get_fields()["vel_body_right"] == -1.0
         return 1
@@ -447,7 +448,7 @@ async def test_fallback_publication_snapshots_fields_before_await_without_invent
     events = []
     handler = _handler()
 
-    async def send():
+    async def send(**_kwargs):
         # Another measurement can arrive while the concrete send is awaited.
         handler.set_fields(_intent().fields)
         return True

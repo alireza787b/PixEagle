@@ -9,6 +9,7 @@ import time
 import pytest
 
 from classes.app_controller import AppController
+from tests.fixtures.following_observation import bind_image_source, bind_controller_source
 from classes.followers.base_follower import BaseFollower
 from classes.following_readiness import (
     evaluate_follower_guidance_input,
@@ -34,6 +35,7 @@ def input_controller(hook):
     state = object()
     ctrl = object.__new__(AppController)
     ctrl._tracking_session_generation = 0
+    bind_image_source(ctrl, sample)
     ctrl.get_tracker_output = Mock(return_value=sample)
     ctrl.px4_interface = SimpleNamespace(get_aircraft_state=Mock(return_value=state))
     ctrl.follower = SimpleNamespace(follower=SimpleNamespace(require_guidance_input=hook))
@@ -124,6 +126,8 @@ def test_source_and_evidence_readers_do_not_refresh_an_old_measurement():
 
     ctrl, sample, _ = input_controller(require_input)
     sample.image_measurement = measurement
+    ctrl.tracking_input_context = ImageFrameContext(provenance, (640, 480))
+    ctrl.frame_publisher = SimpleNamespace(stream_id='stream-a', control_source_epoch='source-a')
     original = sample.to_dict()
     for _ in range(3):
         assert readiness(ctrl)["usable_for_following"]
@@ -161,7 +165,8 @@ async def test_new_target_or_source_during_native_discovery_requires_fresh_start
     ctrl = app.ctrl
     ctrl._tracking_session_generation = 0
     ctrl.tracking_input_context = context()
-    ctrl.frame_publisher = SimpleNamespace(control_source_epoch="source-a")
+    ctrl.frame_publisher = SimpleNamespace(stream_id="stream-a", control_source_epoch="source-a")
+    ctrl.get_tracker_output().image_measurement = ctrl.tracking_input_context.at_pixel((319.5, 239.5))
     original = ctrl._prepare_native_follow_binding.side_effect
 
     async def prepare():
@@ -194,7 +199,8 @@ async def test_new_target_or_source_during_native_discovery_requires_fresh_start
 async def test_new_frame_in_same_geometry_during_discovery_does_not_change_start_identity(app):
     ctrl = app.ctrl
     ctrl.tracking_input_context = context()
-    ctrl.frame_publisher = SimpleNamespace(control_source_epoch="source-a")
+    ctrl.frame_publisher = SimpleNamespace(stream_id="stream-a", control_source_epoch="source-a")
+    ctrl.get_tracker_output().image_measurement = ctrl.tracking_input_context.at_pixel((319.5, 239.5))
     original = ctrl._prepare_native_follow_binding.side_effect
 
     async def prepare():
@@ -212,7 +218,11 @@ async def test_new_frame_in_same_geometry_during_discovery_does_not_change_start
 async def test_video_only_epoch_changes_do_not_invalidate_non_video_target_identity(app):
     ctrl = app.ctrl
     ctrl._tracker_requires_video_for_following = lambda: False
-    ctrl.frame_publisher = SimpleNamespace(control_source_epoch="source-a")
+    from tests.unit.core_app.test_app_controller_offboard_safety import _active_gimbal_output
+    external = bind_controller_source(ctrl, _active_gimbal_output())
+    ctrl.get_tracker_output = Mock(return_value=external)
+    ctrl.frame_publisher = SimpleNamespace(stream_id="stream-a", control_source_epoch="source-a")
+    ctrl.get_tracker_output().image_measurement = ctrl.tracking_input_context.at_pixel((319.5, 239.5))
     original = ctrl._prepare_native_follow_binding.side_effect
 
     async def prepare():
@@ -231,7 +241,8 @@ async def test_identity_change_during_acquisition_or_publisher_start_never_activ
     ctrl = app.ctrl
     ctrl._tracking_session_generation = 0
     ctrl.tracking_input_context = context()
-    ctrl.frame_publisher = SimpleNamespace(control_source_epoch="source-a")
+    ctrl.frame_publisher = SimpleNamespace(stream_id="stream-a", control_source_epoch="source-a")
+    ctrl.get_tracker_output().image_measurement = ctrl.tracking_input_context.at_pixel((319.5, 239.5))
     target = app.f.client.engage if stage == "engage" else app.commander.start
     original = target.side_effect
 
@@ -261,6 +272,7 @@ async def test_read_only_discovery_precedes_specialized_input_validation(app):
     current_state = [None]
     original = ctrl._prepare_native_follow_binding.side_effect
     sample = _active_position_output()
+    bind_image_source(ctrl, sample)
 
     def hook(output, state):
         assert output is sample
@@ -288,6 +300,7 @@ async def test_additional_input_readiness_is_checked_across_awaited_startup(app,
     ctrl = app.ctrl
     valid = [True]
     sample = _active_position_output()
+    bind_image_source(ctrl, sample)
 
     def hook(output, state):
         assert output is sample and state is app.f.state
@@ -330,6 +343,7 @@ async def test_unqualified_input_uses_shared_fw_recovery_without_resetting_its_b
     ctrl = app.ctrl
     valid = [True]
     sample = _active_position_output()
+    bind_image_source(ctrl, sample)
 
     def hook(_output, _state):
         if not valid[0]:

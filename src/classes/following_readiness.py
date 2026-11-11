@@ -32,6 +32,17 @@ def evaluate_follower_guidance_input(
     app_controller: Any, tracker_output: Any = _TRACKER_OUTPUT_UNSET,
 ) -> Dict[str, Any]:
     """Read one follower's optional input requirement; acquire no authority."""
+    source_check = getattr(app_controller, "_guidance_source_readiness", None)
+    if callable(source_check):
+        if tracker_output is _TRACKER_OUTPUT_UNSET:
+            getter = getattr(app_controller, "get_tracker_output", None)
+            tracker_output = getter() if callable(getter) else None
+        try:
+            source = source_check(tracker_output)
+            if not source["ready"]:
+                return source
+        except Exception:
+            return {"ready": False, "reason_code": "following_observation_source_unavailable"}
     concrete = getattr(getattr(app_controller, "follower", None), "follower", None)
     hook = getattr(concrete, "require_guidance_input", None)
     if hook is None:
@@ -374,6 +385,12 @@ def evaluate_command_preview_start_readiness(
         result["reason"] = "The configured video-file source is not open."
         return result
 
+    guidance_input = evaluate_follower_guidance_input(app_controller)
+    result["guidance_input_readiness"] = guidance_input
+    if not guidance_input["ready"]:
+        result["reason_code"] = guidance_input["reason_code"]
+        result["reason"] = f"Follower guidance input is unavailable: {guidance_input['reason_code']}"
+        return result
     result.update(
         {
             "ready": True,

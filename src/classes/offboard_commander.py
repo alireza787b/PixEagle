@@ -8,6 +8,7 @@ from dataclasses import replace
 from typing import Callable, Optional
 
 from classes.command_intent import CommandIntent
+from classes.command_dispatch_guard import DispatchRefused, DispatchRefusalKind
 from classes.parameters import Parameters
 from classes.setpoint_handler import SetpointHandler
 
@@ -52,9 +53,15 @@ class OffboardCommander:
         on_failure_threshold: Optional[Callable[[dict], object]] = None,
         on_publish_result: Optional[Callable[[dict], object]] = None,
         command_transport=None,
+        before_dispatch: Optional[Callable[[], None]] = None,
+        dispatch_context: Optional[dict] = None,
+        stop_before_dispatch: Optional[Callable[[], None]] = None,
     ):
         self.px4_interface = px4_interface
         self.command_transport = command_transport
+        self._before_dispatch = before_dispatch
+        self._dispatch_context = dict(dispatch_context or {})
+        self._stop_before_dispatch = stop_before_dispatch
         self.setpoint_handler = setpoint_handler
         connection_generation = getattr(
             px4_interface,
@@ -101,6 +108,7 @@ class OffboardCommander:
         self.last_publish_reason: Optional[str] = None
         self.last_publish_monotonic_s: Optional[float] = None
         self.last_error: Optional[str] = None
+        self.last_dispatch_refusal = None
         self.failure_policy_triggered = False
         self.failure_policy_reason: Optional[str] = None
         self.failure_policy_triggered_at_monotonic_s: Optional[float] = None
@@ -373,7 +381,7 @@ class OffboardCommander:
         logger.info("OffboardCommander stopped")
         return True
 
-    def submit_intent(self, intent: CommandIntent) -> bool:
+    def submit_intent(self, intent: CommandIntent, *, before_dispatch=None, dispatch_context=None) -> bool:
         """Accept the latest follower command intent for heartbeat publication."""
         if not isinstance(intent, CommandIntent):
             self.rejected_intents += 1
@@ -384,6 +392,8 @@ class OffboardCommander:
         if self.command_transport is not None:
             try:
                 self._last_intent = self.command_transport.accept_intent(intent)
+                self._before_dispatch = before_dispatch
+                self._dispatch_context = dict(dispatch_context or {})
                 self._failsafe_defaults_active = False
                 self.last_error = None
                 return True
@@ -435,6 +445,8 @@ class OffboardCommander:
             created_at_utc=intent.created_at_utc,
             guidance_identity=intent.guidance_identity,
         )
+        self._before_dispatch = before_dispatch
+        self._dispatch_context = dict(dispatch_context or {})
         self._failsafe_defaults_active = False
         self.last_error = None
         logger.debug(
@@ -566,6 +578,8 @@ class OffboardCommander:
         published_intent: Optional[CommandIntent] = None
         submitted_fields = None
         publication_attempted = False
+        admission_refused = False
+        dispatch_context = {}
         async with self._publish_lock:
             if reason == "heartbeat" and not self.running:
                 return False
@@ -586,15 +600,36 @@ class OffboardCommander:
                 else:
                     published_intent = self._last_intent
 
+                before_dispatch = (self._stop_before_dispatch if force_default_reason == "operator_stop"
+                                   and self._stop_before_dispatch is not None else self._before_dispatch)
+                dispatch_context = dict(self._dispatch_context)
                 if self.command_transport is None:
-                    submitted_fields = dict(self.setpoint_handler.get_fields())
+                    submitted_fields = dict(published_intent.fields if published_intent is not None
+                                            else self.setpoint_handler.get_fields())
+                    command_snapshot = published_intent or CommandIntent(
+                        profile_name=self.setpoint_handler.profile_name,
+                        control_type=self.setpoint_handler.get_control_type(), fields=submitted_fields,
+                        source="offboard_commander", reason=force_default_reason or reason,
+                    )
 
                 try:
                     publication_attempted = True
                     publication = (self.command_transport.publish(
                         published_intent, reason=force_default_reason or reason, ttl_s=self.command_ttl_s,
-                    ) if self.command_transport is not None else self.px4_interface.send_commands_unified())
+                        before_dispatch=before_dispatch,
+                    ) if self.command_transport is not None else self.px4_interface.send_commands_unified(
+                        command_intent=command_snapshot, before_dispatch=before_dispatch))
                     success = await asyncio.wait_for(publication, timeout=self.publish_timeout_s)
+                except DispatchRefused as exc:
+                    admission_refused = True
+                    publication_attempted = False
+                    submitted_fields = None
+                    self.last_dispatch_refusal = {"kind": exc.kind.value, "reason_code": exc.reason_code}
+                    if exc.kind is DispatchRefusalKind.TERMINAL:
+                        self.last_error = exc.reason_code
+                    success = False
+                    if exc.kind is DispatchRefusalKind.TERMINAL and enforce_failure_policy:
+                        terminal_failure_triggered = self._mark_terminal_failure(exc.reason_code)
                 except asyncio.TimeoutError:
                     self.last_error = (
                         "Offboard publication exceeded "
@@ -637,16 +672,18 @@ class OffboardCommander:
                         and published_intent.profile_name == 'mc_attitude_rate'
                         and isinstance(guard, dict) and isinstance(guard.get('effective_fields'), dict)):
                     published_intent = replace(published_intent, fields=dict(guard['effective_fields']))
-                self._record_publish_result(success, reason)
+                if not admission_refused:
+                    self._record_publish_result(success, reason)
         await self._notify_publish_result(
             reason,
             command_intent=published_intent,
             submitted_fields=submitted_fields,
             publication_attempted=publication_attempted,
+            dispatch_context=dispatch_context,
         )
         if terminal_failure_triggered:
             await self._invoke_failure_threshold_callback()
-        elif not success and enforce_failure_policy:
+        elif not success and enforce_failure_policy and not admission_refused:
             await self._maybe_trigger_failure_policy(reason)
         return success
 
@@ -740,16 +777,21 @@ class OffboardCommander:
         command_intent: Optional[CommandIntent] = None,
         submitted_fields: Optional[dict] = None,
         publication_attempted: Optional[bool] = None,
+        dispatch_context: Optional[dict] = None,
     ) -> None:
         """Emit evidence only after the concrete publication attempt completed."""
         if self._on_publish_result is None:
             return
+        status = self.get_status()
+        if publication_attempted is False:
+            status["last_publish_success"] = None
         event = {
             "reason": reason,
+            "dispatch_context": dict(dispatch_context or {}),
             "command_intent": command_intent,
             "submitted_fields": submitted_fields,
             "publication_attempted": publication_attempted,
-            "publish_status": self.get_status(),
+            "publish_status": status,
         }
         try:
             callback_result = self._on_publish_result(event)
@@ -799,6 +841,7 @@ class OffboardCommander:
             "last_publish_reason": self.last_publish_reason,
             "last_publish_monotonic_s": self.last_publish_monotonic_s,
             "last_error": self.last_error,
+            "last_dispatch_refusal": self.last_dispatch_refusal,
             "failure_policy_triggered": self.failure_policy_triggered,
             "failure_policy_reason": self.failure_policy_reason,
             "failure_policy_triggered_at_monotonic_s": self.failure_policy_triggered_at_monotonic_s,

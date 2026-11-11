@@ -396,7 +396,7 @@ def test_camera_provisional_angles_require_current_selection_and_no_manual_takeo
         raw_data={"tracking_status": "TARGET_SELECTION", "coordinate_system": "gimbal_body",
                   "angle_sample_timestamp": now, "angle_sample_monotonic": sample_received,
                   "tracking_sample_monotonic": sample_received,
-                  "angle_sample_sequence": 1, "camera_provider_instance": str(id(provider))},
+                  "angle_sample_sequence": 1},
     )
     assert controller._camera_retarget_provisional_intent(output) is intent
     calculate.assert_called_once_with(output)
@@ -417,9 +417,11 @@ def test_camera_provisional_angles_require_current_selection_and_no_manual_takeo
     assert not controller._camera_angle_sample_current(output, require_tracking=True)
     output.raw_data["tracking_sample_timestamp"] = now
     assert controller._camera_angle_sample_current(output, require_tracking=True)
-    output.raw_data["camera_provider_instance"] = "old-provider"
+    observation = output.gimbal_observation
+    from classes.gimbal_types import CameraObservationSource
+    output.gimbal_observation = replace(observation, source=CameraObservationSource('old-provider', 0))
     assert not controller._camera_angle_sample_current(output)
-    output.raw_data["camera_provider_instance"] = str(id(provider))
+    output.gimbal_observation = observation
 
     controller._camera_selection_pending = True
     assert controller._camera_retarget_provisional_intent(output) is None

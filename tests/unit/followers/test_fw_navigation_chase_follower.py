@@ -16,7 +16,8 @@ from classes.app_controller import AppController
 from classes.bearing_geometry_policy import BearingGeometryPolicy
 from classes.follower import FollowerFactory
 from classes.followers.fw_navigation_chase_follower import FWNavigationChaseFollower
-from classes.guidance_observation import PinholeCalibration
+from classes.guidance_observation import PinholeCalibration, ImageFrameContext
+from classes.following_observation_source import project_following_observation_source
 from classes.native_guidance import NativeCapabilities
 from classes.native_follow_binding import NativeFollowBinding
 from classes.observation_alignment import AlignmentBinding
@@ -282,6 +283,12 @@ def publication_environment(env, monkeypatch):
     app.follower = SimpleNamespace(follower=env.follower)
     app.px4_interface, app.target_continuity = connection, continuity
     app.get_tracker_output = lambda: env.output
+    measured = env.output.image_measurement
+    app.tracking_input_context = ImageFrameContext(measured.provenance, measured.image_size_px, measured.image_to_calibration)
+    app.frame_publisher = SimpleNamespace(stream_id=measured.provenance.source_id,
+        control_source_epoch=measured.provenance.capture.source_epoch)
+    app._following_observation_source = project_following_observation_source(measured)
+    app._following_session_id = env.session.identity.follow_session_id
     base = ContinuityContext('PX4_NATIVE', AirframePhase.FIXED_WING, 'fixed_wing_external',
                              True, True, True, guidance_identity=env.session.identity)
     binding = NativeFollowBinding(env.session, connection, client, continuity, profile_name=env.follower.profile_name,
@@ -354,7 +361,7 @@ async def test_frozen_aircraft_state_and_duplicate_image_cannot_renew_publisher_
     assert evidence.state is TargetEvidenceState.CONFIRMED
     assert duplicate.created_at_monotonic_s == original.created_at_monotonic_s
     assert run.client.submit.await_count == 1
-    run.client.handoff.assert_awaited_once_with(env.session.identity, reason='manual')
+    run.client.handoff.assert_awaited_once_with(env.session.identity, reason='manual', before_dispatch=None)
     assert run.commander.stale_intent_resets == 1
 
 

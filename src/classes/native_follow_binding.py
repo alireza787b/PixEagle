@@ -9,6 +9,7 @@ from dataclasses import replace
 import math
 import time
 
+from classes.command_dispatch_guard import validate_before_dispatch
 from classes.aircraft_state import AircraftKind, AircraftLayout, AircraftState, AirframePhase
 from classes.guidance_phase_session import PhaseSessionState
 from classes.native_command_transport import NativeCommandTransport
@@ -56,6 +57,7 @@ class NativeFollowBinding:
             clock=clock, on_observation=self.on_observation,
         )
         self._engage_attempted = False
+        self.acquire_dispatched = False
         self._stopping = False
         self._activation_timestamp = None
 
@@ -84,12 +86,16 @@ class NativeFollowBinding:
             vehicle_yaw_deg=None if state is None else math.degrees(state.navigation_heading_rad),
         )
 
-    async def engage(self):
+    async def engage(self, *, before_dispatch=None, on_mode_dispatch=None):
         if self._engage_attempted or self._stopping:
             raise NativeGuidanceError("native_follow_binding_already_started")
         self._engage_attempted = True
         try:
-            await self.client.engage(self.guidance.identity, circuit_breaker_active=self._circuit_breaker())
+            def dispatched():
+                validate_before_dispatch(on_mode_dispatch)
+                self.acquire_dispatched = True
+            await self.client.engage(self.guidance.identity, circuit_breaker_active=self._circuit_breaker(),
+                                     before_dispatch=before_dispatch, on_mode_dispatch=dispatched)
             observation = await self.client.observe()
             if observation.get("fresh") is not True or observation.get("rescue_active") is not False:
                 raise NativeGuidanceError("native_aircraft_state_unavailable")
@@ -155,6 +161,10 @@ class NativeFollowBinding:
         self._stopping = True
         self.guidance.end(reason)
         identity = self.transport.identity
+        if not self.acquire_dispatched:
+            self.transport.abort()
+            return {"executed": False, "local_sender_quiesced": True,
+                    "reason": "native_acquire_not_dispatched", "errors": []}
         try:
             if self.client.session_identity != identity:
                 if self.client.session_identity is not None:
