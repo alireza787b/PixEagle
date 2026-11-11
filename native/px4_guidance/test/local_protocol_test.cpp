@@ -14,7 +14,7 @@ static Json identityJson() {
 }
 
 static Json requestJson(std::uint64_t id = 1) {
-    return {{"protocol_version", 1u}, {"request_id", id}, {"generation", 1u},
+    return {{"protocol_version", 2u}, {"request_id", id}, {"generation", 1u},
             {"operation", "observe"}, {"payload", Json::object()}};
 }
 
@@ -33,7 +33,7 @@ TEST(LocalProtocol, StrictIdentityAndEnvelope) {
 }
 
 TEST(LocalProtocol, AllCommandContractsAndNoSilentSpeedPolicyDowngrade) {
-    Json payload{{"identity", identityJson()}, {"sequence", 1u}, {"created_at_monotonic_s", 10.},
+    Json payload{{"identity", identityJson()}, {"token", "00000000000000000000000000000001"}, {"sequence", 1u}, {"created_at_monotonic_s", 10.},
                  {"expires_at_monotonic_s", 10.3}, {"phase", "fixed_wing"},
                  {"command", {{"course_rad", .3}, {"equivalent_airspeed_m_s", 18.}, {"height_rate_m_s", 0.},
                               {"altitude_amsl_m", nullptr}, {"upper_speed_policy", "px4_configured_max"}}}};

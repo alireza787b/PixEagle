@@ -21,18 +21,44 @@ evidence; transition-preserving authority release remains S7 work.
 | VTOL MC → PX4 | NED velocity and yaw rate |
 | Transition → PX4 | Both native FW and MC setpoints for the already observed transition; no transition request |
 | PX4 → backend | Observed phase, full physical-body quaternion, velocity, relative/home altitude, qualified airspeed and native envelope |
-| Handoff → PX4 | Compare the observed mode and activation timestamp before changing mode; reject delayed cleanup after takeover |
+| Acquire/release → PX4 | Optional atomic owned-mode request/receipt; original token, firmware incarnation, intention revision, registration and actual activation epoch |
 
 `dependencies.lock.json` pins the firmware baseline, ROS interface, message
 definitions, DDS Agent and logging dependency. The reviewable firmware patch
 is in `px4/patches/`. It adds native envelope/home-reference observations and
-conditional mode changes. It does not enable unrestricted speed or alter
+correlated acquisition and conditional release. Standard `VehicleCommand` and
+`VehicleStatus` definitions remain unchanged. It does not enable unrestricted speed or alter
 normal controller gains, limits, global parameters or underspeed protection.
 
 Native FW-frame heading and forward-axis observations come from PX4 after its
 own tailsitter attitude conversion. Physical attitude remains unchanged for
 camera rays and MC heading-frame commands. A stale/incompatible FW frame cannot
 be replaced by MC yaw. No camera mount is changed during a VTOL transition.
+
+## Correlated ownership contract
+
+Private RPC protocol 2 requires the optional `OwnedModeRequest`/`OwnedModeStatus`
+firmware extension; there is no raw mode-command fallback. An engagement ACK
+contains the original causal acquisition receipt, not merely an accepted
+intention. The adapter advertises its actual registered `owned_mode_id`.
+Intent, phase and release writes require that acquisition's token. Stop, EOF
+and lost-reply reconciliation retain the same context; a same-ID replacement,
+reused registration or firmware restart cannot become the old owner.
+
+Commander retains one bounded receipt and cancellation revision. Native-clock
+requests expire within 500 ms, with a real 100 ms source-clock heartbeat in its
+existing loop. The separate host RPC timeout defaults to 500 ms and remains
+configurable for advanced use; the native operation cap stays 500 ms. These
+clocks are not assumed equivalent during paused or scaled SIH. Duplicates renew neither
+deadline nor receipt freshness. A deadline-crossing activation remains unresolved
+until native release is observed; an ineligible Hold cannot claim success.
+
+Firmware incarnation uses 128 bits from the platform's secure random provider.
+POSIX uses `/dev/urandom`; NuttX requires its linked random-pool provider. Missing,
+short or all-zero entropy leaves this optional capability unavailable. Current
+unit checks do not qualify NuttX hardware entropy, transitions or physical flight.
+Transition-preserving release and end-on-transition application wiring remain a
+separate S7 gate; this foundation does not reopen VTOL admission.
 
 ## Reproduce the software build
 
@@ -51,7 +77,8 @@ python3 tools/build_native_guidance.py \
 ```
 
 The source checkout must be the pinned revision with the complete extension
-applied. Use a separate simulator checkout; never modify archived evidence or
+applied, including the manifest's `deleted_files` (retired source paths must be
+absent). Use a separate simulator checkout; never modify archived evidence or
 flash hardware as part of this build. The tool verifies archive checksums and
 message compatibility. `--prepare-only` checks sources without building Docker.
 
@@ -88,6 +115,8 @@ git -C "$PIXEAGLE_PX4_SOURCE" submodule update --init --recursive -- \
   src/modules/mavlink/mavlink src/modules/uxrce_dds_client/Micro-XRCE-DDS-Client
 git -C "$PIXEAGLE_PX4_SOURCE" apply \
   "$PWD/native/px4/patches/0001-guidance-observation-and-owned-mode-handoff.patch"
+git -C "$PIXEAGLE_PX4_SOURCE" apply \
+  "$PWD/native/px4/patches/0002-correlated-owned-mode-requests.patch"
 ```
 
 With both pinned Docker input images already available locally:

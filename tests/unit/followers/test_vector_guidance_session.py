@@ -29,7 +29,7 @@ def session(*, altitude=True, state=None):
     identity = GuidanceSessionIdentity("follow", state.binding, 1)
     owner = VectorGuidanceSession(
         identity,
-        NativeCapabilities("native", "test", 2, True, True, False),
+        NativeCapabilities("native", "test", 2, True, True, False, True, 23),
         profile_name="gm_velocity_vector",
         controls=AirframeSessionControls.from_multicopter_control(identity,
             SessionControl("requested_speed", "3D speed", "m/s", 0., None, .5, 0., configured_maximum=6.)),

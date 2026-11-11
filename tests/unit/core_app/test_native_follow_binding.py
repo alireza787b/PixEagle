@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from classes.command_dispatch_guard import DispatchRefused
 from classes.aircraft_state import AircraftKind, AircraftLayout, AircraftStateOwner, AirframePhase
 from classes.native_follow_binding import NativeFollowBinding, requires_native_guidance
 from classes.native_guidance import NativeGuidanceError
@@ -15,6 +16,7 @@ from classes.target_continuity import ContinuityContext, ContinuityPolicy, Targe
 from tests.unit.core_app.test_fixed_wing_continuity import evidence
 from tests.unit.followers.test_vector_guidance_session import session
 from tests.unit.drone_interface.test_aircraft_state import aircraft_state
+from tests.fixtures.native_ownership import acquisition, release_receipt
 
 
 CONFIG = dict(MODE="bounded_decay", MAX_COAST_TIME_S=8., MAX_COAST_DISTANCE_M=4.,
@@ -29,16 +31,23 @@ def fixture(*, phase=AirframePhase.FIXED_WING, is_vtol=True):
     states.commit(state)
     connection = SimpleNamespace(get_aircraft_state=lambda: states.snapshot(timeout_s=.75),
                                  commit_aircraft_state=states.commit)
-    client = SimpleNamespace(session_identity=None, abort=Mock(), submit=AsyncMock(),
-                             handoff=AsyncMock(return_value={"hold_observed": True}))
+    client = SimpleNamespace(session_identity=None, acquisition_token=None, acquisition_context=None,
+                             abort=Mock(), submit=AsyncMock(), handoff=AsyncMock())
 
     async def engage(identity, **kwargs):
         from classes.command_dispatch_guard import validate_before_dispatch
         validate_before_dispatch(kwargs.get("before_dispatch"))
         validate_before_dispatch(kwargs.get("on_mode_dispatch"))
         client.session_identity = identity
+        client.acquisition_token = kwargs["ownership_token"]
+        client.acquisition_context = acquisition(identity, runtime_id=guidance.phase_owner.capabilities.runtime_id,
+                                                 token=client.acquisition_token)
+        client.handoff.return_value = release_receipt(client.acquisition_context)
+        client.observe_after_release.return_value = release_receipt(client.acquisition_context, outcome="owner_already_released", nav_state=5)
+        return {"owner_confirmed": True, "runtime_id": client.acquisition_context.runtime_id,
+                "acquisition": client.acquisition_context.wire_payload()}
 
-    async def advance(identity):
+    async def advance(identity, **_):
         client.session_identity = identity
 
     def abort():
@@ -46,13 +55,17 @@ def fixture(*, phase=AirframePhase.FIXED_WING, is_vtol=True):
 
     def packet():
         return {"aircraft_state": asdict(connection.get_aircraft_state()), "owner_confirmed": True,
-                "fresh": True, "rescue_active": False, "nav_state": 23, "nav_state_timestamp": 100}
+                "fresh": True, "rescue_active": False, "nav_state": 23, "nav_state_timestamp": 300, "release_receipt": None}
 
     client.engage = AsyncMock(side_effect=engage)
     client.advance_generation = AsyncMock(side_effect=advance)
     client.observe = AsyncMock(side_effect=packet)
     client.abort.side_effect = abort
-    client.observe_after_release = AsyncMock(return_value={"nav_state": 5, "rescue_active": False})
+    client.matches_acquisition = lambda identity, runtime, token, known=None: (
+        client.acquisition_context is not None and client.acquisition_context.identity == identity
+        and client.acquisition_context.runtime_id == runtime and client.acquisition_token == token
+        and (known is None or client.acquisition_context == known))
+    client.observe_after_release = AsyncMock()
     config = deepcopy(CONFIG)
     continuity = TargetContinuitySupervisor(ContinuityPolicy.from_mapping(config), clock=lambda: clock[0])
     continuity.reset_session(session_epoch=1, reason="start")
@@ -202,7 +215,7 @@ async def test_stop_revokes_controls_before_awaiting_handoff_and_never_reengages
     async def handoff(*_, **__):
         entered.set()
         await finish.wait()
-        return {"hold_observed": True}
+        return release_receipt(f.client.acquisition_context)
 
     f.client.handoff.side_effect = handoff
     task = asyncio.create_task(f.binding.stop("operator_stop"))
@@ -213,7 +226,8 @@ async def test_stop_revokes_controls_before_awaiting_handoff_and_never_reengages
         await f.binding.on_observation(f.state, f.packet(), None)
     finish.set()
     assert (await task)["executed"]
-    f.client.handoff.assert_awaited_once_with(captured, reason="operator_stop")
+    f.client.handoff.assert_awaited_once_with(captured, reason="operator_stop",
+        ownership_token=f.binding._ownership_token, acquisition=f.binding._acquisition)
     assert f.client.engage.await_count == 1
 
 
@@ -221,13 +235,13 @@ async def test_stop_confirms_abort_handoff_without_sending_a_second_mode_command
     f = fixture()
     await f.binding.engage()
     f.client.abort()
-    f.client.observe_after_release.return_value = {"nav_state": 4, "rescue_active": False}
+    f.client.observe_after_release.return_value = release_receipt(f.client.acquisition_context)
     result = await f.binding.stop("operator_stop")
     assert result["executed"]
     assert result["reason"] == "operator_stop"
     f.client.observe_after_release.assert_awaited_once_with(
-        f.state.binding, runtime_id=f.guidance.phase_owner.capabilities.runtime_id,
-        activation_timestamp=100,
+        f.binding._acquisition_identity, runtime_id=f.guidance.phase_owner.capabilities.runtime_id,
+        ownership_token=f.binding._ownership_token, mode_id=23, acquisition=f.client.acquisition_context,
     )
     f.client.handoff.assert_not_called()
     assert f.client.engage.await_count == 1
@@ -289,3 +303,140 @@ async def test_failed_initial_observation_revokes_partial_engagement(fresh, resc
     assert not f.binding.owner_confirmed
     f.client.abort.assert_called_once()
     f.client.advance_generation.assert_not_called()
+
+
+async def test_ack_activation_is_frozen_before_a_later_observation_epoch():
+    f = fixture()
+    await f.binding.engage()
+    assert f.binding._acquisition.activation_timestamp == 200
+    assert f.packet()['nav_state_timestamp'] == 300
+    f.client.abort()
+    f.client.observe_after_release.return_value = release_receipt(f.client.acquisition_context)
+    assert (await f.binding.stop('operator_stop'))['executed']
+    expected = f.client.observe_after_release.call_args.kwargs['acquisition']
+    assert expected.activation_timestamp == 200
+
+
+async def test_lost_ack_binding_retains_predispatch_token_for_read_only_cleanup():
+    f = fixture()
+    original = f.client.engage.side_effect
+
+    async def lost_ack(identity, **kwargs):
+        await original(identity, **kwargs)
+        raise NativeGuidanceError('native_reply_missing')
+
+    f.client.engage.side_effect = lost_ack
+    with pytest.raises(NativeGuidanceError, match='reply_missing'):
+        await f.binding.engage()
+    token = f.binding._ownership_token
+    assert token == f.client.acquisition_context.token
+    assert f.binding._acquisition is None
+    result = await f.binding.stop('start_failed')
+    assert not result['executed']
+    assert result['reason'] == 'native_owner_already_released'
+    f.client.observe_after_release.assert_awaited_once_with(
+        f.binding._acquisition_identity, runtime_id=f.binding._runtime_id,
+        ownership_token=token, mode_id=23, acquisition=None)
+    f.client.handoff.assert_not_called()
+
+
+async def test_duplicate_concurrent_cleanup_uses_one_correlated_handoff():
+    f = fixture()
+    await f.binding.engage()
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def handoff(*_, **__):
+        entered.set()
+        await release.wait()
+        return release_receipt(f.client.acquisition_context)
+
+    f.client.handoff.side_effect = handoff
+    first = asyncio.create_task(f.binding.stop('operator_stop'))
+    await entered.wait()
+    second = asyncio.create_task(f.binding.stop('operator_stop'))
+    await asyncio.sleep(0)
+    assert f.client.handoff.await_count == 1
+    release.set()
+    assert (await first)['executed']
+    assert (await second)['executed']
+    assert (await f.binding.stop('operator_stop'))['executed']
+    assert f.client.handoff.await_count == 1
+    f.client.observe_after_release.assert_not_called()
+
+
+async def test_unconfirmed_cleanup_can_only_retry_read_only():
+    f = fixture()
+    await f.binding.engage()
+    f.client.handoff.return_value = release_receipt(f.client.acquisition_context, outcome='unconfirmed')
+    with pytest.raises(NativeGuidanceError, match='release_unconfirmed'):
+        await f.binding.stop('operator_stop')
+    assert f.binding._release_receipt is None
+    f.client.observe_after_release.return_value = release_receipt(f.client.acquisition_context)
+    assert (await f.binding.stop('operator_stop'))['executed']
+    assert f.client.handoff.await_count == 1
+    assert f.client.observe_after_release.await_count == 1
+
+
+async def test_same_identity_replacement_acquisition_is_not_aborted_or_confirmed():
+    f = fixture()
+    await f.binding.engage()
+    f.client.acquisition_context = replace(f.client.acquisition_context, firmware_incarnation='e' * 32)
+    with pytest.raises(NativeGuidanceError, match='session_replaced'):
+        await f.binding.stop('old_cleanup')
+    f.binding.abort('obsolete_abort')
+    f.client.abort.assert_not_called()
+    f.client.handoff.assert_not_called()
+    f.client.observe_after_release.assert_not_called()
+
+
+async def test_stop_during_delayed_engage_ack_cannot_revive_binding():
+    f = fixture()
+    original = f.client.engage.side_effect
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def delayed_ack(identity, **kwargs):
+        result = await original(identity, **kwargs)
+        entered.set()
+        await release.wait()
+        return result
+
+    f.client.engage.side_effect = delayed_ack
+    task = asyncio.create_task(f.binding.engage())
+    await entered.wait()
+    result = await f.binding.stop('operator_stop')
+    assert not result['executed']
+    assert result['local_sender_quiesced']
+    assert f.client.session_identity is None
+    f.client.abort.assert_called()
+    release.set()
+    with pytest.raises(NativeGuidanceError, match='follow_stopping'):
+        await task
+    assert not f.binding.owner_confirmed
+    f.client.observe.assert_not_called()
+    f.client.advance_generation.assert_not_called()
+    f.client.submit.assert_not_called()
+    f.client.handoff.assert_not_called()
+
+
+async def test_stop_while_acquisition_is_queued_refuses_write_before_dispatch():
+    f = fixture()
+    original = f.client.engage.side_effect
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def queued(identity, **kwargs):
+        entered.set()
+        await release.wait()
+        return await original(identity, **kwargs)
+
+    f.client.engage.side_effect = queued
+    task = asyncio.create_task(f.binding.engage())
+    await entered.wait()
+    result = await f.binding.stop('operator_stop')
+    assert result['reason'] == 'native_acquire_not_dispatched'
+    release.set()
+    with pytest.raises(DispatchRefused, match='follow_stopping'):
+        await task
+    assert not f.binding.acquire_dispatched
+    assert f.client.acquisition_context is None
+    f.client.observe.assert_not_called()
+    f.client.handoff.assert_not_called()

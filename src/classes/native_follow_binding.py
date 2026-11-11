@@ -5,15 +5,16 @@ startup/teardown; its existing publisher delivers observations to this binding.
 """
 
 from copy import deepcopy
+import asyncio
 from dataclasses import replace
 import math
 import time
 
-from classes.command_dispatch_guard import validate_before_dispatch
+from classes.command_dispatch_guard import DispatchRefusalKind, DispatchRefused, validate_before_dispatch
 from classes.aircraft_state import AircraftKind, AircraftLayout, AircraftState, AirframePhase
 from classes.guidance_phase_session import PhaseSessionState
 from classes.native_command_transport import NativeCommandTransport
-from classes.native_guidance import NativeGuidanceError
+from classes.native_guidance import NativeAcquisitionContext, NativeGuidanceError, NativeReleaseReceipt, make_ownership_token
 from classes.target_continuity import ContinuityMode, ContinuityPolicy, TargetEvidenceState
 
 
@@ -57,9 +58,16 @@ class NativeFollowBinding:
             clock=clock, on_observation=self.on_observation,
         )
         self._engage_attempted = False
+        self._engage_in_progress = False
         self.acquire_dispatched = False
         self._stopping = False
-        self._activation_timestamp = None
+        self._acquisition_identity = guidance.identity
+        self._runtime_id = guidance.phase_owner.capabilities.runtime_id
+        self._mode_id = guidance.phase_owner.capabilities.owned_mode_id
+        self._ownership_token = None
+        self._acquisition = None
+        self._release_receipt = None
+        self._stop_lock = asyncio.Lock()
 
     @property
     def owner_confirmed(self) -> bool:
@@ -90,19 +98,33 @@ class NativeFollowBinding:
         if self._engage_attempted or self._stopping:
             raise NativeGuidanceError("native_follow_binding_already_started")
         self._engage_attempted = True
+        self._engage_in_progress = True
+        self._ownership_token = make_ownership_token()
         try:
+            def may_engage():
+                if self._stopping:
+                    raise DispatchRefused("native_follow_stopping", DispatchRefusalKind.TERMINAL)
+                validate_before_dispatch(before_dispatch)
+
             def dispatched():
                 validate_before_dispatch(on_mode_dispatch)
                 self.acquire_dispatched = True
-            await self.client.engage(self.guidance.identity, circuit_breaker_active=self._circuit_breaker(),
-                                     before_dispatch=before_dispatch, on_mode_dispatch=dispatched)
+            result = await self.client.engage(
+                self._acquisition_identity, ownership_token=self._ownership_token,
+                circuit_breaker_active=self._circuit_breaker(),
+                before_dispatch=may_engage, on_mode_dispatch=dispatched)
+            self._acquisition = NativeAcquisitionContext.from_payload(result.get("acquisition"))
+            self._acquisition.require_match(self._acquisition_identity, self._runtime_id,
+                                            self._ownership_token, mode_id=self._mode_id)
+            if (result.get("owner_confirmed") is not True or result.get("runtime_id") != self._runtime_id
+                    or self._acquisition.activation_timestamp == 0):
+                raise NativeGuidanceError("native_ownership_not_confirmed")
+            if self._stopping:
+                raise NativeGuidanceError("native_follow_stopping")
+            self.transport.bind_acquisition(self._acquisition)
             observation = await self.client.observe()
             if observation.get("fresh") is not True or observation.get("rescue_active") is not False:
                 raise NativeGuidanceError("native_aircraft_state_unavailable")
-            epoch = observation.get("nav_state_timestamp")
-            if type(epoch) is not int or epoch <= 0:
-                raise NativeGuidanceError("native_activation_context_missing")
-            self._activation_timestamp = epoch
             state = AircraftState.from_payload(observation["aircraft_state"])
             self.connection.commit_aircraft_state(state)
             accepted = self.connection.get_aircraft_state()
@@ -112,6 +134,8 @@ class NativeFollowBinding:
         except BaseException:
             self.abort("native_follow_start_failed")
             raise
+        finally:
+            self._engage_in_progress = False
 
     async def on_observation(self, state, observation, intent):
         if self._stopping:
@@ -154,34 +178,61 @@ class NativeFollowBinding:
     def abort(self, reason: str):
         self._stopping = True
         self.guidance.end(reason)
-        self.transport.abort()
+        if (self._owns_client_acquisition()
+                or not self.acquire_dispatched and self.client.session_identity is None
+                and self.client.acquisition_token is None):
+            self.client.abort()
+
+    def _owns_client_acquisition(self):
+        return self._ownership_token is not None and self.client.matches_acquisition(
+            self._acquisition_identity, self._runtime_id, self._ownership_token, self._acquisition)
+
+    def _release_result(self, reason):
+        receipt = self._release_receipt
+        hold = receipt.outcome == "hold_confirmed"
+        return {"executed": hold, "local_sender_quiesced": True,
+                "reason": reason if hold else "native_owner_already_released",
+                "observed_nav_state": receipt.observed_nav_state,
+                "release_receipt": receipt.wire_payload(), "errors": []}
 
     async def stop(self, reason: str):
         """Called after the existing publisher has joined; never reacquire control."""
         self._stopping = True
         self.guidance.end(reason)
+        if self._engage_in_progress:
+            self.abort(reason)
+        async with self._stop_lock:
+            return await self._stop(reason)
+
+    async def _stop(self, reason: str):
+        if self._release_receipt is not None:
+            return self._release_result(reason)
         identity = self.transport.identity
         if not self.acquire_dispatched:
-            self.transport.abort()
+            if self.client.session_identity is None and self.client.acquisition_token in (None, self._ownership_token):
+                self.transport.abort()
             return {"executed": False, "local_sender_quiesced": True,
                     "reason": "native_acquire_not_dispatched", "errors": []}
+        if not self._owns_client_acquisition():
+            raise NativeGuidanceError("native_session_replaced")
         try:
             if self.client.session_identity != identity:
                 if self.client.session_identity is not None:
                     raise NativeGuidanceError("native_session_replaced")
-                observation = await self.client.observe_after_release(
-                    identity.binding, runtime_id=self.guidance.phase_owner.capabilities.runtime_id,
-                    activation_timestamp=self._activation_timestamp,
+                receipt = await self.client.observe_after_release(
+                    self._acquisition_identity, runtime_id=self._runtime_id,
+                    ownership_token=self._ownership_token, mode_id=self._mode_id, acquisition=self._acquisition,
                 )
-                hold = observation["nav_state"] == 4 and not observation["rescue_active"]
-                return {"executed": hold, "local_sender_quiesced": True,
-                        "reason": reason if hold else "native_owner_already_released",
-                        "observed_nav_state": observation["nav_state"], "errors": []}
-            result = await self.client.handoff(identity, reason=reason)
-            if result.get("hold_observed") is not True:
-                raise NativeGuidanceError("native_hold_not_confirmed")
-            return {"executed": True, "local_sender_quiesced": True,
-                    "reason": reason, "errors": []}
+            else:
+                receipt = await self.client.handoff(identity, reason=reason, ownership_token=self._ownership_token,
+                                                    acquisition=self._acquisition)
+            if not isinstance(receipt, NativeReleaseReceipt):
+                raise NativeGuidanceError("native_release_receipt_invalid")
+            receipt.require_match(self._acquisition_identity, self._runtime_id, self._ownership_token, self._acquisition)
+            if not receipt.released:
+                raise NativeGuidanceError("native_release_unconfirmed")
+            self._release_receipt = receipt
+            return self._release_result(reason)
         finally:
-            if self.client.session_identity in (None, identity):
+            if self.client.session_identity in (None, identity) and self._owns_client_acquisition():
                 self.client.abort()

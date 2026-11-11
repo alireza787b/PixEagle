@@ -368,3 +368,10 @@ remain open. Integration work is unpublished.
   now have focused evidence; full renewal is in progress. A separate mocked
   Python 3.10/3.11 pre-Stop scheduling race remains a required S7 release gate.
   No field pass or SDK post-dispatch cancellation guarantee is claimed.
+
+- **2026-11-12 — Causal native acquisition, S7 foundation:** atomic optional
+  ownership receipts replace the raw compare-mode route. Same-ID takeover,
+  cancellation, lost ACK, deadline-crossing activation and reset-clock restart
+  have software regressions; removed source paths are verified absent. Full
+  backend gates pass. Transition-preserving release, actual VTOL fault evidence
+  and hardware remain open; see the [consolidation checkpoint](checkpoints/2026-11-09-follower-consolidation.md).

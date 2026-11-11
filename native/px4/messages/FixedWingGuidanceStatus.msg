@@ -34,4 +34,3 @@ float32 observed_equivalent_airspeed # [m/s] Qualified observation, NaN in nativ
 float32 underspeed_ratio # [-] Native underspeed response, NaN while inactive
 bool controller_active
 bool airspeed_control_enabled # Fresh qualified input and native airspeed control enabled
-bool owner_bound_mode_changes_supported # SET_NAV_STATE accepts expected mode/activation-time guard

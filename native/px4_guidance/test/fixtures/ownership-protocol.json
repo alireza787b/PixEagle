@@ -1,0 +1,55 @@
+{
+  "capabilities": {
+    "runtime_id": "test-adapter",
+    "px4_firmware": "test-firmware",
+    "external_mode_api_version": 2,
+    "fixed_wing_supported": true,
+    "vtol_transition_supported": true,
+    "unrestricted_speed_supported": false,
+    "owned_mode_supported": true,
+    "owned_mode_id": 23
+  },
+  "acquisition": {
+    "runtime_id": "test-adapter",
+    "identity": {
+      "follow_session_id": "follow-a",
+      "binding": {
+        "aircraft_uid": "aircraft-a",
+        "connection_generation": "1",
+        "telemetry_generation": 1
+      },
+      "guidance_generation": 1
+    },
+    "token": "00000000000000000000000000000001",
+    "firmware_incarnation": "00000000000000000000000000000002",
+    "source_revision": 7,
+    "source_nav_state": 4,
+    "source_nav_state_timestamp": 1000000,
+    "mode_id": 23,
+    "activation_timestamp": 2000000
+  },
+  "release_receipt": {
+    "acquisition": {
+      "runtime_id": "test-adapter",
+      "identity": {
+        "follow_session_id": "follow-a",
+        "binding": {
+          "aircraft_uid": "aircraft-a",
+          "connection_generation": "1",
+          "telemetry_generation": 1
+        },
+        "guidance_generation": 1
+      },
+      "token": "00000000000000000000000000000001",
+      "firmware_incarnation": "00000000000000000000000000000002",
+      "source_revision": 7,
+      "source_nav_state": 4,
+      "source_nav_state_timestamp": 1000000,
+      "mode_id": 23,
+      "activation_timestamp": 2000000
+    },
+    "outcome": "hold_confirmed",
+    "observed_nav_state": 4,
+    "observed_nav_state_timestamp": 3000000
+  }
+}

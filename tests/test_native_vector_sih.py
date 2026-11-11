@@ -480,6 +480,7 @@ def test_rewritten_attitude_timing_packet_does_not_become_a_stable_gate_sample()
 
 @pytest.mark.usefixtures("native_follower_environment")
 async def test_engagement_and_publication_share_accepted_image_observation_before_first_projection():
+    from tests.fixtures.native_ownership import acquisition
     env = native_image_context()
     connection = ObservationConnection(env.state.binding, clock=lambda: env.now[0])
     assert connection.commit_aircraft_state(env.state)
@@ -488,7 +489,7 @@ async def test_engagement_and_publication_share_accepted_image_observation_befor
     follower.bind_guidance_input_resolver(env.fixture.resolve)
     guidance = follower.create_airframe_session(
         GuidanceSessionIdentity("image-start", env.state.binding, 1),
-        NativeCapabilities("native-fixture", "fixture", 2, True, False, False),
+        NativeCapabilities("native-fixture", "fixture", 2, True, False, False, True, 23),
         confirmation_s=.3, observation_timeout_s=.75, transition_timeout_s=10., clock=lambda: env.now[0],
     )
     output = project_component_input(env.fixture, env.packet, env.state, [100., 20., -40.], timestamp_s=1.)
@@ -498,11 +499,23 @@ async def test_engagement_and_publication_share_accepted_image_observation_befor
                                             clock=lambda: env.now[0])
     supervisor.reset_session(session_epoch=1, reason="test_start")
     base = ContinuityContext("PX4_NATIVE", env.state.phase, "fixed_wing_external", True, False, True)
-    client = SimpleNamespace(session_identity=None, abort=Mock(), submit=AsyncMock())
+    client = SimpleNamespace(session_identity=None, acquisition_token=None, acquisition_context=None, abort=Mock(), submit=AsyncMock())
 
-    async def own(identity, **_):
+    async def own(identity, **kwargs):
+        from classes.command_dispatch_guard import validate_before_dispatch
+        validate_before_dispatch(kwargs.get('before_dispatch'))
+        validate_before_dispatch(kwargs.get('on_mode_dispatch'))
         client.session_identity = identity
+        if 'ownership_token' in kwargs:
+            client.acquisition_token = kwargs['ownership_token']
+            client.acquisition_context = acquisition(identity, token=client.acquisition_token, runtime_id='native-fixture')
+            return {'owner_confirmed': True, 'runtime_id': 'native-fixture',
+                    'acquisition': client.acquisition_context.wire_payload()}
 
+    client.matches_acquisition = lambda original, runtime, token, known=None: (
+        client.acquisition_context is not None and original == client.acquisition_context.identity
+        and runtime == client.acquisition_context.runtime_id and token == client.acquisition_context.token
+        and (known is None or known == client.acquisition_context))
     client.engage = AsyncMock(side_effect=own)
     client.advance_generation = AsyncMock(side_effect=own)
     env.now[0] = 100.1

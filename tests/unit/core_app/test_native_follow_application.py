@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from classes.aircraft_state import AircraftKind
+from tests.fixtures.native_ownership import release_receipt
 from classes.app_controller import AppController
 from classes.parameters import Parameters
 from tests.fixtures.following_observation import bind_image_source
@@ -143,7 +144,7 @@ async def test_native_stop_joins_publisher_before_native_handoff(app):
 
     async def handoff(*_, **__):
         order.append("handoff")
-        return {"hold_observed": True}
+        return release_receipt(app.f.client.acquisition_context)
 
     app.f.client.handoff.side_effect = handoff
     result = await ctrl._disconnect_px4_internal()
@@ -160,7 +161,7 @@ async def test_operator_stop_retains_observed_hold_after_immediate_native_abort(
     ctrl = app.ctrl
     assert not (await ctrl._connect_px4_on_flight_loop())["errors"]
     app.commander.activate_failsafe_defaults = Mock(side_effect=lambda _: app.f.client.abort())
-    app.f.client.observe_after_release.return_value = {"nav_state": 4, "rescue_active": False}
+    app.f.client.observe_after_release.return_value = release_receipt(app.f.client.acquisition_context)
     result = await ctrl.stop_native_following(ctrl._following_session_id, ctrl._following_session_aircraft_uid)
     assert not result["errors"]
     assert result["offboard_stop_action"]["executed"]
@@ -317,3 +318,34 @@ async def test_aircraft_admission_is_rechecked_after_native_discovery(app):
     app.f.client.engage.assert_not_called()
     app.ctrl.px4_interface.start_offboard_mode.assert_not_called()
     app.commander_factory.assert_not_called()
+
+
+async def test_correlated_pilot_release_clears_cleanup_barrier_without_claiming_hold(app):
+    ctrl = app.ctrl
+    assert not (await ctrl._connect_px4_on_flight_loop())['errors']
+    app.f.client.handoff.return_value = release_receipt(
+        app.f.client.acquisition_context, outcome='owner_already_released', nav_state=5)
+    outcome = await ctrl._disconnect_px4_internal()
+    assert outcome['errors'] == []
+    assert outcome['offboard_stop_action']['local_sender_quiesced']
+    assert outcome['offboard_stop_action']['executed'] is False
+    assert ctrl._native_follow_binding is None
+    assert not ctrl._following_offboard_cleanup_required
+    assert not ctrl.following_active
+    assert (getattr(ctrl, '_last_following_handoff', None) or {}).get('result') != 'confirmed_hold'
+    fresh = fixture(is_vtol=False)
+
+    async def prepare_fresh():
+        fresh.binding.continuity = ctrl.target_continuity
+        fresh.binding._context = ctrl._build_target_continuity_context
+        ctrl._following_session_id = fresh.guidance.identity.follow_session_id
+        ctrl._native_follow_binding = fresh.binding
+        return fresh.binding
+
+    ctrl._prepare_native_follow_binding.side_effect = prepare_fresh
+    result = await ctrl._connect_px4_on_flight_loop()
+    assert result['errors'] == []
+    assert ctrl.following_active
+    assert fresh.client.engage.await_count == 1
+    assert app.f.client.handoff.await_count == 1
+    ctrl.px4_interface.stop_offboard_mode.assert_not_called()

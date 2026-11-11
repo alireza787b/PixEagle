@@ -12,18 +12,25 @@ from classes.fixed_wing_vector_guidance import FixedWingCommand
 from classes.native_command_transport import NativeCommandTransport
 from classes.offboard_commander import OffboardCommander
 from tests.unit.drone_interface.test_aircraft_state import aircraft_state
+from tests.fixtures.native_ownership import acquisition, release_receipt
 
 
 def setup_transport(state=None):
     state = state or aircraft_state()
     identity = GuidanceSessionIdentity("follow", state.binding, 1)
     client = SimpleNamespace(session_identity=identity, submit=AsyncMock(), advance_generation=AsyncMock(),
-                             handoff=AsyncMock(return_value={"hold_observed": True}), observe=AsyncMock(return_value={
+                             handoff=AsyncMock(return_value=release_receipt(acquisition(identity))), observe=AsyncMock(return_value={
                                  "aircraft_state": asdict(state), "owner_confirmed": True,
                                  "fresh": True, "rescue_active": False,
                              }))
+    client.acquisition_context = acquisition(identity)
+    client.acquisition_token = client.acquisition_context.token
+    client.matches_acquisition = lambda original, runtime, token, known=None: (
+        original == client.acquisition_context.identity and runtime == client.acquisition_context.runtime_id
+        and token == client.acquisition_context.token and (known is None or known == client.acquisition_context))
     connection = SimpleNamespace(get_aircraft_state=lambda: state, commit_aircraft_state=lambda value: value == state)
     transport = NativeCommandTransport(client, connection, identity, circuit_breaker=lambda: False, clock=lambda: 100.1)
+    transport.bind_acquisition(client.acquisition_context)
     return transport, client, identity
 
 
@@ -110,7 +117,8 @@ async def test_shared_commander_uses_native_fw_contract_without_mavsdk_or_zero_d
     assert commander.get_status()["command_publication_source"] == "px4_native_external_mode"
     await commander.stop()
     assert client.submit.await_count == 1
-    client.handoff.assert_awaited_once_with(identity, reason="operator_stop", before_dispatch=None)
+    client.handoff.assert_awaited_once_with(identity, reason="operator_stop", before_dispatch=None,
+        ownership_token=client.acquisition_token, acquisition=client.acquisition_context)
 
 
 @pytest.mark.asyncio
@@ -188,7 +196,7 @@ async def test_phase_callback_rebinds_before_publication_and_records_the_effecti
     client.observe.return_value['aircraft_state'] = asdict(state)
     next_identity = replace(identity, guidance_generation=2)
 
-    async def acknowledge_phase(updated):
+    async def acknowledge_phase(updated, **_):
         client.session_identity = updated
 
     client.advance_generation.side_effect = acknowledge_phase
@@ -231,7 +239,7 @@ async def test_new_generation_intent_is_accepted_during_ack_without_overwriting_
                        created_at_monotonic_s=100.05)
     newer = replace(baseline, fields=baseline.fields | {"course_rad": .4}, created_at_monotonic_s=100.08)
 
-    async def acknowledge_phase(updated):
+    async def acknowledge_phase(updated, **_):
         requested.set()
         await release.wait()
         client.session_identity = updated
@@ -270,3 +278,28 @@ async def test_failed_phase_binding_revokes_the_native_owner_without_submission(
     assert not transport.ready()
     assert transport._pending_identity is None
     client.submit.assert_not_called()
+
+
+async def test_transport_without_explicit_engage_ack_cannot_adopt_client_owner():
+    _, client, identity = setup_transport()
+    transport = NativeCommandTransport(client, SimpleNamespace(get_aircraft_state=lambda: aircraft_state()),
+                                       identity, circuit_breaker=lambda: False)
+    assert not transport.ready()
+    with pytest.raises(ValueError, match='acquisition_context_missing'):
+        await transport.publish(None, reason='operator_stop', ttl_s=.5)
+    client.handoff.assert_not_called()
+    client.submit.assert_not_called()
+
+
+async def test_transport_replacement_with_equal_session_identity_cannot_publish():
+    transport, client, identity = setup_transport()
+    original = client.acquisition_context
+    client.acquisition_context = replace(original, token='f' * 32)
+    assert not transport.ready()
+    intent = replace(FixedWingCommand(0., 18., 0., None).intent(identity, profile_name='gm_velocity_vector', source='test'),
+                     created_at_monotonic_s=100.)
+    with pytest.raises(ValueError, match='state_stale'):
+        await transport.publish(intent, reason='heartbeat', ttl_s=.5)
+    client.submit.assert_not_called()
+    with pytest.raises(ValueError, match='context_changed'):
+        transport.bind_acquisition(client.acquisition_context)

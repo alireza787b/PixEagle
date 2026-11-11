@@ -125,6 +125,25 @@ def test_source_verification_rejects_unlisted_changes_and_wrong_submodule_pin(re
         sih_baseline.verify_source(source, repository, verify)
 
 
+def test_source_verification_allows_only_manifested_deletions(repository, tmp_path, monkeypatch):
+    manifest_path = repository / "native/px4/extension.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["deleted_files"] = ["obsolete_guard.hpp"]
+    manifest_path.write_text(json.dumps(manifest))
+    source = tmp_path / "firmware"
+    (source / ".git").mkdir(parents=True)
+    changed = ["controller.cpp\nobsolete_guard.hpp"]
+
+    def git(*args):
+        return changed[0] if "diff" in args else ""
+
+    monkeypatch.setattr(sih_baseline, "command", git)
+    sih_baseline.verify_source(source, repository, lambda *args: None)
+    changed[0] += "\nunreviewed.cpp"
+    with pytest.raises(ValueError, match="Unreviewed.*unreviewed.cpp"):
+        sih_baseline.verify_source(source, repository, lambda *args: None)
+
+
 def test_target_requires_its_modules_and_allows_absent_unused_platforms(repository, tmp_path, monkeypatch):
     lock_path = repository / "native/dependencies.lock.json"
     lock = json.loads(lock_path.read_text())

@@ -69,6 +69,10 @@ def verify_extension(source: Path, extension: Path) -> None:
             candidate = root / name
             if not candidate.is_file() or hashlib.sha256(candidate.read_bytes()).hexdigest() != checksum:
                 raise ValueError(f"Native PX4 extension checksum mismatch: {name}")
+    for name in manifest.get("deleted_files", []):
+        candidate = source / name
+        if candidate.exists() or candidate.is_symlink():
+            raise ValueError(f"Removed native PX4 extension source is still present: {name}")
     messages = extension / "messages"
     for message in messages.glob("*.msg"):
         if message.read_bytes() != (source / "msg/versioned" / message.name).read_bytes():

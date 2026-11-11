@@ -9,6 +9,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+
+from tests.fixtures.native_ownership import acquisition, release_receipt
 import yaml
 
 from classes.aircraft_state import AircraftStateOwner, AirframePhase, AirspeedObservation, GuidanceSessionIdentity, Quaternion, Vector3
@@ -271,7 +273,12 @@ def publication_environment(env, monkeypatch):
     connection = SimpleNamespace(get_aircraft_state=lambda: states.snapshot(timeout_s=.75),
                                  commit_aircraft_state=states.commit)
     client = SimpleNamespace(session_identity=env.session.identity, submit=AsyncMock(), abort=Mock(),
-                             handoff=AsyncMock(return_value={'hold_observed': True}))
+                             handoff=AsyncMock(return_value=release_receipt(acquisition(env.session.identity))))
+    client.acquisition_context = acquisition(env.session.identity)
+    client.acquisition_token = client.acquisition_context.token
+    client.matches_acquisition = lambda original, runtime, token, known=None: (
+        original == client.acquisition_context.identity and runtime == client.acquisition_context.runtime_id
+        and token == client.acquisition_context.token and (known is None or known == client.acquisition_context))
     client.observe = AsyncMock(side_effect=lambda: {
         'aircraft_state': asdict(connection.get_aircraft_state()), 'fresh': True,
         'owner_confirmed': True, 'rescue_active': False,
@@ -294,6 +301,7 @@ def publication_environment(env, monkeypatch):
     binding = NativeFollowBinding(env.session, connection, client, continuity, profile_name=env.follower.profile_name,
         continuity_config=Parameters.TargetContinuity, target_evidence=lambda: app._target_evidence_snapshot(env.output),
         context=lambda: base, circuit_breaker=lambda: False, clock=lambda: env.now[0])
+    binding.transport.bind_acquisition(client.acquisition_context)
     commander = OffboardCommander(connection, env.follower.setpoint_handler,
                                   command_transport=binding.transport, command_ttl_s=.3)
 
@@ -361,7 +369,8 @@ async def test_frozen_aircraft_state_and_duplicate_image_cannot_renew_publisher_
     assert evidence.state is TargetEvidenceState.CONFIRMED
     assert duplicate.created_at_monotonic_s == original.created_at_monotonic_s
     assert run.client.submit.await_count == 1
-    run.client.handoff.assert_awaited_once_with(env.session.identity, reason='manual', before_dispatch=None)
+    run.client.handoff.assert_awaited_once_with(env.session.identity, reason='manual', before_dispatch=None,
+        ownership_token=run.client.acquisition_token, acquisition=run.client.acquisition_context)
     assert run.commander.stale_intent_resets == 1
 
 

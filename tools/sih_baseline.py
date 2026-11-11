@@ -69,7 +69,8 @@ def verify_source(source: Path, repository: Path, verify_extension) -> dict:
         raise ValueError("SIH source Git objects must be self-contained")
     extension = repository / "native/px4"
     verify_extension(source, extension)
-    approved = set(json.loads((extension / "extension.json").read_text())["files"])
+    manifest = json.loads((extension / "extension.json").read_text())
+    approved = set(manifest["files"]) | set(manifest.get("deleted_files", []))
     changed = command("git", "-c", "gc.auto=0", "-C", str(source), "diff", "HEAD", "--name-only",
                       "--ignore-submodules=none").splitlines()
     untracked = command("git", "-C", str(source), "ls-files", "--others", "--exclude-standard").splitlines()

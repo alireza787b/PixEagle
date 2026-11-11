@@ -25,7 +25,7 @@ void AircraftObservations::bind(const Json& binding, double now) {
     nonemptyString(binding.at("aircraft_uid"));
     nonemptyString(binding.at("connection_generation"));
     unsignedInteger(binding.at("telemetry_generation"));
-    if (!_envelope.fresh(now, _timeout) || !_envelope.value()->owner_bound_mode_changes_supported
+    if (!_envelope.fresh(now, _timeout)
             || std::to_string(_envelope.value()->autopilot_uid) != binding.at("aircraft_uid").get<std::string>())
         throw std::invalid_argument("native_aircraft_identity_unconfirmed");
     _binding = binding;

@@ -4,6 +4,11 @@ Plan: [MC/FW/VTOL consolidation](../../../../followers/05-development/follower-c
 Baseline: PixEagle `50bb2f763`; QGC implementation worktree `c7cfdfa13`.
 Hardware, installed services and local saved/private configuration are untouched.
 
+Current position (November 12): **S0–S6 component/software checkpoints complete;
+S7 implementation in progress.** The S6 closeout below records 32 selected
+actual-PX4 component passes and retained failed history. Native causal ownership,
+transition-preserving release, clients, packaging and hardware remain open.
+
 Continuation on 2026-11-11: the current MC component selector has 28 passing
 cases. Broader software renewal exposed and repaired duplicate manager caching;
 the renewed full gate passes and the S4 component/software checkpoint is closed.
@@ -911,3 +916,43 @@ in a fresh standalone pinned source checkout; no new firmware build, simulator
 or hardware claim follows yet. End-on-transition/new-Start, transition-preserving
 release and actual tailsitter/standard-VTOL qualification remain open. S7–S13
 continue under the same plan, with no QGC PR or hardware changes in this slice.
+
+### S7 causal ownership foundation — software gate
+
+The atomic request/receipt implementation now replaces the raw mode-command
+route. Private RPC protocol 2 pins the original acquisition token, runtime,
+firmware incarnation, intention revision, registration and resulting activation
+epoch. Submitted intents and cleanup require that context; lost acknowledgements
+are reconciled read-only. Accepted pilot changes, including same-ID selections,
+retire the original ownership. Pending cancellation cannot become a later Start.
+
+Independent review reproduced two additional races: activation crossing the
+native deadline, and a firmware restart whose lower publication clock hid its
+new incarnation. Both have regressions. Late activation stays unresolved until
+actual release; reset-clock packets retire the old owner without becoming fresh
+status. The obsolete compare-mode helper, custom status flag and runtime branch
+are removed by patch 02. Standard VehicleCommand/VehicleStatus are unchanged.
+The build manifest verifies required removals as well as retained file hashes.
+
+| Gate | Result and scope |
+| --- | --- |
+| Frozen Python migration | 6,268 unit, 196 integration, 74 Phase 0; 11 optional GStreamer skips, 14 unit subtests |
+| Native contracts | 19 production firmware-helper and 45 C++ adapter contract tests |
+| Real PX4 intention/entropy | Seven functional tests, including ineligible Hold and actual POSIX entropy |
+| Adapter compile | Generated final custom messages, adapter and main compile; executable not started |
+| Build/verifier delta | 25 tests, fatal lint/compile/diff clean; no added full-Ruff rule-count findings |
+| Patch round-trip | Both patches apply to the pinned baseline; 20 final hashes match and two removed files are absent |
+
+The Python gate uses the unchanged r14 sources in
+`software-gates-s7-python-r1/full-backend-results-r1.json`. Later build-verifier
+changes are covered separately in `software-gates-s7-r1/`; final native compile,
+functional and source manifests remain there. Earlier failed link/configure
+attempts are retained. PX4's pinned functional runner logs pre-test workqueue
+startup diagnostics; the real health fixtures initialize their own workqueue,
+and these tests do not qualify worker timing or NuttX entropy.
+
+This is a software foundation, not a new SIH or aircraft acceptance. Full SIH
+firmware build, continuous neutral publication during release, transition
+disposition, end-on-transition/new-Start wiring and actual tailsitter/standard
+VTOL fault evidence remain open. VTOL admission stays closed. No hardware,
+public/private saved settings, controller gains or QGC files were changed.

@@ -192,3 +192,14 @@ messages and one owner/lease. Implementation is in progress in a separate pinned
 source checkout; transition-preserving release, new end-on-transition behavior,
 firmware builds and VTOL/hardware qualification remain unclaimed. Public/private
 saved configuration and QGC remain untouched.
+
+S7's causal ownership software foundation is implemented: protocol 2 and an
+atomic optional firmware request/receipt bind acquisition and release to their
+original context. Independent review reproduced and repaired deadline-crossing
+activation and reset-clock incarnation retirement. The replaced compare-mode
+route and flag are removed; the manifest verifies their absence. Frozen backend
+gates pass 6,268 unit and 196 integration tests; native helper/adapter/real
+intention tests and generated-message compilation pass. The checkpoint records
+exact scope, logs, source hashes and retained failed attempts. Full firmware/SIH
+renewal and transition-preserving release remain next; VTOL admission stays
+closed, with no hardware, saved configuration, gains or QGC changes.

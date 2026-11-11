@@ -13,7 +13,7 @@ from typing import Awaitable, Callable
 from classes.aircraft_state import AircraftState, AirframePhase, Vector3, heading_frame_to_ned
 from classes.command_intent import CommandIntent
 from classes.fixed_wing_vector_guidance import FixedWingCommand
-from classes.native_guidance import ExternalModeIntent, NativeMulticopterCommand, NativeTransitionCommand
+from classes.native_guidance import ExternalModeIntent, NativeAcquisitionContext, NativeMulticopterCommand, NativeReleaseReceipt, NativeTransitionCommand
 
 
 class NativeCommandTransport:
@@ -36,14 +36,31 @@ class NativeCommandTransport:
         self._publication_origin = None
         self._last_publications = None
         self._publication_counter_invalid = False
+        self._acquisition = None
+
+    def bind_acquisition(self, acquisition: NativeAcquisitionContext) -> None:
+        """Pin the validated engage ACK before any command can enter publication."""
+        if (not isinstance(acquisition, NativeAcquisitionContext) or acquisition.identity != self.identity
+                or acquisition.activation_timestamp == 0):
+            raise ValueError("native_acquisition_context_invalid")
+        if self._acquisition is not None and self._acquisition != acquisition:
+            raise ValueError("native_acquisition_context_changed")
+        self._acquisition = acquisition
 
     def ready(self) -> bool:
         state = self.connection.get_aircraft_state()
-        return bool(self.client.session_identity == self.identity and state is not None
+        acquisition = self._acquisition
+        return bool(acquisition is not None and self.client.matches_acquisition(
+                    acquisition.identity, acquisition.runtime_id, acquisition.token, acquisition)
+                    and self.client.session_identity == self.identity and state is not None
                     and state.binding == self.identity.binding and not state.rescue_active)
 
     def abort(self) -> None:
-        self.client.abort()
+        acquisition = self._acquisition
+        if (acquisition is not None and self.client.matches_acquisition(
+                acquisition.identity, acquisition.runtime_id, acquisition.token, acquisition)
+                or acquisition is None and self.client.session_identity is None and self.client.acquisition_token is None):
+            self.client.abort()
 
     def published_intent(self, *, ttl_s: float) -> CommandIntent | None:
         """Current adapter-accepted command, never a predicted PX4 response."""
@@ -107,12 +124,15 @@ class NativeCommandTransport:
         return replace(intent, fields=dict(intent.fields))
 
     async def advance_generation(self, identity) -> None:
+        acquisition = self._acquisition
+        if acquisition is None:
+            raise ValueError("native_acquisition_context_missing")
         if self._pending_identity is not None:
             raise ValueError("native_phase_binding_in_progress")
         self._pending_identity = identity
         self._last_created = None
         try:
-            await self.client.advance_generation(identity)
+            await self.client.advance_generation(identity, ownership_token=acquisition.token, acquisition=acquisition)
             self.identity = identity
             self._sequence = 0
         except BaseException:
@@ -123,11 +143,18 @@ class NativeCommandTransport:
 
     async def publish(self, intent: CommandIntent | None, *, reason: str, ttl_s: float, before_dispatch=None) -> bool:
         self.last_published_intent = None
+        acquisition = self._acquisition
+        if acquisition is None:
+            raise ValueError("native_acquisition_context_missing")
         if intent is None:
             if self.client.session_identity != self.identity:
                 return False
-            self.last_handoff = await self.client.handoff(self.identity, reason=reason, before_dispatch=before_dispatch)
-            return self.last_handoff.get("hold_observed") is True
+            self.last_handoff = await self.client.handoff(
+                self.identity, ownership_token=acquisition.token, acquisition=acquisition,
+                reason=reason, before_dispatch=before_dispatch)
+            if not isinstance(self.last_handoff, NativeReleaseReceipt):
+                raise ValueError("native_release_receipt_invalid")
+            return self.last_handoff.outcome == "hold_confirmed"
         observation = await self.client.observe()
         if (observation.get("fresh") is not True or observation.get("owner_confirmed") is not True
                 or observation.get("rescue_active") is not False):
@@ -155,6 +182,7 @@ class NativeCommandTransport:
         command = self._command(intent, state)
         external = ExternalModeIntent(self.identity, self._sequence, now, expires, command)
         await self.client.submit(external, circuit_breaker_active=self.circuit_breaker(),
+                                 ownership_token=acquisition.token, acquisition=acquisition,
                                  before_dispatch=before_dispatch)
         self._sequence += 1
         self.last_published_intent = replace(intent, fields=dict(intent.fields))

@@ -42,7 +42,7 @@ int main(int argc, char** argv) {
         probe.reset();
         // The actual aircraft declares VTOL capability; no mounting preset or
         // operator-entered aircraft type can select this command contract.
-        ExternalMode mode(*node, timeout, initial->is_vtol);
+        ExternalMode mode(*node, timeout, request_timeout, initial->is_vtol);
         AircraftObservations observations(*node, timeout);
         mode.setPhaseHoldProvider([&](Phase phase, const std::optional<Objective>& previous) -> std::optional<Objective> {
             const auto state = observations.snapshot(mode.status(), phase, mode.rescue(), mode.phaseReceived(), clockSeconds());
@@ -53,7 +53,8 @@ int main(int argc, char** argv) {
                 envelope.at("maximum_eas_m_s").get<double>());
         });
         if (!mode.doRegister()) throw std::runtime_error("native_registration_failed");
-        if (!px4_ros2::messageCompatibilityCheck(*node, {{"fmu/out/fixed_wing_guidance_status", "FixedWingGuidanceStatus"}}))
+        if (!px4_ros2::messageCompatibilityCheck(*node, {{"fmu/out/fixed_wing_guidance_status", "FixedWingGuidanceStatus"},
+                {"fmu/out/owned_mode_status", "OwnedModeStatus"}, {"fmu/in/owned_mode_request", "OwnedModeRequest"}}))
             throw std::runtime_error("native_firmware_contract_mismatch");
         std::optional<std::uint64_t> pending_request;
         std::optional<Identity> pending_identity;
@@ -68,7 +69,8 @@ int main(int argc, char** argv) {
                     throw std::invalid_argument("native_firmware_revision_mismatch");
                 return Json{{"runtime_id", runtime}, {"px4_firmware", firmware}, {"external_mode_api_version", 2},
                     {"fixed_wing_supported", true}, {"vtol_transition_supported", initial->is_vtol},
-                    {"unrestricted_speed_supported", false}};
+                    {"unrestricted_speed_supported", false}, {"owned_mode_supported", mode.ownedContractAvailable()},
+                    {"owned_mode_id", mode.id()}};
             }
             if (request.operation == "bind") {
                 if (pending_identity) throw std::invalid_argument("native_session_already_owned");
@@ -97,11 +99,14 @@ int main(int argc, char** argv) {
                     {"vehicle_pose", observations.pose(now)},
                     {"native_guidance_feedback", observations.commandFeedback(now)},
                     {"phase_hold_active", mode.phaseHoldActive()}, {"phase_hold_failure", mode.phaseHoldFailure()},
-                    {"nav_state", mode.status().nav_state}, {"nav_state_timestamp", mode.status().nav_state_timestamp}};
+                    {"nav_state", mode.status().nav_state}, {"nav_state_timestamp", mode.status().nav_state_timestamp},
+                    {"release_receipt", mode.releaseReceipt(runtime)}};
             }
             if (request.operation == "engage") {
-                exactFields(request.payload, {"identity", "expires_at_monotonic_s"});
+                exactFields(request.payload, {"identity", "token", "runtime_id", "expires_at_monotonic_s"});
+                if (request.payload.at("runtime_id") != runtime) throw std::invalid_argument("native_runtime_changed");
                 const auto identity = decodeIdentity(request.payload.at("identity"));
+                const auto token = decodeOwnershipToken(request.payload.at("token"));
                 if (!observations.bindingMatches(identity) || snapshot.is_null())
                     throw std::invalid_argument("native_aircraft_context_unavailable");
                 if (!pending_request || *pending_request != request.request_id) {
@@ -117,49 +122,52 @@ int main(int argc, char** argv) {
                     } else if (mode.observedPhase() == Phase::Multicopter && initial->is_vtol) {
                         hold = MulticopterObjective{};
                     } else throw std::invalid_argument("native_engagement_phase_unsupported");
-                    mode.requestActivation(std::move(hold), engage_expires);
+                    mode.requestActivation(identity, token, std::move(hold), engage_expires);
                     pending_identity = identity;
                     pending_request = request.request_id;
                 }
                 if (mode.observedOwner()) {
                     mode.acquire(identity, engage_expires);
                     pending_request.reset();
-                    return Json{{"owner_confirmed", true}};
+                    return Json{{"owner_confirmed", true}, {"acquisition", mode.acquisition(runtime)}, {"runtime_id", runtime}};
                 }
                 if (now >= engage_expires) throw std::invalid_argument("native_engagement_expired");
                 return {};
             }
             if (request.operation == "intent") {
+                const auto token = decodeOwnershipToken(request.payload.at("token"));
                 const auto intent = decodeIntent(request.payload);
                 if (snapshot.is_null() || !observations.bindingMatches(intent.identity))
                     throw std::invalid_argument("native_aircraft_context_unavailable");
-                mode.submit(intent);
+                mode.submit(intent, token);
                 return Json{{"accepted_sequence", intent.sequence}, {"owner_confirmed", mode.observedOwner()},
                     {"publications", mode.publications()}};
             }
             if (request.operation == "phase") {
-                exactFields(request.payload, {"previous_identity", "identity"});
+                exactFields(request.payload, {"previous_identity", "identity", "token"});
+                const auto token = decodeOwnershipToken(request.payload.at("token"));
                 const auto previous = decodeIdentity(request.payload.at("previous_identity"));
                 const auto next = decodeIdentity(request.payload.at("identity"));
                 if (!observations.bindingMatches(next) || snapshot.is_null())
                     throw std::invalid_argument("native_aircraft_context_unavailable");
-                mode.advance(previous, next);
+                mode.advance(previous, next, token);
                 pending_identity = next;
                 return Json{{"accepted_generation", next.guidance_generation}, {"owner_confirmed", true}};
             }
             if (request.operation == "handoff") {
-                exactFields(request.payload, {"identity", "reason"});
+                exactFields(request.payload, {"identity", "token", "reason"});
                 const auto identity = decodeIdentity(request.payload.at("identity"));
+                const auto token = decodeOwnershipToken(request.payload.at("token"));
                 nonemptyString(request.payload.at("reason"));
                 if (!pending_request || *pending_request != request.request_id) {
                     if (!pending_identity || !(*pending_identity == identity)) throw std::invalid_argument("native_session_stale");
                     pending_identity.reset();
                     pending_request = request.request_id;
-                    if (!mode.requestHandoff(identity)) return Json{{"hold_observed", false}};
+                    mode.requestHandoff(identity, token);
                 }
-                if (mode.holdObserved()) { pending_request.reset(); return Json{{"hold_observed", true}}; }
-                if (!mode.fresh() || (!mode.observedOwner() && !mode.holdObserved()))
-                    return Json{{"hold_observed", false}};
+                const auto receipt = mode.releaseReceipt(runtime);
+                if (receipt.at("outcome") != "unconfirmed") { pending_request.reset(); return receipt; }
+                if (!mode.fresh()) return receipt;
                 return {};
             }
             throw std::invalid_argument("native_operation_unsupported");

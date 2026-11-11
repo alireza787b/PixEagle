@@ -65,7 +65,8 @@ inline Objective decodeObjective(const Json& value, Phase phase) {
 }
 
 inline Intent decodeIntent(const Json& payload) {
-    exactFields(payload, {"identity", "sequence", "created_at_monotonic_s", "expires_at_monotonic_s", "phase", "command"});
+    exactFields(payload, {"identity", "token", "sequence", "created_at_monotonic_s", "expires_at_monotonic_s", "phase", "command"});
+    nonemptyString(payload.at("token"));
     const auto phase_name = nonemptyString(payload.at("phase"));
     const auto phase = phase_name == "fixed_wing" ? Phase::FixedWing
         : phase_name == "multicopter" ? Phase::Multicopter : phase_name == "vtol_transition" ? Phase::Transition : Phase::Unknown;
@@ -86,19 +87,19 @@ inline Request decodeRequest(const std::string& raw) {
     if (raw.empty() || raw.size() > kMaximumMessageBytes) throw std::invalid_argument("native_message_oversized");
     auto object = Json::parse(raw);
     exactFields(object, {"protocol_version", "request_id", "generation", "operation", "payload"});
-    if (unsignedInteger(object.at("protocol_version")) != 1) throw std::invalid_argument("native_protocol_unsupported");
+    if (unsignedInteger(object.at("protocol_version")) != 2) throw std::invalid_argument("native_protocol_unsupported");
     if (!object.at("payload").is_object()) throw std::invalid_argument("native_payload_invalid");
     return {unsignedInteger(object.at("request_id")), unsignedInteger(object.at("generation")),
             nonemptyString(object.at("operation")), object.at("payload")};
 }
 
 inline std::string encodeReply(const Request& request, const Json& payload) {
-    return Json{{"protocol_version", 1}, {"request_id", request.request_id}, {"generation", request.generation},
+    return Json{{"protocol_version", 2}, {"request_id", request.request_id}, {"generation", request.generation},
                 {"success", true}, {"payload", payload}}.dump() + "\n";
 }
 
 inline std::string encodeError(const Request& request, const std::string& code) {
-    return Json{{"protocol_version", 1}, {"request_id", request.request_id}, {"generation", request.generation},
+    return Json{{"protocol_version", 2}, {"request_id", request.request_id}, {"generation", request.generation},
                 {"success", false}, {"error_code", code}}.dump() + "\n";
 }
 
