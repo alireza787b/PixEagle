@@ -1,27 +1,29 @@
 # Follower qualification inventory
 
-Reviewed 2026-11-09 at PixEagle `50bb2f763`. Historical results retain their
-capture revisions; they are not release acceptance for subsequent changes.
+Reviewed 2026-11-11. The [raw-backed evidence selector](../02-reference/follower-visual-guide.md)
+is the current MC case inventory; this page records behavior and broader gates.
+Historical results retain their capture revisions; they are not release acceptance for subsequent changes.
 The [consolidation plan](follower-consolidation-plan.md) defines the next gates.
 
 ## Existing profiles
 
 | Profile | Actual input and behavior | Evidence / remaining gate |
 | --- | --- | --- |
-| `mc_velocity_position` | Real image position; zero forward/right, visual yaw and optional vertical guidance | Synthetic replay; fresh behavior-specific SIH required |
-| `mc_velocity_chase` | Image position; forward ramp, yaw or sideslip, optional vertical guidance | One bounded actual quadx command/publication/response run; full release scenario suite required |
-| `mc_velocity_ground` | Downlooking/oblique image position; image X to right, Y to forward, optional descent | Synthetic replay; fresh SIH required; no landing qualification |
-| `mc_velocity_distance` | Image position; visual centering with zero forward command | Synthetic replay; fresh SIH required; no measured distance keeping |
-| `mc_attitude_rate` | Image position and aircraft state; rates/thrust | Synthetic replay/software guards; actual envelope/response qualification required |
+| `mc_velocity_position` | Image position; zero forward/right, visual yaw and optional vertical guidance | Observed MC component cases in the selector; optical/application/release gates remain |
+| `mc_velocity_chase` | Image position; forward ramp, yaw or sideslip, optional vertical guidance | Observed MC component cases in the selector; no interception or field-tuning guarantee |
+| `mc_velocity_ground` | Downlooking image axes: X to right, image-up to forward; optional descent | Observed MC component cases in the selector after correction cleanup; no landing qualification |
+| `mc_velocity_distance` | Image position; visual centering with zero forward command | Observed MC component cases in the selector; no measured distance keeping |
+| `mc_attitude_rate` | Image position and aircraft state; rates/thrust | Observed advanced rate/height-hold component cases; live retarget requires Stop; no target-vertical qualification |
 | `fw_attitude_rate` | Image position and aircraft state; L1/TECS-inspired rates/thrust | Synthetic replay; live gate remains; native Vector evidence does not qualify this implementation |
 | `gm_velocity_chase` | Camera-provider angles and canonical installation geometry; MC PID pursuit | Synthetic replay; fresh MC SIH required |
 | `gm_velocity_vector` | Provider angles to physical ray; MC velocity or native FW navigation | Actual bounded FW component/recovery/application evidence below; MC and new VTOL behavior require fresh qualification |
 
 Public defaults select Position, circuit breaker on and shared target-altitude
 guidance off. That shared flag is not a universal altitude-hold contract:
-Ground has `ENABLE_DESCEND_TO_TARGET`; MC direct rates has its own altitude hold
-enabled with a 15 m offset; FW direct rates derives altitude error from image Y.
-Those differences require audit in S4/S5, not an unsupported common guarantee.
+Ground has `ENABLE_DESCEND_TO_TARGET`; MC direct rates holds engagement height,
+with its saved offset applied only when optional altitude guidance is enabled
+(factory offset zero). FW direct rates derives altitude error from image Y.
+These remain distinct declared behaviors, not an unsupported common guarantee.
 
 ## PX4-observed evidence
 
@@ -31,6 +33,7 @@ gallery traces do not become PX4 evidence by linking to these runs.
 
 | Run / capture revision | Bounded result | Scope exclusions |
 | --- | --- | --- |
+| `follower-consolidation-20261109/current-evidence` / per-run manifests | Current canonical MC captures, raw verdicts, replays and retained failed history; generated inventory rather than a hand-maintained case list | Simulated fixed-camera measurements; no optical tracking, whole-app startup, installation, hardware or release qualification |
 | `mc_velocity_chase-20261025` / `fcdebc0d7` | Actual quadx, 199 successful publications, confirmed Hold and post-Stop CB probe | `release_qualified=false`; no physical camera or tracker acquisition acceptance |
 | `native-vector-fw-matrix-20261107` / `3b3e172cf` | Four actual airplane cases: both mounts, altitude guidance off/on; 1,180 successful submissions and 1,800 observed publications | Component approach tests, not interception, installation or hardware |
 | `native-vector-recovery-20261107` / `e51e1c59e` | Six airplane recovery cases pass; eight-second expiry and publication continuity retained | Process-stall assertions are separate; intentionally terminal component result remains failed |

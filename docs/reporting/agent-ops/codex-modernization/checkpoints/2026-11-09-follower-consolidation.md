@@ -4,6 +4,14 @@ Plan: [MC/FW/VTOL consolidation](../../../../followers/05-development/follower-c
 Baseline: PixEagle `50bb2f763`; QGC implementation worktree `c7cfdfa13`.
 Hardware, installed services and local saved/private configuration are untouched.
 
+Continuation on 2026-11-11: the current MC component selector has 28 passing
+cases. Broader software renewal exposed and repaired duplicate manager caching;
+the renewed full gate passes and the S4 component/software checkpoint is closed.
+S5 image provenance, shared
+world-ray math and native timing foundations are committed; public image-FW
+admission, VTOL release and hardware qualification remain pending. Detailed
+earlier entries below retain their original verification scope.
+
 ## S0 — inventory complete
 
 - Reviewed all eight real input/command contracts, defaults and evidence scopes.
@@ -244,3 +252,182 @@ rates return `retarget_requires_stop`, preserving target, generation, authority
 and command. Native FW carryover retains its identity and own level/altitude
 fields. Preview is unchanged. Focused and broader controller/native/camera/API
 gates passed 549 tests. No rate-coasting policy was invented or qualified.
+
+### Canonical build and wider S4 matrix (still open)
+
+The clean source build now passed. Its verified manifest is
+`reports/native-guidance/sih-canonical-build-20261109-r1/sih-build-manifest.json`
+(SHA256 `d11fad144d5451c86b259cef3e5b281acb9b95fdd48a329c5cb25eff8e7cbe9a`),
+runtime image `sha256:aad1b03f8c0ae0e157002123f622fb12fb82ebc970e1287f48f54b4cfda8fdf8`,
+binary `08d6255866feaf4b65a5c9914598804464d534a9cadbb0193c34c2d4b90593d1`.
+The pinned compiler runs offline and packages matching ROMFS/aliases. No firmware
+was flashed and the historical compatibility default was not silently replaced.
+The diagnostic baseline comparison has a reproducible PNG/CSV/HTML and source
+hashes at `reports/sitl/follower-consolidation-20261109/baseline-comparison/`.
+
+All four velocity profiles passed nominal altitude-off/on scenarios on this
+manifest. The repaired direct-rate default also passed: REST run
+`mc-rates-off-canonical-r2`, and both rate/Stationary MAVSDK comparisons
+`mc-{rates,position}-off-sdk-canonical-r1`. Source-timed paired height feedback,
+measured vertical damping and heartbeat datum/freshness checks replace cached
+camera-rate differentiation. Fresh thrust gains are 0.03/0.003/0.08, with saved
+values preserved; the SDK datum comparison accounts for transport precision.
+The direct-rate altitude variation was about 0.25 m on both telemetry paths.
+The height/default/preview/schema gate passed 363 tests; a broader overlapping
+controller/follower gate passed 1,282 before the subsequent fault repairs.
+
+The first 19-case loss/retarget/takeover/stale matrix is retained under
+`matrix-*` and `matrix-inputs/`. **It did not fully pass**:
+
+- Takeover control checks passed, but five reports lacked pose samples while
+  waiting for cleanup. The observer now continues during handoff; fresh repeats
+  must pass trace validation rather than relaxing freshness limits.
+- Ground's four-second loss case failed image response. Its uncalibrated
+  degree-based pose correction shows wrong-sign/excessive feedback; removal and
+  exact configuration retirement are in progress, followed by unchanged tests.
+- Visual Centering acquired forward motion when continuity rotated retained
+  lateral velocity. Its strategy now projects forward to zero after continuity,
+  without redistribution or budget reset; 966 tests passed. Actual repeat pending.
+- Rate telemetry-loss handling correctly refused before MAVSDK and confirmed
+  Hold. Publication evidence now distinguishes that guard refusal from a failed
+  concrete send; fresh repeat pending. Refusals require explicit source-stage
+  evidence, failed readiness and a declared fault boundary.
+
+Publication traces now retain actual submitted fallback fields without inventing
+fresh guidance. Canonical captures are counted/preserved; failed trace validation
+produces a visibly failed report even when raw component checks passed. The
+recorder/harness gate passed 389 tests before the last handoff observer change;
+that observer change passed 30 focused tests. Independent pose/relative-height
+observation no longer depends on the control cache during fault injection.
+The first matrix's raw failures are never edited or promoted to accepted runs.
+
+At that earlier matrix checkpoint S4 remained open. No Pi, camera, private
+profile, QGC build, publication or release changed. The then-dormant calibrated
+image-bearing contract did not advertise live FW support; later foundations are
+recorded below.
+
+### S4 repair repeats on frozen source `20f2ffe6e`
+
+All seven final repair repeats passed against the same canonical build above:
+
+| Case | Run | Result |
+| --- | --- | --- |
+| Stationary takeover | `matrix-mc_velocity_position-takeover-r3` | Hold observed, publisher stopped, no stale replay samples |
+| Chase takeover | `matrix-mc_velocity_chase-takeover-r3` | Same authority and evidence gates passed |
+| Ground takeover | `matrix-mc_velocity_ground-takeover-r3` | Same gates; corrected raw image mapping |
+| Visual Centering takeover | `matrix-mc_velocity_distance-takeover-r3` | Same gates; zero-forward constraint retained |
+| MC rates takeover | `matrix-mc_attitude_rate-takeover-r3` | Same gates at the advanced rate/thrust layer |
+| MC rates stale telemetry | `matrix-mc_attitude_rate-stale-r3` | Following ended before a stale send attempt; no failed concrete writes |
+| Ground altitude on | `mc-ground-alt-cleanup-r1` | Positive image response; 5.588 m target-directed vertical work, zero stale replay samples |
+
+The Ground cleanup also passed unchanged nominal/loss scenarios
+`mc-ground-{off,loss}-cleanup-r1`, plus retarget/stale `matrix-mc_velocity_ground-{retarget,stale}-r2`.
+Its five obsolete correction keys have exact ConfigSync retirements; saved sibling
+values, gains and shared limits remain intact. Visual Centering retarget passed
+`matrix-mc_velocity_distance-retarget-r2` without a forbidden forward component.
+Earlier failed raw data and animations remain unchanged.
+
+The rate stale-r2 trace contains a real pre-MAVSDK height-guard refusal. Its general
+connection readiness was still true, so the recorder now exposes raw readiness
+and final guard refusal separately. Strict regression tests replay that case;
+the fresh r3 run stopped earlier and contained zero refusals. Expected refusals
+must be inside the declared injected outage; actual failed writes still fail.
+
+Takeover replay now retains observed pose through cleanup. Only fresh observed
+Hold plus a stopped publisher/task proves that no command is expected. Commands
+then remain absent, rather than invented zeros. Missing active commands or pose,
+and any successful publication after release, still fail. No tolerance was widened.
+
+Software checks so far: 158 control/Ground tests, 171 harness/report tests,
+79 required API/configuration tests, independent 138-test Ground/migration audit,
+fatal lint and current schema (608 parameters). Full unit/integration renewal is
+in progress. This remains actual component SIH with simulated image observations;
+it is not optical-tracker, whole-application or aircraft qualification.
+
+### Current evidence and next foundations
+
+The [single evidence selector](../../../../../reports/sitl/follower-consolidation-20261109/current-evidence/index.html)
+scans canonical raw captures rather than a second qualification list. Its retained
+validation checks 54 attempts, 28 current passing cases, 114 local links, all eight
+selector entries and a clean Chrome console. Earlier failures remain accessible;
+rates explicitly require Stop before retargeting and do not claim target-vertical
+guidance. The guide documents regeneration and raw/replay hash checks.
+
+`43e6e0a64` binds Classic/Smart measurements to immutable capture, geometry and
+target generations. Repeated, cached, predicted, failed and superseded output
+cannot renew measured identity or timestamps. Uncalibrated image measurements
+remain valid for existing image followers; they do not become calibrated bearings.
+Root verification passed 143 image/bearing/output tests; the expert review also
+passed broader tracker/controller gates. No live FW mode was enabled.
+
+`418a8e7e3` adds one explicit unit-NED-ray entry to the existing native FW objective
+calculation. Physical-body callers rotate once and delegate; aligned callers
+must not rotate again. It preserves course/EAS/altitude/rearward behavior. The
+71 new parity/invalid-input tests and broader 890-test review pass. Timing and
+authority admission remain separate gates.
+
+The first full unit run exposed ten test-fixture/expectation failures: missing
+factory initialization, an empty mocked catalog descriptor, an omitted explicit
+Stop reason, and a missing FW continuity override expectation. They are corrected
+in `bfbb14db3`; all 67 affected-module tests pass without weakening production
+guards. The integration suite passed 196 tests. Renewed unit/integration logs from
+the frozen `418a8e7e3` source are retained under
+`reports/sitl/follower-consolidation-20261109/software-gates-r2/` so an interrupted
+terminal does not discard them. Native attitude timing work remains in progress.
+
+### November 11 continuation
+
+The second full run passed 4,854 tests but retained seven tracker-loop failures.
+The fixtures exposed a real duplicate-manager-reference defect: Parameters kept
+its own manager cache after the authoritative singleton registry had replaced
+the instance. Config publication could initialize the abandoned manager while
+followers read an uninitialized replacement. `ca2e20398` removes both redundant
+caches. Three regressions fail before the repair; 111 manager/publication,
+tracker-loop and session-speed tests pass afterward. This is not a relaxed gate
+or a production fallback for incomplete configuration.
+
+Native timing foundation `878f17de7` is committed. Its exact source hashes match
+`reports/native-guidance/attitude-timing-20261109-r1/summary.json`: actual adapter
+compilation, 38 native tests, 38 sanitizer tests, 149 Python tests and the legacy
+client wire-compatibility smoke pass. The nested wire remains unchanged; timing
+is optional top-level metadata. Camera exposure alignment remains unqualified.
+
+### S4 checkpoint closed; S5 continues
+
+On frozen source `2513965f3`, the renewed CI-style local gates pass:
+
+| Gate | Result |
+| --- | --- |
+| Full unit suite, standard software exclusions | 4,975 passed; 11 optional GStreamer-introspection skips |
+| Full integration suite, same exclusions | 196 passed |
+| Phase 0 API/configuration/documentation checks | 155 passed after regenerating the command-schema source hash |
+| Fatal Python lint | 0 errors |
+| Generated configuration schema | Current: 44 sections, 608 parameters |
+
+Logs and source manifest are retained at
+`reports/sitl/follower-consolidation-20261111/software-gates-r1/`. The initial
+Phase 0 inventory-hash failure is preserved beside the passing final run.
+Existing deprecation warnings and optional streaming skips are visible in the
+logs; they are not additional platform/media qualification.
+
+`ed239e5f7` replaces the provider-named session module with
+`VectorGuidanceSession`; all runtime/test imports were migrated without a legacy
+alias. It accepts explicit controls and supported phases. The FW-only control
+constructor has no MC value or ceiling, initializes from native EAS/trim, and
+cannot accept MC/transition edits. A FW-only session ends on an unsupported phase
+and cannot resume; the existing overall VTOL admission gate remains closed.
+Shared session regression: 903 passed, plus 66 final narrow declaration cases.
+
+`2513965f3` declares command schema 2.4.0 with explicit MAVSDK/native transports.
+The dormant native FW contract references the canonical command's exact two
+vertical variants, with no scalar defaults, fake EAS or MAVSDK method. Native
+handlers start empty, accept only complete typed session-bound intent, and
+refuse scalar/fallback/MAVSDK dispatch. Existing eight profiles are preserved;
+no new live profile is advertised. Root's final command/evidence gate passes
+237 tests. The generated API inventory is synchronized with the new schema.
+
+S4 closure means the declared MC component/software gate, not optical tracking,
+whole-application startup, installation, hardware or release acceptance. Next is
+S5's source-bound calibration, qualified timing association, native FW profile
+and independent moving-target airplane SIH. S6–S13 and QGC/client qualification
+remain open. No hardware, private profile, firmware, services or QGC were changed.

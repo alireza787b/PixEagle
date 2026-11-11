@@ -321,11 +321,14 @@ remain open. Integration work is unpublished.
   algorithms, gains and hardware are unchanged. Public MC altitude behavior and
   the moving-target harness are S4 work, not covered by this structural pass.
 
-- **2026-11-09 — MC component qualification, S4 (open):** four ordinary velocity
-  profiles pass altitude-off/on moving-world-target scenarios on a separately
-  pinned diagnostic firmware candidate. Historical-image drift failures remain
-  retained; clean-source baseline adoption is not yet qualified. Direct MC rates
-  exposed a degree/radian gain defect and slow cached altitude feedback; unit
-  repair is tested, fresh altitude feedback/response is pending. Loss, retarget,
-  takeover and application qualification remain open. See the consolidation
-  checkpoint for per-run evidence and scope.
+- **2026-11-09 — MC component qualification, S4 (component/software checkpoint closed 2026-11-11):** four ordinary velocity
+  profiles pass altitude-off/on moving-world-target scenarios on the verified
+  clean-source SIH build. Direct MC rates pass their declared image/rate and
+  height-hold component checks after unit and source-timed feedback repairs.
+  The wider fault matrix exposed Ground's uncalibrated attitude heuristic and
+  Visual Centering's continuity-frame leakage; both are repaired and unchanged
+  failed cases now have passing repeats. All five fresh takeover repeats pass,
+  including actual Hold, stopped publication and complete replay evidence.
+  Historical failures stay retained; whole-application/optical-tracker and
+  hardware acceptance are not implied. Renewed full software gates pass; see
+  the consolidation checkpoint and current evidence selector for exact scope.

@@ -1,7 +1,8 @@
 # Follower consolidation and aircraft qualification plan
 
-Date: 2026-11-09. Status: implementation in progress; S0–S3 complete,
-S4 next. Follow the [checkpoint](../../reporting/agent-ops/codex-modernization/checkpoints/2026-11-09-follower-consolidation.md)
+Date: 2026-11-09; updated 2026-11-11. S0–S3 and the S4 MC component/software
+checkpoint are complete; S5 implementation is in progress. Application, optical,
+installation and release qualification remain separate. Follow the [checkpoint](../../reporting/agent-ops/codex-modernization/checkpoints/2026-11-09-follower-consolidation.md)
 for actual verification; later slices and qualification remain pending.
 
 This is the single plan for consolidating follower definitions, configuration,
@@ -136,10 +137,11 @@ The current Topotek VERTICAL neutral maps to physical +X. A tailsitter's
 Measure forward/right/down reference rays against the aircraft's physical FRD;
 retain a preset only when the actual bracket/provider conventions match it.
 
-**Measurement alignment is new work.** Current Vector calculation rotates a ray
-using latest state, and the adapter does not export attitude sample time.
-Expose real sample timing, preserve clock/source progress and validate bounded
-age/skew/uncertainty. Receipt time stays labelled as receipt time. A qualified
+**Measurement alignment remains new work.** Current Vector calculation rotates
+a ray using latest state. The adapter now exports optional attitude sample and
+publication timing, with independent receipts and reset identity; it does not
+establish camera exposure alignment. Preserve clock/source progress and validate
+bounded age/skew/uncertainty. Receipt time stays labelled as receipt time. A qualified
 receive-time approximation must state its limits. Add interpolation only when
 bounded-skew tests demonstrate the need. Reject unqualified timing rather than
 inventing capture time or silently using unrelated attitude.
@@ -388,7 +390,7 @@ centering or Vector pursuit a qualified landing system.
 - [Shared FW guidance policy](../04-configuration/fixed-wing-guidance-policy.md) and [session controls](../04-configuration/session-speed.md).
 - [Agent guide](../../../AGENTS.md) and [API blueprint](../../apis/api-modernization-blueprint.md).
 
-No hardware, firmware, defaults, setup, client runtime, build or release is
-changed by this planning document. The two clarification questions are resolved.
-Begin implementation at S0/S1; request hardware only at S11. Update this plan
-rather than creating parallel competing architecture plans.
+The two clarification questions are resolved. Continue at the checkpoint's next
+open slice; request hardware only at S11. Actual revisions, changed defaults,
+tests and qualification scope belong in that checkpoint. Update this plan rather
+than creating parallel competing architecture plans.

@@ -30,7 +30,7 @@ the shared target-altitude contract: engagement-height hold plus an optional
 offset, without target-vertical or altitude-chase qualification. Live retarget is
 unsupported for MC rates and requires Stop, rather than simply awaiting a test.
 MC rates remains experimental: these are
-bounded direct-rate component observations, not PNG or flight-tuning acceptance.
+bounded direct-rate component observations, not interception or flight-tuning acceptance.
 Its stale-telemetry row shows the observed pre-submission rejection count; an
 earlier stop can avoid that guard path. This snapshot does not qualify current
 gimbal, FW or VTOL modes or the new end-on-transition behavior. The baseline
