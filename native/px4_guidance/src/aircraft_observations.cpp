@@ -13,7 +13,8 @@ double AircraftObservations::clock() {
 
 AircraftObservations::AircraftObservations(rclcpp::Node& node, double timeout_s) : _timeout(timeout_s) {
     if (!std::isfinite(timeout_s) || timeout_s <= 0.) throw std::invalid_argument("native_status_timeout_invalid");
-    subscribe(node, "fmu/out/vehicle_attitude", _attitude);
+    subscribe(node, "fmu/out/vehicle_attitude", _attitude,
+              [](const px4_msgs::msg::VehicleAttitude& message) { return message.timestamp_sample; });
     subscribe(node, "fmu/out/vehicle_local_position", _position);
     subscribe(node, "fmu/out/airspeed_validated", _airspeed);
     subscribe(node, "fmu/out/fixed_wing_guidance_status", _envelope);
@@ -57,6 +58,15 @@ Json AircraftObservations::pose(double now) const {
         if (!std::isfinite(value)) return nullptr;
     return {{"vehicle_ned", {p.x, p.y, p.z}}, {"quaternion_wxyz", q}, {"px4_timestamp_us", p.timestamp},
         {"observed_at_monotonic_s", std::min(_position.received(), _attitude.received())}, {"source", "px4_dds_observed"}};
+}
+
+Json AircraftObservations::attitudeTiming(double now) const {
+    if (!_attitude.sampleFresh(now, _timeout)) return nullptr;
+    const auto& a = *_attitude.value();
+    return {{"publication_timestamp_us", a.timestamp}, {"sample_timestamp_us", a.timestamp_sample},
+        {"publication_received_at_monotonic_s", _attitude.received()},
+        {"sample_received_at_monotonic_s", _attitude.sampleReceived()},
+        {"quat_reset_counter", a.quat_reset_counter}, {"time_basis", "px4_uxrce_adjusted_us"}};
 }
 
 Json AircraftObservations::commandFeedback(double now) const {

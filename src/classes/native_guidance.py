@@ -206,8 +206,22 @@ class NativeGuidanceClient:
                         raise ValueError("native_observation_validity_invalid")
                 if self.capabilities is None or result.get("runtime_id") != self.capabilities.runtime_id:
                     raise ValueError("native_observation_runtime_changed")
-                state = (AircraftState.from_payload(result["aircraft_state"])
-                         if result.get("aircraft_state") is not None else None)
+                state = None
+                timing = result.get("attitude_timing")
+                if result.get("aircraft_state") is not None:
+                    if not isinstance(result["aircraft_state"], dict):
+                        raise ValueError("native_aircraft_state_invalid")
+                    payload = dict(result["aircraft_state"])
+                    if payload.get("attitude_timing") is not None:
+                        raise ValueError("native_attitude_timing_must_be_top_level")
+                    payload["attitude_timing"] = timing
+                    state = AircraftState.from_payload(payload)
+                    if (state.attitude_timing is not None
+                            and state.attitude_timing.publication_received_at_monotonic_s > self._clock()):
+                        raise ValueError("native_attitude_receipt_in_future")
+                    result["aircraft_state"] = payload
+                elif timing is not None:
+                    raise ValueError("native_attitude_without_aircraft_state")
                 if result["fresh"] and state is None:
                     raise ValueError("native_observation_missing")
                 if self._identity is not None and state is not None and state.binding != self._identity.binding:

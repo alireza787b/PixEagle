@@ -169,6 +169,18 @@ the next pose sample; the oldest measurement-receipt time remains unchanged and
 still determines measurement freshness. Polling cannot advance either clock or
 sequence. Original PX4 pose timestamps remain in the pose trace.
 
+`observe.attitude_timing` optionally exports the accepted attitude's publication
+and sample timestamps, separate monotonic publication/first-sample receipts, and
+PX4 quaternion-reset counter. The existing wire `aircraft_state` is unchanged;
+new Python clients attach validated timing locally, with missing/null timing
+remaining `None`. PX4's XRCE serializer adjusts both source timestamps by its
+session offset: their within-packet difference measures processing age, but they
+are **DDS-adjusted microseconds, not raw boot time or host monotonic time**.
+Repeating a sample cannot renew its first receipt. Timing export alone does not
+qualify camera exposure alignment; calibrated-bearing guidance remains gated
+until its clock/skew and latency uncertainty are bounded. No interpolation or
+automatic transition continuation is enabled by this metadata.
+
 ## Qualification status
 
 Linux x86-64 compilation, contracts, sanitizers, live SIH DDS observations and

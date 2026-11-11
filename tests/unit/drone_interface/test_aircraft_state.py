@@ -1,12 +1,12 @@
 """Independent observations and physical/heading frame boundary regressions."""
 
-from dataclasses import replace
+from dataclasses import FrozenInstanceError, asdict, replace
 import math
 
 import pytest
 
 from classes.aircraft_state import (
-    AircraftBinding, AircraftState, AircraftStateOwner, AirframePhase,
+    AircraftBinding, AircraftState, AircraftStateOwner, AttitudeTiming, AirframePhase,
     AirspeedObservation, FixedWingEnvelope, Quaternion, Vector3, ned_to_heading_frame,
 )
 from classes.gimbal_geometry import body_line_of_sight
@@ -77,6 +77,108 @@ def test_future_observation_and_changed_source_require_new_binding():
     assert not owner.commit(replace(state, observed_at_monotonic_s=101.0))
     assert owner.commit(state)
     assert not owner.commit(replace(state, source="another_source", sequence=2))
+
+
+def attitude_timing(**changes):
+    values = dict(publication_timestamp_us=1_000_000, sample_timestamp_us=990_000,
+                  publication_received_at_monotonic_s=100., sample_received_at_monotonic_s=100.,
+                  quat_reset_counter=255, time_basis="px4_uxrce_adjusted_us")
+    return AttitudeTiming(**(values | changes))
+
+
+def test_attitude_timing_is_optional_frozen_and_strictly_decoded():
+    payload = asdict(aircraft_state())
+    payload.pop("attitude_timing")
+    assert AircraftState.from_payload(payload).attitude_timing is None
+    payload["attitude_timing"] = None
+    assert AircraftState.from_payload(payload).attitude_timing is None
+    timing = attitude_timing()
+    payload["attitude_timing"] = asdict(timing)
+    assert AircraftState.from_payload(payload).attitude_timing == timing
+    with pytest.raises(FrozenInstanceError):
+        timing.quat_reset_counter = 0
+    payload["attitude_timing"]["unexpected"] = True
+    with pytest.raises(ValueError, match="contract_invalid"):
+        AircraftState.from_payload(payload)
+
+
+@pytest.mark.parametrize("changes", [
+    {"publication_timestamp_us": 0}, {"publication_timestamp_us": True},
+    {"publication_timestamp_us": 2**64}, {"sample_timestamp_us": 0},
+    {"sample_timestamp_us": 1_000_001}, {"sample_timestamp_us": 990_000.},
+    {"publication_received_at_monotonic_s": math.nan},
+    {"publication_received_at_monotonic_s": math.inf},
+    {"sample_received_at_monotonic_s": -1.},
+    {"sample_received_at_monotonic_s": True},
+    {"sample_received_at_monotonic_s": 100.1},
+    {"quat_reset_counter": -1}, {"quat_reset_counter": 256},
+    {"quat_reset_counter": True}, {"time_basis": "px4_boot_us"},
+])
+def test_attitude_timing_rejects_invalid_source_receipts_reset_and_clock_basis(changes):
+    with pytest.raises(ValueError):
+        attitude_timing(**changes)
+
+
+@pytest.mark.parametrize("offset", [0, 1_700_000_000_000_000])
+def test_attitude_timing_checks_processing_and_delivery_age_without_clock_alignment(offset):
+    timing = attitude_timing(publication_timestamp_us=offset + 1_000_000,
+                             sample_timestamp_us=offset + 100_000)
+    assert timing.fresh(100.05, 1.)
+    assert not timing.fresh(100.2, 1.)
+    assert not timing.fresh(99.9, 1.)
+    with pytest.raises(ValueError, match="timeout"):
+        timing.fresh(100., 0)
+
+
+def test_republished_attitude_preserves_sample_receipt_and_expires_independently_of_aggregate():
+    owner = AircraftStateOwner(clock=lambda: 101.01)
+    timing = attitude_timing()
+    state = aircraft_state(attitude_timing=timing)
+    owner.bind(state.binding)
+    assert owner.commit(state)
+    republished = replace(timing, publication_timestamp_us=1_010_000,
+                          publication_received_at_monotonic_s=100.5, quat_reset_counter=0)
+    progressed = replace(state, sequence=2, observed_at_monotonic_s=100.5, attitude_timing=republished)
+    assert owner.commit(progressed)
+    assert owner.snapshot(timeout_s=1.) is progressed
+    assert progressed.attitude_timing.quat_reset_counter == 0
+    assert not progressed.attitude_timing.fresh(101.01, 1.)
+    assert not owner.commit(replace(progressed, sequence=3, attitude_timing=replace(
+        republished, sample_received_at_monotonic_s=100.5)))
+    assert owner.commit(replace(progressed, sequence=3, attitude_timing=None))
+    assert not owner.commit(replace(progressed, sequence=4, attitude_timing=replace(
+        republished, sample_received_at_monotonic_s=100.5)))
+    assert not owner.commit(replace(progressed, sequence=4, attitude_timing=replace(
+        republished, sample_timestamp_us=980_000)))
+    advanced = replace(republished, publication_timestamp_us=1_100_000, sample_timestamp_us=1_090_000,
+                       publication_received_at_monotonic_s=101., sample_received_at_monotonic_s=101.)
+    assert owner.commit(replace(progressed, sequence=4, attitude_timing=advanced))
+
+
+def test_duplicate_publication_cannot_change_its_quaternion_or_reset_counter():
+    owner = AircraftStateOwner(clock=lambda: 100.5)
+    state = aircraft_state(attitude_timing=attitude_timing())
+    owner.bind(state.binding)
+    assert owner.commit(state)
+    assert owner.commit(replace(state, sequence=2, phase=AirframePhase.MULTICOPTER))
+    assert not owner.commit(replace(state, sequence=3, attitude_timing=replace(
+        state.attitude_timing, quat_reset_counter=0)))
+    assert not owner.commit(replace(state, sequence=3, attitude_body_to_ned=Quaternion(0., 1., 0., 0.)))
+    assert not owner.commit(replace(state, sequence=3, attitude_timing=replace(
+        state.attitude_timing, publication_received_at_monotonic_s=100.5)))
+
+
+def test_future_attitude_receipt_is_rejected_and_new_binding_resets_progress():
+    owner = AircraftStateOwner(clock=lambda: 100.)
+    state = aircraft_state(attitude_timing=attitude_timing())
+    owner.bind(state.binding)
+    future = replace(state.attitude_timing, publication_received_at_monotonic_s=100.1)
+    assert not owner.commit(replace(state, attitude_timing=future))
+    assert owner.commit(state)
+    binding = replace(state.binding, telemetry_generation=2)
+    owner.bind(binding)
+    reset = attitude_timing(publication_timestamp_us=100, sample_timestamp_us=90, quat_reset_counter=0)
+    assert owner.commit(replace(state, binding=binding, attitude_timing=reset))
 
 
 @pytest.mark.parametrize("value", [True, math.nan, math.inf, -math.inf])

@@ -87,6 +87,7 @@ int main(int argc, char** argv) {
                 return Json{{"runtime_id", runtime}, {"fresh", !snapshot.is_null()},
                     {"owner_confirmed", mode.observedOwner()}, {"rescue_active", mode.rescue()},
                     {"aircraft_state", snapshot}, {"publications", mode.publications()},
+                    {"attitude_timing", snapshot.is_null() ? Json(nullptr) : observations.attitudeTiming(now)},
                     {"source_health", observations.health(now)}, {"phase_status_fresh", mode.fresh()},
                     {"phase_source_health", {
                         {"vehicle_status_age_s", optional_number(health.vehicle_age_s)},

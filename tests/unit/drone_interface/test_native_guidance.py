@@ -14,7 +14,7 @@ from classes.native_guidance import (
     NativeGuidanceClient, NativeGuidanceError,
     NativeMulticopterCommand, NativeTransitionCommand,
 )
-from tests.unit.drone_interface.test_aircraft_state import aircraft_state
+from tests.unit.drone_interface.test_aircraft_state import aircraft_state, attitude_timing
 
 
 CAPABILITIES = dict(runtime_id="test-adapter", px4_firmware="test-firmware",
@@ -53,10 +53,13 @@ async def native_server():
                 elif operation == "phase":
                     result = {"accepted_generation": payload["identity"]["guidance_generation"], "owner_confirmed": True}
                 else:
+                    state = asdict(aircraft_state(binding=identity().binding))
+                    state.pop("attitude_timing")
                     result = {"fresh": True, "owner_confirmed": behavior["owner_confirmed"],
                               "nav_state": behavior["nav_state"], "nav_state_timestamp": behavior["nav_state_timestamp"],
                               "rescue_active": False, "runtime_id": "test-adapter",
-                              "aircraft_state": asdict(aircraft_state(binding=identity().binding))}
+                              "aircraft_state": state}
+                    result.update(behavior.get("observation", {}))
                 response = dict(protocol_version=1, request_id=request["request_id"],
                                 generation=request["generation"], success=True, payload=result)
                 if behavior["wrong_reply_id"]:
@@ -315,6 +318,68 @@ def test_aircraft_observation_round_trip_preserves_source_timestamps_and_provena
     encoded["airspeed"]["source"] = "ground_speed_proxy"
     with pytest.raises(ValueError, match="airspeed_source"):
         AircraftState.from_payload(encoded)
+
+
+@pytest.mark.parametrize("metadata", [{}, {"attitude_timing": None},
+                                      {"attitude_timing": asdict(attitude_timing())}])
+async def test_optional_top_level_timing_attaches_locally_without_changing_legacy_wire(native_server, metadata):
+    from classes.aircraft_state import AircraftState
+    path, requests, behavior = native_server
+    behavior["observation"] = metadata
+    client = NativeGuidanceClient(path, clock=lambda: 100.)
+    try:
+        await client.connect()
+        response = await client.observe()
+        state = AircraftState.from_payload(response["aircraft_state"])
+        expected = attitude_timing() if metadata.get("attitude_timing") is not None else None
+        assert state.attitude_timing == expected
+        assert state.observed_at_monotonic_s == 100.
+        assert state.sequence == 1
+        assert [request["operation"] for request in requests] == ["hello", "observe"]
+    finally:
+        await client.close()
+
+
+@pytest.mark.parametrize("metadata", [
+    [], {"sample_timestamp_us": 990_000},
+    asdict(attitude_timing()) | {"sample_timestamp_us": 1_000_001},
+    asdict(attitude_timing()) | {"publication_received_at_monotonic_s": 100.1},
+    asdict(attitude_timing()) | {"quat_reset_counter": 256},
+    asdict(attitude_timing()) | {"time_basis": "px4_boot_us"},
+    asdict(attitude_timing()) | {"unexpected": 1},
+])
+async def test_invalid_top_level_timing_disconnects_without_authority_replay(native_server, metadata):
+    path, requests, behavior = native_server
+    behavior["observation"] = {"attitude_timing": metadata}
+    client = NativeGuidanceClient(path, clock=lambda: 100.)
+    try:
+        await client.connect()
+        await client.engage(identity(), circuit_breaker_active=False)
+        with pytest.raises(NativeGuidanceError, match="observation_invalid"):
+            await client.observe()
+        assert client.capabilities is None
+        assert client.session_identity is None
+        assert [request["operation"] for request in requests] == ["hello", "engage", "observe"]
+    finally:
+        await client.close()
+
+
+@pytest.mark.parametrize("observation", [
+    {"fresh": False, "aircraft_state": None, "attitude_timing": asdict(attitude_timing())},
+    {"aircraft_state": asdict(aircraft_state(attitude_timing=attitude_timing()))},
+    {"aircraft_state": list(asdict(aircraft_state()).items())},
+])
+async def test_timing_requires_the_top_level_contract_and_a_corresponding_aircraft_state(native_server, observation):
+    path, _, behavior = native_server
+    behavior["observation"] = observation
+    client = NativeGuidanceClient(path, clock=lambda: 100.)
+    try:
+        await client.connect()
+        with pytest.raises(NativeGuidanceError, match="observation_invalid"):
+            await client.observe()
+        assert client.capabilities is None
+    finally:
+        await client.close()
 
 
 async def test_wire_expiry_cannot_be_renewed_by_queue_delay(native_server):

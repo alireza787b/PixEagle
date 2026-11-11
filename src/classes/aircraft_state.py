@@ -280,6 +280,44 @@ class FixedWingEnvelope:
 
 
 @dataclass(frozen=True)
+class AttitudeTiming:
+    """DDS-adjusted source times and independent same-host monotonic receipts."""
+
+    publication_timestamp_us: int
+    sample_timestamp_us: int
+    publication_received_at_monotonic_s: float
+    sample_received_at_monotonic_s: float
+    quat_reset_counter: int
+    time_basis: str
+
+    def __post_init__(self):
+        if (any(type(value) is not int or not 0 < value < 2**64
+                for value in (self.publication_timestamp_us, self.sample_timestamp_us))
+                or self.sample_timestamp_us > self.publication_timestamp_us):
+            raise ValueError("attitude_source_timestamps_invalid")
+        for name in ("publication_received_at_monotonic_s", "sample_received_at_monotonic_s"):
+            if finite_number(getattr(self, name), name) < 0:
+                raise ValueError("attitude_receipt_invalid")
+        if self.sample_received_at_monotonic_s > self.publication_received_at_monotonic_s:
+            raise ValueError("attitude_receipt_order_invalid")
+        if type(self.quat_reset_counter) is not int or not 0 <= self.quat_reset_counter <= 255:
+            raise ValueError("attitude_reset_counter_invalid")
+        if self.time_basis != "px4_uxrce_adjusted_us":
+            raise ValueError("attitude_time_basis_invalid")
+
+    def fresh(self, now: float, timeout_s: float) -> bool:
+        now = finite_number(now, "attitude_clock")
+        timeout = finite_number(timeout_s, "attitude_timeout")
+        if timeout <= 0:
+            raise ValueError("attitude_timeout_not_positive")
+        packet_age = now - self.publication_received_at_monotonic_s
+        sample_receipt_age = now - self.sample_received_at_monotonic_s
+        processing_age = (self.publication_timestamp_us - self.sample_timestamp_us) * 1e-6
+        return (0 <= packet_age and 0 <= sample_receipt_age <= timeout
+                and processing_age + packet_age <= timeout)
+
+
+@dataclass(frozen=True)
 class AircraftState:
     binding: AircraftBinding
     sequence: int
@@ -297,6 +335,7 @@ class AircraftState:
     airspeed: AirspeedObservation
     fixed_wing_envelope: FixedWingEnvelope | None = None
     altitude_reference_generation: int = 0
+    attitude_timing: AttitudeTiming | None = None
 
     def __post_init__(self):
         if type(self.sequence) is not int or self.sequence < 0 or not isinstance(self.source, str) or not self.source:
@@ -307,6 +346,8 @@ class AircraftState:
                 raise ValueError(f"aircraft_{name}_invalid")
         if self.fixed_wing_envelope is not None and not isinstance(self.fixed_wing_envelope, FixedWingEnvelope):
             raise ValueError("fixed_wing_envelope_invalid")
+        if self.attitude_timing is not None and not isinstance(self.attitude_timing, AttitudeTiming):
+            raise ValueError("attitude_timing_invalid")
         if type(self.altitude_reference_generation) is not int or self.altitude_reference_generation < 0:
             raise ValueError("altitude_reference_generation_invalid")
         if not isinstance(self.phase, AirframePhase):
@@ -327,6 +368,9 @@ class AircraftState:
     @classmethod
     def from_payload(cls, payload: dict) -> AircraftState:
         """Decode the native observation contract without refreshing its clock."""
+        if isinstance(payload, dict) and "attitude_timing" not in payload:
+            payload = {**payload, "attitude_timing": None}
+
         def fields(value, kind):
             if not isinstance(value, dict) or set(value) != set(kind.__dataclass_fields__):
                 raise ValueError("aircraft_observation_contract_invalid")
@@ -339,6 +383,8 @@ class AircraftState:
         values["airspeed"] = AirspeedObservation(**fields(values["airspeed"], AirspeedObservation))
         if values["fixed_wing_envelope"] is not None:
             values["fixed_wing_envelope"] = FixedWingEnvelope(**fields(values["fixed_wing_envelope"], FixedWingEnvelope))
+        if values["attitude_timing"] is not None:
+            values["attitude_timing"] = AttitudeTiming(**fields(values["attitude_timing"], AttitudeTiming))
         values["phase"] = AirframePhase(values["phase"])
         return cls(**values)
 
@@ -355,12 +401,14 @@ class AircraftStateOwner:
         self._lock = threading.RLock()
         self._binding: AircraftBinding | None = None
         self._snapshot: AircraftState | None = None
+        self._attitude_packet: tuple[AttitudeTiming, Quaternion] | None = None
 
     def bind(self, binding: AircraftBinding | None) -> None:
         with self._lock:
             if binding != self._binding:
                 self._binding = binding
                 self._snapshot = None
+                self._attitude_packet = None
 
     def commit(self, state: AircraftState) -> bool:
         with self._lock:
@@ -368,13 +416,29 @@ class AircraftStateOwner:
                 return False
             if state.observed_at_monotonic_s > self._clock():
                 return False
+            timing = state.attitude_timing
+            if timing is not None and timing.publication_received_at_monotonic_s > self._clock():
+                return False
             previous = self._snapshot
             if previous is not None and (state.sequence <= previous.sequence
                     or state.observed_at_monotonic_s < previous.observed_at_monotonic_s
                     or state.source != previous.source or state.is_vtol != previous.is_vtol
                     or state.is_tailsitter != previous.is_tailsitter):
                 return False
+            if self._attitude_packet is not None and timing is not None:
+                before, attitude = self._attitude_packet
+                if (timing.publication_timestamp_us < before.publication_timestamp_us
+                        or timing.sample_timestamp_us < before.sample_timestamp_us
+                        or timing.publication_received_at_monotonic_s < before.publication_received_at_monotonic_s
+                        or timing.sample_received_at_monotonic_s < before.sample_received_at_monotonic_s
+                        or (timing.publication_timestamp_us == before.publication_timestamp_us
+                            and (timing != before or state.attitude_body_to_ned != attitude))
+                        or (timing.sample_timestamp_us == before.sample_timestamp_us
+                            and timing.sample_received_at_monotonic_s != before.sample_received_at_monotonic_s)):
+                    return False
             self._snapshot = state
+            if timing is not None:
+                self._attitude_packet = (timing, state.attitude_body_to_ned)
             return True
 
     def snapshot(self, *, timeout_s: float) -> AircraftState | None:

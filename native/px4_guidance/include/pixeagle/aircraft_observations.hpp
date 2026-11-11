@@ -25,11 +25,18 @@ public:
     Json health(double now) const;
     Json pose(double now) const;
     Json commandFeedback(double now) const;
+    Json attitudeTiming(double now) const;
 private:
     template<class Message> void subscribe(rclcpp::Node& node, const std::string& topic, SourceSample<Message>& sample) {
+        subscribe(node, topic, sample, [](const Message& message) { return message.timestamp; });
+    }
+    template<class Message, class SampleTimestamp> void subscribe(
+            rclcpp::Node& node, const std::string& topic, SourceSample<Message>& sample, SampleTimestamp sample_timestamp) {
         _subscriptions.push_back(node.create_subscription<Message>(
             topic + px4_ros2::getMessageNameVersion<Message>(), rclcpp::SensorDataQoS(),
-            [&sample](typename Message::ConstSharedPtr message) { sample.update(*message, clock()); }));
+            [&sample, sample_timestamp](typename Message::ConstSharedPtr message) {
+                sample.update(*message, clock(), sample_timestamp(*message));
+            }));
     }
     static double clock();
     const double _timeout;
