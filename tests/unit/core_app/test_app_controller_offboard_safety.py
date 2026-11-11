@@ -236,6 +236,7 @@ def _visible_multi_target_output() -> TrackerOutput:
 
 def _follower_manager_stub(control_type='velocity_body_offboard'):
     follower = MagicMock()
+    follower.follower.require_guidance_input.return_value = None
     follower.follower.altitude_limits = SimpleNamespace(safety_enabled=False)
     follower.validate_tracker_compatibility.return_value = True
     follower.follow_target.return_value = True

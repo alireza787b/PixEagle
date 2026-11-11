@@ -23,6 +23,7 @@ Safety Integration (v5.0.0+):
 from abc import ABC, abstractmethod
 from typing import Tuple, Dict, Any, List, Optional
 from classes.command_intent import CommandIntent
+from classes.aircraft_state import AircraftState
 from classes.circuit_breaker import FollowerCircuitBreaker
 from classes.follower_logger import FollowerLogger
 from classes.safety_manager import get_safety_manager
@@ -224,6 +225,17 @@ class BaseFollower(ABC):
                    f"(control type: {self.get_control_type()})")
     
     # ==================== Abstract Methods ====================
+
+    def require_guidance_input(
+        self, tracker_output: TrackerOutput | None, aircraft_state: AircraftState | None,
+    ) -> None:
+        """Validate additional observation requirements without changing any state.
+
+        Image PID/provider profiles retain their existing input contract. A
+        strategy requiring calibrated, time-associated input overrides this
+        hook and raises a reason-code ValueError when that input is unavailable.
+        Reading readiness must never stamp a measurement or publish a command.
+        """
     
     @abstractmethod
     def calculate_control_commands(self, tracker_data: TrackerOutput) -> None:

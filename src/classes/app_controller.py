@@ -62,6 +62,7 @@ from classes.tracking_roi import (
 from classes.circuit_breaker import FollowerCircuitBreaker
 from classes.following_readiness import (
     evaluate_command_preview_start_readiness,
+    evaluate_follower_guidance_input,
     evaluate_following_start_altitude,
     evaluate_following_start_readiness,
     get_configured_follower_execution_mode,
@@ -3386,6 +3387,29 @@ class AppController:
         }
         raise RuntimeError(f"Following readiness changed during startup: {reason}")
 
+    def _follow_start_input_identity(self) -> tuple:
+        """Retarget and image-source identity, without treating a new frame as a reset."""
+        with getattr(self, "_tracker_model_state_lock", None) or nullcontext():
+            generation = int(getattr(self, "_tracking_session_generation", 0))
+            if not self._tracker_requires_video_for_following():
+                return (generation,)
+            context = getattr(self, "tracking_input_context", None)
+            provenance = context.provenance if isinstance(context, ImageFrameContext) else None
+            source_epoch = getattr(getattr(self, "frame_publisher", None), "control_source_epoch", None)
+            image_identity = None if provenance is None else (
+                provenance.source_id, provenance.capture.source_epoch,
+                provenance.geometry_revision, provenance.calibration_revision,
+            )
+            return generation, source_epoch, image_identity
+
+    def _require_follow_start_input_identity(self, expected: tuple, result: dict, *, stage: str) -> None:
+        if self._follow_start_input_identity() == expected:
+            return
+        code = "following_input_context_changed"
+        result["precondition"] = {"code": code, "stage": stage,
+                                  "reason": "Target or image source changed during following startup."}
+        raise RuntimeError(code)
+
     async def _connect_px4_once_on_flight_loop(
         self, native_start_guard=None, native_attempt_id=None, native_aircraft_uid=None,
     ) -> Dict[str, Any]:
@@ -3753,9 +3777,15 @@ class AppController:
                     result["errors"].append(error_msg)
                     raise
 
+                start_input_identity = self._follow_start_input_identity()
+                if native_required:
+                    # Discovery supplies real native state, but acquires no mode.
+                    native_binding = await self._prepare_native_follow_binding()
+                    self._require_live_aircraft_profile(configured_profile, result)
+                    self._require_follow_start_input_identity(start_input_identity, result, stage="after_native_discovery")
                 self._require_follow_start_readiness(
                     result,
-                    stage="before_offboard",
+                    stage="after_native_discovery" if native_required else "before_offboard",
                 )
                 altitude = evaluate_following_start_altitude(
                     self, limits=self.follower.follower.altitude_limits,
@@ -3773,8 +3803,6 @@ class AppController:
                     # Cancellation can arrive while MAVSDK is awaiting its ack.
                     # Treat that interval as possibly entered Offboard.
                     if native_required:
-                        native_binding = await self._prepare_native_follow_binding()
-                        self._require_live_aircraft_profile(configured_profile, result)
                         offboard_cleanup_required = True
                         initial_native_intent = await native_binding.engage()
                         self.follower.follower.bind_airframe_session(native_binding.guidance)
@@ -3814,6 +3842,7 @@ class AppController:
                         raise RuntimeError(
                             "PX4 connection was lost during Offboard startup"
                         )
+                    self._require_follow_start_input_identity(start_input_identity, result, stage="after_offboard")
                     self._require_follow_start_readiness(
                         result,
                         stage="after_offboard",
@@ -3858,6 +3887,8 @@ class AppController:
                         raise RuntimeError(
                             "PX4 connection was lost before Follow activation"
                         )
+                    self._require_follow_start_input_identity(start_input_identity, result, stage="before_activation")
+                    self._require_follow_start_readiness(result, stage="before_activation")
                     if native_start_guard is not None:
                         native_start_guard("before_activation")
 
@@ -3939,7 +3970,9 @@ class AppController:
                 self.setpoint_sender = None
 
         if getattr(self, "_native_follow_binding", None) is not None:
-            await self._stop_native_follow_binding(result, reason="follow_start_failed")
+            await self._stop_native_follow_binding(
+                result, reason="follow_start_failed", allow_handoff=offboard_cleanup_required,
+            )
         elif offboard_cleanup_required:
             try:
                 expected_uid = getattr(self, "_native_follow_start_aircraft_uid", None)
@@ -5846,6 +5879,13 @@ class AppController:
                 evidence, state=TargetEvidenceState.UNCERTAIN, identity_verdict=IdentityVerdict.UNCONFIRMED,
                 reason_code="replacement_target_not_yet_observed",
             )
+        if evidence.state is TargetEvidenceState.CONFIRMED:
+            readiness = evaluate_follower_guidance_input(self, tracker_output)
+            if not readiness["ready"]:
+                return dataclasses.replace(
+                    evidence, state=TargetEvidenceState.UNCERTAIN, identity_verdict=IdentityVerdict.UNCONFIRMED,
+                    reason_code=readiness["reason_code"],
+                )
         return evidence
 
     def _build_target_continuity_context(self) -> ContinuityContext:

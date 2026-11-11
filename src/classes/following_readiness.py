@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import math
+import inspect
+import re
 from typing import Any, Dict, Mapping, Optional
 
 from classes.circuit_breaker import FollowerCircuitBreaker
@@ -21,6 +23,40 @@ from classes.tracker_runtime_status import (
 
 def _mapping(value: Any) -> Dict[str, Any]:
     return dict(value) if isinstance(value, Mapping) else {}
+
+
+_TRACKER_OUTPUT_UNSET = object()
+
+
+def evaluate_follower_guidance_input(
+    app_controller: Any, tracker_output: Any = _TRACKER_OUTPUT_UNSET,
+) -> Dict[str, Any]:
+    """Read one follower's optional input requirement; acquire no authority."""
+    concrete = getattr(getattr(app_controller, "follower", None), "follower", None)
+    hook = getattr(concrete, "require_guidance_input", None)
+    if hook is None:
+        return {"ready": True, "reason_code": None}
+    if not callable(hook):
+        return {"ready": False, "reason_code": "guidance_input_contract_invalid"}
+    try:
+        if tracker_output is _TRACKER_OUTPUT_UNSET:
+            getter = getattr(app_controller, "get_tracker_output", None)
+            tracker_output = getter() if callable(getter) else None
+        state_getter = getattr(getattr(app_controller, "px4_interface", None), "get_aircraft_state", None)
+        state = state_getter() if callable(state_getter) else None
+        result = hook(tracker_output, state)
+        if result is not None:
+            if inspect.iscoroutine(result):
+                result.close()
+            return {"ready": False, "reason_code": "guidance_input_contract_invalid"}
+    except ValueError as exc:
+        code = str(exc)
+        if re.fullmatch(r"[a-z][a-z0-9_]{0,127}", code) is None:
+            code = "guidance_input_invalid"
+        return {"ready": False, "reason_code": code}
+    except Exception:
+        return {"ready": False, "reason_code": "guidance_input_readiness_failed"}
+    return {"ready": True, "reason_code": None}
 
 
 def evaluate_following_start_altitude(app_controller: Any, *, limits: Any = None) -> Dict[str, Any]:
@@ -137,9 +173,7 @@ def evaluate_following_start_readiness(
 
     if not runtime_status.get("usable_for_following", False):
         return readiness
-    if not tracker_requires_video:
-        return readiness
-    if not frame_status_available:
+    if tracker_requires_video and not frame_status_available:
         return {
             **readiness,
             "status": "not_usable",
@@ -147,7 +181,7 @@ def evaluate_following_start_readiness(
             "usable_for_following": False,
             "reason": "Video frame readiness is unavailable",
         }
-    if frame_status.get("replay_source") is True and not frame_status.get("sih_replay_authorized"):
+    if tracker_requires_video and frame_status.get("replay_source") is True and not frame_status.get("sih_replay_authorized"):
         return {
             **readiness,
             "status": "not_usable",
@@ -155,7 +189,7 @@ def evaluate_following_start_readiness(
             "usable_for_following": False,
             "reason": "Video-file replay is not authorized for autonomous following",
         }
-    if frame_status.get("usable_for_following") is not True:
+    if tracker_requires_video and frame_status.get("usable_for_following") is not True:
         frame_reason = frame_status.get("reason")
         return {
             **readiness,
@@ -168,11 +202,24 @@ def evaluate_following_start_readiness(
                 else "Video frame is not fresh and usable for following"
             ),
         }
+    guidance_input = evaluate_follower_guidance_input(app_controller)
+    readiness["guidance_input_readiness"] = guidance_input
+    if not guidance_input["ready"]:
+        return {
+            **readiness,
+            "status": "not_usable",
+            "consumer_guidance": "not_usable",
+            "usable_for_following": False,
+            "reason": f"Follower guidance input is unavailable: {guidance_input['reason_code']}",
+        }
     return readiness
 
 
 def following_readiness_failure_code(readiness: Mapping[str, Any]) -> str:
     """Distinguish input authorization from a lost/prediction-only target."""
+    guidance_input = readiness.get("guidance_input_readiness") or {}
+    if guidance_input.get("ready") is False:
+        return guidance_input["reason_code"]
     frame = readiness.get("video_frame_status") or {}
     if readiness.get("tracker_requires_video"):
         if frame.get("replay_source") is True and not frame.get("sih_replay_authorized"):
