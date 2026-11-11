@@ -76,7 +76,7 @@ Each tracker supports specific data types:
 | DaSiamRPN | BBOX_CONFIDENCE | POSITION_2D, VELOCITY_AWARE |
 | dlib | POSITION_2D | BBOX_CONFIDENCE, VELOCITY_AWARE |
 | SmartTracker | MULTI_TARGET | POSITION_2D, BBOX_CONFIDENCE |
-| Gimbal | GIMBAL_ANGLES | ANGULAR, POSITION_2D |
+| Gimbal | GIMBAL_ANGLES | ANGULAR; no synthesized image position |
 
 ---
 

@@ -47,6 +47,7 @@ from classes.storage_manager import StorageManager
 from classes.mavlink_data_manager import MavlinkDataManager
 from classes.frame_publisher import FramePublisher
 from classes.guidance_observation import ImageFrameContext, ObservationProvenance
+from classes.gimbal_types import GimbalAngleObservation
 from classes.fixed_camera_calibration import ActiveImageGeometry, PIXEL_GRID, bind_fixed_camera_calibration
 from classes.frame_preprocessor import FramePreprocessor
 from classes.video_geometry import FrameScale
@@ -3395,7 +3396,9 @@ class AppController:
         with getattr(self, "_tracker_model_state_lock", None) or nullcontext():
             generation = int(getattr(self, "_tracking_session_generation", 0))
             if not self._tracker_requires_video_for_following():
-                return (generation,)
+                from classes.camera_runtime import CameraRuntime
+                runtime = getattr(self, 'camera_runtime', None)
+                return generation, runtime.angle_source_identity() if isinstance(runtime, CameraRuntime) else None
             context = getattr(self, "tracking_input_context", None)
             provenance = context.provenance if isinstance(context, ImageFrameContext) else None
             source_epoch = getattr(getattr(self, "frame_publisher", None), "control_source_epoch", None)
@@ -5823,6 +5826,20 @@ class AppController:
         runtime = getattr(self, "camera_runtime", None)
         provider = getattr(runtime, "provider", None)
         sample_provider = raw.get("camera_provider_instance")
+        from classes.camera_runtime import CameraRuntime
+        observation = getattr(output, 'gimbal_observation', None)
+        if (not isinstance(runtime, CameraRuntime) or not isinstance(observation, GimbalAngleObservation)
+                or observation.source is None or observation.source != runtime.angle_observation_context()
+                or observation.target_generation != getattr(self, '_tracking_session_generation', None)
+                or observation.angles_deg != output.angular
+                or observation.angle_receipt_sequence != sequence
+                or observation.angle_received_at_monotonic_s != monotonic
+                or not runtime.angle_receipt_matches_source(observation.source, sequence, monotonic)
+                or observation.tracking_state != raw.get('tracking_status')
+                or observation.tracking_received_at_monotonic_s != raw.get('tracking_sample_monotonic')
+                or not runtime.tracking_receipt_matches_source(observation.source,
+                                                               observation.tracking_received_at_monotonic_s)):
+            return False
         def numeric(value):
             return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
         return bool(

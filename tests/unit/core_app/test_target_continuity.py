@@ -356,7 +356,10 @@ def test_retarget_restore_ramp_starts_at_last_provisional_command():
     assert ramp_mid.authorized_intent.fields["yawspeed_deg_s"] > 3.5
 
 
-def test_camera_provisional_angles_require_current_selection_and_no_manual_takeover():
+def test_camera_provisional_angles_require_current_selection_and_no_manual_takeover(monkeypatch):
+    from classes.camera_runtime import CameraRuntime
+    from classes.gimbal_types import GimbalAngleObservation
+    from classes.gimbal_provider import SipUdpGimbalProvider
     controller = object.__new__(AppController)
     now = time.time()
     controller._target_transition_started_wall_time = now - 0.1
@@ -372,17 +375,27 @@ def test_camera_provisional_angles_require_current_selection_and_no_manual_takeo
     controller.follower = SimpleNamespace(follower=concrete)
     intent = _intent()
     controller._get_current_command_intent = lambda: intent
-    provider = object()
-    controller.camera_runtime = SimpleNamespace(provider=provider, manual_snapshot=lambda: {
-        "state": "stopped", "gesture_id": None,
-    })
+    provider = SipUdpGimbalProvider()
+    controller._tracking_session_generation = 7
+    controller.camera_runtime = CameraRuntime(controller, {'ENABLED': True})
+    controller.camera_runtime.provider = provider
+    monkeypatch.setattr(provider, '_init_listening_socket', lambda: True)
+    worker = SimpleNamespace(start=MagicMock(), join=MagicMock(), is_alive=lambda: False)
+    monkeypatch.setattr('classes.gimbal_interface.threading.Thread', MagicMock(return_value=worker))
+    monkeypatch.setattr('classes.gimbal_interface.time.sleep', lambda _: None)
+    assert controller.camera_runtime.start()
+    sample_received = time.monotonic()
     output = TrackerOutput(
         data_type=TrackerDataType.GIMBAL_ANGLES,
         timestamp=now,
         tracking_active=False,
         angular=(0.0, 90.0, 10.0),
+        gimbal_observation=GimbalAngleObservation(controller.camera_runtime.angle_observation_context(),
+            7, 'fixture', 'geometry-1', (0., 90., 10.), 'gimbal_body', 1, sample_received,
+            'TARGET_SELECTION', sample_received),
         raw_data={"tracking_status": "TARGET_SELECTION", "coordinate_system": "gimbal_body",
-                  "angle_sample_timestamp": now, "angle_sample_monotonic": time.monotonic(),
+                  "angle_sample_timestamp": now, "angle_sample_monotonic": sample_received,
+                  "tracking_sample_monotonic": sample_received,
                   "angle_sample_sequence": 1, "camera_provider_instance": str(id(provider))},
     )
     assert controller._camera_retarget_provisional_intent(output) is intent
@@ -400,7 +413,7 @@ def test_camera_provisional_angles_require_current_selection_and_no_manual_takeo
     output.raw_data["angle_sample_timestamp"] = now
     output.raw_data["angle_sample_monotonic"] = time.monotonic() - 1.0
     assert controller._camera_retarget_provisional_intent(output) is None
-    output.raw_data["angle_sample_monotonic"] = time.monotonic()
+    output.raw_data["angle_sample_monotonic"] = sample_received
     assert not controller._camera_angle_sample_current(output, require_tracking=True)
     output.raw_data["tracking_sample_timestamp"] = now
     assert controller._camera_angle_sample_current(output, require_tracking=True)

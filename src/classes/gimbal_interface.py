@@ -113,6 +113,8 @@ class GimbalInterface:
         self.listener_thread: Optional[threading.Thread] = None
         self.query_thread: Optional[threading.Thread] = None
         self.lock = threading.RLock()
+        self._lifecycle_lock = threading.RLock()
+        self._lifecycle_observer = None
 
         # Current state
         self.current_data: Optional[GimbalData] = None
@@ -209,6 +211,22 @@ class GimbalInterface:
             return False
 
     def start_listening(self) -> bool:
+        with self._lifecycle_lock:
+            return self._start_listening()
+
+    def set_lifecycle_observer(self, observer):
+        if observer is not None and not callable(observer):
+            raise ValueError('gimbal_lifecycle_observer_invalid')
+        with self.lock:
+            if observer is not None and self._lifecycle_observer is not None and observer is not self._lifecycle_observer:
+                raise ValueError('gimbal_transport_already_owned')
+            self._lifecycle_observer = observer
+
+    def _notify_lifecycle(self, event, token=None):
+        observer = self._lifecycle_observer
+        return observer(event, token) if observer is not None else None
+
+    def _start_listening(self) -> bool:
         """
         Start UDP command/query and response handling for gimbal data.
 
@@ -219,11 +237,22 @@ class GimbalInterface:
             logger.warning("GimbalInterface already listening")
             return True
 
+        token = self._notify_lifecycle('starting')
+        if self._lifecycle_observer is not None and token is None:
+            return False
+        with self.lock:
+            self._clear_observations_locked()
+        if any(worker is not None and worker.is_alive() for worker in (self.listener_thread, self.query_thread)):
+            logger.error('Gimbal restart refused while previous workers are still alive')
+            self._notify_lifecycle('failed', token)
+            return False
+
         try:
             logger.info("Starting active gimbal SIP interface...")
 
             # Initialize both listen and control sockets
             if not self._init_listening_socket():
+                self._notify_lifecycle('failed', token)
                 return False
 
             # Start background threads
@@ -246,16 +275,26 @@ class GimbalInterface:
             logger.info(f"Gimbal interface ready - listening on port {self.listen_port}, expecting data from {self.gimbal_ip}:{self.control_port}")
 
             logger.info("Optimized gimbal SIP interface started successfully - ready for continuous data reception")
+            if self._notify_lifecycle('started', token) is False:
+                self.stop_listening()
+                return False
             return True
 
         except Exception as e:
             logger.error(f"Failed to start gimbal listener: {e}")
+            self._notify_lifecycle('failed', token)
             self.stop_listening()
             return False
 
     def stop_listening(self) -> None:
+        with self._lifecycle_lock:
+            self._stop_listening()
+
+    def _stop_listening(self) -> None:
         """Stop gimbal data reception and cleanup resources."""
         logger.info("Stopping gimbal interface...")
+        if self.running:
+            self._notify_lifecycle('stopping')
         self.running = False
 
         # Wait for both threads to finish
@@ -269,20 +308,17 @@ class GimbalInterface:
 
         # Reset state
         with self.lock:
-            self.connection_status = ConnectionStatus.DISCONNECTED
-            self.current_data = None
-            self.current_angles = None
-            self.last_data_time = None
-            self.last_angle_sample_monotonic = None
-            self.last_tracking_sample_monotonic = None
-            self.last_raw_packet = ""
-            self.last_spatial_packet = ""
-            self.last_spatial_update_time = None
-            self.current_tracking_status = None
-            self.last_tracking_update_time = None
-            self.last_tracking_state = TrackingState.DISABLED
+            self._clear_observations_locked()
 
         logger.info("Gimbal listener stopped")
+
+    def _clear_observations_locked(self):
+        self.connection_status = ConnectionStatus.DISCONNECTED
+        self.current_data = self.current_angles = self.current_tracking_status = None
+        self.last_data_time = self.last_angle_sample_monotonic = self.last_tracking_sample_monotonic = None
+        self.last_tracking_update_time = self.last_spatial_update_time = None
+        self.last_raw_packet = self.last_spatial_packet = ''
+        self.last_tracking_state = TrackingState.DISABLED
 
     def get_current_data(self) -> Optional[GimbalData]:
         """
@@ -503,6 +539,8 @@ class GimbalInterface:
                 gimbal_data = self._parse_gimbal_packet(data, source_ip=addr[0])
                 if gimbal_data:
                     with self.lock:
+                        if not self.running:
+                            continue
                         self.connection_status = ConnectionStatus.RECEIVING
                         self._ingest_parsed_data_locked(
                             gimbal_data,

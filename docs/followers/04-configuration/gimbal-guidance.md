@@ -6,6 +6,25 @@ restart change and does not create a second camera transform or SafetyManager.
 The provider supplies capabilities; the policy only chooses how an already
 validated body ray is commanded.
 
+`GimbalAngleObservation` retains immutable GAC receipt identity and independent
+TRC status under the camera owner's `source_generation`, separately from video
+epochs and command-cancellation generations. Actual provider lifecycle changes
+retire the source; manual movement Stop and tracker detach preserve it.
+A bound provider belongs to one `CameraRuntime` lifetime; replacement requires
+a new owner. Future normalized providers implement the canonical
+`GimbalInputProvider` lifecycle-observer contract; a provider without those
+notifications has no qualified source incarnation.
+Its target generation is local App selection context; TRC has no physical target
+ID. Angles describe camera boresight, with unqualified physical identity and
+timing. Standalone ownership remains unknown. Gimbal output supplies no synthetic
+image position or `ImageMeasurement`; ordinary image trackers are unchanged.
+Physical attitude association still requires separately established timing and
+installation evidence. This metadata change preserves the existing capability
+policy and angular calculations.
+The current source guards cover startup and camera retarget snapshots; binding
+an entire active following session to its original source remains a separate
+S6 consumer gate.
+
 | Setting | Default | Meaning |
 | --- | ---: | --- |
 | `POLICY` | `reverse_then_yaw` | Give a target a bounded reverse grace, then yaw first. |

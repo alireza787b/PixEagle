@@ -57,7 +57,7 @@ source:
   - file: configs/follower_commands.yaml
     sha256: 5356cd7f725503b84d69cc4cf444bb9db41aedb278df089b047ad668923e3869
   - file: configs/tracker_schemas.yaml
-    sha256: 3dade4b655172e7caebc5b521ce6e92aee277bc86788f0b6fb40f38e82990b1d
+    sha256: b1bcab0c5e44427d8f45a7a2a83b6c78c9dcd19c2ad51152de38399653e56ac1
   - file: src/classes/api_v1_native_models.py
     sha256: a8932802dd560a4077e3745d1fbbfd3501715ddb557f4a2689afa40805e77848
   - file: src/classes/api_v1_native_config.py
@@ -65,7 +65,7 @@ source:
   - file: src/classes/api_v1_native_camera.py
     sha256: 67d9629b92a5bcddefa5927eed17a850d0b433cf92ecc1106f200d13c89232e2
   - file: src/classes/camera_runtime.py
-    sha256: 3fff77a031791e72f67c3d9a66951d2061856947bcfe7ea562f6e7f0f97ce7c8
+    sha256: eba5f7fcc0a884a358432175c94c8ec1a8dca4f4695689328b8581d84cc78974
   - file: src/classes/api_v1_snapshots.py
     sha256: a1dd9a5c806933335572110904bc17b358a325aa56bb58f47d2922a8f8215961
   - file: src/classes/api_v1_telemetry.py

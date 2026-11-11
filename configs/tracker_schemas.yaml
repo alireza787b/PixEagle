@@ -78,7 +78,6 @@ tracker_data_types:
     required_fields:
       - angular
     optional_fields:
-      - position_2d
       - confidence
       - gimbal_metadata
     validation:
@@ -88,12 +87,6 @@ tracker_data_types:
         element_type: "float"
         range: [-180.0, 180.0]
         description: "Gimbal angles (yaw, pitch, roll) in degrees"
-      position_2d:
-        type: "tuple"
-        length: 2
-        element_type: "float"
-        range: [-2.0, 2.0]
-        description: "Projected target position from gimbal angles"
       gimbal_metadata:
         type: "dict"
         optional_keys:

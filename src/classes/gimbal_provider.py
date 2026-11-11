@@ -11,7 +11,7 @@ is the existing Topotek SIP-over-UDP integration.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Mapping, Optional, Protocol, Union, runtime_checkable
+from typing import Any, Callable, Dict, List, Mapping, Optional, Protocol, Union, runtime_checkable
 
 from classes.gimbal_interface import GimbalInterface
 from classes.gimbal_types import GimbalData, TrackingState
@@ -39,6 +39,16 @@ class GimbalInputProvider(Protocol):
     provider_id: str
     display_name: str
     protocol_name: str
+    running: bool
+    angle_sample_sequence: int
+
+    def set_lifecycle_observer(self, observer: Callable[[str, int | None], int | bool | None]) -> None:
+        """Notify starting/stopping before transport changes, outside data locks.
+
+        Starting returns the owner's token. Started completion must reuse it
+        and refuse publication if the observer returns False; failed starts
+        notify failed. Repeated running starts emit no new incarnation.
+        """
 
     def start_listening(self) -> bool:
         """Start provider IO and make data available to the tracker."""

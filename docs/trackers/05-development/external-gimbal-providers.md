@@ -18,8 +18,8 @@ Paths below are relative to the repository root.
 | Boundary | Implementation | Responsibility |
 | --- | --- | --- |
 | Input provider | `src/classes/gimbal_provider.py` | `GimbalInputProvider`, configuration, provider selection |
-| Runtime owner | `src/classes/camera_runtime.py` | One transport lifetime, control leases, Stop generation |
-| Normalized samples | `src/classes/gimbal_types.py` | `GimbalData`, `GimbalAngles`, `TrackingStatus`, timestamps and coordinate frame |
+| Runtime owner | `src/classes/camera_runtime.py` | One transport lifetime, independent source generation and control leases/Stop generation |
+| Normalized samples | `src/classes/gimbal_types.py` | Raw `GimbalData` plus immutable `GimbalAngleObservation`; independent receipts and declared frame |
 | Tracker | `src/classes/trackers/gimbal_tracker.py` | Convert fresh samples to `TrackerOutput`; gate following on fresh target lock |
 | Optional control | `src/classes/gimbal_control.py` | `GimbalControl`, SIP adapter, application guards and displayed-image mapping |
 | Movement settings | `src/classes/gimbal_motion.py` | Provider-advertised pulse defaults, presets and bounds |
@@ -34,12 +34,27 @@ metadata. AppController owns the transport through `CameraRuntime`; tracker
 changes release adapter-owned controls but retain the shared transport. Shut
 down its threads, timers and sockets when the application stops.
 
+The provider lifecycle observer binds the transport to the existing runtime
+owner. Report actual start/stop/failure, including direct start/stop aliases;
+repeat-running Start must not manufacture a new source. Clear both angle and
+status caches before opening new workers and reject restart until old workers
+have ended. The runtime owns the source generation: do not add a provider-owned
+counter. Changing providers requires a new runtime, not an in-place hot swap.
+Manual gesture Stop and tracker detach invalidate command guards, while keeping
+the retained transport's observation identity. Video reconnects are independent.
+
 Return `GimbalData` with `GimbalAngles` in degrees, ordered yaw/pitch/roll,
 an explicit `CoordinateSystem`, and a timestamp. Return `TrackingStatus` with
 its own timestamp. Track angle freshness and target-status freshness
 independently: receiving a new angle must not renew an old target lock. Health
 and diagnostic metadata belong in their provider methods; `GimbalData` is not
 a container for arbitrary health fields.
+
+`GimbalTracker` attaches the runtime source, canonical mount revision and local
+selection generation to the original angle/status receipts. Do not synthesize
+image coordinates, exposure timestamps or a physical target ID. A provider
+without the lifecycle contract can remain a standalone diagnostic input, but
+cannot claim application-owned observation provenance.
 
 Validate packet framing, checksum, sender and ranges before publishing data.
 Document native axis signs, angle frame, units and the conversion you apply.
@@ -141,6 +156,8 @@ Use these existing tests as focused examples:
 - `tests/unit/trackers/test_gimbal_interface_protocol.py` and
   `test_gimbal_interface_status_freshness.py`: packet acceptance and independent
   sample freshness.
+- `tests/unit/trackers/test_gimbal_observation.py`: immutable source receipts,
+  independent status, restart/selection races, both mounts and Stop latency.
 - `tests/unit/trackers/test_gimbal_control.py`: wire encoding, state transitions,
   rotation/flip, rectangles, pulse limits, interruption and cleanup.
 - `tests/unit/core_app/test_api_v1_gimbal_control.py`: typed action validation,
