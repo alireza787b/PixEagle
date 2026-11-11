@@ -72,6 +72,7 @@ still require qualification for the actual aircraft and camera.
 import time
 import math
 import logging
+import inspect
 from typing import Tuple, Optional, Dict, Any, Mapping
 from dataclasses import dataclass
 
@@ -85,7 +86,8 @@ from classes.gimbal_geometry import (
     resolve_mount_type,
 )
 from classes.gimbal_guidance import (
-    GimbalGuidanceCapabilities,
+    GimbalObservationLimits,
+    VECTOR_MC_MANOEUVRES,
     GimbalGuidanceClassifier,
     GimbalGuidancePolicy,
     GuidanceState,
@@ -94,6 +96,13 @@ from classes.tracker_output import TrackerOutput, TrackerDataType
 from classes.parameters import Parameters
 from classes.follower_session_controls import SessionControl
 from classes.follower_config_manager import get_follower_config_manager
+from classes.aircraft_state import AircraftState, AirframePhase
+from classes.gimbal_bearing import gimbal_to_body_bearing
+from classes.observation_alignment import (
+    AlignedBearing, bearing_intent_requires_update, require_current_bearing_association,
+)
+from classes.tracker_runtime_status import evaluate_tracker_command_freshness
+from classes.guidance_phase_session import PhaseSessionState
 
 from classes.followers.yaw_rate_smoother import YawRateSmoother  # WP9: canonical import
 
@@ -163,15 +172,13 @@ class GMVelocityVectorFollower(BaseFollower):
         )
         guidance_config = getattr(Parameters, 'GimbalTracker', {}).get('GUIDANCE', {})
         self.guidance_policy = GimbalGuidancePolicy.from_mapping(guidance_config)
-        # Provider metadata replaces this unknown capability set as soon as a
-        # normalized gimbal sample arrives. Unknown providers fail closed for
-        # vertical/reverse/yaw-first states; forward guidance remains usable.
-        self.guidance_capabilities = GimbalGuidanceCapabilities.from_mapping(
-            guidance_config.get('CAPABILITIES')
-        )
+        self.guidance_manoeuvres = VECTOR_MC_MANOEUVRES.restricted(guidance_config.get('ALLOWED_MANOEUVRES'))
+        self.observation_limits = GimbalObservationLimits.from_mapping(guidance_config.get('OBSERVATION_LIMITS'))
         self.guidance_classifier = GimbalGuidanceClassifier(
-            self.guidance_policy, self.guidance_capabilities,
+            self.guidance_policy, self.guidance_manoeuvres, observation_limits=self.observation_limits,
         )
+        from classes.config_service import ConfigService
+        self._guidance_config_migration = ConfigService.get_instance().get_gimbal_guidance_migration()
 
         # Initialize base follower (safe to call now that mount_type is set)
         super().__init__(px4_controller, self.setpoint_profile)
@@ -255,6 +262,14 @@ class GMVelocityVectorFollower(BaseFollower):
 
     # ==================== Core Control Logic ====================
 
+    def bind_guidance_input_resolver(self, resolver) -> None:
+        """Bind a read-only timing association before native acquisition."""
+        if (not callable(resolver) or inspect.iscoroutinefunction(resolver)
+                or getattr(self, '_native_guidance_input_resolver', None) is not None
+                or getattr(self, '_airframe_session', None) is not None):
+            raise ValueError('guidance_input_resolver_binding_invalid')
+        self._native_guidance_input_resolver = resolver
+
     def create_airframe_session(self, identity, capabilities, **policy):
         """Adopt the canonical MC control and geometry in the native session."""
         from classes.airframe_session_controls import AirframeSessionControls
@@ -262,35 +277,47 @@ class GMVelocityVectorFollower(BaseFollower):
         from classes.vector_guidance_session import VectorGuidanceSession
         if getattr(self, '_airframe_session', None) is not None:
             raise ValueError("airframe_session_already_bound")
-        return VectorGuidanceSession(
+        session = VectorGuidanceSession(
             identity, capabilities, profile_name=self.profile_name,
             controls=AirframeSessionControls.from_multicopter_control(identity, self._requested_speed_control()),
             supported_phases=frozenset({AirframePhase.MULTICOPTER, AirframePhase.FIXED_WING, AirframePhase.VTOL_TRANSITION}),
             geometry_policy=self.guidance_policy.geometry, altitude_control=self.enable_altitude_control,
             altitude_limits=self.altitude_limits, **policy,
         )
+        self._airframe_session = session
+        self._airframe_session_bound = False
+        return session
 
     def bind_airframe_session(self, session) -> None:
         """Bind the native phase owner after the normal control-session reset."""
         from classes.vector_guidance_session import VectorGuidanceSession
-        if not isinstance(session, VectorGuidanceSession) or getattr(self, '_airframe_session', None) is not None:
+        prepared = getattr(self, '_airframe_session', None)
+        if (not isinstance(session, VectorGuidanceSession) or getattr(self, '_airframe_session_bound', False)
+                or prepared is not None and prepared is not session):
             raise ValueError("airframe_session_binding_invalid")
         session.require_state()
         self._airframe_session = session
+        self._airframe_session_bound = True
         # The phase owner adopts this declaration; retain a single runtime value.
         self._session_controls = {}
 
     def get_control_type(self) -> str:
         session = getattr(self, '_airframe_session', None)
-        return session.control_type if session is not None else super().get_control_type()
+        if session is None or session.phase is AirframePhase.UNKNOWN:
+            return super().get_control_type()
+        return session.control_type
 
     def get_airframe_phase(self) -> str:
         session = getattr(self, '_airframe_session', None)
-        return session.phase.value if session is not None else super().get_airframe_phase()
+        if session is None or session.phase is AirframePhase.UNKNOWN:
+            return super().get_airframe_phase()
+        return session.phase.value
 
     def get_available_fields(self):
         session = getattr(self, '_airframe_session', None)
-        return list(session.baseline().fields) if session is not None else super().get_available_fields()
+        if session is None or session.phase is AirframePhase.UNKNOWN:
+            return super().get_available_fields()
+        return list(session.baseline().fields)
 
     def _synchronize_native_phase(self) -> None:
         session = getattr(self, '_airframe_session', None)
@@ -320,6 +347,13 @@ class GMVelocityVectorFollower(BaseFollower):
         """
         self._geometry_invalid = None
         self._safety_rejection = None
+        session = getattr(self, '_airframe_session', None)
+        if session is not None and not getattr(self, '_airframe_session_bound', False):
+            raise ValueError('native_guidance_session_unbound')
+        if session is not None and session.phase is AirframePhase.FIXED_WING:
+            self._synchronize_native_phase()
+            self._calculate_native_fixed_wing(tracker_data, session)
+            return
         try:
             self._synchronize_native_phase()
             dt = self.next_control_delta()
@@ -331,14 +365,9 @@ class GMVelocityVectorFollower(BaseFollower):
             # Extract gimbal angles
             yaw_deg, pitch_deg, roll_deg = require_finite_body_angles(tracker_data.angular)
 
-            provider_capabilities = self._provider_guidance_capabilities(tracker_data)
-            if provider_capabilities is not None:
-                self.guidance_capabilities = provider_capabilities
-                self.guidance_classifier.update_capabilities(provider_capabilities)
             physical_ray = self._gimbal_to_body_vector(yaw_deg, pitch_deg, roll_deg)
-            capabilities = getattr(self, 'guidance_capabilities', None)
-            if capabilities is not None and not capabilities.permits_ray(physical_ray):
-                raise InvalidGimbalGeometry("provider_geometry_limit")
+            if not self.observation_limits.permits_ray(physical_ray):
+                raise InvalidGimbalGeometry("gimbal_observation_limit")
             session = getattr(self, '_airframe_session', None)
             unit_vector = self._filter_body_ray(physical_ray, dt)
             observed_at = (tracker_data.raw_data or {}).get('angle_sample_monotonic')
@@ -359,7 +388,7 @@ class GMVelocityVectorFollower(BaseFollower):
 
                 self._last_command_intent = session.calculate(
                     Vector3(unit_vector.x, unit_vector.y, unit_vector.z),
-                    capabilities=self.guidance_capabilities, multicopter_calculate=calculate_mc,
+                    observation_limits=self.observation_limits, multicopter_calculate=calculate_mc,
                 )
 
         except Exception as e:
@@ -489,15 +518,77 @@ class GMVelocityVectorFollower(BaseFollower):
             raise RuntimeError("Failed to apply gimbal vector command intent")
 
 
-    def _provider_guidance_capabilities(self, tracker_data: TrackerOutput):
-        """Read the provider's explicit capability contract, if present."""
-        for source in (
-            getattr(tracker_data, 'metadata', None),
-            getattr(tracker_data, 'raw_data', None),
-        ):
-            if isinstance(source, Mapping) and source.get('guidance_capabilities') is not None:
-                return GimbalGuidanceCapabilities.from_mapping(source)
-        return None
+    def require_guidance_input(self, tracker_output, aircraft_state) -> None:
+        diagnostic = self._guidance_config_migration
+        if diagnostic is not None and diagnostic['review_required']:
+            raise ValueError('gimbal_guidance_config_review_required')
+        super().require_guidance_input(tracker_output, aircraft_state)
+        session = getattr(self, '_airframe_session', None)
+        if session is not None:
+            if session.phase_owner.state is PhaseSessionState.ENDED:
+                raise ValueError('guidance_session_ended')
+            if not isinstance(aircraft_state, AircraftState):
+                raise ValueError('native_aircraft_state_unavailable')
+            if ((getattr(self, '_airframe_session_bound', False) and aircraft_state.phase is not session.phase)
+                    or aircraft_state.binding != session.identity.binding):
+                raise ValueError('guidance_aircraft_binding_changed')
+            if not aircraft_state.fresh(session.clock(), session.phase_owner.observation_timeout_s):
+                raise ValueError('aircraft_state_stale')
+        if isinstance(aircraft_state, AircraftState) and aircraft_state.phase is AirframePhase.FIXED_WING:
+            if session is None:
+                raise ValueError('native_guidance_session_unprepared')
+            self._resolve_native_guidance_input(tracker_output, aircraft_state, session)
+
+    def _resolve_native_guidance_input(self, tracker_output, aircraft_state, session) -> AlignedBearing:
+        if (not isinstance(aircraft_state, AircraftState) or aircraft_state.phase is not AirframePhase.FIXED_WING
+                or aircraft_state.binding != session.identity.binding):
+            raise ValueError('guidance_aircraft_binding_changed')
+        if (not isinstance(tracker_output, TrackerOutput)
+                or not self.validate_tracker_compatibility(tracker_output)
+                or tracker_output.gimbal_observation is None):
+            raise ValueError('gimbal_observation_unavailable')
+        freshness = evaluate_tracker_command_freshness(tracker_output)
+        if not freshness['usable_for_following']:
+            raise ValueError(freshness['reason_code'])
+        resolver = getattr(self, '_native_guidance_input_resolver', None)
+        if not callable(resolver):
+            raise ValueError('physical_capture_timing_unqualified')
+        aligned = resolver(tracker_output, aircraft_state)
+        if not isinstance(aligned, AlignedBearing):
+            if inspect.iscoroutine(aligned):
+                aligned.close()
+            raise ValueError('guidance_input_resolver_contract_invalid')
+        observation = tracker_output.gimbal_observation
+        if require_finite_body_angles(tracker_output.angular) != observation.angles_deg:
+            raise ValueError('guidance_angle_observation_changed')
+        timeout = session.phase_owner.observation_timeout_s
+        require_current_bearing_association(aligned, observation, aircraft_state,
+            native_runtime_id=session.phase_owner.capabilities.runtime_id, now_monotonic_s=session.clock(),
+            max_observation_age_s=timeout, max_attitude_age_s=timeout)
+        expected = gimbal_to_body_bearing(observation, mount_type=self.mount_type,
+            geometry=self.angle_geometry, geometry_revision=observation.geometry_revision)
+        if aligned.bearing != expected:
+            raise InvalidGimbalGeometry('guidance_bearing_mapping_changed')
+        if not self.observation_limits.permits_ray(expected.direction_body_frd):
+            raise InvalidGimbalGeometry('gimbal_observation_limit')
+        return aligned
+
+    def _calculate_native_fixed_wing(self, tracker_output, session) -> None:
+        state = session.require_state()
+        aligned = self._resolve_native_guidance_input(tracker_output, state, session)
+        revision = session.controls.current_control.revision
+        if bearing_intent_requires_update(aligned, self._last_native_guidance_input, state,
+                self._last_native_guidance_state, revision, self._last_native_control_revision):
+            intent = session.calculate_ned(aligned.direction_ned, frame='ned')
+            if intent.guidance_identity != session.identity:
+                raise ValueError('native_intent_identity_changed')
+            self._last_native_guidance_intent = intent
+            self._last_native_guidance_input = aligned
+            self._last_native_guidance_state = state
+            self._last_native_control_revision = revision
+        self._last_command_intent = self._last_native_guidance_intent
+        self.update_telemetry_metadata('guidance_input_reason', None)
+        self.update_telemetry_metadata('guidance_input_association', aligned.association_kind)
 
     def _classify_guidance(self, unit_vector: Vector3D, *, provider_ray=None, observation_time=None):
         classifier = getattr(self, 'guidance_classifier', None)
@@ -519,6 +610,32 @@ class GMVelocityVectorFollower(BaseFollower):
         self._safety_rejection = None
         self.total_follow_calls += 1
         current_time = time.time()
+
+        session = getattr(self, '_airframe_session', None)
+        if session is not None and session.phase is AirframePhase.FIXED_WING:
+            # Native FW owns its envelope/altitude guards. Ordinary observation
+            # expiry goes to the existing FW continuity owner, not MC emergency Stop.
+            try:
+                if self.emergency_stop_active:
+                    self._safety_rejection = 'emergency_stop_active'
+                    self._invalidate_command_intent('emergency_stop_active')
+                    return False
+                self.calculate_control_commands(tracker_output)
+                self.following_active = True
+                self.successful_updates += 1
+                return True
+            except InvalidGimbalGeometry as error:
+                self._geometry_invalid = str(error)
+                reason = str(error)
+            except ValueError as error:
+                reason = str(error)
+            except Exception:
+                logger.exception('Native gimbal guidance calculation failed')
+                reason = 'guidance_calculation_failed'
+            self._invalidate_command_intent(reason)
+            self.update_telemetry_metadata('guidance_input_reason', reason)
+            self.failed_updates += 1
+            return False
 
         try:
             # Safety checks
@@ -645,6 +762,7 @@ class GMVelocityVectorFollower(BaseFollower):
         session = getattr(self, '_airframe_session', None)
         if session is not None:
             session.end('follow_session_ended')
+        self._native_guidance_input_resolver = None
 
     def _clear_session_velocity(self):
         release = getattr(getattr(self, 'safety_manager', None), 'clear_session_velocity', None)
@@ -710,6 +828,7 @@ class GMVelocityVectorFollower(BaseFollower):
 
     def reset_control_session(self) -> None:
         super().reset_control_session()
+        self._native_guidance_input_resolver = None
         self._guidance_state_identity = None
         self._reset_guidance_state()
 
@@ -721,6 +840,10 @@ class GMVelocityVectorFollower(BaseFollower):
         return True
 
     def _reset_guidance_state(self) -> None:
+        self._last_native_guidance_input = None
+        self._last_native_guidance_state = None
+        self._last_native_guidance_intent = None
+        self._last_native_control_revision = None
         self.current_velocity_magnitude = self.config.get('INITIAL_VELOCITY', 0.0)
         self.filtered_body_ray = None
         self.last_command_vector = None
@@ -1040,10 +1163,12 @@ class GMVelocityVectorFollower(BaseFollower):
                 'bearing_deg': decision.bearing_deg if decision else None,
                 'transition_pending': decision.transition_pending if decision else False,
                 'state_age_s': decision.state_age_s if decision else 0.0,
-                'capabilities': (
-                    self.guidance_capabilities.to_mapping()
-                    if hasattr(self, 'guidance_capabilities') else None
-                ),
+                'implemented_manoeuvres': VECTOR_MC_MANOEUVRES.to_mapping(),
+                'allowed_manoeuvres': self.guidance_manoeuvres.to_mapping(),
+                'observation_limits': self.observation_limits.to_mapping(),
+                'mechanical_qualification': 'unqualified',
+                'configuration_migration': self._guidance_config_migration,
+
             },
             'current_state': {
                 'velocity_magnitude': self.current_velocity_magnitude,

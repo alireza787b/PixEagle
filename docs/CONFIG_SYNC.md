@@ -282,3 +282,27 @@ check. See [FW guidance policy](followers/04-configuration/fixed-wing-guidance-p
 Native FW/VTOL engagement requires an explicit `bounded_flight` FW continuity
 policy. A saved legacy policy is not silently upgraded during engagement; use
 the existing migration preview/apply to adopt the phase override first.
+
+## Gimbal guidance migration
+
+Schema 1.8 retires `GimbalTracker.GUIDANCE.CAPABILITIES`. Runtime reads only
+`ALLOWED_MANOEUVRES` and `OBSERVATION_LIMITS`; the original object remains in
+saved config for review, including after unrelated saves. Known Topotek factory
+placeholders preserve accepted MC behaviour. Custom or ambiguous declarations
+keep API/startup available but refuse Vector Start until reviewed.
+
+Config Sync reports historical provider masking separately from an unverified
+fallback and previews the canonical effective result. For custom migration,
+provide explicit `ADD_NEW` values for `ALLOWED_MANOEUVRES` and the complete
+`OBSERVATION_LIMITS` object, then `REMOVE_RETIRED` on the exact legacy path in
+one preview/apply. Explicit null is different from omitting `value`. If the new
+fields already exist, edit them through the normal schema editor before
+previewing cleanup. Saved restrictions must be preserved or narrowed; widening
+is refused during retirement. The report supplies suggested intersected values.
+
+`ALLOWED_MANOEUVRES: null` retains implemented MC states; `[]` permits only
+forward. Each observation-window axis is either null (no added restriction) or
+an ordered numeric pair. Neither null nor historical provider full-sphere
+metadata establishes mechanical reach, camera aim authority, physical target
+identity or exposure timing. No physical FW qualification is added by migration.
+See [gimbal guidance](followers/04-configuration/gimbal-guidance.md) for examples.

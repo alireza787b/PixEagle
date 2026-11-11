@@ -10,17 +10,17 @@ from classes.aircraft_state import AirframePhase, GuidanceSessionIdentity, Quate
 from classes.command_intent import CommandIntent
 from classes.follower_session_controls import SessionControl
 from classes.gimbal_geometry import body_line_of_sight
-from classes.gimbal_guidance import GimbalGuidanceCapabilities, GimbalGuidancePolicy
+from classes.gimbal_guidance import GimbalObservationLimits, GimbalGuidancePolicy, VECTOR_MC_MANOEUVRES
 from classes.vector_guidance_session import VectorGuidanceSession
 from classes.airframe_session_controls import AirframeSessionControls
 from classes.native_guidance import NativeCapabilities
 from classes.safety_types import AltitudeLimits
-from tests.unit.drone_interface.test_aircraft_state import aircraft_state
+from tests.unit.drone_interface.test_aircraft_state import aircraft_state, attitude_timing
+from tests.fixtures.native_bearing import associated_gimbal_output
 from tools.sitl_gimbal_geometry_fixture import camera_angles_for_world_target
 
 
-CAPABILITIES = GimbalGuidanceCapabilities(known=True, supports_vertical=True, supports_reverse=True,
-                                        supports_yaw_fallback=True)
+OBSERVATION_LIMITS = GimbalObservationLimits()
 
 
 def session(*, altitude=True, state=None):
@@ -168,7 +168,7 @@ def test_fw_uses_native_contract_and_never_calls_multicopter_math(altitude):
     owner, now, state = session(altitude=altitude)
     settle(owner, now, state)
     callback = Mock(side_effect=AssertionError("MC calculation called in FW"))
-    intent = owner.calculate(Vector3(1., 0., .2), capabilities=CAPABILITIES, multicopter_calculate=callback)
+    intent = owner.calculate(Vector3(1., 0., .2), observation_limits=OBSERVATION_LIMITS, multicopter_calculate=callback)
     assert intent.control_type == "fixed_wing_external"
     assert intent.guidance_identity == owner.identity
     assert intent.fields["equivalent_airspeed_m_s"] == 20.
@@ -185,13 +185,13 @@ def test_confirming_and_transition_use_phase_safe_contracts_without_pursuit():
                                                    is_vtol=True, is_tailsitter=True))
     _, state = observe(owner, now, state)
     callback = Mock(side_effect=AssertionError("pursuit called before confirmation"))
-    baseline = owner.calculate(Vector3(1., 0., 0.), capabilities=CAPABILITIES, multicopter_calculate=callback)
+    baseline = owner.calculate(Vector3(1., 0., 0.), observation_limits=OBSERVATION_LIMITS, multicopter_calculate=callback)
     assert set(baseline.fields.values()) == {0.}
     mc_generation = owner.identity.guidance_generation
     now[0] += .1
     result, state = observe(owner, now, state, phase=AirframePhase.VTOL_TRANSITION)
     assert result.transition_setpoints_required
-    intent = owner.calculate(Vector3(-1., 0., 0.), capabilities=CAPABILITIES, multicopter_calculate=callback)
+    intent = owner.calculate(Vector3(-1., 0., 0.), observation_limits=OBSERVATION_LIMITS, multicopter_calculate=callback)
     assert intent.control_type == "vtol_transition_external"
     assert intent.fields["equivalent_airspeed_m_s"] == 18.
     assert intent.guidance_identity.guidance_generation > mc_generation
@@ -221,7 +221,7 @@ def test_transition_retains_fw_request_with_current_native_bounds_and_no_deadlin
     state = settle(owner, now, state)
     control = owner.controls.current_control
     owner.controls.update(25., identity=owner.identity, expected_revision=control.revision)
-    command = owner.calculate(Vector3(1., 1., 0.), capabilities=CAPABILITIES, multicopter_calculate=Mock())
+    command = owner.calculate(Vector3(1., 1., 0.), observation_limits=OBSERVATION_LIMITS, multicopter_calculate=Mock())
     course = command.fields["course_rad"]
     now[0] += .1
     _, state = observe(owner, now, state, phase=AirframePhase.VTOL_TRANSITION)
@@ -236,7 +236,7 @@ def test_transition_retains_fw_request_with_current_native_bounds_and_no_deadlin
 def test_return_to_mc_discards_old_fw_course_before_a_later_front_transition():
     owner, now, state = session()
     state = settle(owner, now, state)
-    old = owner.calculate(Vector3(1., 1., 0.), capabilities=CAPABILITIES, multicopter_calculate=Mock())
+    old = owner.calculate(Vector3(1., 1., 0.), observation_limits=OBSERVATION_LIMITS, multicopter_calculate=Mock())
     for phase in (AirframePhase.VTOL_TRANSITION, AirframePhase.MULTICOPTER):
         now[0] += .1
         _, state = observe(owner, now, state, phase=phase)
@@ -290,7 +290,7 @@ def test_vtol_altitude_hold_keeps_session_engagement_reference_across_phase_cycl
             now[0] += .31
             _, state = observe(owner, now, state)
         if phase is AirframePhase.FIXED_WING:
-            command = owner.calculate(Vector3(1., 0., .2), capabilities=CAPABILITIES,
+            command = owner.calculate(Vector3(1., 0., .2), observation_limits=OBSERVATION_LIMITS,
                                       multicopter_calculate=Mock())
             assert command.fields["altitude_amsl_m"] == engagement_altitude
 
@@ -321,7 +321,7 @@ def test_ended_session_never_produces_new_commands_or_resumes(reason):
             state = replace(state, rescue_active=True)
         owner.observe(state, owner_confirmed=reason != "takeover", target_confirmed=True)
     with pytest.raises(ValueError, match="session_ended"):
-        owner.calculate(Vector3(1., 0., 0.), capabilities=CAPABILITIES, multicopter_calculate=Mock())
+        owner.calculate(Vector3(1., 0., 0.), observation_limits=OBSERVATION_LIMITS, multicopter_calculate=Mock())
     assert owner.controls.snapshot(client_contract_version=2) is None
     _, state = observe(owner, now, state)
     with pytest.raises(ValueError, match="session_ended"):
@@ -360,7 +360,7 @@ def test_physical_ray_uses_full_attitude_once_before_heading_velocity_boundary(m
                              dict(vel_body_fwd=ray.x, vel_body_right=ray.y, vel_body_down=ray.z,
                                   yawspeed_deg_s=0.), "existing_mc_follower")
 
-    intent = owner.calculate(physical_ray, capabilities=CAPABILITIES, multicopter_calculate=multicopter_calculate)
+    intent = owner.calculate(physical_ray, observation_limits=OBSERVATION_LIMITS, multicopter_calculate=multicopter_calculate)
     north, east, down = target
     expected = Vector3(math.cos(heading) * north + math.sin(heading) * east,
                        -math.sin(heading) * north + math.cos(heading) * east, down).normalized()
@@ -371,16 +371,16 @@ def test_physical_ray_uses_full_attitude_once_before_heading_velocity_boundary(m
 def test_fw_limits_are_checked_on_physical_provider_ray_before_world_rotation():
     owner, now, state = session()
     settle(owner, now, state)
-    limits = replace(CAPABILITIES, azimuth_limits_deg=(-45., 45.))
-    with pytest.raises(ValueError, match="provider_geometry_limit"):
-        owner.calculate(Vector3(0., 1., 0.), capabilities=limits, multicopter_calculate=Mock())
+    limits = replace(OBSERVATION_LIMITS, azimuth_limits_deg=(-45., 45.))
+    with pytest.raises(ValueError, match="gimbal_observation_limit"):
+        owner.calculate(Vector3(0., 1., 0.), observation_limits=limits, multicopter_calculate=Mock())
 
 
 def test_level_baseline_does_not_change_rearward_turn_latch_or_target_geometry():
     owner, now, state = session()
     settle(owner, now, state)
     for y in (.01, -.01):
-        intent = owner.calculate(Vector3(-1., y, .1), capabilities=CAPABILITIES, multicopter_calculate=Mock())
+        intent = owner.calculate(Vector3(-1., y, .1), observation_limits=OBSERVATION_LIMITS, multicopter_calculate=Mock())
         assert intent.fields["course_rad"] > 0.
         baseline = owner.baseline()
         assert baseline.fields["course_rad"] == intent.fields["course_rad"]
@@ -448,12 +448,15 @@ def test_registered_vector_follower_uses_one_phase_session_and_correct_command_c
     follower.angle_deadzone = 0.
     follower.angle_smoothing_alpha = 1.
     follower.enable_altitude_control = True
-    follower.guidance_capabilities = CAPABILITIES
-    follower.guidance_classifier.update_capabilities(CAPABILITIES)
-    state = aircraft_state(phase=phase, is_vtol=True, is_tailsitter=True,
+    follower.observation_limits = OBSERVATION_LIMITS
+    follower.guidance_manoeuvres = VECTOR_MC_MANOEUVRES
+    follower.guidance_classifier.manoeuvres = VECTOR_MC_MANOEUVRES
+    state = aircraft_state(phase=phase, is_vtol=True, is_tailsitter=True, attitude_timing=attitude_timing(),
                            attitude_body_to_ned=Quaternion(math.cos(.2), 0., math.sin(.2), 0.))
     owner, now, state = session(state=state)
     state = settle(owner, now, state)
+    association = [None]
+    follower.bind_guidance_input_resolver(lambda *_: association[0])
     follower.bind_airframe_session(owner)
 
     assert follower._session_controls == {}
@@ -466,8 +469,11 @@ def test_registered_vector_follower_uses_one_phase_session_and_correct_command_c
     target = (40., 0., 10.)
     q = state.attitude_body_to_ned
     angles = camera_angles_for_world_target((0., 0., 0.), target, (q.w, q.x, q.y, q.z), mount)
-    follower.calculate_control_commands(TrackerOutput(TrackerDataType.GIMBAL_ANGLES, time.time(), True,
-                                                      angular=angles))
+    if phase is AirframePhase.FIXED_WING:
+        output, association[0] = associated_gimbal_output(follower, owner, state, angles, receipt=now[0])
+    else:
+        output = TrackerOutput(TrackerDataType.GIMBAL_ANGLES, time.time(), True, angular=angles)
+    follower.calculate_control_commands(output)
     intent = follower.get_last_command_intent()
     assert intent.guidance_identity == owner.identity
     assert intent.control_type == owner.control_type
@@ -496,17 +502,22 @@ def test_phase_change_retires_old_ray_and_command_contract(mount):
     follower.angle_geometry = resolve_angle_geometry({}, mount)
     follower.angle_deadzone = 0.
     follower.angle_smoothing_alpha = .1
-    owner, now, state = session(state=aircraft_state(phase=AirframePhase.MULTICOPTER,
+    owner, now, state = session(state=aircraft_state(phase=AirframePhase.MULTICOPTER, attitude_timing=attitude_timing(),
                                                    is_vtol=True, is_tailsitter=True))
     state = settle(owner, now, state)
+    association = [None]
+    follower.bind_guidance_input_resolver(lambda *_: association[0])
     follower.bind_airframe_session(owner)
 
     def calculate(target):
         q = state.attitude_body_to_ned
         angles = camera_angles_for_world_target((0., 0., 0.), target, (q.w, q.x, q.y, q.z), mount)
-        follower.calculate_control_commands(TrackerOutput(TrackerDataType.GIMBAL_ANGLES, time.time(), True,
-            angular=angles, metadata={"guidance_capabilities": {
-                "known": True, "supports_vertical": True, "supports_reverse": True, "supports_yaw_fallback": True}}))
+        if state.phase is AirframePhase.FIXED_WING:
+            output, association[0] = associated_gimbal_output(follower, owner, state, angles,
+                receipt=now[0], sequence=state.sequence)
+        else:
+            output = TrackerOutput(TrackerDataType.GIMBAL_ANGLES, time.time(), True, angular=angles)
+        follower.calculate_control_commands(output)
         return follower.get_last_command_intent()
 
     control = owner.controls.current_control
@@ -515,7 +526,9 @@ def test_phase_change_retires_old_ray_and_command_contract(mount):
     now[0] += .1
     _, state = observe(owner, now, state, phase=AirframePhase.VTOL_TRANSITION)
     now[0] += .1
-    state = replace(state, attitude_body_to_ned=Quaternion.from_euler(0., math.pi / 2, 0.))
+    state = replace(state, attitude_body_to_ned=Quaternion.from_euler(0., math.pi / 2, 0.),
+        attitude_timing=attitude_timing(publication_timestamp_us=1_500_000, sample_timestamp_us=1_490_000,
+            publication_received_at_monotonic_s=now[0], sample_received_at_monotonic_s=now[0]))
     _, state = observe(owner, now, state, phase=AirframePhase.FIXED_WING)
     now[0] += .31
     _, state = observe(owner, now, state)
@@ -526,9 +539,12 @@ def test_phase_change_retires_old_ray_and_command_contract(mount):
     assert command.fields["height_rate_m_s"] < 0.
     assert owner.identity == identity
     assert owner.controls.current_control.value == speed
-    # Normal observations in the same phase still use the configured filter.
+    # Native FW uses the already associated world ray; MC body-ray filtering
+    # cannot rotate an older measurement with a newer attitude.
+    now[0] += .01
+    _, state = observe(owner, now, state)
     second = calculate((40., 40., 8.))
-    assert command.fields["course_rad"] < second.fields["course_rad"] < math.pi / 4
+    assert command.fields["course_rad"] < second.fields["course_rad"] == pytest.approx(math.pi / 4)
     follower.record_submitted_command(second.fields)
     assert follower._session_velocity_envelope() is None
     now[0] += .1

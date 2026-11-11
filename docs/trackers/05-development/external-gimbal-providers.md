@@ -56,6 +56,15 @@ image coordinates, exposure timestamps or a physical target ID. A provider
 without the lifecycle contract can remain a standalone diagnostic input, but
 cannot claim application-owned observation provenance.
 
+Do not advertise aircraft manoeuvre permissions through provider metadata.
+The MC Vector implementation owns vertical/reverse/yaw-recovery support;
+canonical operator restrictions can narrow it. Optional observed-ray windows
+apply after the canonical physical-body conversion. Normalized angle
+representability is not mechanical reachability, target-centre confirmation,
+exposure timing or permission to aim the camera. A valid observed boresight may
+remain usable for MC while those physical qualifications remain unknown.
+See [gimbal guidance policy](../../followers/04-configuration/gimbal-guidance.md).
+
 Validate packet framing, checksum, sender and ranges before publishing data.
 Document native axis signs, angle frame, units and the conversion you apply.
 Do not silently substitute spatial angles or detection rectangles for body

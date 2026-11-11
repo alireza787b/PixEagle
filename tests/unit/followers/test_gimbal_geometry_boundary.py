@@ -20,7 +20,7 @@ from classes.gimbal_geometry import (
     resolve_mount_type,
 )
 from classes.gimbal_guidance import (
-    GimbalGuidanceCapabilities,
+    GimbalManoeuvreSupport,
     GimbalGuidanceClassifier,
     GuidanceState,
 )
@@ -125,8 +125,8 @@ def test_horizontal_convention_preserves_synthetic_forward_right_down():
 def test_guidance_classifier_accepts_pure_vertical_ray_for_both_mounts(mount, angles):
     clock = [0.0]
     classifier = GimbalGuidanceClassifier(
-        capabilities=GimbalGuidanceCapabilities(
-            known=True, supports_vertical=True, supports_reverse=True,
+        manoeuvres=GimbalManoeuvreSupport(
+            supports_vertical=True, supports_reverse=True,
             supports_yaw_fallback=True,
         ),
         clock=lambda: clock[0],

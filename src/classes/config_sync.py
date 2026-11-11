@@ -103,6 +103,7 @@ def build_defaults_sync_report(service: ConfigService) -> Dict[str, Any]:
     registered_retirements = []
     unknown_extensions = []
     registry = service.get_retirement_registry()
+    guidance_migration = service.get_gimbal_guidance_migration()
     retirements_by_path = {
         tuple(retirement["path"]): retirement
         for retirement in registry["retirements"]
@@ -149,9 +150,12 @@ def build_defaults_sync_report(service: ConfigService) -> Dict[str, Any]:
     for retirement in registry["retirements"]:
         path = retirement["path"]
         if ConfigService._mapping_path_exists(current_config, path):
+            migration = (guidance_migration if guidance_migration is not None
+                         and guidance_migration["path"] == path else None)
             registered_retirements.append(
                 {
                     **_display_path(path),
+                    **({"migration": migration} if migration is not None else {}),
                     "id": retirement["id"],
                     "retired_in_schema_version": retirement["retired_in_schema_version"],
                     "reason": retirement["reason"],
@@ -342,7 +346,42 @@ def build_defaults_sync_plan(
                 errors.append({"index": idx, "error": str(exc)})
                 continue
 
+        if op_type == "REMOVE_RETIRED" and not normalized["skip"]:
+            ConfigService._remove_mapping_path(candidate, path)
         plan_operations.append(normalized)
+
+    guidance_migration = None
+    try:
+        from classes.gimbal_guidance_config_migration import canonical_guidance_restrictions
+        canonical_guidance_restrictions(candidate)
+        guidance_migration = service.get_gimbal_guidance_migration(candidate=candidate)
+        if guidance_migration is not None:
+            from classes.gimbal_guidance_config_migration import LEGACY_PATH, ALLOWED_PATH, LIMITS_PATH
+            related = any(op["path"][:2] == LEGACY_PATH[:2] for op in plan_operations)
+            if related:
+                before = guidance_migration["effective_before"]
+                after = guidance_migration["effective_after"]
+                warnings.append({"warning": (
+                    f"Gimbal guidance: before ({before['origin']}) special manoeuvres "
+                    f"{before['special_manoeuvres']}, observed-ray windows {before['observation_limits']}; "
+                    f"after special manoeuvres {after['special_manoeuvres']}, "
+                    f"observed-ray windows {after['observation_limits']}. "
+                    "Camera mechanics, target-centre alignment and exposure timing remain unqualified."
+                )})
+            if guidance_migration["review_required"] and guidance_migration["legacy_removed_in_candidate"]:
+                explicit = guidance_migration["canonical_choices_present"]
+                for choice in (ALLOWED_PATH, LIMITS_PATH):
+                    if not ConfigService._mapping_path_exists(current_config, choice):
+                        explicit = explicit and any(
+                            op.path == choice and op.op_type == "ADD_NEW" and "value" in op.model_fields_set
+                            for op in operations)
+                if not explicit:
+                    errors.append({"error": "Custom gimbal retirement requires explicit ALLOWED_MANOEUVRES and complete OBSERVATION_LIMITS choices."})
+                errors.extend({"error": error} for error in guidance_migration["restriction_errors"])
+                if guidance_migration["recommendation_error"]:
+                    errors.append({"error": guidance_migration["recommendation_error"]})
+    except (TypeError, ValueError) as exc:
+        errors.append({"error": f"Gimbal guidance migration cannot be previewed: {exc}"})
 
     changed_count = sum(1 for op in plan_operations if not op["skip"])
     config_digest = _digest(current_config)
@@ -358,10 +397,12 @@ def build_defaults_sync_plan(
         "registry_digest": registry["registry_digest"],
         "schema_version": service.get_schema_version(),
         "source_state_digests": source_state_digests,
+        "gimbal_guidance_migration": guidance_migration,
     }
     return {
         "contract_version": SYNC_CONTRACT_VERSION,
         "valid": len(errors) == 0,
+        "gimbal_guidance_migration": guidance_migration,
         "errors": errors,
         "warnings": warnings,
         "operations": plan_operations,

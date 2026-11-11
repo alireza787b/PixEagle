@@ -148,6 +148,7 @@ def test_native_fw_authorized_fields_never_enter_multicopter_slew_or_limits():
     guarded = dict(fields, equivalent_airspeed_m_s=16.)
     follower._synchronize_native_phase = Mock()
     follower._airframe_session = SimpleNamespace(
+        phase=AirframePhase.FIXED_WING,
         control_type='fixed_wing_external', guard_native_fields=Mock(return_value=guarded))
     follower.clamp_velocity = Mock(side_effect=AssertionError)
     follower.guard_gimbal_vertical_velocity = Mock(side_effect=AssertionError)

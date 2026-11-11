@@ -120,7 +120,17 @@ An unchanged attitude sample retains its quaternion and first receipt; a reporte
 estimator reset invalidates the old association. Isolated SIH can explicitly use
 `ExactSihSample.observation_provenance` with its retained observed attitude, but
 that is component evidence, never a physical timing qualification. Public live
-admission and the native gimbal consumer remain separate gates.
+admission and physical installation acceptance remain closed gates.
+
+Both native image and gimbal consumers validate the resolver result before
+acquisition and again before calculation. A prepared session holds no command
+authority. Native gimbal input uses the associated NED direction directly;
+the MC body-ray filter must not rotate an older measurement with newer attitude.
+Unchanged polls retain command age. Progressing authoritative navigation state or
+an acknowledged control revision can recalculate against that original world ray.
+Ordinary observation expiry invalidates nominal intent and uses the existing FW
+continuity budget; it does not invoke MC emergency Stop. Geometry, aircraft
+authority, native envelope and explicit Stop guards remain authoritative.
 
 Native FW consumes an input-independent `BearingGeometryPolicy`: four validated
 vertical-cone and forward/rearward thresholds. Gimbal Vector extracts those

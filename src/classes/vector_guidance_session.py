@@ -16,7 +16,7 @@ from classes.bearing_geometry_policy import BearingGeometryPolicy
 from classes.command_intent import CommandIntent
 from classes.fixed_wing_vector_guidance import FixedWingCommand, FixedWingVectorGuidance
 from classes.fixed_wing_guidance_policy import FixedWingGuidancePolicy, UpperSpeedPolicy
-from classes.gimbal_guidance import GimbalGuidanceCapabilities
+from classes.gimbal_guidance import GimbalObservationLimits
 from classes.guidance_phase_session import GuidancePhaseSession, PhaseDecision, PhaseSessionState
 from classes.native_guidance import NativeCapabilities, NativeTransitionCommand
 from classes.safety_types import AltitudeLimits
@@ -153,11 +153,11 @@ class VectorGuidanceSession:
                              else "phase_confirmation_pending", created_at_monotonic_s=self.clock(),
                              guidance_identity=self.identity)
 
-    def calculate(self, physical_body_ray: Vector3, *, capabilities: GimbalGuidanceCapabilities,
+    def calculate(self, physical_body_ray: Vector3, *, observation_limits: GimbalObservationLimits,
                   multicopter_calculate: Callable[[Vector3], CommandIntent]) -> CommandIntent:
         state = self.require_state()
-        if not capabilities.permits_ray(physical_body_ray):
-            raise ValueError("provider_geometry_limit")
+        if not observation_limits.permits_ray(physical_body_ray):
+            raise ValueError("gimbal_observation_limit")
         if self.phase_owner.state is not PhaseSessionState.PURSUIT:
             return self.baseline()
         if self.phase is AirframePhase.FIXED_WING:

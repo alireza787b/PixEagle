@@ -112,6 +112,31 @@ describe('SyncWithDefaultsDialog', () => {
     mockSyncState();
   });
 
+  it('shows deep retirement names and migration warnings without losing the path', async () => {
+    mockSyncState({
+      registeredRetirements: [{
+        id: 'split-guidance', path: ['GimbalTracker', 'GUIDANCE', 'CAPABILITIES'],
+        reason: 'Review observed-ray restrictions',
+      }],
+      counts: { ...EMPTY_COUNTS, retired: 1, actionable: 1 },
+      buildOperationsFromSelections: jest.fn(({ selectedRetired }) => selectedRetired.length ? [{
+        op_type: 'REMOVE_RETIRED', path: ['GimbalTracker', 'GUIDANCE', 'CAPABILITIES'],
+      }] : []),
+      previewOperations: jest.fn().mockResolvedValue({ success: true, plan: {
+        valid: false, plan_digest: 'e'.repeat(64), summary: { applicable: 1, skipped: 0 },
+        warnings: [{ warning: 'Camera mechanics and exposure timing remain unqualified.' }],
+        errors: [{ error: 'Explicit restrictions required.' }],
+      } }),
+    });
+    renderDialog();
+    const checkbox = await screen.findByRole('checkbox', { name: /GimbalTracker\.GUIDANCE\.CAPABILITIES/i });
+    fireEvent.click(checkbox);
+    fireEvent.click(screen.getByRole('button', { name: /^Preview$/i }));
+    expect(await screen.findByText(/Camera mechanics and exposure timing remain unqualified/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Apply Previewed/i })).toBeDisabled();
+    expect(screen.queryByText('Unknown path')).not.toBeInTheDocument();
+  });
+
   it('auto-opens retirements and leaves destructive changes unselected', async () => {
     mockRetirementState();
 

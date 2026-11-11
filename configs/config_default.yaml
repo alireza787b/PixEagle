@@ -968,15 +968,14 @@ GimbalTracker:
     FORWARD_REENTRY_BEARING_DEG: 80.0
     TRANSITION_DWELL_MS: 300.0
     REARWARD_GRACE_MS: 500.0
-    # Optional fallback for a provider which cannot advertise capabilities.
-    # Keep KNOWN false until the adapter has qualified these values.
-    CAPABILITIES:
-      KNOWN: false
-      SUPPORTS_VERTICAL: false
-      SUPPORTS_REVERSE: false
-      SUPPORTS_YAW_FALLBACK: false
-      AZIMUTH_LIMITS_DEG: [-180.0, 180.0]
-      DEPRESSION_LIMITS_DEG: [-90.0, 90.0]
+    # Null preserves the strategy's implemented MC manoeuvres. [] permits
+    # forward guidance only; a list can restrict vertical/reverse/yaw recovery.
+    ALLOWED_MANOEUVRES: null
+    # Optional measured physical-body FRD acceptance windows, not joint limits
+    # or a claim that the camera can mechanically reach every direction.
+    OBSERVATION_LIMITS:
+      AZIMUTH_LIMITS_DEG: null
+      DEPRESSION_LIMITS_DEG: null
 
   # Network configuration for gimbal UDP communication
   UDP_HOST: "192.168.0.108"      # Gimbal IP address

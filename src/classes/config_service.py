@@ -1849,6 +1849,12 @@ class ConfigService:
                         destination[path[-1]] = copy.deepcopy(source[path[-1]])
             return config
 
+    def get_gimbal_guidance_migration(self, *, candidate=None) -> Optional[Dict[str, Any]]:
+        """Describe preserved retirement data, never a runtime guidance policy."""
+        from classes.gimbal_guidance_config_migration import assess_gimbal_guidance_migration
+        with self._mutation_lock:
+            return assess_gimbal_guidance_migration(self.get_sync_config(), candidate=candidate)
+
     def get_effective_defaults(self) -> Dict[str, Any]:
         """Return checked-in defaults; schema supplies validation metadata only."""
         with self._mutation_lock:
@@ -2602,6 +2608,13 @@ class ConfigService:
                 errors.extend(result.errors)
                 warnings.extend(result.warnings)
 
+        if "GimbalTracker" in candidate:
+            try:
+                from classes.gimbal_guidance_config_migration import canonical_guidance_restrictions
+                canonical_guidance_restrictions(candidate)
+            except (TypeError, ValueError) as exc:
+                errors.append(f"Gimbal guidance restriction validation failed: {exc}")
+
         if "FW_NAVIGATION_CHASE" in candidate:
             try:
                 from classes.bearing_geometry_policy import BearingGeometryPolicy
@@ -2824,8 +2837,6 @@ class ConfigService:
                 return result
         old_value = self._config.get(root_key)
         self._config[root_key] = value
-        if self._config_raw is not None:
-            self._config_raw[root_key] = value
         logger.info("Set root config parameter %s", root_key)
         if audit:
             self.log_audit_entry(
@@ -3780,22 +3791,34 @@ class ConfigService:
             if merge_mode not in {'merge', 'replace'}:
                 raise ValueError("Import merge_mode must be 'merge' or 'replace'")
 
-            candidate = (
-                self._deep_merge_mapping(self._default, data)
-                if merge_mode == 'replace'
-                else copy.deepcopy(self._config)
-            )
+            saved = self.get_sync_config()
+            retirements = self._get_retirement_registry_locked()["retirements"]
             if merge_mode == 'merge':
-                candidate = self._deep_merge_mapping(candidate, data)
+                from classes.config_sync import _digest
 
-            candidate, legacy_warnings = self.normalize_declared_legacy_values(
-                candidate
+                missing = object()
+                for retirement in retirements:
+                    path = retirement["path"]
+                    existing = self._get_mapping_path(saved, path, missing)
+                    supplied = self._get_mapping_path(data, path, missing)
+                    if (existing is not missing and supplied is not missing
+                            and _digest(supplied) != _digest(existing)):
+                        raise ValueError(
+                            f"Merge import cannot overwrite pending retired path {'.'.join(path)}; "
+                            "use Config Sync preview/apply for retirement"
+                        )
+                candidate = self._deep_merge_mapping(saved, data)
+            else:
+                candidate = self._deep_merge_mapping(self._default, data)
+
+            runtime_candidate, legacy_warnings = self.normalize_declared_legacy_values(
+                self._without_registered_retirements_locked(candidate)
             )
             for warning in legacy_warnings:
                 logger.warning("Config import compatibility: %s", warning)
 
             validation = self.validate_config_mapping(
-                candidate,
+                runtime_candidate,
                 require_safety=merge_mode == 'replace',
             )
             if not validation.valid:
@@ -3803,9 +3826,12 @@ class ConfigService:
                     "Imported config failed validation: " + "; ".join(validation.errors)
                 )
 
-            diffs = self.get_diff(self._config, candidate)
-            self._config = candidate
-            self._config_raw = None
+            self._config = runtime_candidate
+            self._config_raw = candidate if any(
+                self._mapping_path_exists(candidate, retirement["path"])
+                for retirement in retirements
+            ) else None
+            diffs = self.get_diff(saved, self.get_sync_config())
 
             logger.info(f"Imported config with mode={merge_mode}, changes={len(diffs)}")
             return True, diffs

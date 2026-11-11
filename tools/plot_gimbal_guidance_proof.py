@@ -17,7 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from classes.gimbal_guidance import (
-    GimbalGuidanceCapabilities,
+    VECTOR_MC_MANOEUVRES,
     GimbalGuidanceClassifier,
     GimbalGuidancePolicy,
     GuidanceState,
@@ -51,15 +51,7 @@ def scenario_ray(t: float) -> Ray:
 
 def run_trace(rate_hz: float = 20.0, requested_speed: float = 6.0):
     policy = GimbalGuidancePolicy()
-    capabilities = GimbalGuidanceCapabilities(
-        known=True,
-        supports_vertical=True,
-        supports_reverse=True,
-        supports_yaw_fallback=True,
-        azimuth_limits_deg=(-180.0, 180.0),
-        depression_limits_deg=(-90.0, 90.0),
-    )
-    classifier = GimbalGuidanceClassifier(policy, capabilities, clock=lambda: 0.0)
+    classifier = GimbalGuidanceClassifier(policy, VECTOR_MC_MANOEUVRES, clock=lambda: 0.0)
     records = []
     step = 1.0 / rate_hz
     t = 0.0

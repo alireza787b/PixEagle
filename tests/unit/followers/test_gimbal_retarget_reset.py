@@ -11,7 +11,7 @@ import yaml
 from classes.aircraft_state import AirframePhase, GuidanceSessionIdentity, Quaternion, Vector3
 from classes.followers.gm_velocity_chase_follower import GMVelocityChaseFollower
 from classes.followers.gm_velocity_vector_follower import GMVelocityVectorFollower
-from classes.gimbal_guidance import GimbalGuidanceCapabilities, GuidanceState
+from classes.gimbal_guidance import VECTOR_MC_MANOEUVRES, GuidanceState
 from classes.guidance_phase_session import PhaseSessionState
 from classes.native_guidance import NativeCapabilities
 from classes.parameters import Parameters
@@ -112,7 +112,7 @@ def test_vector_retarget_discards_filter_classifier_and_ramp_but_keeps_acknowled
     control = follower._requested_speed_control()
     follower.calculate_control_commands(observation(mount))
     history = submitted_history(follower)
-    follower.guidance_classifier.update_capabilities(GimbalGuidanceCapabilities(True, True, True, True))
+    follower.guidance_classifier.manoeuvres = VECTOR_MC_MANOEUVRES
     follower.guidance_classifier.update(Vector3(-1., 0., 0.), now=100.)
     follower.guidance_classifier.update(Vector3(-1., 0., 0.), now=100.31)
     assert follower.guidance_classifier.state is GuidanceState.REARWARD_GRACE
@@ -130,13 +130,21 @@ def test_vector_retarget_discards_filter_classifier_and_ramp_but_keeps_acknowled
 
 
 def bind_native(follower, now, phase=AirframePhase.FIXED_WING):
-    state = aircraft_state(phase=phase)
+    from tests.unit.drone_interface.test_aircraft_state import attitude_timing
+    from tests.fixtures.native_bearing import associated_gimbal_output
+    state = aircraft_state(phase=phase, attitude_timing=attitude_timing())
     identity = GuidanceSessionIdentity('gm_follow', state.binding, 1)
+    pair = [None]
+    if phase is AirframePhase.FIXED_WING:
+        follower.bind_guidance_input_resolver(lambda *_: pair[0])
     session = follower.create_airframe_session(identity, NativeCapabilities('native', 'fixture', 2, True, True, False),
         confirmation_s=0., observation_timeout_s=.75, transition_timeout_s=10., clock=lambda: now[0])
     assert session.observe(state, owner_confirmed=True, target_confirmed=True).pursuit_allowed
     follower.bind_airframe_session(session)
-    follower.calculate_control_commands(observation(follower.mount_type))
+    output = observation(follower.mount_type)
+    if phase is AirframePhase.FIXED_WING:
+        output, pair[0] = associated_gimbal_output(follower, session, state, output.angular, receipt=now[0])
+    follower.calculate_control_commands(output)
     return session
 
 

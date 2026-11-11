@@ -113,70 +113,83 @@ class GimbalGuidancePolicy:
         }
 
 
-def _limits(value: Any) -> Optional[Tuple[float, float]]:
+def _limits(value: Any, *, maximum: float) -> Optional[Tuple[float, float]]:
     if value is None:
         return None
-    try:
-        result = (float(value[0]), float(value[1]))
-    except (TypeError, ValueError, IndexError, OverflowError) as exc:
-        raise ValueError("Gimbal angle limits must contain two numbers") from exc
-    if not all(math.isfinite(number) for number in result) or result[0] > result[1]:
-        raise ValueError("Gimbal angle limits must be finite and ordered")
-    return result
+    if (not isinstance(value, (tuple, list)) or len(value) != 2
+            or any(isinstance(number, bool) or not isinstance(number, (int, float))
+                   or not math.isfinite(number) for number in value)
+            or not -maximum <= value[0] <= value[1] <= maximum):
+        raise ValueError("gimbal_observation_limits_invalid")
+    return float(value[0]), float(value[1])
+
+
+SPECIAL_MANOEUVRES = ("vertical", "reverse_translation", "yaw_recovery")
 
 
 @dataclass(frozen=True)
-class GimbalGuidanceCapabilities:
-    """Provider-advertised geometry and manoeuvre capabilities."""
+class GimbalManoeuvreSupport:
+    """Implemented aircraft behaviour, never a camera's mechanical permission."""
 
-    known: bool = False
     supports_vertical: bool = False
     supports_reverse: bool = False
     supports_yaw_fallback: bool = False
+
+    def __post_init__(self):
+        if any(type(value) is not bool for value in (self.supports_vertical, self.supports_reverse,
+                                                    self.supports_yaw_fallback)):
+            raise ValueError("gimbal_manoeuvre_support_invalid")
+
+    def restricted(self, allowed) -> "GimbalManoeuvreSupport":
+        if allowed is None:
+            return self
+        if (not isinstance(allowed, list) or any(not isinstance(value, str) for value in allowed)
+                or len(set(allowed)) != len(allowed) or not set(allowed).issubset(SPECIAL_MANOEUVRES)):
+            raise ValueError("gimbal_allowed_manoeuvres_invalid")
+        return GimbalManoeuvreSupport(*(supported and name in allowed for name, supported in zip(
+            SPECIAL_MANOEUVRES, (self.supports_vertical, self.supports_reverse, self.supports_yaw_fallback))))
+
+    def supports(self, state: GuidanceState) -> bool:
+        return {GuidanceState.FORWARD: True, GuidanceState.VERTICAL: self.supports_vertical,
+                GuidanceState.REARWARD_GRACE: self.supports_reverse,
+                GuidanceState.YAW_FIRST: self.supports_yaw_fallback}.get(state, False)
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {"special_manoeuvres": [name for name, supported in zip(SPECIAL_MANOEUVRES,
+            (self.supports_vertical, self.supports_reverse, self.supports_yaw_fallback)) if supported]}
+
+
+# The MC Vector strategy implements these states. Neither provider metadata nor
+# an operator restriction can add a state absent from this declaration.
+VECTOR_MC_MANOEUVRES = GimbalManoeuvreSupport(True, True, True)
+
+
+@dataclass(frozen=True)
+class GimbalObservationLimits:
+    """Optional acceptance windows for measured physical-FRD boresight rays.
+
+    Absence is no additional restriction, not qualified joint reachability or
+    authority to aim the camera. Raw vendor joint limits must not be copied here.
+    """
+
     azimuth_limits_deg: Optional[Tuple[float, float]] = None
     depression_limits_deg: Optional[Tuple[float, float]] = None
 
-    @classmethod
-    def from_mapping(cls, raw: Optional[Mapping[str, Any]]) -> "GimbalGuidanceCapabilities":
-        if not isinstance(raw, Mapping):
-            return cls()
-        values = raw.get("guidance_capabilities", raw)
-        if not isinstance(values, Mapping):
-            return cls()
-        def read(name: str, fallback: Any = None) -> Any:
-            return values.get(name, values.get(name.upper(), fallback))
-        def flag(name: str) -> bool:
-            value = read(name, False)
-            if type(value) is not bool:
-                raise ValueError(f"Gimbal capability {name} must be boolean")
-            return value
-        return cls(
-            known=flag("known"),
-            supports_vertical=flag("supports_vertical"),
-            supports_reverse=flag("supports_reverse"),
-            supports_yaw_fallback=flag("supports_yaw_fallback"),
-            azimuth_limits_deg=_limits(read("azimuth_limits_deg")),
-            depression_limits_deg=_limits(read("depression_limits_deg")),
-        )
+    def __post_init__(self):
+        object.__setattr__(self, "azimuth_limits_deg", _limits(self.azimuth_limits_deg, maximum=180.))
+        object.__setattr__(self, "depression_limits_deg", _limits(self.depression_limits_deg, maximum=90.))
 
-    def supports(self, state: GuidanceState) -> bool:
-        if state == GuidanceState.FORWARD:
-            return True
-        if not self.known:
-            return False
-        if state == GuidanceState.VERTICAL:
-            return self.supports_vertical
-        if state == GuidanceState.REARWARD_GRACE:
-            return self.supports_reverse
-        if state == GuidanceState.YAW_FIRST:
-            return self.supports_yaw_fallback
-        return False
+    @classmethod
+    def from_mapping(cls, raw) -> "GimbalObservationLimits":
+        if raw is None:
+            return cls()
+        if (not isinstance(raw, Mapping)
+                or set(raw) - {"AZIMUTH_LIMITS_DEG", "DEPRESSION_LIMITS_DEG"}):
+            raise ValueError("gimbal_observation_limits_invalid")
+        return cls(raw.get("AZIMUTH_LIMITS_DEG"), raw.get("DEPRESSION_LIMITS_DEG"))
 
     def permits_ray(self, ray: Any) -> bool:
-        """Check mechanical observation limits in physical body FRD, for any strategy."""
         x, y, z = GimbalGuidanceClassifier._normalise(ray)
-        if not self.known:
-            return True
         horizontal = math.hypot(x, y)
         bearing = None if horizontal <= 1e-9 else math.degrees(math.atan2(y, x))
         if bearing is not None and self.azimuth_limits_deg is not None:
@@ -191,14 +204,8 @@ class GimbalGuidanceCapabilities:
         return True
 
     def to_mapping(self) -> dict[str, Any]:
-        return {
-            "known": self.known,
-            "supports_vertical": self.supports_vertical,
-            "supports_reverse": self.supports_reverse,
-            "supports_yaw_fallback": self.supports_yaw_fallback,
-            "azimuth_limits_deg": self.azimuth_limits_deg,
-            "depression_limits_deg": self.depression_limits_deg,
-        }
+        return {"azimuth_limits_deg": self.azimuth_limits_deg,
+                "depression_limits_deg": self.depression_limits_deg}
 
 
 @dataclass(frozen=True)
@@ -217,11 +224,13 @@ class GimbalGuidanceClassifier:
     def __init__(
         self,
         policy: Optional[GimbalGuidancePolicy] = None,
-        capabilities: Optional[GimbalGuidanceCapabilities] = None,
+        manoeuvres: Optional[GimbalManoeuvreSupport] = None,
+        *, observation_limits: Optional[GimbalObservationLimits] = None,
         clock=time.monotonic,
     ) -> None:
         self.policy = policy or GimbalGuidancePolicy()
-        self.capabilities = capabilities or GimbalGuidanceCapabilities()
+        self.manoeuvres = manoeuvres or GimbalManoeuvreSupport()
+        self.observation_limits = observation_limits or GimbalObservationLimits()
         self._clock = clock
         self.reset()
 
@@ -233,10 +242,6 @@ class GimbalGuidanceClassifier:
         self._rearward_since: Optional[float] = None
         self._last_observed_at: Optional[float] = None
         self.last_decision: Optional[GuidanceDecision] = None
-
-    def update_capabilities(self, capabilities: Optional[GimbalGuidanceCapabilities]) -> None:
-        if capabilities is not None:
-            self.capabilities = capabilities
 
     @staticmethod
     def _normalise(ray: Any) -> Tuple[float, float, float]:
@@ -273,9 +278,9 @@ class GimbalGuidanceClassifier:
         return GuidanceState.FORWARD
 
     def _supported_state(self, state: GuidanceState) -> tuple[GuidanceState, str]:
-        if self.capabilities.supports(state):
+        if self.manoeuvres.supports(state):
             return state, ""
-        if state == GuidanceState.REARWARD_GRACE and self.capabilities.supports(GuidanceState.YAW_FIRST):
+        if state == GuidanceState.REARWARD_GRACE and self.manoeuvres.supports(GuidanceState.YAW_FIRST):
             return GuidanceState.YAW_FIRST, "reverse_unavailable_yaw_fallback"
         if state == GuidanceState.VERTICAL:
             return GuidanceState.UNREACHABLE, "vertical_guidance_unavailable"
@@ -312,12 +317,11 @@ class GimbalGuidanceClassifier:
         bearing = None if horizontal <= 1e-9 else math.degrees(math.atan2(y, x))
         raw_state = self._raw_state(horizontal, bearing)
 
-        # A provider that cannot perform a newly requested special state must
-        # never receive that state's raw vector during the dwell interval. Move
-        # directly to its advertised safe fallback (or UNREACHABLE).
+        # Unsupported/restricted strategy states never receive their raw vector
+        # during the dwell. Apply the supported fallback immediately.
         forced_state, forced_reason = self._supported_state(raw_state)
-        if not self.capabilities.permits_ray(provider_ray if provider_ray is not None else ray):
-            forced_state, forced_reason = GuidanceState.UNREACHABLE, "provider_geometry_limit"
+        if not self.observation_limits.permits_ray(provider_ray if provider_ray is not None else ray):
+            forced_state, forced_reason = GuidanceState.UNREACHABLE, "gimbal_observation_limit"
         if forced_state != raw_state:
             self.state = forced_state
             self._state_since = timestamp

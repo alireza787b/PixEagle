@@ -1,4 +1,4 @@
-schema_version: 1.7.0
+schema_version: 1.8.0
 meta:
   project: PixEagle
   generated_from: configs/config_default.yaml
@@ -3451,21 +3451,22 @@ sections:
           FORWARD_REENTRY_BEARING_DEG: 80.0
           TRANSITION_DWELL_MS: 300.0
           REARWARD_GRACE_MS: 500.0
-          CAPABILITIES: &id002
-            KNOWN: false
-            SUPPORTS_VERTICAL: false
-            SUPPORTS_REVERSE: false
-            SUPPORTS_YAW_FALLBACK: false
-            AZIMUTH_LIMITS_DEG: &id003
-            - -180.0
-            - 180.0
-            DEPRESSION_LIMITS_DEG: &id004
-            - -90.0
-            - 90.0
-        description: Advanced GM Velocity Vector geometry policy; values are recorded in the active session and are not a
-          second mount transform
+          ALLOWED_MANOEUVRES: null
+          OBSERVATION_LIMITS: &id002
+            AZIMUTH_LIMITS_DEG: null
+            DEPRESSION_LIMITS_DEG: null
+        description: Advanced MC Vector direction policy and optional observed-ray restrictions; no mechanical qualification
+          or second transform
         reload_tier: follower_restart
         reboot_required: false
+        required:
+        - POLICY
+        - VERTICAL_ENTER_HORIZONTAL_NORM
+        - VERTICAL_EXIT_HORIZONTAL_NORM
+        - REARWARD_ENTRY_BEARING_DEG
+        - FORWARD_REENTRY_BEARING_DEG
+        - TRANSITION_DWELL_MS
+        - REARWARD_GRACE_MS
         properties:
           POLICY:
             type: string
@@ -3536,72 +3537,45 @@ sections:
             max: 10000.0
             step: 10.0
             unit: ms
-          CAPABILITIES:
-            type: object
-            default: *id002
-            description: Optional explicit fallback for providers that cannot advertise normalized gimbal guidance capabilities
+          ALLOWED_MANOEUVRES:
+            type: array
+            default: null
+            description: Optional subset of vertical, reverse_translation and yaw_recovery; null keeps implemented states,
+              [] restricts all special states
             reload_tier: follower_restart
             reboot_required: false
+            nullable: true
+            item_type: string
+            max_items: 3
+          OBSERVATION_LIMITS:
+            type: object
+            default: *id002
+            description: Optional measured physical-FRD boresight windows, not vendor joint reachability or camera-aim authority
+            reload_tier: follower_restart
+            reboot_required: false
+            required: []
             properties:
-              KNOWN:
-                type: boolean
-                default: false
-                description: KNOWN parameter
-                reload_tier: tracker_restart
-                reboot_required: false
-              SUPPORTS_VERTICAL:
-                type: boolean
-                default: false
-                description: SUPPORTS_VERTICAL parameter
-                reload_tier: tracker_restart
-                reboot_required: false
-              SUPPORTS_REVERSE:
-                type: boolean
-                default: false
-                description: SUPPORTS_REVERSE parameter
-                reload_tier: tracker_restart
-                reboot_required: false
-              SUPPORTS_YAW_FALLBACK:
-                type: boolean
-                default: false
-                description: SUPPORTS_YAW_FALLBACK parameter
-                reload_tier: tracker_restart
-                reboot_required: false
               AZIMUTH_LIMITS_DEG:
                 type: array
-                default: *id003
-                description: Inclusive provider azimuth limits used only when KNOWN is true and runtime metadata is absent
-                reload_tier: tracker_restart
+                default: null
+                description: Inclusive physical-body azimuth acceptance window in [-180,180] deg; null adds no restriction
+                reload_tier: follower_restart
                 reboot_required: false
+                nullable: true
                 item_type: number
                 min_items: 2
                 max_items: 2
               DEPRESSION_LIMITS_DEG:
                 type: array
-                default: *id004
-                description: Inclusive provider depression limits used only when KNOWN is true and runtime metadata is absent
-                reload_tier: tracker_restart
+                default: null
+                description: Inclusive physical-body depression acceptance window in [-90,90] deg; null adds no restriction
+                reload_tier: follower_restart
                 reboot_required: false
+                nullable: true
                 item_type: number
                 min_items: 2
                 max_items: 2
-            required:
-            - KNOWN
-            - SUPPORTS_VERTICAL
-            - SUPPORTS_REVERSE
-            - SUPPORTS_YAW_FALLBACK
-            - AZIMUTH_LIMITS_DEG
-            - DEPRESSION_LIMITS_DEG
             additional_properties: false
-        required:
-        - POLICY
-        - VERTICAL_ENTER_HORIZONTAL_NORM
-        - VERTICAL_EXIT_HORIZONTAL_NORM
-        - REARWARD_ENTRY_BEARING_DEG
-        - FORWARD_REENTRY_BEARING_DEG
-        - TRANSITION_DWELL_MS
-        - REARWARD_GRACE_MS
-        - CAPABILITIES
         additional_properties: false
       UDP_HOST:
         type: string
@@ -3923,7 +3897,7 @@ sections:
           MIN_MODE_SWITCH_INTERVAL: 2.0
           ENABLE_ALTITUDE_CONTROL: false
           ALTITUDE_CHECK_INTERVAL: 0.1
-          YAW_SMOOTHING: &id005
+          YAW_SMOOTHING: &id003
             ENABLED: true
             DEADZONE_DEG_S: 0.5
             MAX_RATE_CHANGE_DEG_S2: 90.0
@@ -4026,7 +4000,7 @@ sections:
             unit: s
           YAW_SMOOTHING:
             type: object
-            default: *id005
+            default: *id003
             description: YAW_SMOOTHING parameter
             reload_tier: follower_restart
             reboot_required: false
@@ -8434,59 +8408,59 @@ sections:
       PID_GAINS:
         type: object
         default:
-          mc_yawspeed_deg_s: &id006
+          mc_yawspeed_deg_s: &id004
             p: 12.0
             i: 0.5
             d: 1.5
-          mc_vel_body_right: &id007
+          mc_vel_body_right: &id005
             p: 1.5
             i: 0.08
             d: 0.2
-          mc_vel_body_down: &id008
+          mc_vel_body_down: &id006
             p: 1.0
             i: 0.08
             d: 0.15
-          mc_vel_forward: &id009
+          mc_vel_forward: &id007
             p: 4.5
             i: 0.1
             d: 1.5
-          mc_vel_lateral: &id010
+          mc_vel_lateral: &id008
             p: 4.5
             i: 0.1
             d: 1.5
-          mc_altitude: &id011
+          mc_altitude: &id009
             p: 2.0
             i: 0.03
             d: 0.05
-          mc_pitchspeed_deg_s: &id012
+          mc_pitchspeed_deg_s: &id010
             p: 18.0
             i: 0.15
             d: 0.4
-          mc_rollspeed_deg_s: &id013
+          mc_rollspeed_deg_s: &id011
             p: 1.5
             i: 0.08
             d: 0.25
-          mc_att_yawspeed_deg_s: &id014
+          mc_att_yawspeed_deg_s: &id012
             p: 12.0
             i: 0.1
             d: 0.3
-          mc_att_altitude: &id015
+          mc_att_altitude: &id013
             p: 0.03
             i: 0.003
             d: 0.08
-          fw_bank_angle: &id016
+          fw_bank_angle: &id014
             p: 2.0
             i: 0.3
             d: 0.2
-          fw_pitch_rate: &id017
+          fw_pitch_rate: &id015
             p: 0.6
             i: 0.15
             d: 0.03
-          fw_yaw_rate: &id018
+          fw_yaw_rate: &id016
             p: 0.5
             i: 0.05
             d: 0.02
-          fw_throttle: &id019
+          fw_throttle: &id017
             p: 0.4
             i: 0.2
             d: 0.1
@@ -8496,7 +8470,7 @@ sections:
         properties:
           mc_yawspeed_deg_s:
             type: object
-            default: *id006
+            default: *id004
             description: '[deg/s] — visual tracking yaw rate'
             reload_tier: follower_restart
             reboot_required: false
@@ -8535,7 +8509,7 @@ sections:
             additional_properties: false
           mc_vel_body_right:
             type: object
-            default: *id007
+            default: *id005
             description: '[m/s]   — pursuit lateral velocity'
             reload_tier: follower_restart
             reboot_required: false
@@ -8574,7 +8548,7 @@ sections:
             additional_properties: false
           mc_vel_body_down:
             type: object
-            default: *id008
+            default: *id006
             description: '[m/s]   — pursuit vertical velocity'
             reload_tier: follower_restart
             reboot_required: false
@@ -8613,7 +8587,7 @@ sections:
             additional_properties: false
           mc_vel_forward:
             type: object
-            default: *id009
+            default: *id007
             description: '[m/s]   — position-tracking forward (ground)'
             reload_tier: follower_restart
             reboot_required: false
@@ -8652,7 +8626,7 @@ sections:
             additional_properties: false
           mc_vel_lateral:
             type: object
-            default: *id010
+            default: *id008
             description: '[m/s]   — position-tracking lateral (distance+ground)'
             reload_tier: follower_restart
             reboot_required: false
@@ -8691,7 +8665,7 @@ sections:
             additional_properties: false
           mc_altitude:
             type: object
-            default: *id011
+            default: *id009
             description: '[m]     — altitude via velocity command'
             reload_tier: follower_restart
             reboot_required: false
@@ -8730,7 +8704,7 @@ sections:
             additional_properties: false
           mc_pitchspeed_deg_s:
             type: object
-            default: *id012
+            default: *id010
             description: '[deg/s] — pitch rate'
             reload_tier: follower_restart
             reboot_required: false
@@ -8769,7 +8743,7 @@ sections:
             additional_properties: false
           mc_rollspeed_deg_s:
             type: object
-            default: *id013
+            default: *id011
             description: '[deg/s] — roll rate'
             reload_tier: follower_restart
             reboot_required: false
@@ -8808,7 +8782,7 @@ sections:
             additional_properties: false
           mc_att_yawspeed_deg_s:
             type: object
-            default: *id014
+            default: *id012
             description: '[deg/s] — yaw rate (attitude mode)'
             reload_tier: follower_restart
             reboot_required: false
@@ -8847,7 +8821,7 @@ sections:
             additional_properties: false
           mc_att_altitude:
             type: object
-            default: *id015
+            default: *id013
             description: normalized thrust / m; D uses measured upward m/s
             reload_tier: follower_restart
             reboot_required: false
@@ -8886,7 +8860,7 @@ sections:
             additional_properties: false
           fw_bank_angle:
             type: object
-            default: *id016
+            default: *id014
             description: '[deg]   — L1 outer loop bank angle'
             reload_tier: follower_restart
             reboot_required: false
@@ -8925,7 +8899,7 @@ sections:
             additional_properties: false
           fw_pitch_rate:
             type: object
-            default: *id017
+            default: *id015
             description: '[deg/s] — TECS pitch rate'
             reload_tier: follower_restart
             reboot_required: false
@@ -8964,7 +8938,7 @@ sections:
             additional_properties: false
           fw_yaw_rate:
             type: object
-            default: *id018
+            default: *id016
             description: '[deg/s] — coordinated yaw'
             reload_tier: follower_restart
             reboot_required: false
@@ -9003,7 +8977,7 @@ sections:
             additional_properties: false
           fw_throttle:
             type: object
-            default: *id019
+            default: *id017
             description: '[0-1]   — TECS throttle'
             reload_tier: follower_restart
             reboot_required: false

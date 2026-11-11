@@ -88,13 +88,10 @@ GimbalTracker:
     FORWARD_REENTRY_BEARING_DEG: 80.0
     TRANSITION_DWELL_MS: 300.0
     REARWARD_GRACE_MS: 500.0
-    CAPABILITIES:
-      KNOWN: false
-      SUPPORTS_VERTICAL: false
-      SUPPORTS_REVERSE: false
-      SUPPORTS_YAW_FALLBACK: false
-      AZIMUTH_LIMITS_DEG: [-180.0, 180.0]
-      DEPRESSION_LIMITS_DEG: [-90.0, 90.0]
+    ALLOWED_MANOEUVRES: null     # implemented MC states; optional restricting subset
+    OBSERVATION_LIMITS:
+      AZIMUTH_LIMITS_DEG: null   # optional physical-FRD observed-ray window
+      DEPRESSION_LIMITS_DEG: null
   data_timeout_seconds: 5.0
   max_consecutive_failures: 10
 ```

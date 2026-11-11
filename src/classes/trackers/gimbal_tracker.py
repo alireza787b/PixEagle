@@ -709,7 +709,6 @@ class GimbalTracker(BaseTracker):
                     'connection_health': self.gimbal_provider.get_health_status(),
                     'provider': self.provider_metadata.get('provider'),
                     'protocol': self.provider_metadata.get('protocol'),
-                    'guidance_capabilities': self.provider_metadata.get('guidance_capabilities'),
                     'timestamp': sample_timestamp,
                     'angle_sample_timestamp': sample_timestamp,
                     'angle_sample_monotonic': sample_monotonic,
@@ -731,7 +730,6 @@ class GimbalTracker(BaseTracker):
                     'external_control': True,  # Controlled by external gimbal system
                     'gimbal_provider': self.provider_metadata.get('provider'),
                     'provider_protocol': self.provider_metadata.get('protocol'),
-                    'guidance_capabilities': self.provider_metadata.get('guidance_capabilities'),
                     'usable_for_following': tracking_active,
                     'gimbal_observation_reason': observation_reason,
                 }
@@ -932,14 +930,12 @@ class GimbalTracker(BaseTracker):
                 'last_activation_time': self.tracking_activation_time,
                 'provider': self.provider_metadata.get('provider'),
                 'protocol': self.provider_metadata.get('protocol'),
-                'guidance_capabilities': self.provider_metadata.get('guidance_capabilities'),
             },
             metadata={
                 'tracker_class': self.__class__.__name__,
                 'tracking_inactive_reason': reason,
                 'external_gimbal_input': True,
                 'external_control_required': True,
-                'guidance_capabilities': self.provider_metadata.get('guidance_capabilities'),
             }
         )
 
@@ -1003,7 +999,6 @@ class GimbalTracker(BaseTracker):
             'status_driven': True,
             'gimbal_provider': self.provider_metadata.get('provider'),
             'provider_protocol': self.provider_metadata.get('protocol'),
-            'guidance_capabilities': self.provider_metadata.get('guidance_capabilities'),
             'supported_gimbal_providers': list_supported_gimbal_providers()
         }
 

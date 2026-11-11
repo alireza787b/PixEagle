@@ -22,6 +22,10 @@ class FakeConfigService:
     def get_sync_config(self):
         return self.get_config()
 
+    def get_gimbal_guidance_migration(self, *, candidate=None):
+        from classes.gimbal_guidance_config_migration import assess_gimbal_guidance_migration
+        return assess_gimbal_guidance_migration(self.get_sync_config(), candidate=candidate)
+
     def __init__(self) -> None:
         self.schema = {
             "sections": {

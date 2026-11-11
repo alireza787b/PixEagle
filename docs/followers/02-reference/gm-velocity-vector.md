@@ -76,9 +76,10 @@ components are not enlarged to compensate. A directly vertical target
 therefore produces zero translation rather than an unexpected horizontal
 command.
 
-Provider capabilities are advertised with normalized body-ray metadata. Unknown
-vertical, reverse, or yaw-fallback capabilities fail closed; they are never
-guessed from raw axis names. The classifier is Vector-only for now. Ordinary
+Vector MC declares implemented vertical, reverse and yaw-recovery states.
+`GimbalTracker.GUIDANCE` can restrict those states and the accepted physical
+body-ray domain; provider metadata cannot widen either. Unqualified mechanical
+reachability does not authorize camera aiming. The classifier is Vector-only. Ordinary
 2D camera followers retain their existing guidance until a separate capability
 and scaling contract is qualified.
 
@@ -115,13 +116,10 @@ GimbalTracker:
     FORWARD_REENTRY_BEARING_DEG: 80.0
     TRANSITION_DWELL_MS: 300.0
     REARWARD_GRACE_MS: 500.0
-    CAPABILITIES:
-      KNOWN: false
-      SUPPORTS_VERTICAL: false
-      SUPPORTS_REVERSE: false
-      SUPPORTS_YAW_FALLBACK: false
-      AZIMUTH_LIMITS_DEG: [-180.0, 180.0]
-      DEPRESSION_LIMITS_DEG: [-90.0, 90.0]
+    ALLOWED_MANOEUVRES: null     # null = implemented states; [] = forward only
+    OBSERVATION_LIMITS:
+      AZIMUTH_LIMITS_DEG: null   # observed physical-FRD ray; not mechanical reach
+      DEPRESSION_LIMITS_DEG: null
 
 GM_VELOCITY_VECTOR:
   RAMP_ACCELERATION: 0.25

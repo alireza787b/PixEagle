@@ -3,6 +3,13 @@ registry_version: 1
 # Only exact paths listed here may be removed by config migration. Absence from
 # config_default.yaml or config_schema.yaml never makes an extension obsolete.
 retirements:
+  - id: split-gimbal-guidance-capabilities-v1
+    path: [GimbalTracker, GUIDANCE, CAPABILITIES]
+    action: remove
+    retired_in_schema_version: 1.8.0
+    reason: Aircraft manoeuvres now belong to the MC Vector strategy; custom legacy settings require a reviewed canonical restriction choice before Start. Provider metadata cannot widen installation restrictions.
+    replacement: [GimbalTracker, GUIDANCE, OBSERVATION_LIMITS]
+
   - id: retire-ground-coordinate-corrections-enabled-v1
     path: [MC_VELOCITY_GROUND, COORDINATE_CORRECTIONS_ENABLED]
     action: remove

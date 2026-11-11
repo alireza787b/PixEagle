@@ -15,7 +15,9 @@ from classes.follower_config_manager import get_follower_config_manager
 from classes.followers.base_follower import BaseFollower
 from classes.guidance_observation import ImageMeasurement
 from classes.guidance_phase_session import PhaseSessionState
-from classes.observation_alignment import AlignedBearing, require_current_bearing_association
+from classes.observation_alignment import (
+    AlignedBearing, bearing_intent_requires_update, require_current_bearing_association,
+)
 from classes.parameters import Parameters
 from classes.setpoint_handler import SetpointHandler
 from classes.tracker_output import TrackerOutput
@@ -158,15 +160,9 @@ class FWNavigationChaseFollower(BaseFollower):
                          previous.bearing.provenance.capture.capture_id))
         if duplicate and (aligned != previous or tracker_data.image_measurement != self._last_image_measurement):
             raise ValueError("guidance_capture_rewritten")
-        previous_state = self._last_guidance_state
-        if previous_state is not None and (
-                state.source != previous_state.source or state.sequence < previous_state.sequence
-                or state.observed_at_monotonic_s < previous_state.observed_at_monotonic_s
-                or state.sequence == previous_state.sequence and state != previous_state):
-            raise ValueError("guidance_aircraft_state_reordered_or_rewritten")
-        state_progressed = previous_state is None or state.sequence > previous_state.sequence
         revision = session.controls.current_control.revision
-        if duplicate and not state_progressed and revision == self._last_control_revision:
+        if not bearing_intent_requires_update(aligned, previous, state, self._last_guidance_state,
+                                             revision, self._last_control_revision):
             self._last_command_intent = self.setpoint_handler.set_native_intent(self._last_guidance_intent)
             return
         # Real source progress updates native constraints against the retained

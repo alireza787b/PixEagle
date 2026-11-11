@@ -359,3 +359,32 @@ def require_current_bearing_association(
     if (not current_state.fresh(now_monotonic_s, max_attitude_age_s)
             or not current_state.attitude_timing.fresh(now_monotonic_s, max_attitude_age_s)):
         raise ValueError("guidance_input_stale")
+
+
+def bearing_intent_requires_update(
+    aligned: AlignedBearing, previous: AlignedBearing | None,
+    state: AircraftState, previous_state: AircraftState | None,
+    control_revision: int, previous_control_revision: int | None,
+) -> bool:
+    """Share progression checks without owning a publisher or refreshing a sample.
+
+    Current navigation constraints and an acknowledged control change can require
+    recalculation against the original world ray. An unchanged poll cannot renew
+    a command. The caller validates current ages before using this predicate.
+    """
+    if previous is not None:
+        expected = _result(aligned.bearing, aligned.attitude_state, aligned.binding,
+            aligned.association_kind, aligned.evidence_revision, aligned.worst_case_skew_s,
+            aligned.receive_bounds, previous)
+        if expected != aligned:
+            raise ValueError("guidance_association_rewritten")
+    if previous_state is not None and (
+            state.source != previous_state.source or state.sequence < previous_state.sequence
+            or state.observed_at_monotonic_s < previous_state.observed_at_monotonic_s
+            or state.sequence == previous_state.sequence and state != previous_state):
+        raise ValueError("guidance_aircraft_state_reordered_or_rewritten")
+    duplicate = (previous is not None
+                 and bearing_receipt(aligned.bearing.provenance).sample_id
+                 == bearing_receipt(previous.bearing.provenance).sample_id)
+    return (not duplicate or previous_state is None or state.sequence > previous_state.sequence
+            or control_revision != previous_control_revision)

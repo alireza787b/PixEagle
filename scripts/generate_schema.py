@@ -31,7 +31,7 @@ from ruamel.yaml import YAML as RuamelYAML
 from ruamel.yaml.comments import CommentedMap as RuamelCommentedMap
 
 
-CONFIG_SCHEMA_VERSION = '1.7.0'
+CONFIG_SCHEMA_VERSION = '1.8.0'
 
 
 # Define categories for sections
@@ -1124,7 +1124,10 @@ SCHEMA_OVERRIDES = {
         'description': 'Expert-only corrections to the provider and installation preset; AUTO uses the tested preset',
     },
     'GimbalTracker.GUIDANCE': {
-        'description': 'Advanced GM Velocity Vector geometry policy; values are recorded in the active session and are not a second mount transform',
+        'description': 'Advanced MC Vector direction policy and optional observed-ray restrictions; no mechanical qualification or second transform',
+        'required': ['POLICY', 'VERTICAL_ENTER_HORIZONTAL_NORM', 'VERTICAL_EXIT_HORIZONTAL_NORM',
+                     'REARWARD_ENTRY_BEARING_DEG', 'FORWARD_REENTRY_BEARING_DEG',
+                     'TRANSITION_DWELL_MS', 'REARWARD_GRACE_MS'],
     },
     'GimbalTracker.GUIDANCE.POLICY': {
         'options': [
@@ -1157,16 +1160,25 @@ SCHEMA_OVERRIDES = {
         'min': 0.0, 'max': 10000.0, 'step': 10.0, 'unit': 'ms',
         'description': 'Maximum bounded reverse grace before yaw-first guidance',
     },
-    'GimbalTracker.GUIDANCE.CAPABILITIES': {
-        'description': 'Optional explicit fallback for providers that cannot advertise normalized gimbal guidance capabilities',
+    'GimbalTracker.GUIDANCE.ALLOWED_MANOEUVRES': {
+        'type': 'array', 'nullable': True, 'item_type': 'string', 'max_items': 3,
+        'description': 'Optional subset of vertical, reverse_translation and yaw_recovery; null keeps implemented states, [] restricts all special states',
+        'reload_tier': 'follower_restart',
     },
-    'GimbalTracker.GUIDANCE.CAPABILITIES.AZIMUTH_LIMITS_DEG': {
-        'description': 'Inclusive provider azimuth limits used only when KNOWN is true and runtime metadata is absent',
-        'min_items': 2, 'max_items': 2,
+    'GimbalTracker.GUIDANCE.OBSERVATION_LIMITS': {
+        'description': 'Optional measured physical-FRD boresight windows, not vendor joint reachability or camera-aim authority',
+        'required': [],
+        'reload_tier': 'follower_restart',
     },
-    'GimbalTracker.GUIDANCE.CAPABILITIES.DEPRESSION_LIMITS_DEG': {
-        'description': 'Inclusive provider depression limits used only when KNOWN is true and runtime metadata is absent',
-        'min_items': 2, 'max_items': 2,
+    'GimbalTracker.GUIDANCE.OBSERVATION_LIMITS.AZIMUTH_LIMITS_DEG': {
+        'type': 'array', 'nullable': True, 'item_type': 'number', 'min_items': 2, 'max_items': 2,
+        'description': 'Inclusive physical-body azimuth acceptance window in [-180,180] deg; null adds no restriction',
+        'reload_tier': 'follower_restart',
+    },
+    'GimbalTracker.GUIDANCE.OBSERVATION_LIMITS.DEPRESSION_LIMITS_DEG': {
+        'type': 'array', 'nullable': True, 'item_type': 'number', 'min_items': 2, 'max_items': 2,
+        'description': 'Inclusive physical-body depression acceptance window in [-90,90] deg; null adds no restriction',
+        'reload_tier': 'follower_restart',
     },
     'GimbalTracker.GEOMETRY_OVERRIDE.AZIMUTH_ZERO_ADJUST_DEG': {
         'min': -180.0, 'max': 180.0, 'step': 0.5, 'unit': 'deg',
@@ -1624,7 +1636,6 @@ RELOAD_TIER_OVERRIDES = {
     'GimbalTracker.GUIDANCE.FORWARD_REENTRY_BEARING_DEG': 'follower_restart',
     'GimbalTracker.GUIDANCE.TRANSITION_DWELL_MS': 'follower_restart',
     'GimbalTracker.GUIDANCE.REARWARD_GRACE_MS': 'follower_restart',
-    'GimbalTracker.GUIDANCE.CAPABILITIES': 'follower_restart',
     'Setpoint.SETPOINT_PUBLISH_RATE_S': 'follower_restart',
     'Setpoint.OFFBOARD_COMMAND_RATE_HZ': 'follower_restart',
     'Setpoint.OFFBOARD_COMMAND_TTL_S': 'follower_restart',
