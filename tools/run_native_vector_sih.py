@@ -38,12 +38,13 @@ from classes.native_guidance import NativeGuidanceClient  # noqa: E402
 from classes.offboard_commander import OffboardCommander  # noqa: E402
 from classes.parameters import Parameters  # noqa: E402
 from classes.guidance_observation import PinholeCalibration  # noqa: E402
+from classes.gimbal_geometry import resolve_angle_geometry  # noqa: E402
 from classes.observation_alignment import AlignmentBinding  # noqa: E402
 from classes.sih_visualization import VisualizationScenario  # noqa: E402
 from classes.target_continuity import ContinuityContext, ContinuityPolicy, IdentityVerdict, TargetContinuitySupervisor, TargetEvidenceSnapshot, TargetEvidenceState  # noqa: E402
 from classes.tracker_output import TrackerDataType, TrackerOutput  # noqa: E402
-from tools.sitl_gimbal_geometry_fixture import camera_angles_for_world_target  # noqa: E402
 from tools.fixed_camera_bearing_fixture import FixedCameraBearingFixture  # noqa: E402
+from tools.gimbal_bearing_fixture import GimbalBearingFixture  # noqa: E402
 from tools.fixed_camera_world_target import FixedCamera  # noqa: E402
 
 
@@ -125,6 +126,32 @@ def image_fixture(raw: dict, state: AircraftState, *, runtime_id: str, run_id: s
     )
 
 
+def gimbal_fixture(state: AircraftState, *, mount_type: str, runtime_id: str, run_id: str, clock=time.monotonic):
+    if state.attitude_timing is None:
+        raise ValueError('native_component_attitude_timing_unavailable')
+    geometry = resolve_angle_geometry(Parameters.GimbalTracker, mount_type)
+    provider_id = 'simulated_gimbal_world_target'
+    mapping = hashlib.sha256(json.dumps(dict(provider=provider_id, mount=mount_type, mapping=asdict(geometry)),
+                                       sort_keys=True, allow_nan=False).encode()).hexdigest()
+    binding = AlignmentBinding(f'simulated-gimbal:{run_id}', 1, f'sih-gimbal-mapping:{mapping}', None,
+        1, state.binding, runtime_id, state.attitude_timing.quat_reset_counter, provider_id=provider_id)
+    return GimbalBearingFixture(binding=binding, mount_type=mount_type, geometry=geometry,
+        fixture_revision='gimbal-native-pose-v1', clock=clock,
+        max_observation_age_s=.5, max_attitude_age_s=.5, allow_simulation=True)
+
+
+def bind_component_fixture(selected, follower, raw, state, *, mount_type, runtime_id, run_id, clock=time.monotonic):
+    """Bind one explicit simulation resolver before acquiring native authority."""
+    if selected.tracker_type is TrackerDataType.POSITION_2D:
+        fixture = image_fixture(raw, state, runtime_id=runtime_id, run_id=run_id, clock=clock)
+    elif selected.tracker_type is TrackerDataType.GIMBAL_ANGLES:
+        fixture = gimbal_fixture(state, mount_type=mount_type, runtime_id=runtime_id, run_id=run_id, clock=clock)
+    else:
+        raise ValueError('native_component_input_unsupported')
+    follower.bind_guidance_input_resolver(fixture.resolve)
+    return fixture
+
+
 def measurement_time(output: TrackerOutput | None) -> float | None:
     """Read the producer's receipt unchanged; polling never becomes a sample."""
     if output is None or not output.tracking_active:
@@ -135,12 +162,11 @@ def measurement_time(output: TrackerOutput | None) -> float | None:
     return None if value is None else finite_number(value, "native_component_measurement_time")
 
 
-def measurement_world_target(output: TrackerOutput, target):
+def measurement_world_target(output: TrackerOutput, _current_target):
     if measurement_time(output) is None:
         return None
-    if output.data_type is TrackerDataType.POSITION_2D:
-        return output.raw_data.get("measurement_target_ned") if output.image_measurement is not None else None
-    return target
+    measured = output.image_measurement if output.data_type is TrackerDataType.POSITION_2D else output.gimbal_observation
+    return output.raw_data.get('measurement_target_ned') if measured is not None else None
 
 
 def observed_airspeed_status(state: AircraftState, feedback: dict) -> dict:
@@ -190,19 +216,20 @@ def prepare_component_intent(follower, intent, *, loss_decay: bool):
     return replace(intent, fields=fields)
 
 
-def project_component_image(fixture, packet, state, target, *, timestamp_s):
+def project_component_input(fixture, packet, state, target, *, timestamp_s):
     """Keep projection refusals in the existing continuity evidence contract."""
     try:
         return fixture.project(packet, state, tuple(target), timestamp_s=timestamp_s)
     except ValueError as error:
         if str(error) not in {
             "sih_projection_attitude_stale", "sih_projection_pose_stale", "sih_projection_frame_stale",
-            "alignment_attitude_stale", "image_receipt_stale",
+            "sih_projection_native_state_unavailable", "alignment_attitude_stale", "image_receipt_stale",
+            "alignment_observation_receipt_stale_or_future", "guidance_input_stale",
         }:
             raise
-        # Missing/delayed pose association is not a new image measurement.
-        return TrackerOutput(TrackerDataType.POSITION_2D, timestamp_s, False,
-            tracker_id="simulated_fixed_camera_bearing", raw_data={
+        # Missing/delayed association is not a new image or boresight sample.
+        return TrackerOutput(fixture.tracker_type, timestamp_s, False,
+            tracker_id="simulated_native_bearing", raw_data={
                 "has_output": False, "usable_for_following": False, "data_is_stale": True,
                 "freshness_reason": str(error),
             }, metadata={"simulation_only": True, "projection_error": str(error)})
@@ -498,18 +525,6 @@ def attach_component_observer(binding, connection, log, *, started: float, clock
     binding.transport.on_observation = observation
 
 
-def tracker_for_world_target(packet, target, mount, *, clock=time.monotonic):
-    pose = packet["vehicle_pose"]
-    measured_at = pose["observed_at_monotonic_s"]
-    if not 0. <= clock() - measured_at <= .5:
-        raise ValueError("px4_pose_stale")
-    angles = camera_angles_for_world_target(pose["vehicle_ned"], target, pose["quaternion_wxyz"], mount)
-    return TrackerOutput(TrackerDataType.GIMBAL_ANGLES, time.time(), True,
-                         tracker_id="independent_sih_target", angular=angles,
-                         raw_data={"angle_sample_monotonic": measured_at, "has_output": True,
-                                   "usable_for_following": True, "data_is_stale": False})
-
-
 def load_component_scenario(path, *, mount, altitude, duration, is_vtol, follower="gm_velocity_vector"):
     selected = component_profile(follower)
     scenario = VisualizationScenario.from_yaml(path)
@@ -715,15 +730,11 @@ async def run(args, isolation):
             failure_injection_enabled = False
             require_airspeed_failure_injection(parameters_before, isolation)
             failure_injection_enabled = True
-        projected = None
-        if selected.tracker_type is TrackerDataType.POSITION_2D:
-            projected = image_fixture(scenario_raw, state, runtime_id=capabilities.runtime_id, run_id=output.name)
-            follower.bind_guidance_input_resolver(projected.resolve)
+        projected = bind_component_fixture(selected, follower, scenario_raw, state, mount_type=args.mount,
+                                           runtime_id=capabilities.runtime_id, run_id=output.name)
 
         def tracker_input(packet, state, target):
-            if projected is not None:
-                return project_component_image(projected, packet, state, target, timestamp_s=time.time())
-            return tracker_for_world_target(packet, target, args.mount)
+            return project_component_input(projected, packet, state, target, timestamp_s=time.time())
 
         guidance = follower.create_airframe_session(
             GuidanceSessionIdentity(output.name, aircraft, 1), capabilities,

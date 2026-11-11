@@ -120,6 +120,15 @@ mode engagement and before nominal guidance. An unavailable association enters
 the existing bounded recovery; polling cannot refresh the image timestamp.
 This remains a component experiment with synthetic image pixels and actual
 PX4-observed motion, not optical tracking or live-profile qualification.
+The gimbal variant uses `GimbalBearingFixture` with the same strict
+`NativePoseFixture` packet/progress checks. It retains typed simulated boresight
+observations and their original pose/angle/status receipts, with an explicit
+provider, source generation and mapping revision. No synthetic pixels, image
+calibration, provider manoeuvre grants or latest-attitude fallback are used.
+Only the independent fixture's canonical horizontal/vertical mappings are
+supported; a custom mapping needs its own independent oracle before qualification.
+Read-only qualification precedes acquisition. Calculation remains unavailable
+until the prepared native session is bound to its observed owner.
 Native acceptance reports use `validate_px4_evidence` followed by the existing
 `write_visualization` in `tools/run_sih_follower_validation.py`. The validator
 requires the successful component verdict, matching captured scenario/manifest,
