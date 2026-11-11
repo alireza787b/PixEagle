@@ -56,6 +56,68 @@ def captured_response_scenario(validated, path):
     return replace(validated, visual=captured)
 
 
+def continuity_budget_snapshot(app):
+    """Observe the sole supervisor's existing episode, without creating a clock."""
+    owner = app._get_target_continuity_supervisor()
+    return dict(loss_started_at_monotonic_s=owner._loss_started_at,
+                loss_deadline_monotonic_s=owner._loss_deadline)
+
+
+def _finite_number(value):
+    return not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(value)
+
+
+def _retarget_budget_preserved(before, after, *, pending):
+    if not isinstance(before, dict) or not isinstance(after, dict):
+        return False
+    keys = ('loss_started_at_monotonic_s', 'loss_deadline_monotonic_s')
+    if set(before) != set(keys) or set(after) != set(keys):
+        return False
+    if not all(_finite_number(after[key]) for key in keys) or after[keys[1]] < after[keys[0]]:
+        return False
+    if not pending and all(before[key] is None for key in keys):
+        return True
+    return (all(_finite_number(before[key]) for key in keys)
+            and before[keys[1]] >= before[keys[0]] and before == after)
+
+
+def _bounded_gimbal_loss_exhausted(configured_policy, trackers, reason):
+    """Match recorded production budget exhaustion to the captured policy."""
+    if not isinstance(configured_policy, dict):
+        return False
+    try:
+        policy = json.loads(json.dumps(configured_policy, default=lambda item: item.value))
+    except (AttributeError, TypeError, ValueError):
+        return False
+    origin = policy.get('configuration_origin')
+    if (policy.get('mode') != 'bounded_decay' or not isinstance(origin, str)
+            or not (origin == 'configured_global' or origin.startswith('follower_override:'))
+            or any(not _finite_number(policy.get(key)) or policy[key] <= 0.
+                   for key in ('max_coast_time_s', 'max_coast_distance_m'))):
+        return False
+    for row in trackers:
+        if not isinstance(row, dict):
+            return False
+        state = row.get('continuity') or {}
+        if not isinstance(state, dict):
+            return False
+        request = state.get('handoff_request') or {}
+        if not isinstance(request, dict):
+            return False
+        elapsed, distance = state.get('loss_elapsed_s'), state.get('coast_distance_m')
+        if (state.get('authority_state') != 'HANDOFF_PENDING' or request.get('reason_code') != reason
+                or state.get('reason_code') != reason
+                or state.get('effective_policy') != policy
+                or not _finite_number(elapsed) or elapsed < 0.
+                or not _finite_number(distance) or distance < 0.):
+            continue
+        if ((reason == 'maximum_coast_time_reached' and elapsed >= policy['max_coast_time_s'])
+                or (reason == 'maximum_coast_distance_reached' and distance >= policy['max_coast_distance_m']
+                    and elapsed < policy['max_coast_time_s'])):
+            return True
+    return False
+
+
 async def apply_simulated_retarget(app, *, family, coordinates, target_ned):
     """Exercise target-generation lifecycle, never physical ROI/API acceptance.
 
@@ -79,6 +141,7 @@ async def apply_simulated_retarget(app, *, family, coordinates, target_ned):
         source = app._following_observation_source
         session = app._following_session_id
         before = app.get_target_continuity_status()
+        before_budget = continuity_budget_snapshot(app)
         transition = app._prepare_following_target_transition('sih_simulated_target_retarget')
         if not transition.get('prepared'):
             raise ValueError('sih_retarget_preparation_refused')
@@ -94,6 +157,7 @@ async def apply_simulated_retarget(app, *, family, coordinates, target_ned):
             if family == 'angles':
                 app._camera_selection_pending = False
         after = app.get_target_continuity_status()
+        after_budget = continuity_budget_snapshot(app)
         if (source != app._following_observation_source or session != app._following_session_id
                 or not app._guidance_source_readiness(app.get_tracker_output())['ready']):
             raise ValueError('sih_retarget_source_changed')
@@ -102,7 +166,11 @@ async def apply_simulated_retarget(app, *, family, coordinates, target_ned):
                 or after.get('coast_distance_m', 0.) < before.get('coast_distance_m', 0.)
                 or after.get('loss_elapsed_s', 0.) < before.get('loss_elapsed_s', 0.)):
             raise ValueError('sih_retarget_renewed_recovery_budget')
+        if family == 'angles' and not _retarget_budget_preserved(
+                before_budget, after_budget, pending=before.get('target_transition_pending', False)):
+            raise ValueError('sih_retarget_renewed_recovery_budget')
         return dict(event='retarget', before=before, after=after, target_ned=target,
+            before_budget=before_budget, after_budget=after_budget,
             generation=app._tracking_session_generation, transition=transition,
             selection_kind='simulated_target_generation', physical_selection_api_qualified=False,
             dispatched_wall_time=dispatched_epoch, dispatched_monotonic_s=dispatched_monotonic)
@@ -110,7 +178,7 @@ async def apply_simulated_retarget(app, *, family, coordinates, target_ned):
 
 @contextmanager
 def observe_mode_calls(drone, record):
-    """Observe actual SDK mode-call entry without changing its control behavior."""
+    """Observe action.hold/offboard.stop, including cleanup; no other SDK actions."""
     originals = []
     recording_errors = []
     def wrap(original, name):
@@ -135,7 +203,7 @@ def observe_mode_calls(drone, record):
 
 def evaluate_fault_outcome(scenario, records, *, following_active, handoff,
                            retarget_count, takeover_requested_at, mode_calls,
-                           telemetry_outage_injected):
+                           telemetry_outage_injected, configured_policy=None, tracker_records=()):
     """Assess received evidence and pre-cleanup outcomes; own no recovery policy."""
     angles = mc_input_family(scenario.visual.follower_profile) == 'angles'
     def received_loss(row):
@@ -152,13 +220,17 @@ def evaluate_fault_outcome(scenario, records, *, following_active, handoff,
         and telemetry_outage_injected == (scenario.telemetry_outage is not None)))
     reason = (handoff or {}).get('reason_code')
     if scenario.expected_handoff:
-        expected_reasons = ({'maximum_coast_time_reached', 'maximum_coast_distance_reached',
-                             'tracking_inactive', 'tracker_unusable_for_following'}
+        expected_reasons = ({'maximum_coast_time_reached', 'maximum_coast_distance_reached'}
+            if scenario.loss_windows and angles else {'maximum_coast_time_reached', 'maximum_coast_distance_reached',
+                                                      'tracking_inactive', 'tracker_unusable_for_following'}
             if scenario.loss_windows else {'offboard_mode_exited'} if scenario.takeover_at_s is not None
             else {'vehicle_state_stale', 'follower_safety_rejected'})
         checks['fault_handoff_before_operator_cleanup'] = (
             following_active is False and bool(handoff) and reason in expected_reasons
             and handoff.get('result') in {'confirmed_hold', 'stopped'})
+        if scenario.loss_windows and angles:
+            checks['bounded_loss_budget_exhausted'] = _bounded_gimbal_loss_exhausted(
+                configured_policy, tracker_records, reason)
     else:
         checks['following_active_until_operator_cleanup'] = following_active is True and not handoff
     if scenario.loss_windows and not scenario.expected_handoff:
@@ -181,7 +253,9 @@ def evaluate_fault_outcome(scenario, records, *, following_active, handoff,
     if scenario.takeover_at_s is not None:
         calls = [row['method'] for row in mode_calls
                  if takeover_requested_at is not None and row['monotonic_s'] >= takeover_requested_at]
-        checks['takeover_no_additional_mode_call'] = calls == ['action.hold']
+        # The observer covers these two mode-writing SDK methods, including
+        # final manager cleanup; it does not audit unrelated actions such as Land.
+        checks['takeover_no_backend_hold_or_offboard_stop'] = calls == ['action.hold']
     return checks
 
 
@@ -228,6 +302,11 @@ def validate_retained_fault_outcome(scenario, result, evidence, *, expected_hand
             if not any(((row.get('continuity') or {}).get('handoff_request') or {}).get('reason_code') == reason
                        for row in trackers):
                 refused()
+            if angles:
+                policy = (pre_cleanup or {}).get('configured_continuity_policy')
+                if (result.get('configured_continuity_policy') != policy
+                        or not _bounded_gimbal_loss_exhausted(policy, trackers, reason)):
+                    refused()
         else:
             after_loss = [row for row in states if row['timestamp'] > losses[0]['timestamp']]
             reacquiring = [row['timestamp'] for row in after_loss
@@ -263,6 +342,15 @@ def validate_retained_fault_outcome(scenario, result, evidence, *, expected_hand
                     or after.get('coast_distance_m', 0.) < before.get('coast_distance_m', 0.)
                     or after.get('loss_elapsed_s', 0.) < before.get('loss_elapsed_s', 0.)):
                 refused()
+            if mc_input_family(scenario.follower_profile) == 'angles' and not _retarget_budget_preserved(
+                    event.get('before_budget'), event.get('after_budget'),
+                    pending=before.get('target_transition_pending', False)):
+                refused()
+        if mc_input_family(scenario.follower_profile) == 'angles' and not any(
+                row['timestamp'] > max(event['timestamp'] for event in events)
+                and (row.get('continuity') or row).get('reason_code') == 'target_authority_restored'
+                for row in states):
+            refused()
     else:
         refused()
 
@@ -857,11 +945,14 @@ async def worker(args):
             await observe_handoff(completed_teardown())
         before_cleanup = dict(following_active=app.following_active,
             handoff=getattr(app, '_last_following_handoff', None),
-            continuity=app.get_target_continuity_status())
+            continuity=app.get_target_continuity_status(), configured_continuity_policy=resolved_policy)
+        tracker_records = [json.loads(line) for line in (output / 'trace/tracker_command_trace.jsonl').read_text().splitlines()
+                           if line.strip()]
         fault_checks = evaluate_fault_outcome(scenario, records,
             following_active=before_cleanup['following_active'], handoff=before_cleanup['handoff'],
             retarget_count=retarget_count, takeover_requested_at=takeover_requested_at,
-            mode_calls=mode_calls, telemetry_outage_injected=telemetry_outage_injected)
+            mode_calls=mode_calls, telemetry_outage_injected=telemetry_outage_injected,
+            configured_policy=resolved_policy, tracker_records=tracker_records)
         write_json(output / 'fault-outcome-before-cleanup.json', dict(**before_cleanup, checks=fault_checks))
         if app.following_active:
             await observe_handoff(app._stop_following_after_continuity_failure("operator_stop"))
@@ -919,6 +1010,8 @@ async def worker(args):
                       publication=commander.get_status(), camera=asdict(scenario.camera) if scenario.camera is not None else None,
                       fixture_kind='simulated_boresight' if family == 'angles' else 'simulated_fixed_camera_projection',
                       physical_selection_api_qualified=False,
+                      sdk_mode_call_observer_scope=['action.hold', 'offboard.stop'],
+                      configured_continuity_policy=resolved_policy,
                       altitude_guidance=scenario.visual.altitude_control,
                       metric_scope="Observed bearing/image alignment from actual pose; range closure does not prove interception",
                       executed_scenario_sha256=hashlib.sha256((output / "scenario.yaml").read_bytes()).hexdigest(),
@@ -946,7 +1039,8 @@ async def worker(args):
                     report['checks'].update(evaluate_fault_outcome(scenario, records,
                         following_active=before_cleanup['following_active'], handoff=before_cleanup['handoff'],
                         retarget_count=retarget_count, takeover_requested_at=takeover_requested_at,
-                        mode_calls=mode_calls, telemetry_outage_injected=telemetry_outage_injected))
+                        mode_calls=mode_calls, telemetry_outage_injected=telemetry_outage_injected,
+                        configured_policy=resolved_policy, tracker_records=tracker_records))
                     report['checks']['sdk_mode_call_evidence_complete'] = not mode_recording_errors
                     report['passed'] = all(report['checks'].values())
                     write_json(output / 'result.json', report)

@@ -400,9 +400,21 @@ async def test_simulated_retarget_requires_real_post_boundary_receipts_and_prese
         assert source.runtime.angle_source_identity() == owner
         assert app._following_observation_source == pin and app._following_session_id == session
         assert app.follower.follower.session_controls() == controls
+        original_prepare = app._prepare_following_target_transition
+        # Start another real pending episode, then expose a deadline-only bug
+        # whose public elapsed/distance/episode fields do not change.
+        await apply_simulated_retarget(app, family='angles', coordinates=None, target_ned=(20., -1., -17.))
+        def extend_deadline(reason):
+            result = original_prepare(reason)
+            app.target_continuity._loss_deadline += 1.
+            return result
+        monkeypatch.setattr(app, '_prepare_following_target_transition', extend_deadline)
+        with pytest.raises(ValueError, match='renewed_recovery_budget'):
+            await apply_simulated_retarget(app, family='angles', coordinates=None, target_ned=(20., 0., -17.))
+        monkeypatch.setattr(app, '_prepare_following_target_transition', original_prepare)
         source.provider.stop_listening()
         with pytest.raises(ValueError, match='source_unavailable'):
             await apply_simulated_retarget(app, family='angles', coordinates=None, target_ned=(20., 1., -17.))
-        assert app._tracking_session_generation == 9
+        assert app._tracking_session_generation == 11
     finally:
         app.follower.follower.release_session_controls()

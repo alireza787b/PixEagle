@@ -265,7 +265,9 @@ Reviewed GM scenarios may use the existing `target_loss`, `retarget` and
 `qualification.expected_handoff: false` and must show received typed TARGET_LOST,
 fresh TRACKING_ACTIVE, REACQUIRING and restored ACTIVE under the saved policy.
 A longer loss sets it true and must cause budget handoff before final operator
-cleanup. Scheduled windows or cached polls cannot establish loss/recovery. The
+cleanup. Its terminal trace must match the captured configured policy and actual
+time/travel exhaustion; an immediate compatibility handoff cannot pass a bounded
+GM test. Scheduled windows or cached polls cannot establish loss/recovery. The
 worker retains `fault-outcome-before-cleanup.json`; a failed fault verdict remains
 failed even when subsequent cleanup reaches Hold.
 
@@ -276,7 +278,9 @@ post-boundary GAC/TRC receipts. No candidate angle packet, pixel/ROI, physical
 camera selection API or frame-token acceptance is fabricated. Rapid requests
 preserve the existing episode's deadline and travel budget. Waypoint motion
 alone remains the same independent target, without a generation change.
-Takeover observes actual SDK Hold/Offboard-Stop calls; only the independent
+Read-only snapshots of the sole supervisor's original start/deadline establish
+that repeated selections did not renew it. Takeover observes actual SDK
+Hold/Offboard-Stop calls; only the independent
 pilot's Hold is permitted during release. Retained-evidence validation also
 requires fault-specific raw witnesses, accepting older valid trace formats
 without treating `operator_stop`-only cleanup as fault success. Derive reviewed

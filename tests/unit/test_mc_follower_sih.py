@@ -284,6 +284,8 @@ def test_new_pose_progress_recovers_but_backward_source_time_is_rejected():
 def fault_scenario(tmp_path, fault, *, expected_handoff=False, profile='gm_velocity_vector', mount='horizontal', altitude=False):
     from tools.fixed_camera_world_target import MCScenario
     path = runner.ROOT / f'tools/sih_visualization_scenarios/{profile}-qualification-{mount}-{"on" if altitude else "off"}.yaml'
+    if runner.mc_input_family(profile) == 'image':
+        path = entry.scenario_path(profile, altitude)
     raw = yaml.safe_load(path.read_text())
     raw['faults'] = [fault]
     raw['qualification']['expected_handoff'] = expected_handoff
@@ -334,6 +336,132 @@ def test_loss_handoff_must_be_fault_caused_before_operator_cleanup(tmp_path, rea
     assert result['fault_handoff_before_operator_cleanup'] is expected
 
 
+def test_gimbal_bounded_loss_cannot_pass_with_immediate_compatibility_handoff(tmp_path):
+    scenario = fault_scenario(tmp_path, dict(kind='target_loss', at_s=8., duration_s=9.), expected_handoff=True)
+    result = fault_checks(scenario, [received_row(8.1, 'TARGET_LOST', 'HANDOFF_PENDING')],
+        following_active=False, handoff=dict(reason_code='tracker_unusable_for_following', result='confirmed_hold'))
+    assert not result['fault_handoff_before_operator_cleanup']
+
+
+def configured_gimbal_policy():
+    from dataclasses import asdict
+    from classes.target_continuity import ContinuityPolicy
+    config = yaml.safe_load((runner.ROOT / 'configs/config_default.yaml').read_text())
+    return json.loads(json.dumps(asdict(ContinuityPolicy.resolve(config['TargetContinuity'], 'gm_velocity_vector'))))
+
+
+def budget_tracker(policy, reason='maximum_coast_time_reached', *, elapsed=8., distance=1.):
+    return dict(timestamp=16., tracker_output=dict(tracking_active=False, usable_for_following=False,
+        gimbal_observation=dict(tracking_state='TARGET_LOST')), continuity=dict(
+        authority_state='HANDOFF_PENDING', reason_code=reason, handoff_request=dict(reason_code=reason),
+        effective_policy=copy.deepcopy(policy), loss_elapsed_s=elapsed, coast_distance_m=distance))
+
+
+@pytest.mark.parametrize('change', ['missing_policy', 'compatibility', 'immediate', 'policy_mismatch',
+                                  'no_terminal', 'too_early', 'bad_elapsed', 'bad_distance', 'genuine_time', 'genuine_travel'])
+def test_gimbal_loss_requires_actual_exhaustion_of_the_captured_canonical_policy(tmp_path, change):
+    scenario = fault_scenario(tmp_path, dict(kind='target_loss', at_s=8., duration_s=9.), expected_handoff=True)
+    policy = configured_gimbal_policy()
+    reason = 'maximum_coast_distance_reached' if change == 'genuine_travel' else 'maximum_coast_time_reached'
+    row = budget_tracker(policy, reason, elapsed=3. if change == 'genuine_travel' else 8.,
+                         distance=4. if change == 'genuine_travel' else 1.)
+    trackers = [row]
+    if change == 'missing_policy':
+        policy = None
+    elif change == 'compatibility':
+        policy['configuration_origin'] = 'compatibility_defaults'
+    elif change == 'immediate':
+        policy['mode'] = 'immediate_handoff'
+    elif change == 'policy_mismatch':
+        row['continuity']['effective_policy']['max_coast_time_s'] = 2.
+    elif change == 'no_terminal':
+        trackers = []
+    elif change == 'too_early':
+        row['continuity']['loss_elapsed_s'] = 1.
+    elif change == 'bad_elapsed':
+        row['continuity']['loss_elapsed_s'] = float('nan')
+    elif change == 'bad_distance':
+        row['continuity']['coast_distance_m'] = True
+    result = fault_checks(scenario, [received_row(8.1, 'TARGET_LOST', 'COASTING')],
+        following_active=False, handoff=dict(reason_code=reason, result='confirmed_hold'),
+        configured_policy=policy, tracker_records=trackers)
+    assert result['bounded_loss_budget_exhausted'] is change.startswith('genuine')
+    assert all(result.values()) is change.startswith('genuine')
+
+
+def test_legacy_image_immediate_loss_does_not_require_a_gimbal_budget(tmp_path):
+    scenario = fault_scenario(tmp_path, dict(kind='target_loss', at_s=8., duration_s=1.),
+                             expected_handoff=True, profile='mc_velocity_chase')
+    result = fault_checks(scenario, [received_row(8.1, 'TARGET_LOST', 'HANDOFF_PENDING')],
+        following_active=False, handoff=dict(reason_code='tracker_unusable_for_following', result='confirmed_hold'))
+    assert all(result.values())
+    assert 'bounded_loss_budget_exhausted' not in result
+
+
+@pytest.mark.parametrize('change', ['missing', 'partial', 'deadline_extended', 'start_shifted', 'bad_type', None])
+def test_retarget_budget_witness_is_exact_and_never_extends_a_pending_episode(change):
+    before = dict(loss_started_at_monotonic_s=100., loss_deadline_monotonic_s=108.)
+    after = dict(before)
+    if change == 'missing':
+        before = None
+    elif change == 'partial':
+        before.pop('loss_started_at_monotonic_s')
+    elif change == 'deadline_extended':
+        after['loss_deadline_monotonic_s'] += 1.
+    elif change == 'start_shifted':
+        after['loss_started_at_monotonic_s'] += 1.
+    elif change == 'bad_type':
+        after['loss_deadline_monotonic_s'] = '108'
+    assert runner._retarget_budget_preserved(before, after, pending=True) is (change is None)
+
+
+@pytest.mark.parametrize('angles', [True, False])
+@pytest.mark.parametrize('change', ['missing', 'deadline_extended', 'restored_before_final', None])
+def test_retained_gimbal_retarget_requires_budget_proof_and_final_target_restoration(tmp_path, angles, change):
+    scenario = fault_scenario(tmp_path, dict(kind='retarget', at_s=8., target_offset_ned=[.5, .3, -.2]),
+                             profile='gm_velocity_vector' if angles else 'mc_velocity_chase')
+    before = dict(loss_started_at_monotonic_s=100., loss_deadline_monotonic_s=108.)
+    event = dict(timestamp=8., event='retarget', before=dict(target_transition_pending=True, episode_id=1),
+                 after=dict(target_transition_pending=True, episode_id=1), before_budget=before, after_budget=dict(before))
+    if change == 'missing':
+        event.pop('after_budget')
+    elif change == 'deadline_extended':
+        event['after_budget']['loss_deadline_monotonic_s'] += 1.
+    result = dict(handoff=dict(reason_code='operator_stop', result='confirmed_hold'))
+    evidence = dict(tracker=[], state=[dict(timestamp=7. if change == 'restored_before_final' else 10.,
+                                          reason_code='target_authority_restored')])
+    if angles and change is not None:
+        with pytest.raises(ValueError, match='fault_outcome_unproven'):
+            runner.validate_retained_fault_outcome(scenario.visual, result, evidence,
+                expected_handoff=False, fault_events=[event])
+    else:
+        runner.validate_retained_fault_outcome(scenario.visual, result, evidence,
+            expected_handoff=False, fault_events=[event])
+
+
+@pytest.mark.parametrize('change', ['missing', 'final_mismatch', None])
+def test_retained_gimbal_long_loss_requires_matching_captured_policy(tmp_path, change):
+    scenario = fault_scenario(tmp_path, dict(kind='target_loss', at_s=8., duration_s=9.), expected_handoff=True)
+    policy = configured_gimbal_policy()
+    reason = 'maximum_coast_time_reached'
+    tracker = budget_tracker(policy)
+    result = dict(handoff=dict(reason_code=reason, result='confirmed_hold'))
+    pre = dict(following_active=False, handoff=result['handoff'], checks=dict(bounded_loss_budget_exhausted=True))
+    if change != 'missing':
+        pre['configured_continuity_policy'] = policy
+        result['configured_continuity_policy'] = copy.deepcopy(policy)
+    if change == 'final_mismatch':
+        result['configured_continuity_policy']['max_coast_time_s'] += 1.
+    evidence = dict(tracker=[tracker], state=[])
+    if change is not None:
+        with pytest.raises(ValueError, match='fault_outcome_unproven'):
+            runner.validate_retained_fault_outcome(scenario.visual, result, evidence,
+                expected_handoff=True, fault_events=[], pre_cleanup=pre)
+    else:
+        runner.validate_retained_fault_outcome(scenario.visual, result, evidence,
+            expected_handoff=True, fault_events=[], pre_cleanup=pre)
+
+
 @pytest.mark.parametrize('extra', [None, 'action.hold', 'offboard.stop'])
 @pytest.mark.parametrize('profile', ['gm_velocity_chase', 'gm_velocity_vector'])
 @pytest.mark.parametrize('mount', ['horizontal', 'vertical'])
@@ -347,7 +475,7 @@ def test_takeover_requires_one_actual_pilot_hold_and_no_additional_backend_mode_
     result = fault_checks(scenario, [], following_active=False,
         handoff=dict(reason_code='offboard_mode_exited', result='stopped'),
         takeover_requested_at=12., mode_calls=calls)
-    assert result['takeover_no_additional_mode_call'] is (extra is None)
+    assert result['takeover_no_backend_hold_or_offboard_stop'] is (extra is None)
 
 
 @pytest.mark.asyncio
