@@ -10,29 +10,23 @@ class CustomPID(PID):
     Attributes:
         last_output (float): Stores the last output value to assist in anti-windup calculations.
     """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._constructor_proportional_on_measurement = self.proportional_on_measurement
+
     def reset(self):
         """Clear both the base controller and subclass anti-windup history."""
         super().reset()
         self.last_output = 0.0
 
     def __call__(self, input_, dt=None):
-        # Apply Proportional on Measurement if enabled
-        if getattr(Parameters, 'PROPORTIONAL_ON_MEASUREMENT', False):
-            # Store original setpoint and temporarily modify it
-            original_setpoint = self.setpoint
-            # For PoM, we want proportional term to be based on measurement change
-            # This prevents derivative kick on setpoint changes
-            if hasattr(self, '_last_input'):
-                # Calculate proportional term based on input change instead of error
-                self.setpoint = self._last_input
-            self._last_input = input_
-
-            output = super().__call__(input_, dt)
-
-            # Restore original setpoint
-            self.setpoint = original_setpoint
-        else:
-            output = super().__call__(input_, dt)
+        self.proportional_on_measurement = (
+            self._constructor_proportional_on_measurement
+            or getattr(Parameters, 'PROPORTIONAL_ON_MEASUREMENT', False)
+        )
+        output = super().__call__(input_, dt)
+        if output is None:
+            return None
 
         # Apply anti-windup correction if enabled
         if getattr(Parameters, 'ENABLE_ANTI_WINDUP', False):

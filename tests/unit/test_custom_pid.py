@@ -15,6 +15,7 @@ import pytest
 import sys
 import os
 from unittest.mock import patch, MagicMock
+from simple_pid import PID
 
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
@@ -474,6 +475,121 @@ class TestProportionalOnMeasurement:
 
         # Verify attribute exists
         assert hasattr(pid, '_last_input')
+
+    @pytest.mark.parametrize('enabled', [False, True])
+    @pytest.mark.parametrize('measurements', [(1., 1., 1., 1.), (1., 2., -.5, 3.)])
+    @pytest.mark.parametrize('differentiate_measurement', [False, True])
+    def test_measurement_and_components_match_library(self, mock_parameters, enabled, measurements, differentiate_measurement):
+        mock_parameters.PROPORTIONAL_ON_MEASUREMENT = enabled
+        settings = dict(Kp=2., Ki=.5, Kd=.3, setpoint=4., sample_time=None, output_limits=(-10., 10.),
+                        differential_on_measurement=differentiate_measurement, time_fn=lambda: 100.)
+        custom = CustomPID(**settings)
+        reference = PID(**settings, proportional_on_measurement=enabled)
+        for measured in measurements:
+            assert custom(measured, dt=.1) == pytest.approx(reference(measured, dt=.1))
+            assert custom.components == pytest.approx(reference.components)
+            assert custom.setpoint == reference.setpoint == 4.
+
+    @pytest.mark.parametrize('lifecycle', ['first_sample', 'reset', 'auto_mode', 'start_manual'])
+    def test_first_pom_sample_after_lifecycle_matches_library(self, mock_parameters, lifecycle):
+        mock_parameters.PROPORTIONAL_ON_MEASUREMENT = True
+        settings = dict(Kp=2., Ki=.5, Kd=.3, setpoint=4., sample_time=None, output_limits=(-10., 10.),
+                        time_fn=lambda: 100., auto_mode=lifecycle != 'start_manual')
+        custom = CustomPID(**settings)
+        reference = PID(**settings, proportional_on_measurement=True)
+        if lifecycle in ('reset', 'auto_mode'):
+            custom(-2., dt=.1)
+            reference(-2., dt=.1)
+        for controller in (custom, reference):
+            if lifecycle == 'reset':
+                controller.reset()
+            elif lifecycle == 'auto_mode':
+                controller.set_auto_mode(False)
+                controller.set_auto_mode(True, last_output=.25)
+            elif lifecycle == 'start_manual':
+                assert controller(1., dt=.1) is None
+                controller.set_auto_mode(True, last_output=.25)
+        assert custom(1., dt=.1) == pytest.approx(reference(1., dt=.1))
+        assert custom.components == pytest.approx(reference.components)
+        assert custom.components[0] == custom.components[2] == 0.
+        assert custom.setpoint == reference.setpoint == 4.
+
+    def test_setpoint_change_preserves_real_integral_error_without_proportional_kick(self, mock_parameters):
+        mock_parameters.PROPORTIONAL_ON_MEASUREMENT = True
+        settings = dict(Kp=2., Ki=.5, Kd=.3, setpoint=4., sample_time=None, time_fn=lambda: 100.)
+        custom = CustomPID(**settings)
+        reference = PID(**settings, proportional_on_measurement=True)
+        for desired in (4., 8., -2.):
+            for controller in (custom, reference):
+                controller.setpoint = desired
+            assert custom(1., dt=.1) == pytest.approx(reference(1., dt=.1))
+            assert custom.components == pytest.approx(reference.components)
+            assert custom.components[0] == custom.components[2] == 0.
+            assert custom.setpoint == desired
+
+    @pytest.mark.parametrize('constructor', [False, True])
+    @pytest.mark.parametrize('configured', [False, True])
+    def test_constructor_keyword_and_config_each_enable_library_pom(self, mock_parameters, constructor, configured):
+        mock_parameters.PROPORTIONAL_ON_MEASUREMENT = configured
+        settings = dict(Kp=2., Ki=.5, Kd=.3, setpoint=4., sample_time=None, time_fn=lambda: 100.)
+        custom = CustomPID(**settings, proportional_on_measurement=constructor)
+        reference = PID(**settings, proportional_on_measurement=constructor or configured)
+        for measured in (1., 2.):
+            assert custom(measured, dt=.1) == pytest.approx(reference(measured, dt=.1))
+            assert custom.components == pytest.approx(reference.components)
+
+    def test_existing_positional_library_pom_argument_remains_supported(self):
+        args = (2., .5, .3, 4., None, (-10., 10.), True, True)
+        custom = CustomPID(*args, time_fn=lambda: 100.)
+        reference = PID(*args, time_fn=lambda: 100.)
+        for measured in (1., 2.):
+            assert custom(measured, dt=.1) == pytest.approx(reference(measured, dt=.1))
+            assert custom.components == pytest.approx(reference.components)
+
+    @pytest.mark.parametrize('constructor', [False, True])
+    def test_config_reload_restores_constructor_mode_without_rewriting_history(self, mock_parameters, constructor):
+        settings = dict(Kp=2., Ki=.5, Kd=.3, setpoint=4., sample_time=None, time_fn=lambda: 100.,
+                        proportional_on_measurement=constructor)
+        custom, reference = CustomPID(**settings), PID(**settings)
+        for configured, measured in ((False, 1.), (True, 2.), (False, 3.)):
+            mock_parameters.PROPORTIONAL_ON_MEASUREMENT = configured
+            reference.proportional_on_measurement = constructor or configured
+            assert custom(measured, dt=.1) == pytest.approx(reference(measured, dt=.1))
+            assert custom.components == pytest.approx(reference.components)
+            assert custom.proportional_on_measurement is reference.proportional_on_measurement
+
+    def test_rejected_pom_sample_does_not_change_setpoint_or_measurement_history(self, mock_parameters):
+        mock_parameters.PROPORTIONAL_ON_MEASUREMENT = True
+        custom = CustomPID(Kp=2., Ki=.5, Kd=.3, setpoint=4.)
+        with pytest.raises(ValueError, match='dt'):
+            custom(1., dt=0.)
+        assert custom.setpoint == 4.
+        assert custom._last_input is None
+
+    @pytest.mark.parametrize('enabled', [False, True])
+    def test_manual_without_output_preserves_none_and_child_history_before_auto_resume(self, mock_parameters, enabled):
+        mock_parameters.PROPORTIONAL_ON_MEASUREMENT = enabled
+        mock_parameters.ENABLE_ANTI_WINDUP = True
+        settings = dict(Kp=2., Ki=.5, Kd=.3, setpoint=4., sample_time=None, output_limits=(-10., 10.),
+                        time_fn=lambda: 100., auto_mode=False)
+        custom = CustomPID(**settings)
+        reference = PID(**settings, proportional_on_measurement=enabled)
+        for reset in (False, True):
+            if reset:
+                custom.reset()
+                reference.reset()
+            before = custom.last_output
+            for measured in (1., 2.):
+                assert custom(measured, dt=.1) is reference(measured, dt=.1) is None
+                assert custom.last_output == before == 0.
+                assert custom.components == reference.components == (0., 0., 0.)
+                assert custom._last_input is reference._last_input is None
+                assert custom.setpoint == reference.setpoint == 4.
+        custom.set_auto_mode(True, last_output=.25)
+        reference.set_auto_mode(True, last_output=.25)
+        assert custom(1., dt=.1) == pytest.approx(reference(1., dt=.1))
+        assert custom.components == pytest.approx(reference.components)
+        assert custom.last_output == reference._last_output
 
 
 # =============================================================================
