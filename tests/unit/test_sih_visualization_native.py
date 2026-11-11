@@ -2,8 +2,11 @@
 
 import csv
 from dataclasses import replace
+import json
 import math
 from pathlib import Path
+import shutil
+import subprocess
 
 import pytest
 import yaml
@@ -16,6 +19,98 @@ from tools.sih_visualizer import build_html, write_png
 
 ROOT = Path(__file__).resolve().parents[2]
 NATIVE_SCENARIO = ROOT / "tools/sih_visualization_scenarios/gimbal-vector-native-fw.yaml"
+
+
+def rendered_metadata(summary, *, samples=None, selected_index=None):
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Embedded report JavaScript checks require Node.js")
+    scenario = VisualizationScenario.from_yaml(ROOT / "tools/sih_visualization_scenarios/fw-navigation-native-image.yaml")
+    samples = samples if samples is not None else build_timeline(scenario, native_evidence())
+    html = build_html(scenario, samples, summary)
+    script = html.split("<script>", 1)[1].split("</script>", 1)[0]
+    harness = r"""
+const vm = require('node:vm');
+const input = JSON.parse(require('node:fs').readFileSync(0, 'utf8'));
+const elements = new Map();
+const gradient = {addColorStop() {}};
+const context = new Proxy({}, {get(target, key) {
+    return key in target ? target[key] : key === 'createLinearGradient' ? () => gradient : () => {};
+}});
+function element() {
+    const classes = new Set();
+    return {textContent: '', children: [], style: {}, width: 1000, height: 650, clientWidth: 700,
+        checked: true, value: '1', classList: {add(value) {classes.add(value);}},
+        append(...items) {this.children.push(...items);}, replaceChildren(...items) {this.children = items;},
+        addEventListener() {}, getContext() {return context;}};
+}
+const document = {getElementById(id) {
+    if (!elements.has(id)) elements.set(id, element());
+    return elements.get(id);
+}, createElement: element, querySelectorAll: () => []};
+vm.runInNewContext(input.script, {document, setTimeout, clearTimeout}, {timeout: 1000});
+if (input.selected_index != null) document.getElementById('scrub').oninput({target: {value: input.selected_index}});
+const text = id => document.getElementById(id).textContent;
+console.log(JSON.stringify({evidence: text('evidenceKind'), coverage: text('coverage'),
+    motion: text('motionSummary'), scenario: text('scenario'), index: document.getElementById('scrub').value,
+    values: Object.fromEntries(document.getElementById('values').children.map(row => row.children.map(cell => cell.textContent)))}));
+"""
+    process = subprocess.run([node, "-e", harness], input=json.dumps({"script": script, "selected_index": selected_index}),
+                             text=True, capture_output=True, check=True, timeout=10)
+    return json.loads(process.stdout)
+
+
+def test_validated_native_report_header_uses_actual_pose_records_and_component_source():
+    metadata = rendered_metadata({"evidence_kind": "px4_sih", "pose_observed_samples": 870,
+        "evidence_counts": {"pose": 290}, "qualification_scope": "native_guidance_component_only",
+        "qualification_result": {"passed": True}})
+    assert metadata["evidence"] == "PX4-observed SIH · component"
+    assert metadata["coverage"] == "PX4 pose: 290 records"
+    assert "PX4-observed pose" in metadata["motion"]
+    assert "Speed policy: native_auto" in metadata["scenario"]
+    assert metadata["values"]["speed policy"] == "native_auto"
+    assert "speed source" not in metadata["values"]
+    assert metadata["index"] == 0
+
+
+@pytest.mark.parametrize("kind,expected", [("imported_trace", "Imported trace · read-only"),
+                                          (None, "Imported trace · read-only"),
+                                          ("px4_sih", "PX4-observed SIH · component")])
+def test_older_report_metadata_labels_aligned_count_without_inventing_raw_frames(kind, expected):
+    summary = {"pose_observed_samples": 870}
+    if kind is not None:
+        summary["evidence_kind"] = kind
+    metadata = rendered_metadata(summary)
+    assert metadata["evidence"] == expected
+    assert metadata["coverage"] == "Aligned pose samples: 870"
+    if kind != "px4_sih":
+        assert "imported pose trace" in metadata["motion"]
+        assert "PX4-observed pose" not in metadata["motion"]
+
+
+def test_synthetic_report_header_keeps_fixture_label_and_synthetic_sample_count():
+    metadata = rendered_metadata({"evidence_kind": "synthetic_fixture", "pose_observed_samples": 870,
+                                  "evidence_counts": {"pose": 290}})
+    assert metadata["evidence"] == "Synthetic moving-target fixture"
+    assert metadata["coverage"] == "Synthetic pose: 870 samples"
+    assert "synthetic vehicle pose" in metadata["motion"]
+
+
+@pytest.mark.parametrize("count", [None, -1, "290", 2.5])
+def test_unavailable_raw_pose_count_keeps_explicit_aligned_fallback(count):
+    metadata = rendered_metadata({"evidence_kind": "px4_sih", "pose_observed_samples": 870,
+                                  "evidence_counts": {"pose": count}})
+    assert metadata["coverage"] == "Aligned pose samples: 870"
+
+
+def test_actual_speed_source_is_shown_only_when_present_on_current_sample():
+    scenario = VisualizationScenario.from_yaml(NATIVE_SCENARIO)
+    first = build_timeline(scenario, native_evidence())[0]
+    second = replace(first, timestamp=.1, speed_source="sensor_airspeed")
+    metadata = rendered_metadata({"evidence_kind": "px4_sih", "pose_observed_samples": 2},
+                                 samples=[first, second], selected_index=1)
+    assert metadata["values"]["speed source"] == "sensor_airspeed"
+    assert "speed policy" not in metadata["values"]
 
 
 def native_evidence():

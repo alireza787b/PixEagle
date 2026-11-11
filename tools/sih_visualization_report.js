@@ -9,9 +9,20 @@ const requestBasis = contract => contract === 'fixed_wing_external' ? 'session E
 const speedLabel = PAYLOAD.scenario.requested_speed != null ? `Initial request: ${PAYLOAD.scenario.requested_speed} m/s`
     : firstRequest != null ? `Initial ${requestBasis(firstControlSample.command_contract)}: ${firstRequest.toFixed(2)} m/s`
     : PAYLOAD.summary.speed_reference_m_s != null ? `Ceiling: ${PAYLOAD.summary.speed_reference_m_s} m/s` : 'No session speed';
-document.getElementById('scenario').textContent=`Purpose: ${PAYLOAD.scenario.follower_purpose} · Follower: ${PAYLOAD.scenario.follower_profile} · Airframe: ${PAYLOAD.scenario.airframe} · Input: ${PAYLOAD.scenario.input_contract} · Command: ${PAYLOAD.scenario.command_contract} · Speed: ${PAYLOAD.scenario.speed_source_policy} · Mount: ${PAYLOAD.scenario.mount_type} · Altitude: ${PAYLOAD.scenario.altitude_control?'on':'off'} · ${speedLabel}`;
-document.getElementById('summary').textContent=JSON.stringify(PAYLOAD.summary,null,2);const coverage=document.getElementById('coverage'),evidenceKind=document.getElementById('evidenceKind'),poseCount=Number(PAYLOAD.summary.pose_observed_samples||0),synthetic=PAYLOAD.summary.evidence_kind==='synthetic_fixture';evidenceKind.textContent=synthetic?'Synthetic moving-target fixture':'Imported trace · read-only';coverage.textContent=synthetic?`Synthetic pose: ${poseCount} samples`:poseCount?`Observed pose: ${poseCount} samples`:'PX4 pose unavailable';if(!poseCount||synthetic)coverage.classList.add('warning');document.getElementById('scrub').max=Math.max(0,samples.length-1);
-const motion=PAYLOAD.summary.motion_summary||{},range=PAYLOAD.summary.target_range_m||{};document.getElementById('motionSummary').textContent=`Start range: ${range.start==null?'—':range.start.toFixed(2)+' m'} · End range: ${range.end==null?'—':range.end.toFixed(2)+' m'} · Change: ${range.start==null||range.end==null?'—':(range.end-range.start).toFixed(2)+' m'} · ${synthetic?'synthetic vehicle pose':'PX4 pose is observed'}`;
+document.getElementById('scenario').textContent=`Purpose: ${PAYLOAD.scenario.follower_purpose} · Follower: ${PAYLOAD.scenario.follower_profile} · Airframe: ${PAYLOAD.scenario.airframe} · Input: ${PAYLOAD.scenario.input_contract} · Command: ${PAYLOAD.scenario.command_contract} · Speed policy: ${PAYLOAD.scenario.speed_source_policy} · Mount: ${PAYLOAD.scenario.mount_type} · Altitude: ${PAYLOAD.scenario.altitude_control?'on':'off'} · ${speedLabel}`;
+document.getElementById('summary').textContent=JSON.stringify(PAYLOAD.summary,null,2);
+const coverage=document.getElementById('coverage'),evidenceKind=document.getElementById('evidenceKind');
+const synthetic=PAYLOAD.summary.evidence_kind==='synthetic_fixture',px4Sih=PAYLOAD.summary.evidence_kind==='px4_sih';
+const alignedPoseCount=Number(PAYLOAD.summary.pose_observed_samples||0),rawPoseCount=PAYLOAD.summary.evidence_counts?.pose;
+const hasRawPoseCount=!synthetic&&Number.isInteger(rawPoseCount)&&rawPoseCount>=0;
+const poseCount=hasRawPoseCount?rawPoseCount:alignedPoseCount;
+evidenceKind.textContent=synthetic?'Synthetic moving-target fixture':px4Sih?'PX4-observed SIH · component':'Imported trace · read-only';
+coverage.textContent=synthetic?`Synthetic pose: ${poseCount} samples`:hasRawPoseCount?`${px4Sih?'PX4 pose':'Pose'}: ${poseCount} records`:`Aligned pose samples: ${poseCount}`;
+if(!poseCount||synthetic)coverage.classList.add('warning');
+document.getElementById('scrub').max=Math.max(0,samples.length-1);
+const motion=PAYLOAD.summary.motion_summary||{},range=PAYLOAD.summary.target_range_m||{};
+const poseBasis=synthetic?'synthetic vehicle pose':px4Sih?'PX4-observed pose':'imported pose trace';
+document.getElementById('motionSummary').textContent=`Start range: ${range.start==null?'—':range.start.toFixed(2)+' m'} · End range: ${range.end==null?'—':range.end.toFixed(2)+' m'} · Change: ${range.start==null||range.end==null?'—':(range.end-range.start).toFixed(2)+' m'} · ${poseBasis}`;
 function points(key){return samples.slice(0,i+1).map(s=>s[key]||null)}
 let orbitYaw=-0.65,orbitPitch=1.32,sceneScale=35,sceneOrigin=[scene.width/2,scene.height/2],autoScale=true,worldBounds=null;
 function oriented(p){if(!p)return null;const n=p[0],e=p[1],d=p[2];if(view!=='iso')return[n,e,d];const yawX=Math.cos(orbitYaw)*n-Math.sin(orbitYaw)*e;const depth=Math.sin(orbitYaw)*n+Math.cos(orbitYaw)*e;const pitchY=Math.cos(orbitPitch)*depth+Math.sin(orbitPitch)*d;const pitchDepth=-Math.sin(orbitPitch)*depth+Math.cos(orbitPitch)*d;return[yawX,pitchY,pitchDepth]}
@@ -127,7 +138,7 @@ function update() {
     const range = s?.target_ned && s?.vehicle_ned ? Math.hypot(...s.target_ned.map((v, k) => v - s.vehicle_ned[k])) : null;
     const values = s ? {
         'target range': range === null ? '—' : `${range.toFixed(2)} m`,
-        'speed source': s.speed_source || PAYLOAD.scenario.speed_source_policy,
+        ...(s.speed_source ? {'speed source': s.speed_source} : {'speed policy': PAYLOAD.scenario.speed_source_policy || '—'}),
         'measurement age': s.measurement_age_s == null ? '—' : `${s.measurement_age_s.toFixed(3)} s`,
         [requestBasis(s.command_contract)]: s.requested_speed == null ? '—' : `${s.requested_speed.toFixed(2)} m/s`,
         ...commandRows(s), 'limiting reason': s.limiting_reason || '—',
