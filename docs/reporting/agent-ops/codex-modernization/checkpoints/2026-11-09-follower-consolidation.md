@@ -780,3 +780,50 @@ Dashboard/native bytes are identical to the combined gate. The retry confirms
 actual range closure, zero failed publications and Hold after Stop. The remaining
 nominal matrix, gimbal fault captures and native-FW response renewal are still
 required; S6 is not closed by the software gate or one passing run.
+
+### S6 observed renewal — November 12
+
+All eight nominal GM MC cases at `115192e15` pass: Chase/Vector, both mounts,
+altitude off/on. The actual PX4 traces retain **3,784 successful publications,
+zero failures**, maximum publication gap 0.062 s, range closure and confirmed
+Hold without later commands. Altitude-off hold error is at most 0.232 m; the
+on cases show independently observed target-directed vertical response.
+`software-gates-r1/s6-mc-nominal-results-r1.json` retains the case results.
+Eight interactive reports also pass a real browser check: observed pose/target,
+finite command fields, side/top views and orbit, with no JavaScript errors.
+
+The four renewed native GM FW cases pass on the same frozen source: both mounts,
+altitude off/on. Actual range closes from roughly 160–163 m to 28–34 m.
+Altitude-off hold error is below 0.284 m; altitude-on response descends about
+7.6 m. Native course/EAS/height commands remain distinct from MC body velocity.
+Their reports pass the same browser/pose checks. Cases are retained at
+`s6-gm-fw-{horizontal,vertical}-{off,on}-r1/`, with exact configuration, source,
+adapter and PX4 provenance. The final descending case finishes below the
+runner's 15 m stable-start floor; fault tests therefore require a fresh isolated
+airborne preparation, not a relaxed gate. No physical aircraft is involved.
+
+Tools-only `bf98f4dd0` adds received-fault witnesses before operator cleanup,
+same-source simulated target-generation retargets and actual SDK mode-call
+observation through cleanup. Its frozen affected gate passes **458 tests**;
+production/configuration/native/Dashboard bytes remain identical to the full
+combined gate. The first one-second MC loss case passes with received loss,
+reacquisition and restored guidance. The remaining matrix is paused for two
+independent review findings in the test verdicts: observe the original recovery
+deadline across repeated retargets, and reject an immediate-handoff result when
+the GM runtime policy promises bounded recovery. These are evidence gaps, not
+new production-controller failures. Preserve the passing short-loss capture and
+all older failed attempts; rerun affected cases after the checks are repaired.
+
+The S4 raw-evidence audit supports the latest fifteen image-follower loss,
+stale-telemetry and takeover cases. The historical Chase takeover `r2` capture
+does not support its stronger fault-handoff claim: its final reason is
+`operator_stop`. Keep it as superseded history; the later `r3` supplies the
+fault-specific evidence. The audit is retained in
+`software-gates-s6-combined-r1/s4-fault-evidence-audit.{json,md}`. No raw verdict,
+trace or historical animation was rewritten. S10 must keep this disposition in
+the selector rather than promoting an old green result.
+
+S6 still requires renewed fault results. S7 native activation-bound release and
+end-on-transition remain open. Physical timing, target/boresight alignment,
+installation, HTTP/App startup, clients and release qualification remain separate;
+the public/private saved defaults and hardware are unchanged.

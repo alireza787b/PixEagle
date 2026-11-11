@@ -164,3 +164,14 @@ and its 336-test gate correct that boundary without relaxing authored-scenario
 restrictions or changing production/configuration bytes. Actual nominal/fault
 and native-FW response renewal continues. No hardware/deployment or release is
 claimed, and S6 remains open. Details and exact revisions are in the checkpoint.
+
+Observed S6 renewal now passes eight nominal GM MC cases (both followers,
+mounts and altitude modes; 3,784 successful publications) and four native GM FW
+mount/altitude cases. All twelve interactive reports load with actual pose,
+target and command values and working camera views. Their claims remain component
+SIH with simulated observations. The first short-loss MC case restores authority;
+the remaining fault matrix waits for stronger deadline and bounded-loss verdict
+checks identified in independent review. Tools-only `bf98f4dd0` passes 458 frozen
+affected tests. No controller tuning, deployment or hardware changes occurred.
+The checkpoint records the superseded S4 takeover evidence and remaining S6/S7
+gates; raw historical evidence remains immutable.
