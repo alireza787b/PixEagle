@@ -38,6 +38,23 @@ def write_json(path, value):
     path.write_text(json.dumps(value, indent=2, sort_keys=True, default=lambda item: item.value) + "\n", encoding="utf-8")
 
 
+def captured_response_scenario(validated, path):
+    """Use owned runtime geometry/limits for analysis, not authored overrides.
+
+    The input scenario has already passed MCScenario's no-override validation.
+    The worker records resolved policy and actual airborne coordinates afterward;
+    those observations must not be reparsed as operator configuration requests.
+    """
+    from classes.sih_visualization import VisualizationScenario
+    captured = VisualizationScenario.from_yaml(path)
+    if (not isinstance(validated, MCScenario)
+            or (captured.follower_profile, captured.airframe, captured.mount_type, captured.altitude_control,
+                captured.faults) != (validated.visual.follower_profile, validated.visual.airframe,
+                validated.visual.mount_type, validated.visual.altitude_control, validated.visual.faults)):
+        raise ValueError('captured_mc_response_contract_changed')
+    return replace(validated, visual=captured)
+
+
 def request_telemetry_identity(http):
     """Request the simulator's own identity on its independent telemetry route."""
     endpoint = "http://127.0.0.1:8088"
@@ -503,7 +520,7 @@ async def worker(args):
         executed["resolved_runtime_policy"] = json.loads(json.dumps(resolved_policy, default=lambda item: item.value))
         executed["frozen_target_anchor_ned"] = list(anchor)
         (output / "scenario.yaml").write_text(yaml.safe_dump(executed, sort_keys=False))
-        response_scenario = MCScenario.from_yaml(output / "scenario.yaml")
+        response_scenario = captured_response_scenario(scenario, output / "scenario.yaml")
         write_json(output / "runtime-policy.json", dict(continuity=resolved_policy,
             velocity=concrete.velocity_limits._asdict(), altitude=concrete.altitude_limits._asdict(),
             rates_rad_s=concrete.rate_limits._asdict(), pid_gains=config["PID"]["PID_GAINS"]))

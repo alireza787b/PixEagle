@@ -19,6 +19,30 @@ def forbidden(*args, **kwargs):
     raise AssertionError("A dry-run/test tried to execute an external process")
 
 
+def test_owned_resolved_policy_is_report_input_and_cannot_be_an_authored_override(tmp_path):
+    from tools.fixed_camera_world_target import MCScenario
+    path = runner.ROOT / 'tools/sih_visualization_scenarios/gm_velocity_vector-qualification-horizontal-off.yaml'
+    original = MCScenario.from_yaml(path)
+    captured = yaml.safe_load(path.read_text())
+    captured['continuity_policy'] = {'mode': 'bounded_decay'}
+    captured['initial_conditions']['vehicle_ned'] = [1., 2., -20.]
+    captured['constraints']['velocity']['forward'] = .37
+    output = tmp_path / 'captured.yaml'
+    output.write_text(yaml.safe_dump(captured))
+    with pytest.raises(ValueError, match='cannot override saved continuity'):
+        MCScenario.from_yaml(output)
+    response = runner.captured_response_scenario(original, output)
+    assert response.visual.continuity_policy == {'mode': 'bounded_decay'}
+    assert response.visual.initial_vehicle_ned == (1., 2., -20.)
+    assert response.visual.limits['velocity_forward'] == .37
+    assert response.camera is original.camera
+    assert response.minimum_vertical_response_m == original.minimum_vertical_response_m
+    captured['follower']['altitude_control'] = True
+    output.write_text(yaml.safe_dump(captured))
+    with pytest.raises(ValueError, match='contract_changed'):
+        runner.captured_response_scenario(original, output)
+
+
 @pytest.mark.parametrize("hold,running,task_active,expected", [
     (True, False, False, True),
     (False, False, False, False),
