@@ -63,10 +63,13 @@ class FixedCameraBearingFixture:
         self._calibration, self._binding = calibration, binding
         self._fixture_revision, self._clock = fixture_revision, clock
         self._image_age, self._attitude_age = max_image_age_s, max_attitude_age_s
-        self._pose_identity = self._pose_values = self._target = None
+        self._pose_identity = self._target = None
+        self._observed_identity = self._observed_values = None
         self._output = self._measurement = self._sample = self._alignment = None
         self._previous_alignment = None
         self._output_timestamp = self._position_2d = None
+        self._frame_state = self._pose_receipt = None
+        self._invalidated = False
 
     @property
     def last_sample(self) -> ExactSihSample | None:
@@ -80,14 +83,30 @@ class FixedCameraBearingFixture:
         if (not isinstance(state, AircraftState) or state.binding != self._binding.aircraft_binding
                 or state.attitude_timing is None
                 or state.attitude_timing.quat_reset_counter != self._binding.quat_reset_counter):
+            self._invalidated = True
             raise ValueError('sih_projection_aircraft_binding_changed')
+        if self._frame_state is not None and state.source != self._frame_state.source:
+            self._invalidated = True
+            raise ValueError('sih_projection_aircraft_source_changed')
         if not state.fresh(now, self._attitude_age) or not state.attitude_timing.fresh(now, self._attitude_age):
             raise ValueError('sih_projection_attitude_stale')
 
     def _pose(self, packet, state, now):
+        try:
+            return self._decode_pose(packet, state, now)
+        except (ValueError, TypeError, KeyError) as error:
+            if str(error) not in {'sih_projection_attitude_stale', 'sih_projection_pose_stale',
+                                  'sih_projection_native_state_unavailable'}:
+                self._invalidated = True
+            raise
+
+    def _decode_pose(self, packet, state, now):
         self._require_state(state, now)
-        if (not isinstance(packet, dict) or packet.get('fresh') is not True
-                or packet.get('runtime_id') != self._binding.native_runtime_id):
+        if not isinstance(packet, dict) or packet.get('runtime_id') != self._binding.native_runtime_id:
+            raise ValueError('sih_projection_native_packet_invalid')
+        if packet.get('fresh') is False:
+            raise ValueError('sih_projection_native_state_unavailable')
+        if packet.get('fresh') is not True:
             raise ValueError('sih_projection_native_packet_invalid')
         payload = packet.get('aircraft_state')
         if not isinstance(payload, dict) or packet.get('attitude_timing') != asdict(state.attitude_timing):
@@ -121,10 +140,14 @@ class FixedCameraBearingFixture:
         """Project one progressing observed pose; timestamp_s is epoch/display time.
 
         CaptureStamp retains the native pose's monotonic receipt, not exposure
-        time. Duplicate polls return the original output without changing either
-        timestamp. FOV describes synthetic pixel boundaries, not physical optics.
+        time. This fixture waits for both pose and attitude source progress; that
+        is a fixture choice, not a camera synchronization law. Partial/duplicate
+        polls retain the original frame and its projected target until expiry.
+        FOV describes synthetic pixel boundaries, not physical optics.
         """
         try:
+            if self._invalidated:
+                raise ValueError('sih_projection_owner_invalidated')
             now = finite_number(self._clock(), 'sih_projection_clock')
             if finite_number(timestamp_s, 'sih_projection_display_epoch') <= 0:
                 raise ValueError('sih_projection_display_epoch_invalid')
@@ -132,15 +155,18 @@ class FixedCameraBearingFixture:
                 raise ValueError('sih_projection_target_invalid')
             target = tuple(finite_number(value, 'sih_target_ned') for value in target_ned)
             identity, values, receipt = self._pose(packet, state, now)
-            if self._pose_identity is not None:
-                if any(current < before for current, before in zip(identity, self._pose_identity)):
+            if self._observed_identity is not None:
+                if any(current < before for current, before in zip(identity, self._observed_identity)):
+                    self._invalidated = True
                     raise ValueError('sih_projection_pose_reordered')
+                if any(current == before and value != old for current, before, value, old in
+                       zip(identity, self._observed_identity, values, self._observed_values)):
+                    self._invalidated = True
+                    raise ValueError('sih_projection_pose_rewritten')
+            self._observed_identity, self._observed_values = identity, values
+            if self._pose_identity is not None:
                 if not all(current > before for current, before in zip(identity, self._pose_identity)):
-                    if (identity == self._pose_identity and values != self._pose_values):
-                        raise ValueError('sih_projection_pose_rewritten')
-                    if target != self._target or self._output is None:
-                        raise ValueError('sih_projection_pose_not_progressing')
-                    return self._output
+                    return self.retained_frame(state)[0]
             normalized = self._camera.project(values[0], values[1], target)
             measurement = sample = alignment = position_2d = None
             if normalized is not None:
@@ -168,13 +194,15 @@ class FixedCameraBearingFixture:
                     'source': 'simulated_fixed_camera_bearing', 'has_output': visible,
                     'usable_for_following': visible, 'data_is_stale': False, 'identity_confirmed': visible,
                     'measurement_monotonic_s': receipt, 'measurement_time_basis': 'native_pose_receipt_for_sih_projection',
+                    'measurement_target_ned': target if visible else None,
                     'pose_timestamp_us': identity[0], 'attitude_sample_timestamp_us': identity[1],
                     'attitude_publication_timestamp_us': state.attitude_timing.publication_timestamp_us,
                 }, metadata={'simulation_only': True, 'fixture_revision': self._fixture_revision,
                              'association_kind': 'sih_projection_pair', 'timestamp_basis': 'supplied_display_epoch'})
-            self._pose_identity, self._pose_values, self._target = identity, values, target
+            self._pose_identity, self._target = identity, target
             self._output, self._measurement, self._sample, self._alignment = output, measurement, sample, alignment
             self._output_timestamp, self._position_2d = timestamp_s, position_2d
+            self._frame_state, self._pose_receipt = state, receipt
             if alignment is not None:
                 self._previous_alignment = alignment
             return output
@@ -182,17 +210,47 @@ class FixedCameraBearingFixture:
             self._output = self._measurement = self._sample = self._alignment = None
             raise
 
-    def resolve(self, output: TrackerOutput, current_state: AircraftState) -> AlignedBearing:
-        """Validate current identity/age while retaining the original paired quaternion."""
-        now = finite_number(self._clock(), 'sih_projection_clock')
-        self._require_state(current_state, now)
-        if (self._alignment is None or self._sample is None or output is not self._output
+    def _require_output(self, output):
+        if (not isinstance(output, TrackerOutput) or output is not self._output
                 or output.image_measurement is not self._measurement or output.timestamp != self._output_timestamp
                 or output.position_2d != self._position_2d or output.target_id != self._binding.target_generation
                 or output.data_type is not TrackerDataType.POSITION_2D
-                or not evaluate_tracker_command_freshness(output)['usable_for_following']):
+                or not isinstance(output.raw_data, dict)
+                or output.raw_data.get('measurement_target_ned') != (self._target if self._measurement else None)):
+            raise ValueError('sih_projection_output_unavailable_or_changed')
+
+    def retained_frame(self, current_state: AircraftState) -> tuple[TrackerOutput, tuple[float, float, float] | None]:
+        """Return the original frame and measured target without advancing clocks.
+
+        An actual missing-target frame retains absence, with no measurement
+        target. Current pose/target updates never alter this retained evidence.
+        """
+        if self._invalidated:
+            raise ValueError('sih_projection_owner_invalidated')
+        now = finite_number(self._clock(), 'sih_projection_clock')
+        self._require_state(current_state, now)
+        self._require_output(self._output)
+        self._require_state(self._frame_state, now)
+        if current_state.source != self._frame_state.source:
+            self._invalidated = True
+            raise ValueError('sih_projection_aircraft_source_changed')
+        if not 0 <= now-self._pose_receipt <= self._image_age:
+            raise ValueError('sih_projection_frame_stale')
+        if self._alignment is not None:
+            self.resolve(self._output, current_state)
+        return self._output, self._target if self._measurement else None
+
+    def resolve(self, output: TrackerOutput, current_state: AircraftState) -> AlignedBearing:
+        """Validate current identity/age while retaining the original paired quaternion."""
+        if self._invalidated:
+            raise ValueError('sih_projection_owner_invalidated')
+        now = finite_number(self._clock(), 'sih_projection_clock')
+        self._require_state(current_state, now)
+        self._require_output(output)
+        if self._alignment is None or self._sample is None or not evaluate_tracker_command_freshness(output)['usable_for_following']:
             raise ValueError('sih_projection_output_unavailable_or_changed')
         if current_state.source != self._sample.aircraft_state.source:
+            self._invalidated = True
             raise ValueError('sih_projection_aircraft_source_changed')
         return associate_sih_bearing(self._alignment.bearing, self._sample, binding=self._binding,
             now_monotonic_s=now, max_image_age_s=self._image_age, max_attitude_age_s=self._attitude_age,

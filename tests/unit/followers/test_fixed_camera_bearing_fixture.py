@@ -183,7 +183,7 @@ def test_unqualified_native_pose_cannot_produce_or_retain_a_bearing(make_fixture
         value.pop('vehicle_pose')
     with pytest.raises(ValueError):
         owner.project(value, state, (14., 5., -50.), timestamp_s=1_700_000_000.)
-    with pytest.raises(ValueError, match='unavailable_or_changed'):
+    with pytest.raises(ValueError, match='unavailable_or_changed|owner_invalidated'):
         owner.resolve(original, state)
 
 
@@ -215,11 +215,59 @@ def test_source_reset_runtime_and_retarget_need_explicit_new_owner(make_fixture,
         new_owner.resolve(old, reset)
 
 
-def test_changing_target_without_pose_progress_cannot_relabel_old_pixels(make_fixture, state):
+def test_changing_target_without_pose_progress_retains_original_target_truth(make_fixture, state):
     owner = make_fixture()
-    owner.project(packet(state), state, (14., 5., -50.), timestamp_s=1_700_000_000.)
-    with pytest.raises(ValueError, match='not_progressing'):
-        owner.project(packet(state), state, (14., 6., -50.), timestamp_s=1_700_000_001.)
+    target = (14., 5., -50.)
+    original = owner.project(packet(state), state, target, timestamp_s=1_700_000_000.)
+    assert owner.project(packet(state), state, (14., 6., -50.), timestamp_s=1_700_000_001.) is original
+    assert owner.retained_frame(state) == (original, target)
+    assert original.raw_data['measurement_target_ned'] == target
+
+
+@pytest.mark.parametrize('component', ['position', 'attitude'])
+@pytest.mark.parametrize('target', [(14., 8., -50.), (-6., 5., -50.)])
+def test_partial_source_progress_retains_original_frame_pair_target_and_clocks(
+        make_fixture, state, clock, component, target):
+    owner = make_fixture()
+    measured_target = (14., 5., -50.)
+    original = owner.project(packet(state), state, measured_target, timestamp_s=1_700_000_000.)
+    measurement, sample, alignment = original.image_measurement, owner.last_sample, owner.last_alignment
+    raw = deepcopy(original.raw_data)
+    if component == 'position':
+        current = state
+        value = packet(current, position=(5., 6., -50.), timestamp=2_250_000, receipt=100.25)
+    else:
+        current = replace(advanced(state), attitude_body_to_ned=Quaternion.from_euler(.2, -.3, 1.))
+        value = packet(current, receipt=100.25)
+    clock[0] = 100.375
+    assert owner.project(value, current, target, timestamp_s=1_700_000_001.) is original
+    assert owner.retained_frame(current) == (original, measured_target)
+    assert original.image_measurement is measurement
+    assert owner.last_sample is sample and owner.last_alignment is alignment
+    assert owner.resolve(original, current) is alignment
+    assert alignment.attitude_state is state
+    assert original.timestamp == 1_700_000_000.
+    assert original.raw_data == raw
+    assert measurement.provenance.capture.capture_id == '2000000'
+    assert measurement.provenance.capture.captured_at == 100.
+    assert alignment.direction_ned == Vector3(1., 0., 0.)
+
+
+def test_new_absent_frame_and_partial_progress_do_not_resurrect_previous_target(make_fixture, state, clock):
+    owner = make_fixture()
+    visible = owner.project(packet(state), state, (14., 5., -50.), timestamp_s=1_700_000_000.)
+    current = advanced(state)
+    clock[0] = 100.375
+    missing = owner.project(packet(current, timestamp=2_250_000, receipt=100.25), current,
+                            (-6., 5., -50.), timestamp_s=1_700_000_000.25)
+    assert missing.image_measurement is None
+    assert missing.raw_data['measurement_target_ned'] is None
+    assert owner.retained_frame(current) == (missing, None)
+    partial = packet(current, timestamp=2_300_000, receipt=100.3)
+    assert owner.project(partial, current, (14., 5., -50.), timestamp_s=1_700_000_000.3) is missing
+    assert owner.retained_frame(current) == (missing, None)
+    with pytest.raises(ValueError, match='unavailable_or_changed'):
+        owner.resolve(visible, current)
 
 
 def test_partial_pose_progress_or_reordered_pose_cannot_refresh_measurement(make_fixture, state):
@@ -232,6 +280,81 @@ def test_partial_pose_progress_or_reordered_pose_cannot_refresh_measurement(make
     partial['vehicle_pose']['px4_timestamp_us'] = 1_999_999
     with pytest.raises(ValueError, match='pose_reordered'):
         owner.project(partial, state, (14., 5., -50.), timestamp_s=1_700_000_001.)
+    with pytest.raises(ValueError, match='owner_invalidated'):
+        owner.project(value, state, (14., 5., -50.), timestamp_s=1_700_000_001.)
+    with pytest.raises(ValueError, match='owner_invalidated'):
+        owner.retained_frame(state)
+
+
+@pytest.mark.parametrize('component', ['position', 'attitude'])
+@pytest.mark.parametrize('after_partial', [False, True])
+def test_component_rewrite_invalidates_owner_even_when_other_component_progresses(
+        make_fixture, state, clock, component, after_partial):
+    owner = make_fixture()
+    owner.project(packet(state), state, (14., 5., -50.), timestamp_s=1_700_000_000.)
+    current = advanced(state)
+    clock[0] = 100.375
+    if component == 'position':
+        timestamp = 2_250_000 if after_partial else 2_000_000
+        if after_partial:
+            owner.project(packet(state, timestamp=timestamp, receipt=100.25), state,
+                          (14., 6., -50.), timestamp_s=1_700_000_001.)
+        value = packet(current, position=(5., 5., -50.), timestamp=timestamp, receipt=100.25)
+    else:
+        if after_partial:
+            owner.project(packet(current, receipt=100.25), current,
+                          (14., 6., -50.), timestamp_s=1_700_000_001.)
+        else:
+            current = replace(state, sequence=2, observed_at_monotonic_s=100.25)
+        current = replace(current, attitude_body_to_ned=Quaternion.from_euler(.1, .2, .3))
+        value = packet(current, timestamp=2_250_000, receipt=100.25)
+    with pytest.raises(ValueError, match='pose_rewritten'):
+        owner.project(value, current, (14., 6., -50.), timestamp_s=1_700_000_001.)
+    with pytest.raises(ValueError, match='owner_invalidated'):
+        owner.retained_frame(current)
+    fresh = replace(advanced(state), attitude_timing=attitude_timing(
+        publication_timestamp_us=1_300_000, sample_timestamp_us=1_290_000,
+        publication_received_at_monotonic_s=100.3, sample_received_at_monotonic_s=100.3))
+    with pytest.raises(ValueError, match='owner_invalidated'):
+        owner.project(packet(fresh, timestamp=2_300_000, receipt=100.3), fresh,
+                      (14., 5., -50.), timestamp_s=1_700_000_001.)
+
+
+def test_reordering_after_partial_progress_cannot_hide_above_last_projected_timestamp(make_fixture, state):
+    owner = make_fixture()
+    owner.project(packet(state), state, (14., 5., -50.), timestamp_s=1_700_000_000.)
+    owner.project(packet(state, timestamp=2_250_000), state, (14., 6., -50.), timestamp_s=1_700_000_001.)
+    with pytest.raises(ValueError, match='pose_reordered'):
+        owner.project(packet(state, timestamp=2_100_000), state, (14., 6., -50.), timestamp_s=1_700_000_001.)
+
+
+@pytest.mark.parametrize('through_project', [False, True])
+def test_retained_frame_expires_at_original_receipt_despite_new_partial_receipt(
+        make_fixture, state, clock, through_project):
+    owner = make_fixture(max_attitude_age_s=2.)
+    original = owner.project(packet(state), state, (14., 5., -50.), timestamp_s=1_700_000_000.)
+    clock[0] = 100.625
+    with pytest.raises(ValueError, match='frame_stale'):
+        if through_project:
+            owner.project(packet(state, timestamp=2_625_000, receipt=100.625), state,
+                          (14., 6., -50.), timestamp_s=1_700_000_001.)
+        else:
+            owner.retained_frame(state)
+    assert original.timestamp == 1_700_000_000.
+    assert original.raw_data['measurement_monotonic_s'] == 100.
+    assert original.image_measurement.provenance.capture.captured_at == 100.
+
+
+@pytest.mark.parametrize('missing', [False, True])
+def test_retained_target_metadata_tampering_rejects_frame(make_fixture, state, missing):
+    owner = make_fixture()
+    target = (-6., 5., -50.) if missing else (14., 5., -50.)
+    output = owner.project(packet(state), state, target, timestamp_s=1_700_000_000.)
+    output.raw_data['measurement_target_ned'] = (14., 6., -50.)
+    with pytest.raises(ValueError, match='unavailable_or_changed'):
+        owner.retained_frame(state)
+    with pytest.raises(ValueError, match='unavailable_or_changed'):
+        owner.resolve(output, state)
 
 
 def test_old_pair_expires_even_when_current_aircraft_observation_is_fresh(make_fixture, state, clock):
