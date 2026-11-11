@@ -271,19 +271,27 @@ def test_second_client_cannot_replace_active_movement(bench):
 @pytest.mark.parametrize("blocked_stage", ["capture", "inference"])
 def test_flight_thread_publishes_while_video_owner_is_blocked(bench, blocked_stage):
     from types import SimpleNamespace
+    from classes.command_dispatch_guard import validate_before_dispatch
+    from classes.command_intent import CommandIntent
     from classes.flow_controller import FlowController
     from classes.offboard_commander import OffboardCommander
     from tests.unit.drone_interface.test_offboard_commander import _handler
 
     published = []
+    handler = _handler()
 
-    async def send():
+    async def send(*, command_intent, before_dispatch):
+        validate_before_dispatch(before_dispatch)
+        assert isinstance(command_intent, CommandIntent)
+        assert command_intent.profile_name == handler.profile_name
+        assert command_intent.control_type == handler.get_control_type()
+        assert set(command_intent.fields) == set(handler.get_fields())
         published.append(time.monotonic())
         return True
 
     flow = object.__new__(FlowController)
     flow.flight_loop, flow.flight_thread = flow.start_flight_event_loop()
-    commander = OffboardCommander(SimpleNamespace(send_commands_unified=send), _handler(),
+    commander = OffboardCommander(SimpleNamespace(send_commands_unified=send), handler,
                                  command_rate_hz=20, command_ttl_s=1)
     video_loop = asyncio.new_event_loop()
     entered, release = threading.Event(), threading.Event()
