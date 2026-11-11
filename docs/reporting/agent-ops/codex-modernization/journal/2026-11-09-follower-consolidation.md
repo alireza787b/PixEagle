@@ -175,3 +175,20 @@ checks identified in independent review. Tools-only `bf98f4dd0` passes 458 froze
 affected tests. No controller tuning, deployment or hardware changes occurred.
 The checkpoint records the superseded S4 takeover evidence and remaining S6/S7
 gates; raw historical evidence remains immutable.
+
+S6 component/software checkpoint is now closed: eight nominal MC, sixteen
+selected MC fault and eight native FW cases pass, with both gimbal mounts and
+explicit altitude modes. All 34 completed report pages load and animate in a
+real browser. The original weak-excitation Vector-V fault case remains failed;
+two distinct initial-climb fixtures pass the unchanged gate and are explicitly
+selected with the original attempts retained. Tools-only `7327c2153` passes
+487 frozen affected tests, while production bytes retain the prior full gate.
+The checkpoint records exact counts, revisions and raw witness manifests.
+
+S7 review exposed a causal-acquisition gap that mode IDs/epochs and the official
+executor interface cannot resolve. A reviewed atomic ownership request/receipt
+extension replaces the raw native mode-command route, preserving standard DDS
+messages and one owner/lease. Implementation is in progress in a separate pinned
+source checkout; transition-preserving release, new end-on-transition behavior,
+firmware builds and VTOL/hardware qualification remain unclaimed. Public/private
+saved configuration and QGC remain untouched.

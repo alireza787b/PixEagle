@@ -827,3 +827,87 @@ S6 still requires renewed fault results. S7 native activation-bound release and
 end-on-transition remain open. Physical timing, target/boresight alignment,
 installation, HTTP/App startup, clients and release qualification remain separate;
 the public/private saved defaults and hardware are unchanged.
+
+### S6 component/software checkpoint complete
+
+The source/receipt, geometry, dispatch, capability migration and native bearing
+work now has renewed actual PX4 component evidence on the reviewed baseline:
+
+| Evidence | Selected passes | Publication evidence |
+| --- | --- | --- |
+| GM MC nominal: Chase/Vector, both mounts, altitude off/on | 8 | 3,784 successful MAVSDK publications, zero failures |
+| GM MC faults: both followers/mounts, short loss, expiry, repeated retarget, pilot takeover | 16 | 6,063 successful MAVSDK publications, zero failures; maximum gap 0.065 s |
+| Native GM FW: both mounts, altitude off/on, short loss and expiry | 8 | 2,170 successful companion submissions; 3,356 observed native publications; zero failed submissions |
+
+The nominal captures use `115192e15`. The first MC short-loss capture uses
+`bf98f4dd0`; the other selected fault captures use `7327c2153`. These later
+commits change test tooling and documentation only: production, configuration,
+Dashboard and native implementation bytes remain identical to the combined
+`2f7082a4c` gate (6,072 unit / 196 integration / 155 Phase 0 / 141 special tests;
+523 Dashboard tests, lint/build and static/schema checks). The final committed
+fault-tool gate passes **487 tests** in a clean frozen checkout. Its manifest is
+`software-gates-r1/s6-fault-witness-committed-frozen-r1.json`.
+
+The strengthened tests reject a deadline-only reset or compatibility immediate
+handoff in a configured bounded GM case. Actual repeated selections preserve
+the original pending deadline. After confirmed restoration a later selection
+legitimately creates a new episode. Actual pilot Hold produces release with no
+additional backend `action.hold`/`offboard.stop`, including final cleanup. The
+independent reader retains exact source/receipt, trace-line and checksum witnesses.
+
+One original Vector-V long-loss run failed only its vertical-response gate:
+0.021272 m against 0.1 m. Correctly signed climb commands and measured response
+precede the outage, but hover drift and the short excitation interval leave
+insufficient net motion. The original H case passed at 0.113555 m. Both stay
+retained. Two **distinct** initial-climb fixtures start the target 3 m above
+at t0/t4, matching the original t8 height; all later points, loss schedule,
+gains, limits and the 0.1 m gate remain unchanged. They pass with 0.420776 /
+0.400268 m vertical work. This qualifies the revised fixture, not repeatability
+of the original weak-excitation case. The fault archive contains eighteen
+attempts and sixteen explicitly selected passes, with failed history visible.
+
+Evidence under `reports/sitl/follower-consolidation-20261111/`:
+
+- `software-gates-r1/s6-mc-fault-proof-r2.{json,md}` and its proof manifest;
+- `software-gates-r1/s6-mc-fault-browser-r2.json`: all eighteen fault/history
+  reports load, play, scrub, change views and orbit without JavaScript errors;
+- `software-gates-r1/s6-gm-fw-fault-evidence-r1.json`: actual short-loss
+  restoration, 8.041 / 8.016 s expiry, native flight policy with no MC travel
+  budget, Hold and unchanged post-release publication count;
+- nominal MC/FW and fault FW browser manifests: another sixteen checked reports;
+- `s6-fw-gimbal-runtime-r{1,2}/stopped-and-log-hashes.json`: owned simulators
+  stopped, ULogs flushed and hashed. No physical service was started or changed.
+
+All **34 completed report pages** were browser-checked; the selected matrix is
+32 passing component cases. Raw evidence and failed verdicts remain unchanged.
+Physical gimbal mechanics, target-centre alignment/exposure timing, whole-app
+startup and live FW/VTOL admission remain separate. The S6 source fixture does
+not turn unknown mechanical limits into physical qualification. Public/private
+saved gains, speed ceilings, altitude settings and geometry remain unchanged.
+
+### S7 next — causal native ownership and transition-preserving release
+
+Independent pinned-source reviews found that current mode ID/epoch and command
+acceptance cannot establish which request caused acquisition. A pilot may select
+the same external mode while Start is pending; a prior activation may also be
+replaced before a status poll. Same-ID explicit selection need not advance PX4's
+mode timestamp. The supported executor interface does not resolve those cases.
+An adapter-only receipt derived from a later status would overclaim ownership.
+
+The reviewed next implementation adds an optional atomic `OwnedModeRequest` /
+`OwnedModeStatus` extension **replacing** the adapter's raw mode-command route.
+It reuses Commander intention/CAS handling and the existing native owner/lease.
+Standard VehicleCommand/VehicleStatus definitions and ordinary MAVSDK remain
+unchanged. Correlation identifies the original request/incarnation/intention
+revision and actual resulting activation; release cannot adopt a newer epoch.
+The existing custom-message build/compatibility workflow owns the extension.
+Native-clock expiry and host RPC timeout remain distinct; paused/scaled SIH
+cannot establish host-wall deadline equivalence. Entropy availability is an
+explicit platform gate. No weak boot identity or raw fallback is authorized.
+
+The source audits and alternatives are in
+`software-gates-r1/s7-native-transition-release-audit/`. Implementation has begun
+in a fresh standalone pinned source checkout; no new firmware build, simulator
+or hardware claim follows yet. End-on-transition/new-Start, transition-preserving
+release and actual tailsitter/standard-VTOL qualification remain open. S7–S13
+continue under the same plan, with no QGC PR or hardware changes in this slice.

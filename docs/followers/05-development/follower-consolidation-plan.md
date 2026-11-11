@@ -1,7 +1,7 @@
 # Follower consolidation and aircraft qualification plan
 
-Date: 2026-11-09; updated 2026-11-11. S0–S3 and the S4/S5 MC/native-image-FW
-component/software checkpoints are complete; S6 implementation is in progress. Application, optical,
+Date: 2026-11-09; updated 2026-11-12. S0–S3 and the S4–S6 MC/native-FW
+component/software checkpoints are complete; S7 ownership/transition work is in progress. Application, optical,
 installation and release qualification remain separate. Follow the [checkpoint](../../reporting/agent-ops/codex-modernization/checkpoints/2026-11-09-follower-consolidation.md)
 for actual verification; later slices and qualification remain pending.
 

@@ -1,7 +1,9 @@
 # Follower qualification inventory
 
-Reviewed 2026-11-11. The [raw-backed evidence selector](../02-reference/follower-visual-guide.md)
-is the current MC case inventory; this page records behavior and broader gates.
+Reviewed 2026-11-12. The [raw-backed evidence selector](../02-reference/follower-visual-guide.md)
+retains the MC image cases; the [consolidation checkpoint](../../reporting/agent-ops/codex-modernization/checkpoints/2026-11-09-follower-consolidation.md)
+records renewed S5/S6 image/gimbal/native-FW evidence pending S10's unified selector.
+This page records behavior and broader gates.
 Historical results retain their capture revisions; they are not release acceptance for subsequent changes.
 The [consolidation plan](follower-consolidation-plan.md) defines the next gates.
 
@@ -15,8 +17,9 @@ The [consolidation plan](follower-consolidation-plan.md) defines the next gates.
 | `mc_velocity_distance` | Image position; visual centering with zero forward command | Observed MC component cases in the selector; no measured distance keeping |
 | `mc_attitude_rate` | Image position and aircraft state; rates/thrust | Observed advanced rate/height-hold component cases; live retarget requires Stop; no target-vertical qualification |
 | `fw_attitude_rate` | Image position and aircraft state; L1/TECS-inspired rates/thrust | Synthetic replay; live gate remains; native Vector evidence does not qualify this implementation |
-| `gm_velocity_chase` | Camera-provider angles and canonical installation geometry; MC PID pursuit | Synthetic replay; fresh MC SIH required |
-| `gm_velocity_vector` | Provider angles to physical ray; MC velocity or native FW navigation | Actual bounded FW component/recovery/application evidence below; MC and new VTOL behavior require fresh qualification |
+| `fw_navigation_chase` | Calibrated image bearing; native course/EAS/altitude guidance | Renewed S5 airplane component cases; physical calibration/timing and live admission remain gated |
+| `gm_velocity_chase` | Camera-provider angles and canonical installation geometry; MC PID pursuit | Renewed S6 nominal/fault MC cases, both mounts; simulated boresight, no physical acquisition qualification |
+| `gm_velocity_vector` | Provider angles to physical ray; MC velocity or native FW navigation | Renewed S6 nominal/fault MC and native-FW cases, both mounts; new VTOL and native ownership release remain S7 gates |
 
 Public defaults select Position, circuit breaker on and shared target-altitude
 guidance off. That shared flag is not a universal altitude-hold contract:
@@ -34,6 +37,8 @@ gallery traces do not become PX4 evidence by linking to these runs.
 | Run / capture revision | Bounded result | Scope exclusions |
 | --- | --- | --- |
 | `follower-consolidation-20261109/current-evidence` / per-run manifests | Current canonical MC captures, raw verdicts, replays and retained failed history; generated inventory rather than a hand-maintained case list | Simulated fixed-camera measurements; no optical tracking, whole-app startup, installation, hardware or release qualification |
+| `follower-consolidation-20261111/s6-mc-*` / `115192e15`, `bf98f4dd0`, `7327c2153` | Eight nominal and sixteen selected fault cases; both followers/mounts, altitude off/on, short loss, budget expiry, repeated retarget and pilot takeover; exact selection and history in `software-gates-r1/s6-mc-fault-proof-r2.json` | Simulated boresight component evidence; original Vector-V weak-excitation long-loss run stays failed, explicitly distinct initial-climb fixtures pass both mounts |
+| `follower-consolidation-20261111/s6-gm-fw-*` / `115192e15` | Eight native GM airplane cases: both mounts, altitude off/on, short-loss restoration and eight-second expiry; confirmed Hold with no later publication | No physical timing/target alignment, application startup, causal acquisition/takeover or transition qualification; airspeed-fault renewal skipped with recorded simulator-policy reason |
 | `mc_velocity_chase-20261025` / `fcdebc0d7` | Actual quadx, 199 successful publications, confirmed Hold and post-Stop CB probe | `release_qualified=false`; no physical camera or tracker acquisition acceptance |
 | `native-vector-fw-matrix-20261107` / `3b3e172cf` | Four actual airplane cases: both mounts, altitude guidance off/on; 1,180 successful submissions and 1,800 observed publications | Component approach tests, not interception, installation or hardware |
 | `native-vector-recovery-20261107` / `e51e1c59e` | Six airplane recovery cases pass; eight-second expiry and publication continuity retained | Process-stall assertions are separate; intentionally terminal component result remains failed |
@@ -46,6 +51,11 @@ gallery traces do not become PX4 evidence by linking to these runs.
 The failed `gm_velocity_vector-20261025-failed` vertical-MC run remains evidence
 of insufficient altitude response. October 24 imported traces with no observed
 PX4 pose remain incomplete. Keep both failure history and newer scoped results.
+The S6 low-excitation vertical long-loss failure also remains failed: its budget
+handoff passed, but measured vertical work was 0.0213 m against the 0.1 m gate.
+The two distinct revised loss fixtures start the target 3 m above the aircraft;
+both pass that same gate without changing gains, limits or loss timing. This
+does not establish repeatability of the original weak-excitation fixture.
 
 ## Qualification rules
 
