@@ -1,16 +1,312 @@
 """Isolated native SIH harness gates; these tests never command an aircraft."""
 
-from dataclasses import replace
+from copy import deepcopy
+from dataclasses import asdict, replace
 import json
+import math
 import socket
+from types import SimpleNamespace
 
 import pytest
 import yaml
 
-from classes.aircraft_state import AirframePhase
-from classes.target_continuity import TargetEvidenceSnapshot, TargetEvidenceState
-from tests.unit.drone_interface.test_aircraft_state import aircraft_state
-from tools.run_native_vector_sih import component_loss_windows, load_component_scenario, loss_tracker_output, phase_response_segments, stable_window, tracker_for_world_target, verify_simulator
+from classes.aircraft_state import AirframePhase, Quaternion
+from classes.target_continuity import IdentityVerdict, TargetEvidenceSnapshot, TargetEvidenceState
+from classes.tracker_output import TrackerDataType
+from tests.unit.drone_interface.test_aircraft_state import aircraft_state, attitude_timing
+from tests.unit.followers import test_fw_navigation_chase_follower as native_image_cases
+from tools.run_native_vector_sih import (
+    ROOT, ObservationConnection, component_loss_windows, component_profile, component_target_evidence, image_fixture,
+    load_component_scenario, loss_tracker_output, measurement_time, measurement_world_target,
+    observed_pose_record, phase_response_segments,
+    prepare_component_intent, project_component_image, stable_window, tracker_for_world_target,
+    verify_simulator,
+)
+
+
+native_follower_environment = native_image_cases.environment
+
+
+def image_scenario():
+    return yaml.safe_load((ROOT / "tools/sih_visualization_scenarios/fw-navigation-native-image.yaml").read_text())
+
+
+def native_image_context():
+    now = [100.]
+    state = aircraft_state(attitude_timing=attitude_timing())
+    fixture = image_fixture(image_scenario(), state, runtime_id="native-fixture", run_id="image-test", clock=lambda: now[0])
+    q = state.attitude_body_to_ned
+    packet = dict(fresh=True, runtime_id="native-fixture", aircraft_state=asdict(state),
+        attitude_timing=asdict(state.attitude_timing), vehicle_pose=dict(
+            source="px4_dds_observed", vehicle_ned=[0., 0., -50.], quaternion_wxyz=[q.w, q.x, q.y, q.z],
+            px4_timestamp_us=1_000_000, observed_at_monotonic_s=99.9))
+    return SimpleNamespace(now=now, state=state, fixture=fixture, packet=packet)
+
+
+def test_only_coherent_accepted_native_packet_can_replace_projected_pose():
+    env = native_image_context()
+    connection = ObservationConnection(env.state.binding, clock=lambda: env.now[0])
+    assert connection.commit_aircraft_state(env.state)
+    assert connection.retain_packet(env.state, env.packet)
+    retained = connection.last_packet
+    incoming = replace(env.state, sequence=0)
+    reordered = deepcopy(env.packet)
+    reordered["aircraft_state"] = asdict(incoming)
+    reordered["vehicle_pose"]["vehicle_ned"] = [100., 100., -40.]
+    assert not connection.commit_aircraft_state(incoming)
+    accepted = connection.get_aircraft_state()
+    assert accepted == env.state
+    assert not connection.retain_packet(accepted, reordered)
+    assert not connection.retain_packet(incoming, reordered)
+    assert connection.last_packet is retained
+    output = project_component_image(env.fixture, connection.last_packet, accepted, [100., 20., -40.], timestamp_s=1.)
+    assert output.image_measurement is not None
+
+
+def test_rewritten_attitude_timing_packet_does_not_become_a_stable_gate_sample():
+    env = native_image_context()
+    connection = ObservationConnection(env.state.binding, clock=lambda: env.now[0])
+    assert connection.commit_aircraft_state(env.state)
+    assert connection.retain_packet(env.state, env.packet)
+    rewritten = replace(env.state, sequence=2, attitude_timing=replace(env.state.attitude_timing,
+        sample_timestamp_us=env.state.attitude_timing.sample_timestamp_us-1))
+    packet = deepcopy(env.packet)
+    packet["aircraft_state"] = asdict(rewritten)
+    assert not connection.commit_aircraft_state(rewritten)
+    assert not connection.retain_packet(rewritten, packet)
+    assert not connection.retain_packet(connection.get_aircraft_state(), packet)
+    assert connection.last_packet is env.packet
+    assert connection.retain_packet(env.state, env.packet)
+
+
+def test_pose_trace_uses_actual_receipt_and_does_not_refresh_on_repeated_polls():
+    env = native_image_context()
+    baseline = observed_pose_record(env.packet, follow_start=100., previous_timestamp_us=None)
+    assert baseline["timestamp"] == pytest.approx(-.1)
+    assert baseline["observed_at_monotonic_s"] == 99.9
+    assert baseline["timestamp_basis"] == "native_pose_acquisition_receipt"
+    repeated = deepcopy(env.packet)
+    repeated["vehicle_pose"]["observed_at_monotonic_s"] = 100.2
+    assert observed_pose_record(repeated, follow_start=100., previous_timestamp_us=1_000_000) is None
+    repeated["vehicle_pose"]["px4_timestamp_us"] += 50_000
+    fresh = observed_pose_record(repeated, follow_start=100., previous_timestamp_us=1_000_000)
+    assert fresh["timestamp"] == pytest.approx(.2)
+    assert fresh["vehicle_ned"] == baseline["vehicle_ned"]
+    with pytest.raises(ValueError, match="pose_reordered"):
+        observed_pose_record(env.packet, follow_start=100., previous_timestamp_us=1_050_000)
+
+
+@pytest.mark.parametrize("timestamp", [0, -1, True, 1., None, 2**64])
+def test_pose_trace_rejects_invalid_native_timestamp(timestamp):
+    env = native_image_context()
+    env.packet["vehicle_pose"]["px4_timestamp_us"] = timestamp
+    with pytest.raises(ValueError, match="pose_timestamp_invalid"):
+        observed_pose_record(env.packet, follow_start=100., previous_timestamp_us=None)
+
+
+@pytest.mark.parametrize("profile,contract,data_type", [
+    ("gm_velocity_vector", "gimbal_angles", TrackerDataType.GIMBAL_ANGLES),
+    ("fw_navigation_chase", "image_position_2d", TrackerDataType.POSITION_2D),
+])
+def test_native_component_input_is_selected_from_registered_contract(profile, contract, data_type):
+    selected = component_profile(profile)
+    assert selected.input_contract == contract
+    assert selected.tracker_type is data_type
+    assert selected.command_contract(is_vtol=False) == "fixed_wing_external"
+    assert selected.template.is_file()
+
+
+def test_component_adapter_is_not_keyed_by_follower_identifier(monkeypatch):
+    original = component_profile("fw_navigation_chase").profile
+    renamed = replace(original, mode="new_calibrated_image_profile", native_phase_contracts=())
+    monkeypatch.setattr("tools.run_native_vector_sih.get_follower_profile", lambda name: renamed)
+    selected = component_profile(renamed.mode)
+    assert selected.profile is renamed
+    assert selected.tracker_type is TrackerDataType.POSITION_2D
+    with pytest.raises(ValueError, match="vtol_contract_unavailable"):
+        selected.command_contract(is_vtol=True)
+
+
+@pytest.mark.parametrize("profile", ["mc_velocity_chase", "fw_attitude_rate", "gm_velocity_chase"])
+def test_native_component_rejects_unsupported_production_contracts(profile):
+    with pytest.raises(ValueError, match="native_component_profile_unavailable"):
+        component_profile(profile)
+
+
+def test_native_component_rejects_unsupported_input_without_follower_name_checks(monkeypatch):
+    profile = replace(component_profile("fw_navigation_chase").profile, required_tracker_data=("VELOCITY",))
+    monkeypatch.setattr("tools.run_native_vector_sih.get_follower_profile", lambda name: profile)
+    with pytest.raises(ValueError, match="input_unsupported"):
+        component_profile("any-name")
+
+
+def test_explicit_image_scenario_preserves_contract_and_independent_target():
+    selected = component_profile("fw_navigation_chase")
+    raw = load_component_scenario(selected.template, mount="HORIZONTAL", altitude=False,
+        duration=20., is_vtol=False, follower=selected.profile.mode)
+    assert raw["follower"]["input_contract"] == "image_position_2d"
+    assert raw["follower"]["speed_source_policy"] == "native_auto"
+    assert raw["target"] == image_scenario()["target"]
+    assert raw["pinhole_calibration"]["image_size_px"] == [1280, 720]
+
+
+@pytest.mark.parametrize("change", ["missing_camera", "missing_calibration", "extra_calibration", "gimbal_input",
+                                    "wrong_profile", "velocity_command", "wrong_airframe", "wrong_mount"])
+def test_image_scenario_rejects_incompatible_or_implicit_optics(tmp_path, change):
+    raw = image_scenario()
+    if change == "missing_camera":
+        raw.pop("fixed_camera")
+    elif change == "missing_calibration":
+        raw.pop("pinhole_calibration")
+    elif change == "extra_calibration":
+        raw["pinhole_calibration"]["infer_from_fov"] = True
+    elif change == "gimbal_input":
+        raw["follower"]["input_contract"] = "gimbal_angles"
+    elif change == "wrong_profile":
+        raw["follower"]["profile"] = "gm_velocity_vector"
+    elif change == "velocity_command":
+        raw["follower"]["command_contract"] = "velocity_body_offboard"
+    elif change == "wrong_airframe":
+        raw["airframe"] = "multicopter"
+    else:
+        raw["mount_type"] = "VERTICAL"
+    path = tmp_path / "image.yaml"
+    path.write_text(yaml.safe_dump(raw))
+    with pytest.raises(ValueError):
+        load_component_scenario(path, mount="HORIZONTAL", altitude=False, duration=20.,
+            is_vtol=False, follower="fw_navigation_chase")
+
+
+def test_image_fixture_requires_matching_explicit_optics_before_authority():
+    raw = image_scenario()
+    raw["pinhole_calibration"]["focal_length_px"][0] = 800.
+    with pytest.raises(ValueError, match="intrinsics_fov_mismatch"):
+        image_fixture(raw, aircraft_state(attitude_timing=attitude_timing()),
+            runtime_id="native-fixture", run_id="bad-optics", clock=lambda: 100.)
+    with pytest.raises(ValueError, match="attitude_timing_unavailable"):
+        image_fixture(image_scenario(), aircraft_state(), runtime_id="native-fixture", run_id="no-timing")
+
+
+def test_component_projection_retains_pose_receipt_and_exact_quaternion_pair():
+    env = native_image_context()
+    output = project_component_image(env.fixture, env.packet, env.state, [100., 20., -40.], timestamp_s=1.)
+    assert measurement_time(output) == 99.9
+    aligned = env.fixture.resolve(output, env.state)
+    direction = aligned.direction_ned
+    length = math.sqrt(100.**2 + 20.**2 + 10.**2)
+    assert (direction.x, direction.y, direction.z) == pytest.approx((100./length, 20./length, 10./length))
+    env.now[0] = 100.1
+    later = replace(env.state, sequence=2, observed_at_monotonic_s=100.1,
+        attitude_body_to_ned=Quaternion.from_euler(.1, .2, .3), attitude_timing=replace(env.state.attitude_timing,
+            publication_timestamp_us=1_100_000, sample_timestamp_us=1_090_000,
+            publication_received_at_monotonic_s=100.1, sample_received_at_monotonic_s=100.1))
+    assert env.fixture.resolve(output, later).direction_ned == direction
+    duplicate = project_component_image(env.fixture, env.packet, env.state, [100., 20., -40.], timestamp_s=2.)
+    assert duplicate is output
+    assert measurement_time(duplicate) == 99.9
+
+
+def test_partial_projection_retains_original_measurement_and_target_truth():
+    env = native_image_context()
+    output = project_component_image(env.fixture, env.packet, env.state, [100., 20., -40.], timestamp_s=1.)
+    assert output.image_measurement is not None
+    retained = project_component_image(env.fixture, env.packet, env.state, [100., 21., -40.], timestamp_s=2.)
+    assert retained is output
+    assert measurement_time(retained) == 99.9
+    assert measurement_world_target(retained, [100., 21., -40.]) == (100., 20., -40.)
+    assert env.fixture.retained_frame(env.state) == (output, (100., 20., -40.))
+
+
+def test_projected_age_expiry_is_uncertain_without_a_new_measurement():
+    env = native_image_context()
+    output = project_component_image(env.fixture, env.packet, env.state, [100., 20., -40.], timestamp_s=1.)
+    assert output.image_measurement is not None
+    env.now[0] = 101.
+    unavailable = project_component_image(env.fixture, env.packet, env.state, [100., 21., -40.], timestamp_s=2.)
+    evidence = component_target_evidence(unavailable, input_owner=None, session_epoch=3, now=lambda: 101.)
+    assert evidence.state is TargetEvidenceState.UNCERTAIN
+    assert unavailable.image_measurement is None
+    assert unavailable.position_2d is None
+    assert measurement_time(unavailable) is None
+    assert measurement_world_target(unavailable, [100., 21., -40.]) is None
+    assert unavailable.raw_data["freshness_reason"] == "sih_projection_attitude_stale"
+
+
+def test_projection_identity_failure_remains_a_guard_failure():
+    env = native_image_context()
+    env.packet["runtime_id"] = "superseded-runtime"
+    with pytest.raises(ValueError, match="native_packet_invalid"):
+        project_component_image(env.fixture, env.packet, env.state, [100., 20., -40.], timestamp_s=1.)
+
+
+def test_component_evidence_uses_production_read_only_qualifier_and_original_receipt():
+    env = native_image_context()
+    output = project_component_image(env.fixture, env.packet, env.state, [100., 20., -40.], timestamp_s=1.)
+    calls = []
+
+    def qualify(observation, state):
+        calls.append((observation, state))
+        env.fixture.resolve(observation, state)
+
+    owner = SimpleNamespace(follower=SimpleNamespace(follower=SimpleNamespace(require_guidance_input=qualify)),
+                            px4_interface=SimpleNamespace(get_aircraft_state=lambda: env.state))
+    fresh = component_target_evidence(output, input_owner=owner, session_epoch=3, now=lambda: 100.)
+    assert fresh.state is TargetEvidenceState.CONFIRMED
+    assert fresh.observed_at_monotonic_s == 99.9
+    assert calls == [(output, env.state)]
+    env.now[0] = 101.
+    stale = component_target_evidence(output, input_owner=owner, session_epoch=3, now=lambda: 101.)
+    assert stale.state is TargetEvidenceState.UNCERTAIN
+    assert stale.identity_verdict is IdentityVerdict.UNCONFIRMED
+    assert stale.reason_code == "sih_projection_attitude_stale"
+    assert stale.observed_at_monotonic_s == fresh.observed_at_monotonic_s
+    absent = component_target_evidence(loss_tracker_output(TrackerDataType.POSITION_2D),
+        input_owner=owner, session_epoch=3, now=lambda: 101.)
+    assert absent.state is TargetEvidenceState.ABSENT
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize("data_type", [TrackerDataType.POSITION_2D, TrackerDataType.GIMBAL_ANGLES])
+def test_generic_loss_has_no_fabricated_input_or_sample_time(data_type):
+    output = loss_tracker_output(data_type)
+    assert output.data_type is data_type
+    assert output.image_measurement is None and output.angular is None and output.position_2d is None
+    assert measurement_time(output) is None
+    assert TargetEvidenceSnapshot.from_tracker_output(output, session_epoch=1).state is TargetEvidenceState.ABSENT
+    with pytest.raises(ValueError, match="loss_input_unsupported"):
+        loss_tracker_output(TrackerDataType.VELOCITY_AWARE)
+
+
+def test_native_final_guard_preserves_typed_fields_identity_and_intent_timestamp(native_follower_environment):
+    env = native_follower_environment()
+    assert env.follower.follow_target(env.output)
+    intent = env.follower.get_last_command_intent()
+    original = deepcopy(intent.fields)
+    guarded = prepare_component_intent(env.follower, intent, loss_decay=True)
+    assert guarded.fields == original
+    assert intent.fields == original
+    assert guarded.guidance_identity is intent.guidance_identity
+    assert guarded.created_at_monotonic_s == intent.created_at_monotonic_s
+    assert set(guarded.fields) == {"course_rad", "equivalent_airspeed_m_s", "altitude_amsl_m"}
+    env.follower.release_session_controls()
+    with pytest.raises(ValueError, match="ended"):
+        prepare_component_intent(env.follower, intent, loss_decay=False)
+
+
+def test_initial_image_evidence_qualifies_prepared_real_session_before_any_mode_observation(native_follower_environment):
+    env = native_follower_environment(settle=False)
+    owner = SimpleNamespace(follower=SimpleNamespace(follower=env.follower),
+                            px4_interface=SimpleNamespace(get_aircraft_state=lambda: env.state))
+    with pytest.raises(ValueError, match="aircraft_state_stale"):
+        env.session.require_state()
+    initial_phase_state = env.session.phase_owner.state
+    evidence = component_target_evidence(env.output, input_owner=owner, session_epoch=1, now=lambda: env.now[0])
+    assert evidence.state is TargetEvidenceState.CONFIRMED
+    assert env.session.phase_owner.state is initial_phase_state
+    assert env.follower.get_last_command_intent() is None
+    assert not env.follower.follow_target(env.output)
+    with pytest.raises(ValueError, match="aircraft_state_stale"):
+        env.session.require_state()
 
 
 def flight_window():

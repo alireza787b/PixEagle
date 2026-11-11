@@ -1,0 +1,44 @@
+schema_version: 2
+name: fw-navigation-native-image-moving-target
+frame: local_ned
+rate_hz: 20
+mount_type: HORIZONTAL
+airframe: fixed_wing
+evidence_provenance: px4_sih
+stable_flight: {required: true, settle_samples: 7}
+follower:
+  profile: fw_navigation_chase
+  purpose: Calibrated fixed-camera image pursuit through native coordinated FW control
+  input_contract: image_position_2d
+  command_contract: fixed_wing_external
+  speed_source_policy: native_auto
+  altitude_control: false
+fixed_camera:
+  forward_body: [1.0, 0.0, 0.0]
+  right_body: [0.0, 1.0, 0.0]
+  down_body: [0.0, 0.0, 1.0]
+  offset_body_m: [0.0, 0.0, 0.0]
+  horizontal_fov_deg: 90.0
+  vertical_fov_deg: 58.71550708558255
+pinhole_calibration:
+  revision: synthetic-forward-camera-v1
+  image_size_px: [1280, 720]
+  focal_length_px: [640.0, 640.0]
+  principal_point_px: [639.5, 359.5]
+  optical_to_body_frd_wxyz: [0.5, 0.5, 0.5, 0.5]
+  distortion_model: none
+constraints:
+  altitude: {min: 5.0, max: 120.0}
+continuity_policy:
+  mode: bounded_flight
+  max_coast_time_s: 8.0
+target:
+  waypoints:
+    - {time_s: 0.0, position_ned: [80.0, 0.0, -30.0]}
+    - {time_s: 30.0, position_ned: [260.0, 30.0, -30.0]}
+acceptance:
+  - independent PX4 pose and moving-target truth required
+  - synthetic image pixels must retain their exact observed-state association
+  - course, EAS reference and vertical objective remain distinct
+  - no camera exposure or optical-tracker qualification is implied
+  - never integrate command intent into aircraft movement

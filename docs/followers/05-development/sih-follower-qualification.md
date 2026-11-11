@@ -13,6 +13,7 @@ evidence; PX4 acceptance requires separate observed pose and publication traces.
 | `mc_velocity_chase`, `mc_velocity_ground`, `mc_velocity_distance`, `mc_velocity_position` | `sihsim_quadx` | image position | body velocity | off |
 | `mc_attitude_rate` | `sihsim_quadx` | image position + airframe state | attitude rate/thrust | off |
 | `fw_attitude_rate` | `sihsim_airplane` | image position + airframe state | attitude rate/L1-TECS intent | off |
+| `fw_navigation_chase` | `sihsim_airplane` | calibrated image + qualified attitude association | native FW course/EAS/vertical objective | off |
 | `gm_velocity_chase`, `gm_velocity_vector` | `sihsim_quadx` | gimbal angles | gimbal-derived body velocity | off |
 
 The private vertical-gimbal profile is an explicit configuration overlay; it may
@@ -50,7 +51,7 @@ times. A gap in an imported truth trace stays unknown; it is not replaced by
 the scenario trajectory. Continuity events/reasons retain their authoritative
 state-trace values separately from tracker classification.
 
-For native Vector component checks, `tools/run_native_vector_sih.py` verifies an
+For native guidance component checks, `tools/run_native_vector_sih.py` verifies an
 already-running isolated Docker SIH instance and its UID before control. It
 requires Docker network mode `none`, no devices, no privilege and no published
 ports. With `--sih-build-manifest PATH`, it verifies the reviewed packaged build
@@ -99,6 +100,22 @@ The component result separately checks observed range reduction, altitude hold
 or vertical response, altitude floor, successful handoff and stopped publication.
 Completing all command submissions alone cannot mark the run passed. The hold
 tolerance is a test acceptance value, not another flight-control limit.
+
+The native runner defaults to `--follower gm_velocity_vector`. Selecting
+`--follower fw_navigation_chase --mount HORIZONTAL` uses the same publisher,
+continuity supervisor and native owner with the profile's declared image input.
+Its template, `tools/sih_visualization_scenarios/fw-navigation-native-image.yaml`,
+defines both the synthetic fixed-camera axes/FOV and explicit pinhole calibration;
+neither is inferred from real hardware. Each image is projected from retained
+PX4 pose and attitude samples, with the original pose receipt and exact
+association preserved. A partial pose/attitude update retains the previous frame
+and its original target truth until expiry. Pose traces use source receipt times,
+not repeated poll times; pre-start pose baselines may have negative run timestamps.
+The production read-only input qualifier must pass before
+mode engagement and before nominal guidance. An unavailable association enters
+the existing bounded recovery; polling cannot refresh the image timestamp.
+This remains a component experiment with synthetic image pixels and actual
+PX4-observed motion, not optical tracking or live-profile qualification.
 
 ## Safe command
 
