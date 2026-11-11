@@ -58,12 +58,20 @@ class FixedWingCommand:
                              guidance_identity=identity)
 
     @classmethod
+    def field_variants(cls) -> dict[str, frozenset[str]]:
+        """Return the exact field sets accepted by the native FW contract."""
+        common = frozenset({"course_rad", "equivalent_airspeed_m_s"})
+        return {
+            "height_rate": common | {"height_rate_m_s"},
+            "altitude": common | {"altitude_amsl_m"},
+        }
+
+    @classmethod
     def from_intent(cls, intent: CommandIntent) -> FixedWingCommand:
         if intent.control_type != "fixed_wing_external" or intent.guidance_identity is None:
             raise ValueError("native_fixed_wing_intent_invalid")
         fields = intent.fields
-        common = {"course_rad", "equivalent_airspeed_m_s"}
-        if set(fields) not in (common | {"height_rate_m_s"}, common | {"altitude_amsl_m"}):
+        if set(fields) not in cls.field_variants().values():
             raise ValueError("native_fixed_wing_fields_invalid")
         return cls(fields["course_rad"], fields["equivalent_airspeed_m_s"],
                    fields.get("height_rate_m_s"), fields.get("altitude_amsl_m"))

@@ -19,7 +19,7 @@ from unittest.mock import patch, MagicMock, AsyncMock
 def mock_schema():
     """Create a mock schema for testing."""
     return {
-        'schema_version': '2.3.0',
+        'schema_version': '2.4.0',
         'follower_profiles': {
             'mc_velocity_chase': {
                 'control_type': 'velocity_body_offboard',
@@ -46,8 +46,8 @@ def mock_schema():
             'thrust': {'type': 'float', 'unit': 'normalized', 'default': 0.5, 'clamp': True, 'limits': {'min': 0.0, 'max': 1.0}}
         },
         'control_types': {
-            'velocity_body_offboard': {'mavsdk_method': 'set_velocity_body'},
-            'attitude_rate': {'mavsdk_method': 'set_attitude_rate'},
+            'velocity_body_offboard': {'transport': 'mavsdk', 'mavsdk_method': 'set_velocity_body'},
+            'attitude_rate': {'transport': 'mavsdk', 'mavsdk_method': 'set_attitude_rate'},
         }
     }
 

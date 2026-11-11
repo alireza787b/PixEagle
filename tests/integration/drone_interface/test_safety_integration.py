@@ -20,7 +20,7 @@ from unittest.mock import patch, MagicMock, AsyncMock
 def mock_schema():
     """Create a mock schema for testing."""
     return {
-        'schema_version': '2.3.0',
+        'schema_version': '2.4.0',
         'follower_profiles': {
             'mc_velocity_chase': {
                 'control_type': 'velocity_body_offboard',
@@ -37,7 +37,7 @@ def mock_schema():
             'yawspeed_deg_s': {'type': 'float', 'unit': 'deg/s', 'default': 0.0, 'clamp': True}
         },
         'control_types': {
-            'velocity_body_offboard': {'mavsdk_method': 'set_velocity_body'},
+            'velocity_body_offboard': {'transport': 'mavsdk', 'mavsdk_method': 'set_velocity_body'},
         }
     }
 
@@ -213,7 +213,7 @@ class TestThrustLimits:
     def test_thrust_max_clamped(self):
         """Test thrust is clamped to maximum of 1.0."""
         mock_schema = {
-            'schema_version': '2.3.0',
+            'schema_version': '2.4.0',
             'follower_profiles': {
                 'fw_attitude_rate': {
                     'control_type': 'attitude_rate',
@@ -232,7 +232,7 @@ class TestThrustLimits:
                 }
             },
             'control_types': {
-                'attitude_rate': {'mavsdk_method': 'set_attitude_rate'},
+                'attitude_rate': {'transport': 'mavsdk', 'mavsdk_method': 'set_attitude_rate'},
             }
         }
 
@@ -252,7 +252,7 @@ class TestThrustLimits:
     def test_thrust_min_clamped(self):
         """Test thrust is clamped to minimum of 0.0."""
         mock_schema = {
-            'schema_version': '2.3.0',
+            'schema_version': '2.4.0',
             'follower_profiles': {
                 'fw_attitude_rate': {
                     'control_type': 'attitude_rate',
@@ -271,7 +271,7 @@ class TestThrustLimits:
                 }
             },
             'control_types': {
-                'attitude_rate': {'mavsdk_method': 'set_attitude_rate'},
+                'attitude_rate': {'transport': 'mavsdk', 'mavsdk_method': 'set_attitude_rate'},
             }
         }
 

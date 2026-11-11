@@ -4,6 +4,8 @@ import yaml
 import os
 import math
 import re
+from copy import deepcopy
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any, Optional
@@ -13,12 +15,14 @@ from classes.command_safety import (
     validate_and_clamp_command_value,
 )
 from classes.command_intent import CommandIntent
+from classes.aircraft_state import AircraftBinding, GuidanceSessionIdentity
+from classes.fixed_wing_vector_guidance import FixedWingCommand
 from classes.safety_types import FIELD_LIMIT_MAPPING
 
 # Set up logging
 logger = logging.getLogger(__name__)
 
-SUPPORTED_FOLLOWER_COMMAND_SCHEMA_VERSIONS = frozenset({"2.3.0"})
+SUPPORTED_FOLLOWER_COMMAND_SCHEMA_VERSIONS = frozenset({"2.4.0"})
 _SCHEMA_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
@@ -159,17 +163,13 @@ def validate_follower_command_schema(schema: Any) -> Dict[str, Any]:
         if not isinstance(metadata, dict):
             raise ValueError(f"control_types.{control_name} must be an object")
         unknown_control_metadata = sorted(
-            set(metadata) - {"mavsdk_method", "description", "ui_display"}
+            set(metadata) - {"transport", "mavsdk_method", "field_variants", "description", "ui_display"}
         )
         if unknown_control_metadata:
             raise ValueError(
                 f"control_types.{control_name} has unsupported metadata: "
                 f"{unknown_control_metadata}"
             )
-        method = _require_nonempty_string(
-            metadata.get("mavsdk_method"),
-            f"control_types.{control_name}.mavsdk_method",
-        )
         _require_nonempty_string(
             metadata.get("description"),
             f"control_types.{control_name}.description",
@@ -178,9 +178,40 @@ def validate_follower_command_schema(schema: Any) -> Dict[str, Any]:
             metadata.get("ui_display"),
             f"control_types.{control_name}.ui_display",
         )
-        if method in mavsdk_methods:
-            raise ValueError(f"duplicate MAVSDK dispatch method {method!r}")
-        mavsdk_methods.add(method)
+        transport = metadata.get("transport")
+        if transport == "mavsdk":
+            if "field_variants" in metadata:
+                raise ValueError(f"control_types.{control_name}.field_variants requires px4_native transport")
+            method = _require_nonempty_string(
+                metadata.get("mavsdk_method"),
+                f"control_types.{control_name}.mavsdk_method",
+            )
+            if method in mavsdk_methods:
+                raise ValueError(f"duplicate MAVSDK dispatch method {method!r}")
+            mavsdk_methods.add(method)
+        elif transport == "px4_native":
+            if control_name != "fixed_wing_external":
+                raise ValueError(f"unsupported native control type {control_name!r}")
+            if "mavsdk_method" in metadata:
+                raise ValueError(f"control_types.{control_name} cannot declare a MAVSDK method")
+            variants = metadata.get("field_variants")
+            expected_variants = FixedWingCommand.field_variants()
+            if not isinstance(variants, dict) or set(variants) != set(expected_variants):
+                raise ValueError(f"control_types.{control_name}.field_variants must match FixedWingCommand")
+            for variant_name, expected_fields in expected_variants.items():
+                fields = _require_unique_string_list(
+                    variants[variant_name],
+                    f"control_types.{control_name}.field_variants.{variant_name}",
+                    allow_empty=False,
+                )
+                if fields != variants[variant_name] or set(fields) != expected_fields:
+                    raise ValueError(f"control_types.{control_name}.field_variants.{variant_name} must match FixedWingCommand")
+            if set().union(*expected_variants.values()) & set(command_fields):
+                raise ValueError("native command fields must not declare scalar defaults")
+        else:
+            raise ValueError(f"control_types.{control_name}.transport must be mavsdk or px4_native")
+        if control_name == "fixed_wing_external" and transport != "px4_native":
+            raise ValueError("fixed_wing_external requires px4_native transport")
 
     from classes.tracker_output import TrackerDataType
 
@@ -268,11 +299,17 @@ def validate_follower_command_schema(schema: Any) -> Dict[str, Any]:
                 f"follower_profiles.{profile_name}.airframe_phase has unsupported "
                 f"value {airframe_phase!r}"
             )
+        native_control = control_types[control_type]["transport"] == "px4_native"
         required_fields = _require_unique_string_list(
             profile.get("required_fields"),
             f"follower_profiles.{profile_name}.required_fields",
-            allow_empty=False,
+            allow_empty=native_control,
         )
+        if native_control and (required_fields or airframe_phase != "fixed_wing"):
+            raise ValueError(
+                f"follower_profiles.{profile_name} native FW profiles require "
+                "empty required_fields and fixed_wing airframe_phase"
+            )
         unknown_fields = sorted(set(required_fields) - set(command_fields))
         if unknown_fields:
             raise ValueError(
@@ -450,6 +487,25 @@ def command_intent_contract_errors(
         return errors
 
     if profile is not None:
+        if command_contract["control_types"][profile["control_type"]]["transport"] == "px4_native":
+            try:
+                identity = command_intent.get("guidance_identity")
+                if isinstance(identity, dict):
+                    identity = GuidanceSessionIdentity(
+                        **{**identity, "binding": AircraftBinding(**identity["binding"])}
+                    )
+                if not isinstance(identity, GuidanceSessionIdentity):
+                    raise ValueError("native intent requires GuidanceSessionIdentity")
+                FixedWingCommand.from_intent(CommandIntent(
+                    profile_name=profile_name,
+                    control_type=control_type,
+                    fields=fields,
+                    source="command_contract_validation",
+                    guidance_identity=identity,
+                ))
+            except (KeyError, TypeError, ValueError) as exc:
+                errors.append(f"command_intent native FW contract: {exc}")
+            return errors
         expected_fields = set(profile["required_fields"])
         actual_fields = set(fields)
         if actual_fields != expected_fields:
@@ -572,12 +628,15 @@ class SetpointHandler:
         metadata = cls._schema_cache["control_types"].get(control_type)
         if not isinstance(metadata, dict):
             raise ValueError(f"Unknown control type {control_type!r}")
-        return dict(metadata)
+        return deepcopy(metadata)
 
     @classmethod
     def get_mavsdk_method(cls, control_type: str) -> str:
         """Return the YAML-declared MAVSDK dispatch method."""
-        return str(cls.get_control_type_metadata(control_type)["mavsdk_method"])
+        metadata = cls.get_control_type_metadata(control_type)
+        if metadata["transport"] != "mavsdk":
+            raise ValueError(f"Control type {control_type!r} does not use MAVSDK")
+        return str(metadata["mavsdk_method"])
     
     @classmethod
     def get_available_profiles(cls) -> List[str]:
@@ -683,6 +742,7 @@ class SetpointHandler:
         If the value is out of range and 'clamp' is true in the config, clamps to min/max.
         If 'clamp' is false, raises ValueError.
         """
+        self._require_mavsdk_fields()
         # Check if field is valid for this profile
         if field_name not in self.fields:
             valid_fields = list(self.fields.keys())
@@ -714,6 +774,7 @@ class SetpointHandler:
         inside the active safety/schema limits. Callers must provide every field
         in the active profile so stale values cannot be carried over implicitly.
         """
+        self._require_mavsdk_fields()
         if not isinstance(field_values, dict):
             raise ValueError(f"field_values must be a dict, got {type(field_values)}")
 
@@ -758,6 +819,40 @@ class SetpointHandler:
             intent.fields,
         )
         return intent
+
+    def set_native_intent(self, intent: CommandIntent) -> CommandIntent:
+        """Atomically accept a complete, session-bound native FW objective."""
+        if self.get_transport() != "px4_native":
+            raise ValueError("native intent requires px4_native transport")
+        self._last_command_intent = None
+        if not isinstance(intent, CommandIntent):
+            raise ValueError("native intent must be a CommandIntent")
+        if intent.profile_name != self.profile_name or intent.control_type != self.get_control_type():
+            raise ValueError("native intent does not match the active profile/control type")
+        if not isinstance(intent.guidance_identity, GuidanceSessionIdentity):
+            raise ValueError("native intent requires GuidanceSessionIdentity")
+        if not isinstance(intent.fields, dict):
+            raise ValueError("native intent fields must be a dict")
+        staged_intent = replace(intent, fields=intent.fields.copy())
+        FixedWingCommand.from_intent(staged_intent)
+        self.fields = staged_intent.fields.copy()
+        self._last_command_intent = staged_intent
+        return staged_intent
+
+    def _require_mavsdk_fields(self) -> None:
+        if self.get_transport() != "mavsdk":
+            raise ValueError("native profiles require set_native_intent; scalar fields/fallbacks are unavailable")
+
+    def get_transport(self) -> str:
+        """Return the declared command transport for this profile."""
+        return str(self.get_control_type_metadata(self.get_control_type())["transport"])
+
+    def get_allowed_field_variants(self) -> Dict[str, frozenset[str]]:
+        """Return allowed complete field sets, independently of current values."""
+        metadata = self.get_control_type_metadata(self.get_control_type())
+        if metadata["transport"] == "px4_native":
+            return {name: frozenset(fields) for name, fields in metadata["field_variants"].items()}
+        return {"required_fields": frozenset(self.profile_config["required_fields"])}
 
     def _validate_single_field(self, field_name: str, value: float) -> float:
         """Validate one field without mutating handler state."""
@@ -968,18 +1063,22 @@ class SetpointHandler:
     
     def reset_setpoints(self):
         """
-        Reset all setpoints to the configured fail-closed fallback values.
+        Clear native commands or restore the configured MAVSDK fallback values.
 
-        Schema defaults initialize every profile. A concrete follower may replace
-        selected values, such as attitude-rate thrust, from its canonical runtime
-        configuration before Offboard starts.
+        Schema defaults initialize MAVSDK profiles. A concrete follower may
+        replace selected values, such as attitude-rate thrust, from its canonical
+        runtime configuration before Offboard starts. Native profiles have no
+        fallback objective.
         """
-        for field_name in self.fields:
-            self.fields[field_name] = self._fallback_defaults[field_name]
+        if self.get_transport() == "px4_native":
+            self.fields = {}
+        else:
+            for field_name in self.fields:
+                self.fields[field_name] = self._fallback_defaults[field_name]
         self._last_command_intent = None
 
         logger.info(
-            "All setpoints for profile '%s' reset to configured fallback defaults",
+            "Setpoints for profile '%s' reset",
             self.profile_name,
         )
 
@@ -990,6 +1089,7 @@ class SetpointHandler:
         source: str,
     ) -> Dict[str, float]:
         """Atomically configure profile fallback values from canonical runtime config."""
+        self._require_mavsdk_fields()
         if not isinstance(field_values, dict) or not field_values:
             raise ValueError("field_values must be a non-empty dict")
         if not isinstance(source, str) or not source.strip():
@@ -1016,10 +1116,12 @@ class SetpointHandler:
 
     def get_fallback_defaults(self) -> Dict[str, float]:
         """Return a copy of the setpoints used for stale/missing command intent."""
+        self._require_mavsdk_fields()
         return self._fallback_defaults.copy()
 
     def get_fallback_default_sources(self) -> Dict[str, str]:
         """Return the source label for every configured fallback field."""
+        self._require_mavsdk_fields()
         return self._fallback_default_sources.copy()
     
     def validate_profile_consistency(self) -> bool:

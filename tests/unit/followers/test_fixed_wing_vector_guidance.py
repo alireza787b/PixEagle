@@ -145,6 +145,15 @@ def test_command_contract_rejects_ambiguous_vertical_and_nonfinite_fields():
         FixedWingCommand(math.nan, 20, 1, None)
 
 
+@pytest.mark.parametrize('height_rate,altitude,variant', [(1, None, 'height_rate'), (None, 550, 'altitude')])
+def test_command_field_variants_match_complete_native_intents(height_rate, altitude, variant):
+    identity = GuidanceSessionIdentity('follow-a', aircraft_state().binding, 1)
+    command = FixedWingCommand(.5, 20, height_rate, altitude)
+    intent = command.intent(identity, profile_name='fixture_native_fw', source='test')
+    assert set(intent.fields) == FixedWingCommand.field_variants()[variant]
+    assert FixedWingCommand.from_intent(intent) == command
+
+
 def test_new_fw_phase_recaptures_altitude_and_drops_old_turn_history():
     planner = FixedWingVectorGuidance(enable_altitude_control=False, geometry_policy=GimbalGuidancePolicy())
     calculate(Vector3(-1, 0.1, 0), planner=planner)

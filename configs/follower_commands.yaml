@@ -6,7 +6,7 @@
 # profile definitions and enables extensible follower modes.
 
 # Schema version for future compatibility
-schema_version: "2.3.0"
+schema_version: "2.4.0"
 
 # ==============================================================================
 # Command Field Definitions
@@ -249,17 +249,28 @@ removed_profile_aliases:
 # ==============================================================================
 # Control Type Definitions
 # ==============================================================================
-# Maps control types to their corresponding MAVSDK methods
+# Declares command transports and exact native command variants.
 control_types:
   attitude_rate:
+    transport: mavsdk
     mavsdk_method: "set_attitude_rate"  
     description: "Attitude rate commands"
     ui_display: "Attitude Rate Control"
 
   velocity_body_offboard:
+    transport: mavsdk
     mavsdk_method: "set_velocity_body"
     description: "Offboard body velocity commands for quadcopters"
     ui_display: "Body Velocity Offboard"
+
+  # Dormant contract only; no shipped profile selects native FW guidance here.
+  fixed_wing_external:
+    transport: px4_native
+    description: "Native PX4 fixed-wing course, EAS and vertical objective"
+    ui_display: "Native Fixed-Wing Guidance"
+    field_variants:
+      height_rate: [course_rad, equivalent_airspeed_m_s, height_rate_m_s]
+      altitude: [course_rad, equivalent_airspeed_m_s, altitude_amsl_m]
 
 # ==============================================================================
 # UI Configuration
