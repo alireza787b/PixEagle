@@ -501,19 +501,8 @@ class GMVelocityVectorFollower(BaseFollower):
 
     def _classify_guidance(self, unit_vector: Vector3D, *, provider_ray=None, observation_time=None):
         classifier = getattr(self, 'guidance_classifier', None)
-        if classifier is None:
-            # Minimal test doubles and legacy integrations which call the
-            # follower directly receive the qualified current-gimbal contract.
-            classifier = GimbalGuidanceClassifier(
-                GimbalGuidancePolicy(),
-                GimbalGuidanceCapabilities(
-                    known=True,
-                    supports_vertical=True,
-                    supports_reverse=True,
-                    supports_yaw_fallback=True,
-                ),
-            )
-            self.guidance_classifier = classifier
+        if not isinstance(classifier, GimbalGuidanceClassifier):
+            raise ValueError("gimbal_guidance_classifier_unavailable")
         return classifier.update(unit_vector, provider_ray=provider_ray, observed_at_monotonic_s=observation_time)
 
     def follow_target(self, tracker_output: TrackerOutput) -> bool:

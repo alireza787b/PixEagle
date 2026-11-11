@@ -23,8 +23,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'sr
 from unittest.mock import MagicMock
 from classes.followers.gm_velocity_vector_follower import GMVelocityVectorFollower, Vector3D
 from classes.aircraft_state import Quaternion
+from classes.gimbal_guidance import GimbalGuidanceCapabilities, GimbalGuidanceClassifier, GimbalGuidancePolicy, GuidanceState
 from classes.tracker_output import TrackerOutput, TrackerDataType
+from tests.unit.followers import test_gimbal_retarget_reset as retarget_fixtures
 from tools.sitl_gimbal_geometry_fixture import camera_angles_for_world_target
+
+
+real_gimbal_environment = retarget_fixtures.environment
 
 
 # ---------------------------------------------------------------------------
@@ -56,6 +61,11 @@ def _build_follower_stub(
     Uses HORIZONTAL mount (project default) with no filtering/offsets for determinism.
     """
     follower = GMVelocityVectorFollower.__new__(GMVelocityVectorFollower)
+    follower.guidance_policy = GimbalGuidancePolicy()
+    follower.guidance_capabilities = GimbalGuidanceCapabilities(
+        known=True, supports_vertical=True, supports_reverse=True, supports_yaw_fallback=True,
+    )
+    follower.guidance_classifier = GimbalGuidanceClassifier(follower.guidance_policy, follower.guidance_capabilities)
 
     # --- _filter_body_ray() ---
     follower.filtered_body_ray = None    # first observation is unfiltered
@@ -104,6 +114,53 @@ def _build_follower_stub(
     follower.set_command_fields = MagicMock(return_value=True)
 
     return follower
+
+
+@pytest.mark.parametrize("angles", [(0., 0., 0.), (0., 90., 0.), (180., 0., 0.)])
+@pytest.mark.parametrize("initialization", ["absent", "none", "invalid"])
+def test_uninitialized_classifier_never_invents_provider_authority_or_nominal_command(angles, initialization):
+    follower = _build_follower_stub(True, 2.)
+    invalid = SimpleNamespace(update=MagicMock())
+    if initialization == "absent":
+        del follower.guidance_classifier
+    else:
+        follower.guidance_classifier = None if initialization == "none" else invalid
+    with pytest.raises(RuntimeError, match="gimbal_guidance_classifier_unavailable"):
+        _run_normalization(follower, *angles)
+    follower.set_command_fields.assert_not_called()
+    invalid.update.assert_not_called()
+    if initialization == "absent":
+        assert "guidance_classifier" not in vars(follower)
+    else:
+        assert follower.guidance_classifier is (None if initialization == "none" else invalid)
+
+
+@pytest.mark.parametrize("ray", [Vector3D(0., 0., 1.), Vector3D(0., 0., -1.), Vector3D(-1., .01, 0.)])
+def test_explicit_unknown_provider_never_gains_vertical_reverse_or_yaw_authority(ray):
+    follower = GMVelocityVectorFollower.__new__(GMVelocityVectorFollower)
+    now = [100.]
+    capabilities = GimbalGuidanceCapabilities()
+    follower.guidance_classifier = GimbalGuidanceClassifier(GimbalGuidancePolicy(), capabilities, clock=lambda: now[0])
+    for elapsed in (0., .31, .9):
+        now[0] = 100.+elapsed
+        decision = follower._classify_guidance(ray, observation_time=now[0])
+        assert decision.state is GuidanceState.UNREACHABLE
+        assert follower.guidance_classifier.capabilities is capabilities
+        assert not capabilities.known
+    assert "guidance_capabilities" not in vars(follower)
+
+
+@pytest.mark.parametrize("mount", ["HORIZONTAL", "VERTICAL"])
+def test_real_constructor_keeps_explicit_classifier_and_forward_guidance(real_gimbal_environment, mount):
+    build, _ = real_gimbal_environment
+    follower = build(GMVelocityVectorFollower, mount)
+    classifier = follower.guidance_classifier
+    assert isinstance(classifier, GimbalGuidanceClassifier)
+    assert classifier.policy is follower.guidance_policy
+    assert classifier.capabilities is follower.guidance_capabilities
+    decision = follower._classify_guidance(Vector3D(1., 0., 0.))
+    assert decision.state is GuidanceState.FORWARD
+    assert follower.guidance_classifier is classifier
 
 
 def _run_normalization(
