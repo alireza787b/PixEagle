@@ -120,6 +120,12 @@ mode engagement and before nominal guidance. An unavailable association enters
 the existing bounded recovery; polling cannot refresh the image timestamp.
 This remains a component experiment with synthetic image pixels and actual
 PX4-observed motion, not optical tracking or live-profile qualification.
+Native acceptance reports use `validate_px4_evidence` followed by the existing
+`write_visualization` in `tools/run_sih_follower_validation.py`. The validator
+requires the successful component verdict, matching captured scenario/manifest,
+configuration/schema checksums, and complete pose/target/publication evidence.
+Failed or inconsistent results retain a failed animation; raw replay export alone
+does not grant response acceptance or physical-aircraft qualification.
 
 ## Safe command
 

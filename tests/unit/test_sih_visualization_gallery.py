@@ -194,7 +194,9 @@ def test_catalog_remains_only_profile_authority_and_scope_is_explicit(run_factor
     catalog_path = Path(__file__).resolve().parents[2] / "tools/sih_visualization_scenarios/follower-contracts.yaml"
     catalog = yaml.safe_load(catalog_path.read_text())
     html = gallery.build_gallery(catalog, output, evidence)
-    assert html.count('<article class="card">') == len(catalog["followers"]) == 8
+    declarations = yaml.safe_load((catalog_path.parents[2] / "configs/follower_commands.yaml").read_text())
+    assert {item["profile"] for item in catalog["followers"]} == set(declarations["follower_profiles"])
+    assert html.count('<article class="card">') == len(catalog["followers"])
     assert "Outside this MC evidence snapshot" in html
     assert "camera measurements are simulated" in html
     assert "physical camera/tracker" in html

@@ -12,6 +12,7 @@ target truth, PX4-observed pose, and successful publication records.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import subprocess
 import sys
@@ -178,6 +179,59 @@ def normalize_harness_evidence(root: Path) -> dict[str, int]:
     }
 
 
+def _evidence_object(path: Path) -> dict[str, Any]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise VisualizationValidationError(f"native acceptance requires valid {path.name}") from exc
+    if not isinstance(value, dict):
+        raise VisualizationValidationError(f"native acceptance requires an object in {path.name}")
+    return value
+
+
+def _native_response_result(root: Path, scenario: VisualizationScenario, evidence) -> dict[str, Any]:
+    result = _evidence_object(root / "result.json")
+    manifest = _evidence_object(root / "manifest.json")
+    if (result.get("passed") is not True or result.get("scope") != "native_guidance_component_only"
+            or result.get("follower") != scenario.follower_profile
+            or result.get("input_contract") != scenario.input_contract
+            or result.get("application_startup_qualified") is not False):
+        raise VisualizationValidationError("native component response/authority acceptance did not pass")
+    if (manifest.get("evidence_kind") != "px4_observed_sih"
+            or manifest.get("qualification") != "native_guidance_component"
+            or manifest.get("application_startup_qualified") is not False
+            or manifest.get("simulated_tracker_input") is not True
+            or manifest.get("follower") != scenario.follower_profile
+            or manifest.get("input_contract") != scenario.input_contract
+            or manifest.get("mount") != scenario.mount_type
+            or manifest.get("altitude_guidance") is not scenario.altitude_control):
+        raise VisualizationValidationError("native manifest and scenario contracts differ")
+    captured = root / "scenario.yaml"
+    if not captured.is_file() or VisualizationScenario.from_yaml(captured) != scenario:
+        raise VisualizationValidationError("native acceptance requires the matching captured scenario")
+    required = {"range_decreased", "altitude_floor", "finite_observed_response", "no_publication_after_stop",
+                "hold_confirmed", "no_publication_failure", "expected_handoff",
+                "altitude_guidance_response" if scenario.altitude_control else "altitude_hold"}
+    checks = result.get("response_checks")
+    if not isinstance(checks, dict) or not required.issubset(checks) or any(value is not True for value in checks.values()):
+        raise VisualizationValidationError("native response checks are missing or failed")
+    handoff = result.get("handoff")
+    if (not isinstance(handoff, dict) or handoff.get("executed") is not True
+            or handoff.get("local_sender_quiesced") is not True
+            or type(result.get("successful_publications")) is not int or result["successful_publications"] <= 0
+            or type(result.get("failed_publications")) is not int or result["failed_publications"] != 0
+            or any(row.get("publish_success") is False for row in evidence["published"])):
+        raise VisualizationValidationError("native result contradicts publication or handoff evidence")
+    configuration = manifest.get("configuration")
+    for name in ("config.yaml", "config_schema.yaml", "follower_commands.yaml"):
+        artifact = configuration.get(name) if isinstance(configuration, dict) else None
+        path = root / name
+        if (not isinstance(artifact, dict) or artifact.get("path") != name or not path.is_file()
+                or artifact.get("sha256") != hashlib.sha256(path.read_bytes()).hexdigest()):
+            raise VisualizationValidationError(f"native configuration checksum mismatch: {name}")
+    return result
+
+
 def validate_px4_evidence(root: Path, scenario: VisualizationScenario) -> dict[str, Any]:
     counts = normalize_harness_evidence(root)
     evidence = load_evidence(root)
@@ -189,18 +243,24 @@ def validate_px4_evidence(root: Path, scenario: VisualizationScenario) -> dict[s
         raise VisualizationValidationError("PX4 acceptance requires a non-empty PX4 pose trace")
     if not evidence["published"] or not any(row.get("publish_success") is True for row in evidence["published"]):
         raise VisualizationValidationError("PX4 acceptance requires successful Offboard publication records")
-    if scenario.follower_profile in MC_PROFILES:
+    native = scenario.command_contract in {"fixed_wing_external", "vtol_external"}
+    result = _native_response_result(root, scenario, evidence) if native else None
+    if not native and scenario.follower_profile in MC_PROFILES:
         result = json.loads((root / "result.json").read_text(encoding="utf-8"))
         if (result.get("passed") is not True or result.get("scope") != "actual_mc_follower_component_only"
                 or result.get("follower") != scenario.follower_profile):
             raise VisualizationValidationError("MC response/authority acceptance did not pass")
     samples = build_timeline(scenario, evidence)
     summary = analyze_timeline(scenario, samples)
-    if scenario.follower_profile in MC_PROFILES:
+    if result is not None:
         summary["qualification_result"] = result
     summary["evidence_kind"] = "px4_sih"
     summary["evidence_counts"] = counts
-    summary["claims"] = "PX4-observed pose, independent target truth, and publication trace only"
+    summary["claims"] = ("PX4-observed native guidance component with synthetic tracker input; "
+                         "not HTTP/App startup, optical tracking or physical-aircraft qualification" if native else
+                         "PX4-observed pose, independent target truth, and publication trace only")
+    if native:
+        summary["qualification_scope"] = result["scope"]
     if summary.get("stale_after_fresh_samples", 0) or any(
         flag.get("type") in {"pose_unavailable", "command_or_pose_gap", "publication_after_authority_release"}
         for flag in summary.get("flags", [])
@@ -233,11 +293,18 @@ def write_failed_visualization(root: Path, scenario: VisualizationScenario, fail
     if not evidence["pose"]:
         return None
     result_path = root / "result.json"
-    result = json.loads(result_path.read_text()) if result_path.is_file() else {}
+    try:
+        result = _evidence_object(result_path)
+    except VisualizationValidationError:
+        result = {}
     result = {**result, "passed": False}
     result.setdefault("reason", str(failure))
+    result["validation_failure"] = str(failure)
     summary = analyze_timeline(scenario, build_timeline(scenario, evidence))
     summary.update(evidence_kind="px4_sih", qualification_result=result)
+    if scenario.command_contract in {"fixed_wing_external", "vtol_external"}:
+        summary.update(qualification_scope="native_guidance_component_only",
+                       claims="Retained failed native-component evidence; no response or physical-aircraft qualification")
     (root / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     return write_visualization(root, scenario, summary)
 
