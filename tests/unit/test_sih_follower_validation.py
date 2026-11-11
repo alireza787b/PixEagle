@@ -141,6 +141,51 @@ def test_original_default_dryrun_remains_contract_only(monkeypatch, capsys, read
     assert response["scenario"]["profile"] == "mc_velocity_position"
 
 
+@pytest.mark.parametrize('profile', ['gm_velocity_chase', 'gm_velocity_vector'])
+@pytest.mark.parametrize('mount', ['horizontal', 'vertical'])
+@pytest.mark.parametrize('altitude', ['off', 'on'])
+def test_gimbal_dryrun_uses_declared_family_without_profile_dispatch_list(
+        tmp_path, monkeypatch, capsys, readonly_cli, profile, mount, altitude):
+    scenario = ROOT / f'tools/sih_visualization_scenarios/{profile}-qualification-{mount}-{altitude}.yaml'
+    monkeypatch.setattr(readonly_cli, 'PROFILE_SCENARIOS', {})
+    monkeypatch.setattr(sys, 'argv', ['runner', '--follower', profile, '--scenario', str(scenario),
+        '--sih-build-manifest', 'not-read-in-dryrun.json', '--evidence-root', str(tmp_path / 'new')])
+    assert readonly_cli.main() == 0
+    plan = json.loads(capsys.readouterr().out)
+    assert plan['mode'] == 'dry_run'
+    assert plan['scenario']['input_contract'] == 'gimbal_angles'
+    assert plan['scenario']['mount_type'] == mount.upper()
+    assert plan['scenario']['altitude_control'] is (altitude == 'on')
+    assert not (tmp_path / 'new').exists()
+
+
+def test_gimbal_execute_requires_source_attestation_before_any_host_launch(tmp_path, monkeypatch, readonly_cli):
+    monkeypatch.setattr(sys, 'argv', ['runner', '--execute', '--follower', 'gm_velocity_chase',
+                                     '--evidence-root', str(tmp_path / 'never-created')])
+    with pytest.raises(SystemExit) as error:
+        readonly_cli.main()
+    assert error.value.code == 2
+    assert not (tmp_path / 'never-created').exists()
+
+
+@pytest.mark.parametrize('profile', ['gm_velocity_chase', 'gm_velocity_vector'])
+@pytest.mark.parametrize('mount', ['horizontal', 'vertical'])
+@pytest.mark.parametrize('altitude', ['off', 'on'])
+def test_gimbal_retarget_is_rejected_before_any_host_or_container_launch(
+        tmp_path, monkeypatch, readonly_cli, profile, mount, altitude):
+    source = ROOT / f'tools/sih_visualization_scenarios/{profile}-qualification-{mount}-{altitude}.yaml'
+    raw = yaml.safe_load(source.read_text())
+    raw['faults'] = [dict(kind='retarget', at_s=4., target_offset_ned=[0., 2., 0.])]
+    scenario = tmp_path / 'retarget.yaml'
+    scenario.write_text(yaml.safe_dump(raw))
+    monkeypatch.setattr(sys, 'argv', ['runner', '--execute', '--follower', profile, '--scenario', str(scenario),
+        '--sih-build-manifest', 'not-read-before-scenario-validation.json', '--evidence-root', str(tmp_path / 'new')])
+    with pytest.raises(VisualizationValidationError, match='does not support retarget or fault injection'):
+        readonly_cli.main()
+    readonly_cli.run_external.assert_not_called()
+    assert not (tmp_path / 'new').exists()
+
+
 def native_case(root, *, altitude=False):
     raw = yaml.safe_load((ROOT / "tools/sih_visualization_scenarios/fw-navigation-native-image.yaml").read_text())
     raw["follower"]["altitude_control"] = altitude

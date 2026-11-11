@@ -107,6 +107,82 @@ def test_host_staging_preserves_actual_gains_limits_policy_and_altitude_mode(tmp
     assert (args.output / "backend/tools/fixed_camera_world_target.py").is_file()
 
 
+@pytest.mark.parametrize('profile', ['gm_velocity_chase', 'gm_velocity_vector'])
+@pytest.mark.parametrize('mount', ['horizontal', 'vertical'])
+@pytest.mark.parametrize('altitude', [False, True])
+def test_gimbal_staging_uses_declared_config_section_and_never_adopts_scenario_limits(
+        tmp_path, monkeypatch, profile, mount, altitude):
+    config = yaml.safe_load((runner.ROOT / 'configs/config_default.yaml').read_text())
+    before = copy.deepcopy(config)
+    def fake_host(args, *, driver_path, configure):
+        (args.output / 'backend/tools').mkdir(parents=True)
+        configure(config)
+    monkeypatch.setattr(sih_isolated_host, 'host', fake_host)
+    path = runner.ROOT / f'tools/sih_visualization_scenarios/{profile}-qualification-{mount}-{"on" if altitude else "off"}.yaml'
+    args = SimpleNamespace(backend_repo=runner.ROOT, evidence_root=tmp_path / 'new', follower=profile,
+                           enable_altitude_control=False, telemetry_source='mavlink2rest')
+    runner.run_host(args, path)
+    section = profile.upper()
+    assert config['Follower']['FollowerOverrides'][section]['ENABLE_ALTITUDE_CONTROL'] is altitude
+    assert config['GimbalTracker']['MOUNT_TYPE'] == mount.upper() == args.mount
+    assert config['GimbalTracker']['ENABLED'] and not config['GimbalTracker']['CONTROL_ENABLED']
+    assert config['Safety'] == before['Safety']
+    assert config['PID'] == before['PID']
+    assert config['TargetContinuity'] == before['TargetContinuity']
+    inputs = json.loads((args.output / 'harness-inputs.json').read_text())
+    assert inputs['fixture_kind'] == 'simulated_boresight'
+    assert inputs['camera_projection'] is inputs['synthetic_image_size_px'] is None
+
+
+def test_projected_image_keeps_real_synthetic_owner_and_original_measurement_receipt():
+    from classes.app_controller import AppController
+    from classes.frame_publisher import FramePublisher
+    app = object.__new__(AppController)
+    app.following_active = False
+    app._tracking_session_generation = 4
+    app.frame_publisher = FramePublisher()
+    app.frame_publisher.invalidate_source('sih-test-pose-epoch')
+    app.get_tracker_output = lambda: app._sih_tracker_output
+    output = runner.tracker_observation((.25, -.5), measurement_epoch_s=100., measurement_monotonic_s=90.)
+    sample = dict(monotonic_s=90., source_boot_ms=(100, 110))
+    runner.bind_projected_image(app, output, sample, (20., 4., -20.))
+    measurement = output.image_measurement
+    assert measurement.pixel_xy == pytest.approx((400., 120.))
+    assert measurement.provenance.source_id == app.frame_publisher.stream_id
+    assert measurement.provenance.capture.captured_at == 90.
+    assert measurement.provenance.calibration_revision is None
+    assert app._guidance_source_readiness(output)['ready']
+    app._freeze_following_observation_source()
+    assert app.get_tracker_output().image_measurement is measurement
+    app.frame_publisher.invalidate_source('replacement-sih-source')
+    assert not app._guidance_source_readiness(output)['ready']
+
+
+@pytest.mark.parametrize('coordinates', [(.37, -.23), (-.41, .62), (0., 0.), (-1., -1.)])
+def test_asymmetric_synthetic_pixel_round_trip_uses_production_normalization(coordinates):
+    from classes.frame_publisher import FramePublisher
+    from classes.trackers.base_tracker import BaseTracker
+    app = SimpleNamespace(frame_publisher=FramePublisher(), _tracking_session_generation=0)
+    app.frame_publisher.invalidate_source('sih-grid-source')
+    output = runner.tracker_observation(coordinates, measurement_epoch_s=100., measurement_monotonic_s=90.)
+    runner.bind_projected_image(app, output, dict(monotonic_s=90., source_boot_ms=(100, 110)), (20., 4., -20.))
+    tracker = SimpleNamespace(video_handler=SimpleNamespace(width=640, height=480))
+    assert BaseTracker._normalize_center_static(tracker, output.image_measurement.pixel_xy) == pytest.approx(coordinates, abs=1e-15)
+
+
+@pytest.mark.parametrize('coordinates', [(1., 0.), (0., 1.), (.999, 0.)])
+def test_projection_outside_pixel_centre_grid_is_refused_without_clamping(coordinates):
+    from classes.frame_publisher import FramePublisher
+    app = SimpleNamespace(frame_publisher=FramePublisher(), _tracking_session_generation=0)
+    app.frame_publisher.invalidate_source('sih-grid-source')
+    output = runner.tracker_observation(coordinates, measurement_epoch_s=100., measurement_monotonic_s=90.)
+    with pytest.raises(ValueError, match='image_pixel_outside_image'):
+        runner.bind_projected_image(app, output, dict(monotonic_s=90., source_boot_ms=(100, 110)), (20., 4., -20.))
+    assert output.position_2d == coordinates
+    assert output.image_measurement is None
+    assert not hasattr(app, 'tracking_input_context')
+
+
 def test_explicit_altitude_flag_is_staged_truthfully_without_gain_changes(tmp_path, monkeypatch):
     config = yaml.safe_load((runner.ROOT / "configs/config_default.yaml").read_text())
     gains = copy.deepcopy(config["PID"])

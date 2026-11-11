@@ -230,9 +230,49 @@ from follower tuning and never relax response tolerances to conceal simulator
 drift. Failed runs with actual pose retain an explicitly failed animation;
 missing pose cannot produce an observed-aircraft animation.
 
-Gimbal/FW legacy drivers remain separate command-sign infrastructure; they are
-not upgraded to moving-world-target qualification by this change. Use the native
-component runner described above for native FW evidence. Remaining host-launcher
+GM MC scenarios now use the same isolated host and stable-flight gate. The
+declared `GIMBAL_ANGLES` input selects a SIH-only in-memory normalized provider,
+with real `CameraRuntime` and `GimbalTracker` source/geometry binding. Independent
+NED truth and actual PX4 physical attitude generate simulated boresight angles;
+there are no synthesized pixels, device exposure timestamps or mechanical-limit
+claims. Only progressing position/attitude source samples create a new angle/TRC
+pair. Cached or partial polls retain the original measurement target and receipts;
+reordered/rewritten components retire that simulated source. The scenario truth
+continues independently. Current source pin/startup and final dispatch hooks run
+through the production helpers, but this component setup does not qualify HTTP/App
+startup, optical acquisition or physical timing.
+
+The eight `gm_velocity_{chase,vector}-qualification-{horizontal,vertical}-{off,on}.yaml`
+cases declare 24 seconds at 20 Hz after a stable 20 m Hold. They use the saved
+gains/limits, both mounts and explicit altitude modes. Off checks zero down and
+observed altitude hold; on requires at least 0.1 m target-directed vertical work.
+Both require observed bearing response, range closure and confirmed Hold without
+later publication. The ordinary level hold does not prove a 30-degree tilt case;
+retain observed roll/pitch and keep deterministic component geometry evidence
+separate. This initial GM renewal rejects fault injection and saved speed edits.
+Retarget scenarios are explicitly unsupported and fail scenario validation before
+any container starts; waypoint motion is the same independent target, not an App
+retarget. Qualify changed target selection separately after Stop.
+
+Synthetic image samples preserve the existing tracker normalization:
+`normalized = (pixel - dimension/2) / (dimension/2)`. The inverse uses
+`(normalized + 1) * dimension/2`, while typed pixel centres remain within
+`[0, dimension-1]`. A projection outside that grid is refused without clamping;
+this convention does not infer optical calibration.
+
+After the coherent software gate, freeze and review the source revision, scenario,
+verified SIH build and a fresh output directory before approving `--execute`.
+For example, this command remains read-only until that flag is added:
+
+```bash
+PYTHONPATH=src .venv/bin/python tools/run_sih_follower_validation.py \
+  --follower gm_velocity_chase \
+  --scenario tools/sih_visualization_scenarios/gm_velocity_chase-qualification-vertical-off.yaml \
+  --sih-build-manifest reports/native-guidance/sih-canonical-build-20261109-r1/sih-build-manifest.json
+```
+
+FW direct-rate legacy infrastructure remains separate. Use the native component
+runner described above for native FW evidence. Remaining host-launcher
 consolidation is recorded as S10 debt.
 
 The runner rejects an acceptance result unless it has:

@@ -1,0 +1,41 @@
+schema_version: 1
+name: gm_velocity_vector-vertical-off-world-target-renewal
+rate_hz: 20
+frame: local_ned
+mount_type: VERTICAL
+airframe: multicopter
+evidence_provenance: synthetic_fixture
+stable_flight: {required: true, settle_samples: 7}
+initial_conditions:
+  vehicle_ned: [0.0, 0.0, -20.0]
+follower:
+  profile: gm_velocity_vector
+  purpose: Simulated boresight pursuit of independent world target
+  input_contract: gimbal_angles
+  command_contract: gimbal_velocity_body
+  speed_source_policy: none
+  altitude_control: false
+  lateral_guidance_mode: coordinated_turn
+  requested_speed: null
+constraints:
+  velocity: {forward: 0.5, right: 0.5, down: 0.0}
+  rate: {yaw: 45.0}
+  altitude: {min: 3.0, max: 120.0}
+continuity_policy: {mode: immediate_handoff}
+target:
+  waypoints:
+    - {time_s: 0.0, position_ned: [18.0, 0.0, -20.0]}
+    - {time_s: 4.0, position_ned: [18.8, 0.0, -20.0]}
+    - {time_s: 8.0, position_ned: [19.6, 4.0, -20.0]}
+    - {time_s: 16.0, position_ned: [21.2, -4.0, -20.0]}
+    - {time_s: 24.0, position_ned: [22.8, -4.0, -20.0]}
+faults: []
+qualification:
+  expected_handoff: false
+  altitude_tolerance_m: 2.0
+  position_tolerance_m: 2.0
+acceptance:
+  - Actual PX4 motion reduces heading bearing error independently of target motion
+  - Actual observed range closure exceeds 0.05 m without integrating commands
+  - Altitude-disabled commands remain zero down and observed altitude holds
+  - Confirmed Hold after Stop with no later publication

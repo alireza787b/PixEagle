@@ -3,8 +3,8 @@
 
 The default operation is a side-effect-free contract check. ``--execute`` is
 an explicit opt-in; ``--validate-existing`` reads a captured run and refreshes
-only derived reports. MC image profiles use the PixEagle-owned fixed-camera
-world-target worker; legacy gimbal/FW drivers remain separate. The visualizer remains read-only:
+only derived reports. MC profiles use the PixEagle-owned world-target worker;
+the legacy direct-rate FW driver remains separate. The visualizer remains read-only:
 it never starts following, sends a target, or integrates a command into a
 vehicle pose. A run is accepted only when the evidence contains independent
 target truth, PX4-observed pose, and successful publication records.
@@ -36,6 +36,7 @@ try:
     from tools.sih_visualizer import build_html, write_csv, write_png  # noqa: E402
 except ModuleNotFoundError:
     from sih_visualizer import build_html, write_csv, write_png  # noqa: E402
+from tools.fixed_camera_world_target import mc_input_family
 
 
 PROFILE_SCENARIOS = {
@@ -49,11 +50,13 @@ PROFILE_SCENARIOS = {
     "gm_velocity_vector": "gimbal-vector-combined-catchup.yaml",
 }
 
-NORMAL_PROFILES = set(PROFILE_SCENARIOS) - {"gm_velocity_chase", "gm_velocity_vector"}
-MC_PROFILES = NORMAL_PROFILES - {"fw_attitude_rate"}
+MC_PROFILES = frozenset(profile for profile in PROFILE_SCENARIOS if mc_input_family(profile) == 'image')
 
 
 def scenario_path(profile: str, altitude_control: bool = False) -> Path:
+    if mc_input_family(profile) == 'angles':
+        suffix = 'on' if altitude_control else 'off'
+        return PROJECT_ROOT / 'tools/sih_visualization_scenarios' / f'{profile}-qualification-horizontal-{suffix}.yaml'
     try:
         name = PROFILE_SCENARIOS[profile]
     except KeyError as exc:
@@ -249,7 +252,7 @@ def validate_px4_evidence(root: Path, scenario: VisualizationScenario, *, normal
         raise VisualizationValidationError("PX4 acceptance requires successful Offboard publication records")
     native = scenario.command_contract in {"fixed_wing_external", "vtol_external"}
     result = _native_response_result(root, scenario, evidence) if native else None
-    if not native and scenario.follower_profile in MC_PROFILES:
+    if not native and mc_input_family(scenario.follower_profile) is not None:
         result = json.loads((root / "result.json").read_text(encoding="utf-8"))
         if (result.get("passed") is not True or result.get("scope") != "actual_mc_follower_component_only"
                 or result.get("follower") != scenario.follower_profile):
@@ -314,19 +317,15 @@ def write_failed_visualization(root: Path, scenario: VisualizationScenario, fail
 
 
 def run_external(args: argparse.Namespace, scenario: VisualizationScenario) -> None:
-    if scenario.follower_profile in MC_PROFILES:
+    if mc_input_family(scenario.follower_profile) is not None:
         from tools.mc_follower_sih import run_host
         run_host(args, args.scenario or scenario_path(args.follower, args.enable_altitude_control))
         return
     qgc_root = args.qgc_repo.resolve()
     if not qgc_root.is_dir():
         raise SystemExit(f"QGC validation checkout is missing: {qgc_root}")
-    if scenario.follower_profile in NORMAL_PROFILES:
-        driver = qgc_root / "custom-pixeagle" / "validation" / "run-normal-sih-evidence.py"
-        command = ["--follower", scenario.follower_profile]
-    else:
-        driver = qgc_root / "custom-pixeagle" / "validation" / "run-gimbal-sih-evidence.py"
-        command = ["--follower", scenario.follower_profile, "--mount", scenario.mount_type]
+    driver = qgc_root / "custom-pixeagle" / "validation" / "run-normal-sih-evidence.py"
+    command = ["--follower", scenario.follower_profile]
     if not driver.is_file():
         raise SystemExit(f"Reviewed SIH driver is missing: {driver}")
     command = [sys.executable, str(driver), "--execute", "--output", str(args.evidence_root), *command]
@@ -381,23 +380,25 @@ def main() -> int:
         return 0
     if args.follower is None:
         parser.error("--follower is required for dry-run or --execute")
-    if args.follower not in PROFILE_SCENARIOS:
+    if args.follower not in PROFILE_SCENARIOS and mc_input_family(args.follower) is None:
         parser.error(f"Unsupported dry-run/execute follower: {args.follower}; use the native runner for native capture")
     selected_path = args.scenario or scenario_path(args.follower, args.enable_altitude_control)
     scenario = VisualizationScenario.from_yaml(selected_path)
     if scenario.follower_profile != args.follower:
         parser.error("Scenario profile differs from --follower")
-    if args.follower in MC_PROFILES:
+    if mc_input_family(args.follower) is not None:
         from tools.fixed_camera_world_target import MCScenario
         MCScenario.from_yaml(selected_path)
         if args.enable_altitude_control and args.follower != "mc_attitude_rate" and not scenario.altitude_control:
             parser.error("--enable-altitude-control requires an altitude-enabled velocity scenario with vertical stimulus")
     elif args.scenario is not None:
         parser.error("Custom scenarios are supported by the MC runner only; use the native FW runner separately")
-    if args.sih_build_manifest is not None and args.follower not in MC_PROFILES:
+    if args.sih_build_manifest is not None and mc_input_family(args.follower) is None:
         parser.error("--sih-build-manifest is supported by the isolated MC runner only")
-    if args.telemetry_source != "mavlink2rest" and args.follower not in MC_PROFILES:
+    if args.telemetry_source != "mavlink2rest" and mc_input_family(args.follower) is None:
         parser.error("--telemetry-source is supported by the isolated MC runner only")
+    if args.execute and mc_input_family(args.follower) == 'angles' and args.sih_build_manifest is None:
+        parser.error('Gimbal MC renewal requires --sih-build-manifest before execution')
     if args.enable_altitude_control:
         scenario = replace(scenario, altitude_control=True)
     plan = validate_scenario(scenario)
@@ -411,7 +412,7 @@ def main() -> int:
             args.evidence_root.mkdir(parents=True, exist_ok=True)
             (args.evidence_root / "scenario.json").write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
             captured_scenario = args.evidence_root / "scenario.yaml"
-            if args.follower in MC_PROFILES:
+            if mc_input_family(args.follower) is not None:
                 scenario = VisualizationScenario.from_yaml(captured_scenario)
             summary = validate_px4_evidence(args.evidence_root, scenario)
             (args.evidence_root / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")

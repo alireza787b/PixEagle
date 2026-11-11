@@ -13,13 +13,20 @@ from pathlib import Path
 import yaml
 
 from classes.aircraft_state import Quaternion, Vector3, finite_number
+from classes.follower_catalog import get_follower_profile
 from classes.sih_visualization import VisualizationScenario, VisualizationValidationError
 
 
-MC_IMAGE_PROFILES = frozenset({
-    "mc_velocity_position", "mc_velocity_chase", "mc_velocity_ground",
-    "mc_velocity_distance", "mc_attitude_rate",
-})
+def mc_input_family(profile):
+    """Select simulated input from the declared MC contract, never a profile name."""
+    try:
+        declaration = get_follower_profile(profile)
+    except ValueError:
+        return None
+    if (not declaration.implementation_available or declaration.phase_command_contracts.get('multicopter')
+            not in {'velocity_body_offboard', 'attitude_rate'}):
+        return None
+    return {('POSITION_2D',): 'image', ('GIMBAL_ANGLES',): 'angles'}.get(declaration.required_tracker_data)
 
 
 def _vector(value, name):
@@ -78,7 +85,7 @@ class FixedCamera:
 @dataclass(frozen=True)
 class MCScenario:
     visual: VisualizationScenario
-    camera: FixedCamera
+    camera: FixedCamera | None
     duration_s: float
     loss_windows: tuple[tuple[float, float], ...]
     expected_handoff: bool
@@ -106,11 +113,18 @@ class MCScenario:
     def from_yaml(cls, path: Path):
         visual = VisualizationScenario.from_yaml(path)
         raw = yaml.safe_load(path.read_text(encoding="utf-8"))
-        if visual.follower_profile not in MC_IMAGE_PROFILES or visual.airframe != "multicopter":
-            raise VisualizationValidationError("MC runner requires a multicopter image profile")
+        family = mc_input_family(visual.follower_profile)
+        if family is None or visual.airframe != "multicopter":
+            raise VisualizationValidationError("MC runner requires a declared multicopter input contract")
         if visual.requested_speed is not None:
-            raise VisualizationValidationError("MC image profiles have no requested-speed session control")
-        camera = FixedCamera.from_mapping(raw.get("fixed_camera"))
+            raise VisualizationValidationError("MC scenarios cannot override saved speed controls")
+        if family == 'angles' and 'fixed_camera' in raw:
+            raise VisualizationValidationError("Gimbal boresight scenarios must not invent image optics")
+        camera = FixedCamera.from_mapping(raw.get("fixed_camera")) if family == 'image' else None
+        if family == 'angles' and visual.faults:
+            raise VisualizationValidationError('Gimbal MC renewal does not support retarget or fault injection')
+        if family == 'angles' and visual.lateral_guidance_mode not in {'sideslip', 'coordinated_turn'}:
+            raise VisualizationValidationError('Gimbal MC renewal requires a declared lateral mode')
         if len(visual.target_waypoints) < 2 or visual.target_waypoints[0].time_s != 0.:
             raise VisualizationValidationError("World target requires at least two waypoints beginning at zero")
         duration = visual.target_waypoints[-1].time_s
@@ -184,7 +198,7 @@ class MCScenario:
             if any(point.position_ned[2] <= visual.initial_vehicle_ned[2] for point in visual.target_waypoints):
                 raise VisualizationValidationError("Ground targets must be below the initial aircraft")
         initial_quaternion = raw.get("initial_conditions", {}).get("quaternion_wxyz", (1., 0., 0., 0.))
-        if camera.project(visual.initial_vehicle_ned, initial_quaternion, visual.target_at(0.)) is None:
+        if camera is not None and camera.project(visual.initial_vehicle_ned, initial_quaternion, visual.target_at(0.)) is None:
             raise VisualizationValidationError("Initial world target must be in the declared camera FOV")
         return cls(visual, camera, duration, tuple(windows), expected, altitude, position, minimum_vertical,
                    takeover, tuple(sorted(retargets)), telemetry_outage)
@@ -278,18 +292,26 @@ def evaluate_response(scenario, records, publications, *, velocity_limits, rate_
         if current.get("loss_active") or previous.get("loss_active"):
             continue
         target = current["target_ned"]
-        before = scenario.camera.project(previous["position_ned"], previous["quaternion_wxyz"], target)
-        after = scenario.camera.project(current["position_ned"], current["quaternion_wxyz"], target)
+        if scenario.camera is None:
+            # Freeze world truth while measuring only actual aircraft bearing response.
+            def bearing(row):
+                north, east = (target[i] - row['position_ned'][i] for i in (0, 1))
+                return (math.remainder(math.atan2(east, north) - row['yaw_rad'], 2 * math.pi),)
+            before, after = bearing(previous), bearing(current)
+        else:
+            before = scenario.camera.project(previous["position_ned"], previous["quaternion_wxyz"], target)
+            after = scenario.camera.project(current["position_ned"], current["quaternion_wxyz"], target)
         if before is None or after is None:
             continue
-        axes = (0,) if mode in {"mc_velocity_position", "mc_velocity_chase", "mc_velocity_distance"} else (0, 1)
+        axes = (0,) if scenario.camera is None or mode in {"mc_velocity_position", "mc_velocity_chase", "mc_velocity_distance"} else (0, 1)
         work += sum(before[axis] ** 2 - after[axis] ** 2 for axis in axes)
         # Freeze independent target height so only observed aircraft z earns closure.
         vertical_work_m += (abs(target[2] - previous["position_ned"][2])
                             - abs(target[2] - current["position_ned"][2]))
     metrics.update(maximum_altitude_error_m=altitude_error, maximum_horizontal_drift_m=horizontal_drift,
-                   range_start_m=range_start, range_end_m=range_end, camera_response_work=work)
-    checks["observed_image_response"] = work > 1e-4
+                   range_start_m=range_start, range_end_m=range_end)
+    metrics['bearing_response_work_rad2' if scenario.camera is None else 'camera_response_work'] = work
+    checks['observed_bearing_response' if scenario.camera is None else 'observed_image_response'] = work > 1e-4
     checks["altitude_envelope"] = all(
         scenario.visual.limits["altitude_min"] <= row["altitude_m"] <= scenario.visual.limits["altitude_max"]
         for row in records
@@ -302,7 +324,7 @@ def evaluate_response(scenario, records, publications, *, velocity_limits, rate_
         checks["observed_vertical_response"] = vertical_work_m >= scenario.minimum_vertical_response_m
     if mode == "mc_velocity_position":
         checks["observed_stationary_drift"] = horizontal_drift <= scenario.position_tolerance_m
-    if mode == "mc_velocity_chase":
+    if mode == "mc_velocity_chase" or scenario.camera is None:
         checks["observed_range_closure"] = range_start - range_end > .05
         checks["nonnegative_forward"] = all(row.get("vel_body_fwd", 0.) >= -1e-9 for row in fields)
     if mode == "mc_attitude_rate":

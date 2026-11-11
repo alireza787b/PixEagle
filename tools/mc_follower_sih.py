@@ -1,4 +1,4 @@
-"""Actual MC image-follower component qualification in an owned isolated SIH namespace.
+"""Actual MC follower component qualification in an owned isolated SIH namespace.
 
 The host launcher is shared infrastructure. This worker uses production target
 dispatch, continuity, follower and MAVSDK publication, with simulated image
@@ -26,10 +26,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 try:
-    from tools.fixed_camera_world_target import MCScenario, evaluate_response, stable_hold_window
+    from tools.fixed_camera_world_target import MCScenario, evaluate_response, stable_hold_window, mc_input_family
     from tools.sitl_gimbal_geometry_fixture import pose_from_mavlink2rest
 except ModuleNotFoundError:
-    from fixed_camera_world_target import MCScenario, evaluate_response, stable_hold_window
+    from fixed_camera_world_target import MCScenario, evaluate_response, stable_hold_window, mc_input_family
     from sitl_gimbal_geometry_fixture import pose_from_mavlink2rest
 
 
@@ -62,31 +62,37 @@ def run_host(args, scenario_path):
     if args.backend_repo.resolve() != ROOT:
         raise ValueError("MC qualification must capture this runner's own backend checkout")
     args.output = args.evidence_root
-    args.mount = "HORIZONTAL"
+    args.mount = scenario.visual.mount_type
     args.simulator_model = "sihsim_quadx"
-    args.evidence_kind = "mc-fixed-camera-world-target-component"
+    args.evidence_kind = "mc-world-target-component"
     args.worker_extra_args = []
 
     def configure(config):
         stage = args.output.resolve()
-        for name in ("fixed_camera_world_target.py", "mc_follower_sih.py"):
+        for name in ("fixed_camera_world_target.py", "mc_follower_sih.py", "sih_gimbal_world_target.py"):
             shutil.copyfile(ROOT / "tools" / name, stage / "backend/tools" / name)
         import yaml
         staged_scenario = yaml.safe_load(scenario_path.read_text(encoding="utf-8"))
         staged_scenario["follower"]["altitude_control"] = scenario.visual.altitude_control
-        config["Tracking"]["DEFAULT_TRACKING_ALGORITHM"] = "CSRT"
+        family = mc_input_family(args.follower)
+        config["Tracking"]["DEFAULT_TRACKING_ALGORITHM"] = 'Gimbal' if family == 'angles' else 'CSRT'
         telemetry_source = getattr(args, "telemetry_source", "mavlink2rest")
         if telemetry_source not in {"mavlink2rest", "mavsdk"}:
             raise ValueError("Unsupported MC control telemetry source")
         config["Follower"]["USE_MAVLINK2REST"] = telemetry_source == "mavlink2rest"
-        config["Follower"]["FollowerOverrides"].setdefault(args.follower.upper(), {})[
+        from classes.follower_catalog import get_follower_profile
+        section = get_follower_profile(args.follower).config_section
+        config["Follower"]["FollowerOverrides"].setdefault(section, {})[
             "ENABLE_ALTITUDE_CONTROL"
         ] = scenario.visual.altitude_control
+        if family == 'angles':
+            config['GimbalTracker'].update(MOUNT_TYPE=args.mount, ENABLED=True, CONTROL_ENABLED=False)
+            config['Follower']['FollowerOverrides'][section]['LATERAL_GUIDANCE_MODE'] = scenario.visual.lateral_guidance_mode
         if args.follower == "mc_velocity_ground":
             config["MC_VELOCITY_GROUND"]["ENABLE_DESCEND_TO_TARGET"] = scenario.visual.altitude_control
         # Direct-rate altitude/thrust settings remain their declared saved values.
         limits = {**config["Safety"]["GlobalLimits"],
-                  **config["Safety"]["FollowerOverrides"].get(args.follower.upper(), {})}
+                  **config["Safety"]["FollowerOverrides"].get(section, {})}
         staged_scenario["constraints"] = {
             "velocity": {"forward": limits["MAX_VELOCITY_FORWARD"], "right": limits["MAX_VELOCITY_LATERAL"],
                          "down": limits["MAX_VELOCITY_VERTICAL"] if scenario.visual.altitude_control else 0.},
@@ -98,11 +104,14 @@ def run_host(args, scenario_path):
         write_json(stage / "harness-inputs.json", {
             "scenario_sha256": hashlib.sha256((stage / "scenario.yaml").read_bytes()).hexdigest(),
             "source_scenario_sha256": hashlib.sha256(scenario_path.read_bytes()).hexdigest(),
-            "qualification_scope": "MC component with simulated fixed-camera measurements",
+            "qualification_scope": "MC component with simulated boresight" if family == 'angles' else "MC component with simulated fixed-camera measurements",
             "control_telemetry_source": telemetry_source,
-            "camera_projection": asdict(scenario.camera),
+            "camera_projection": asdict(scenario.camera) if scenario.camera is not None else None,
+            "fixture_kind": 'simulated_boresight' if family == 'angles' else 'simulated_fixed_camera_projection',
+            "synthetic_image_size_px": None if family == 'angles' else [640, 480],
+            "image_normalization": None if family == 'angles' else 'legacy_dimension_half',
             "tools": {name: hashlib.sha256((ROOT / "tools" / name).read_bytes()).hexdigest()
-                      for name in ("fixed_camera_world_target.py", "mc_follower_sih.py", "sih_isolated_host.py")},
+                      for name in ("fixed_camera_world_target.py", "mc_follower_sih.py", "sih_gimbal_world_target.py", "sih_isolated_host.py")},
             "safety_policy": "checked-in defaults, no scenario limit or PID-gain adoption",
             "measurement_timing": "REST source receipt approximation; sensor capture time is unavailable",
         })
@@ -169,6 +178,27 @@ def tracker_observation(coordinates, *, measurement_epoch_s, measurement_monoton
         position_2d=coordinates if visible else None, target_id=target_id if visible else None,
         confidence=1. if visible else None, raw_data=raw,
     )
+
+
+def bind_projected_image(app, observation, sample, target):
+    """Attach a declared synthetic grid to an actual source-owned projected sample."""
+    from classes.frame_publisher import CaptureStamp
+    from classes.guidance_observation import ImageFrameContext, ObservationProvenance
+
+    width, height = 640, 480
+    capture = CaptureStamp(app.frame_publisher.control_source_epoch, ':'.join(map(str, sample['source_boot_ms'])),
+                           sample['monotonic_s'], 'fresh')
+    context = ImageFrameContext(ObservationProvenance(app.frame_publisher.stream_id,
+        app._tracking_session_generation, 'sih-projected-grid-640x480-v2', None, capture), (width, height))
+    if observation.position_2d is not None:
+        x, y = observation.position_2d
+        # Invert BaseTracker's legacy dimension/2 normalization. Typed pixels
+        # still require actual centres in [0, dimension-1]; never clamp an edge.
+        observation.image_measurement = context.at_pixel(((x + 1.) * width / 2., (y + 1.) * height / 2.))
+    app.tracking_input_context = context
+    observation.raw_data.update(fixture_kind='simulated_fixed_camera_projection', measurement_target_ned=tuple(target))
+    app._sih_tracker_output = observation
+    return observation
 
 
 def observed_command_release(sample, publisher_status, timestamp, released_at=None):
@@ -260,6 +290,10 @@ async def worker(args):
     scenario = MCScenario.from_yaml(output / "scenario.yaml")
     if scenario.visual.follower_profile != args.follower or Parameters.FOLLOWER_MODE != args.follower:
         raise RuntimeError("Selected profile differs from the staged scenario")
+    if mc_input_family(args.follower) == 'angles' and (
+            manifest.get('sih_baseline', {}).get('kind') != 'verified_source_build'
+            or manifest.get('mount') != scenario.visual.mount_type or args.mount != scenario.visual.mount_type):
+        raise RuntimeError('Gimbal MC renewal requires matching source-attested build and mount')
     config = yaml.safe_load(config_bytes)
     if (config["PX4"]["SYSTEM_ADDRESS"] != "udpin://127.0.0.1:14540"
             or config["PX4"]["MAVSDK_SERVER_ADDRESS"] != "127.0.0.1"
@@ -282,13 +316,32 @@ async def worker(args):
     app._tracking_session_generation = 0
     app.following_execution_mode = "PX4"
     app.following_active = False
+    app.estimator = None
     app.telemetry_handler = SimpleNamespace(follower=None)
-    app._following_session_id = uuid.uuid4().hex
+    app._following_session_id = None
     app._following_stopping = False
     app.mavlink_data_manager.register_offboard_exit_callback(app._schedule_offboard_mode_exit)
     app.camera_runtime = SimpleNamespace(provider=None)
+    family = mc_input_family(args.follower)
+    progress_guard = PoseProgress()
+    gimbal_source = None
+    if family == 'angles':
+        try:
+            from tools.sih_gimbal_world_target import SihGimbalWorldTarget
+        except ModuleNotFoundError:
+            from sih_gimbal_world_target import SihGimbalWorldTarget
+        gimbal_source = SihGimbalWorldTarget(app, progress=progress_guard)
+    else:
+        from classes.frame_publisher import FramePublisher
+        app.frame_publisher = FramePublisher()
+        app.frame_publisher.stream_id = 'sih-projected-image:' + app.frame_publisher.stream_id
+        app.frame_publisher.invalidate_source('sih-pose-source:' + uuid.uuid4().hex)
+        app.current_tracker_type = 'CSRT'
+        app._sih_tracker_output = None
+        app.get_tracker_output = lambda: app._sih_tracker_output
     app._get_video_frame_status_for_following = lambda: dict(
-        source="simulated_fixed_camera", usable_for_following=True, replay_source=False,
+        source='none' if family == 'angles' else 'simulated_fixed_camera',
+        usable_for_following=family == 'image', replay_source=False,
     )
     app.target_continuity = TargetContinuitySupervisor(
         ContinuityPolicy.resolve(Parameters.TargetContinuity, args.follower)
@@ -323,6 +376,19 @@ async def worker(args):
         )
         log("raw-pose-observations.jsonl", dict(timestamp=time.time(), **sample))
         return sample
+
+    def produce(sample, target, *, lost=False):
+        epoch = time.time()
+        if gimbal_source is not None:
+            return gimbal_source.observe(sample, target, epoch_s=epoch, lost=lost)
+        if not progress_guard.accept(sample['source_boot_ms'], time.monotonic()):
+            return None
+        coordinates = scenario.camera.project(sample['position_ned'], sample['quaternion_wxyz'], target)
+        if coordinates is None and not lost:
+            raise RuntimeError('Independent world target left the declared fixed-camera FOV')
+        observation = tracker_observation(coordinates, measurement_epoch_s=epoch,
+            measurement_monotonic_s=sample['monotonic_s'], lost=lost, target_id=app._tracking_session_generation)
+        return bind_projected_image(app, observation, sample, target)
 
     async def wait_for(predicate, timeout=60.):
         deadline = time.monotonic() + timeout
@@ -415,8 +481,11 @@ async def worker(args):
         if app.follower.get_airframe_phase() != "multicopter":
             raise RuntimeError("MC follower phase contract mismatch")
         initial_target = scenario.target_at(0., anchor)
-        if scenario.camera.project(sample["position_ned"], sample["quaternion_wxyz"], initial_target) is None:
+        if scenario.camera is not None and scenario.camera.project(sample["position_ned"], sample["quaternion_wxyz"], initial_target) is None:
             raise RuntimeError("Frozen world target is not visible from the actual settled aircraft pose")
+        if produce(sample, initial_target) is None:
+            raise RuntimeError('Initial independent projection did not progress')
+        start_input_identity = app._freeze_following_observation_source()
         executed = yaml.safe_load((output / "scenario.yaml").read_text())
         executed["evidence_provenance"] = "px4_sih"
         executed["initial_conditions"]["vehicle_ned"] = list(sample["position_ned"])
@@ -438,18 +507,40 @@ async def worker(args):
         write_json(output / "runtime-policy.json", dict(continuity=resolved_policy,
             velocity=concrete.velocity_limits._asdict(), altitude=concrete.altitude_limits._asdict(),
             rates_rad_s=concrete.rate_limits._asdict(), pid_gains=config["PID"]["PID_GAINS"]))
-        commander = OffboardCommander(manager, concrete.setpoint_handler, on_publish_result=publication)
+        commander = OffboardCommander(manager, concrete.setpoint_handler, on_publish_result=publication,
+            before_dispatch=app._command_dispatch_guard(), stop_before_dispatch=app._command_dispatch_guard(teardown=True),
+            dispatch_context=app._command_dispatch_context())
         app.offboard_commander = commander
-        if not (await manager.start_offboard_mode()).get("executed"):
+        app._require_follow_start_input_identity(start_input_identity, {}, stage='sih_before_offboard')
+        start_task = asyncio.create_task(manager.start_offboard_mode(
+            before_dispatch=app._command_dispatch_guard(),
+            on_mode_dispatch=lambda: write_json(output / 'mode-dispatch.json',
+                                               dict(observed_at_monotonic_s=time.monotonic()))))
+        try:
+            # Real startup primes for >1 s; keep the same read-only source progressing.
+            while not start_task.done():
+                initial_sample = await snapshot()
+                produce(initial_sample, initial_target)
+                retain_pose(initial_sample, time.time())
+                log('trace/target_truth.jsonl', dict(timestamp=time.time(), target_ned=initial_target))
+                log('trace/follower_state.jsonl', dict(timestamp=time.time(), state='INACTIVE',
+                    authority_state='INACTIVE', command_expected=False, reason_code='guidance_publication_not_started'))
+                await asyncio.sleep(1. / scenario.visual.rate_hz)
+            start_result = await start_task
+        finally:
+            if not start_task.done():
+                start_task.cancel()
+                await asyncio.gather(start_task, return_exceptions=True)
+        app._require_follow_start_input_identity(start_input_identity, {}, stage='sih_after_offboard')
+        if not start_result.get("executed"):
             raise RuntimeError("Production Offboard start failed")
         seed = CommandIntent(args.follower, app.follower.get_control_type(),
                              concrete.setpoint_handler.get_fields(), "isolated_sih_baseline")
-        if not commander.submit_intent(seed):
+        if not app._submit_command_intent_to_commander(seed):
             raise RuntimeError("Initial complete safe command was refused")
         await commander.start()
         app.following_active = True
         started = time.monotonic()
-        progress_guard = PoseProgress()
         expected_loss_seen = False
         takeover_requested_at = None
         takeover_cleanup = None
@@ -485,14 +576,10 @@ async def worker(args):
             if target is None:
                 break
             log("trace/target_truth.jsonl", dict(timestamp=time.time(), target_ned=target))
-            progress = sample["source_boot_ms"]
-            if not progress_guard.accept(progress, time.monotonic()):
-                log("skipped-pose-polls.jsonl", dict(timestamp=time.time(), source_boot_ms=progress,
-                    reason="cached_source_packet_not_a_new_measurement"))
-                await asyncio.sleep(1. / scenario.visual.rate_hz)
-                continue
-            coordinates = scenario.camera.project(sample["position_ned"], sample["quaternion_wxyz"], target)
+            coordinates = (scenario.camera.project(sample["position_ned"], sample["quaternion_wxyz"], target)
+                           if scenario.camera is not None else None)
             due = sum(at <= elapsed for at, _offset in scenario.retargets)
+            # Angle retarget scenarios are refused before host launch by MCScenario.
             while retarget_count < due:
                 if coordinates is None:
                     raise RuntimeError("Retarget candidate is outside the camera FOV; ownership remains unchanged")
@@ -512,15 +599,21 @@ async def worker(args):
                 retarget_count += 1
             lost = any(start <= elapsed < end for start, end in scenario.loss_windows)
             expected_loss_seen |= lost
-            if coordinates is None and not lost:
-                raise RuntimeError("Independent world target left the declared fixed-camera FOV")
-            measurement_epoch = time.time()
-            observation = tracker_observation(coordinates, measurement_epoch_s=measurement_epoch,
-                                              measurement_monotonic_s=sample["monotonic_s"], lost=lost,
-                                              target_id=retarget_count)
+            observation = produce(sample, target, lost=lost)
+            if observation is None:
+                log('skipped-pose-polls.jsonl', dict(timestamp=time.time(), source_boot_ms=sample['source_boot_ms'],
+                    reason='cached_source_packet_not_a_new_measurement'))
+                await asyncio.sleep(1. / scenario.visual.rate_hz)
+                continue
+            measurement_epoch = observation.timestamp
             accepted = await app._dispatch_tracker_output_on_flight_loop(observation)
             row = dict(timestamp=measurement_epoch, elapsed_s=elapsed, target_ned=target,
-                       image_position=coordinates if not lost else None, loss_active=lost, **sample)
+                       image_position=coordinates if not lost else None, loss_active=lost,
+                       measurement_target_ned=observation.raw_data['measurement_target_ned'],
+                       fixture_kind=observation.raw_data['fixture_kind'], angular=observation.angular,
+                       gimbal_observation=asdict(observation.gimbal_observation) if observation.gimbal_observation is not None else None,
+                       image_measurement=asdict(observation.image_measurement) if observation.image_measurement is not None else None,
+                       **sample)
             records.append(row)
             retain_pose(sample, measurement_epoch)
             log("trace/follower_state.jsonl", dict(timestamp=measurement_epoch, **app.get_target_continuity_status()))
@@ -582,9 +675,10 @@ async def worker(args):
         report.update(passed=all(report["checks"].values()), scope="actual_mc_follower_component_only",
                       follower=args.follower, physical_camera=False, application_startup_qualified=False,
                       hardware_qualified=False, release_qualified=False, handoff=handoff,
-                      publication=commander.get_status(), camera=asdict(scenario.camera),
+                      publication=commander.get_status(), camera=asdict(scenario.camera) if scenario.camera is not None else None,
+                      fixture_kind='simulated_boresight' if family == 'angles' else 'simulated_fixed_camera_projection',
                       altitude_guidance=scenario.visual.altitude_control,
-                      metric_scope="Observed image alignment from actual pose; range closure is checked separately and does not prove interception",
+                      metric_scope="Observed bearing/image alignment from actual pose; range closure does not prove interception",
                       executed_scenario_sha256=hashlib.sha256((output / "scenario.yaml").read_bytes()).hexdigest(),
                       direct_rate_altitude_settings=config["MC_ATTITUDE_RATE"] if args.follower == "mc_attitude_rate" else None)
         write_json(output / "result.json", report)
@@ -601,6 +695,8 @@ async def worker(args):
                 await manager.drone.action.land()
         finally:
             await manager.stop()
+            if gimbal_source is not None:
+                gimbal_source.close()
             app.mavlink_data_manager.stop_polling()
             observer.stop_polling()
 
