@@ -431,3 +431,45 @@ whole-application startup, installation, hardware or release acceptance. Next is
 S5's source-bound calibration, qualified timing association, native FW profile
 and independent moving-target airplane SIH. S6–S13 and QGC/client qualification
 remain open. No hardware, private profile, firmware, services or QGC were changed.
+
+### S5 — source-bound image calibration and explicit admission
+
+The November 11 continuation commits four bounded changes:
+
+| Revision | Change | Verification |
+| --- | --- | --- |
+| `226084bb9` | Optional immutable fixed-camera calibration, exact decoder grid/source binding and pixel-centre affine | 96 calibration/configuration tests; missing/null stays uncalibrated |
+| `a95a47fdf` | Actual capture-path identity and pre-inference calibration in Classic/Smart inputs; retired-source/mode rejection | 334 video/producer tests and 201 configuration/API/docs tests |
+| `b75fc55b7` | Command schema 2.5.0: explicit live-qualified phases, independent of command capability | 1,524 broad and 294 narrow tests; 74 Phase 0 checks |
+| `d5458ee85` | Native FW geometry takes four input-independent thresholds, without gimbal manoeuvre/timing policy | 1,110 follower/catalog/handler tests |
+
+These test commands overlap; counts are not additive unique coverage. Logs are
+under `reports/sitl/follower-consolidation-20261111/software-gates-r1/`.
+The renewed full software gate runs on a detached `d5458ee85` snapshot under
+`software-gates-r2/`; its own result records its exact completion separately.
+
+Calibration is a closed optional `VideoSource.FIXED_CAMERA_CALIBRATION` object
+with public default `null`. The saved source digest identifies the actual
+capture specification/backend, not the physical camera at an address. Runtime
+stream/epoch, decoder dimensions, orientation, analysis resize and calibration
+content all participate in binding. Missing/mismatched values preserve ordinary
+2D measurements but cannot produce a calibrated bearing. Manual gimbal control
+does not supply fixed extrinsics. Existing saved/private configuration is not
+rewritten. Generated schema: 44 sections, 609 parameters.
+
+Independent review reproduced five capture regressions: same-handle source
+epochs or resolution mutation could stamp old pixels fresh; async UDP could
+mutate the sole reader's negotiated mode. The read lock now includes commit,
+epoch/handle checks reject retired results, and async property mutation refuses
+before changing anything. UDP mode changes use normal configuration/reopen.
+The failing reproductions are retained beside the passing 334-test run.
+
+The qualification list preserves current permissions for the existing eight
+profiles. It does not promote image FW, direct FW rates or VTOL, and it is not
+proof of installation/field acceptance. Shared FW math still uses the existing
+native EAS/envelope/altitude owner; gains, speeds and mount values are unchanged.
+
+Next: bounded image/attitude association with an explicit simulation-only paired
+sample contract, input readiness before native mode acquisition, the native
+image-FW strategy and actual moving-target airplane SIH. Backend receipt is not
+exposure time; physical alignment remains unqualified. S5 is still open.

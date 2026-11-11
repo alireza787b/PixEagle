@@ -67,3 +67,14 @@ Native timing, neutral Vector sessions/FW-only speed initialization and command
 schema 2.4.0 are committed S5 foundations. Source-bound calibration and bounded
 camera/attitude association are next; no native image-FW profile is enabled yet.
 The checkpoint links exact revisions, persistent logs and remaining gates.
+
+S5 now binds optional measured fixed-camera calibration to the actual decoder
+path and freezes the exact pixel mapping before Classic/Smart inference. Review
+found and reproduced a capture-mode/epoch race; read-through-commit and source
+checks repair it without adding a reader or reconnect policy. Video/producer
+checks pass 334 tests and config/API/docs pass 201. Schema 2.5.0 explicitly lists
+live-qualified phases instead of treating native command declarations as
+permission; existing eight profiles keep their admission. Native FW direction
+thresholds no longer import gimbal manoeuvre policy (1,110-test focused gate).
+Full software renewal uses frozen `d5458ee85`; timing association and calibrated
+FW readiness/integration remain in progress. No hardware or private tuning changed.

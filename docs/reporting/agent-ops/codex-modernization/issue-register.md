@@ -332,3 +332,11 @@ remain open. Integration work is unpublished.
   Historical failures stay retained; whole-application/optical-tracker and
   hardware acceptance are not implied. Renewed full software gates pass; see
   the consolidation checkpoint and current evidence selector for exact scope.
+
+- **2026-11-11 — Calibrated image provenance, S5 (foundation implemented):**
+  optional source-bound calibration and immutable Classic/Smart mapping preserve
+  ordinary image tracking when unavailable. Five reproduced capture-mode/epoch
+  failures are fixed; 334 video/provenance tests pass. Command schema 2.5.0
+  separates native capability from explicit phase admission. Physical exposure/
+  attitude timing, native image-FW response and VTOL release remain unqualified;
+  see the consolidation checkpoint for revisions, evidence and next gates.
