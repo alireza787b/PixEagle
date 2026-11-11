@@ -55,6 +55,31 @@ def test_rearward_noise_does_not_reverse_turn_direction():
     assert all(command.equivalent_airspeed_m_s == 20 for command in commands)
 
 
+def test_validated_retarget_clears_turn_latch_but_preserves_recovery_course_and_altitude():
+    planner = FixedWingVectorGuidance(enable_altitude_control=False, geometry_policy=GimbalGuidancePolicy().geometry)
+    previous = calculate(Vector3(-1., .001, 0.), planner=planner).command
+    assert previous.course_rad > 0.
+    assert calculate(Vector3(-1., -.001, 0.), planner=planner).command.course_rad > 0.
+    planner.reset_target_state()
+    state = aircraft_state(altitude_amsl_m=555.)
+    baseline = planner.level_command(state, identity=planner._identity, requested_eas_m_s=20.,
+        altitude_limits=AltitudeLimits(5., 120., 2.), now=100., timeout_s=.5)
+    assert baseline.course_rad == previous.course_rad
+    assert baseline.altitude_amsl_m == previous.altitude_amsl_m == 550.
+    following = calculate(Vector3(-1., -.001, 0.), planner=planner, state=state).command
+    assert following.course_rad < 0.
+    assert following.altitude_amsl_m == 550.
+
+
+def test_new_target_does_not_inherit_previous_vertical_hysteresis():
+    planner = FixedWingVectorGuidance(enable_altitude_control=True, geometry_policy=GimbalGuidancePolicy().geometry)
+    assert calculate(Vector3(0., 0., 1.), planner=planner).geometry_state == 'vertical_path_limited'
+    ray = Vector3(.25, 0., math.sqrt(1. - .25**2))
+    assert calculate(ray, planner=planner).geometry_state == 'vertical_path_limited'
+    planner.reset_target_state()
+    assert calculate(ray, planner=planner).geometry_state == 'forward'
+
+
 def test_startup_uses_valid_low_airspeed_not_a_high_groundspeed_proxy():
     state = aircraft_state(airspeed=AirspeedObservation("sensor", 8, 9, 100, True))
     assert FixedWingVectorGuidance.startup_speed(state, now=100, timeout_s=.5) == (12, "sensor")

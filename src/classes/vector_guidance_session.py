@@ -196,6 +196,12 @@ class VectorGuidanceSession:
         return replace(result.command.intent(self.identity, profile_name=self.profile_name, source=type(self).__name__),
                        created_at_monotonic_s=self.clock())
 
+    def reset_target_state(self) -> None:
+        """A new target clears geometry history without renewing session authority."""
+        self.require_state()
+        self.fixed_wing.reset_target_state()
+        self.last_guidance = None
+
     def end(self, reason: str) -> PhaseDecision:
         decision = self.phase_owner.end(reason)
         self.controls.end()

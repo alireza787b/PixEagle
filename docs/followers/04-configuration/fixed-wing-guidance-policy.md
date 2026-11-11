@@ -92,6 +92,12 @@ resolved thresholds without importing gimbal capabilities, reverse translation,
 stationary-yaw or grace/dwell policy. No controller or parameter resolver is
 duplicated, and existing gimbal values remain unchanged.
 
+`VectorGuidanceSession.reset_target_state()` clears native target-direction
+hysteresis and turn latch without ending the session. It retains engagement
+altitude, speed controls and the last feasible recovery course. A validated
+retarget can use this hook; it does not reset the continuity owner's deadlines
+or grant another session authority. A stopped session rejects the reset.
+
 Transition holding latches the preceding feasible course and FW request for the
 transition episode. It does not chase physical yaw changes as a tailsitter
 pitches through vertical, or reuse an old FW course after returning to MC.

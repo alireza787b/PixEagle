@@ -69,6 +69,23 @@ def fixed_wing_session(*, altitude=True):
     return owner, now, state
 
 
+def test_retarget_reset_retains_session_speed_identity_and_engagement_height():
+    owner, now, state = fixed_wing_session(altitude=False)
+    state = settle(owner, now, state)
+    owner.calculate_ned(Vector3(-1., .01, 0.).normalized(), frame='ned')
+    control = owner.controls.current_control
+    identity, reference = owner.identity, owner._engagement_altitude_reference
+    owner.reset_target_state()
+    assert owner.controls.current_control is control
+    assert owner.identity == identity
+    assert owner._engagement_altitude_reference is reference
+    assert owner.last_guidance is None
+    assert owner.calculate_ned(Vector3(-1., -.01, 0.).normalized(), frame='ned').fields['course_rad'] < 0.
+    owner.end('operator_stop')
+    with pytest.raises(ValueError, match='guidance_session_ended'):
+        owner.reset_target_state()
+
+
 @pytest.mark.parametrize('altitude', [False, True])
 def test_fw_only_session_uses_native_startup_and_shared_world_ray_objective(altitude):
     owner, now, state = fixed_wing_session(altitude=altitude)

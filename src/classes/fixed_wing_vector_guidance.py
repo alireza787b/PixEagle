@@ -115,9 +115,17 @@ class FixedWingVectorGuidance:
         self._identity = None
         self._hold_altitude_amsl = None
         self._last_course = None
+        self.reset_target_state()
+        self._altitude_reference_generation = None
+
+    def reset_target_state(self) -> None:
+        """Forget target classifiers, retaining the last feasible recovery course.
+
+        A validated retarget is not a new flight session or altitude reference.
+        Speed controls and recovery deadlines are owned outside this planner.
+        """
         self._vertical = False
         self._rearward_turn_sign = None
-        self._altitude_reference_generation = None
 
     def begin_phase(self, identity: GuidanceSessionIdentity, state: AircraftState, *, now: float, timeout_s: float,
                     altitude_reference: AircraftState | None = None) -> None:
