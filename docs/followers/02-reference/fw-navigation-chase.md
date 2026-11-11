@@ -72,3 +72,9 @@ Calibration alone cannot remove that readiness restriction. The default
 constructor creates no native owner or commands; controlled SIH injects an
 explicit sample association. See [creating a follower](../05-development/creating-followers.md)
 and the [shared FW policy](../04-configuration/fixed-wing-guidance-policy.md).
+
+Repeated reads of one image retain its original capture and paired attitude.
+Fresh authoritative aircraft-state progress can recalculate native constraints
+against that still-qualified world bearing; identical state and speed requests
+reuse the original command deadline. Image expiry enters the existing FW
+continuity policy, while frozen aircraft input cannot renew publication.

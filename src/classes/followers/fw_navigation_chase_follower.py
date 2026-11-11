@@ -48,6 +48,7 @@ class FWNavigationChaseFollower(BaseFollower):
         self._last_guidance_input = None
         self._last_image_measurement = None
         self._last_guidance_intent = None
+        self._last_guidance_state = None
         self._last_control_revision = None
         self.geometry_policy = geometry_policy
         super().__init__(px4_controller, profile_name)
@@ -155,7 +156,8 @@ class FWNavigationChaseFollower(BaseFollower):
 
     def calculate_control_commands(self, tracker_data: TrackerOutput) -> None:
         session = self._require_session(bound=True)
-        aligned = self._resolve_guidance_input(tracker_data, session.require_state())
+        state = session.require_state()
+        aligned = self._resolve_guidance_input(tracker_data, state)
         previous = self._last_guidance_input
         duplicate = (previous is not None
                      and (aligned.binding.source_id, aligned.binding.source_epoch,
@@ -164,10 +166,19 @@ class FWNavigationChaseFollower(BaseFollower):
                          previous.bearing.provenance.capture.capture_id))
         if duplicate and (aligned != previous or tracker_data.image_measurement != self._last_image_measurement):
             raise ValueError("guidance_capture_rewritten")
+        previous_state = self._last_guidance_state
+        if previous_state is not None and (
+                state.source != previous_state.source or state.sequence < previous_state.sequence
+                or state.observed_at_monotonic_s < previous_state.observed_at_monotonic_s
+                or state.sequence == previous_state.sequence and state != previous_state):
+            raise ValueError("guidance_aircraft_state_reordered_or_rewritten")
+        state_progressed = previous_state is None or state.sequence > previous_state.sequence
         revision = session.controls.current_control.revision
-        if duplicate and revision == self._last_control_revision:
+        if duplicate and not state_progressed and revision == self._last_control_revision:
             self._last_command_intent = self.setpoint_handler.set_native_intent(self._last_guidance_intent)
             return
+        # Real source progress updates native constraints against the retained
+        # world bearing; polling renews neither aircraft nor image evidence.
         intent = session.calculate_ned(aligned.direction_ned, frame="ned")
         if intent.guidance_identity != session.identity:
             raise ValueError("native_intent_identity_changed")
@@ -175,6 +186,7 @@ class FWNavigationChaseFollower(BaseFollower):
         self._last_guidance_input = aligned
         self._last_image_measurement = tracker_data.image_measurement
         self._last_guidance_intent = self._last_command_intent
+        self._last_guidance_state = state
         self._last_control_revision = revision
         self.update_telemetry_metadata("guidance_input_reason", None)
         self.update_telemetry_metadata("guidance_input_association", aligned.association_kind)
@@ -223,6 +235,7 @@ class FWNavigationChaseFollower(BaseFollower):
         self._last_guidance_input = None
         self._last_image_measurement = None
         self._last_guidance_intent = None
+        self._last_guidance_state = None
         self._last_control_revision = None
 
     def release_session_controls(self) -> None:

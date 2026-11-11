@@ -6,21 +6,26 @@ import math
 import inspect
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 import yaml
 
-from classes.aircraft_state import AirframePhase, AirspeedObservation, GuidanceSessionIdentity, Quaternion, Vector3
+from classes.aircraft_state import AircraftStateOwner, AirframePhase, AirspeedObservation, GuidanceSessionIdentity, Quaternion, Vector3
+from classes.app_controller import AppController
 from classes.bearing_geometry_policy import BearingGeometryPolicy
 from classes.follower import FollowerFactory
 from classes.followers.fw_navigation_chase_follower import FWNavigationChaseFollower
 from classes.guidance_observation import PinholeCalibration
 from classes.native_guidance import NativeCapabilities
+from classes.native_follow_binding import NativeFollowBinding
 from classes.observation_alignment import AlignmentBinding
+from classes.offboard_commander import OffboardCommander
 from classes.parameters import Parameters
 from classes.safety_manager import get_safety_manager
 from classes.setpoint_handler import SetpointHandler, validate_follower_command_schema
 from classes.tracker_output import TrackerDataType, TrackerOutput
+from classes.target_continuity import ContinuityContext, ContinuityPolicy, TargetContinuitySupervisor, TargetEvidenceState
 from tests.unit.drone_interface.test_aircraft_state import aircraft_state, attitude_timing
 from tools.fixed_camera_world_target import FixedCamera
 from tools.fixed_camera_bearing_fixture import FixedCameraBearingFixture
@@ -52,12 +57,13 @@ def environment(monkeypatch):
     now = [100.]
 
     def build(*, altitude=False, initial=(0., 0.), state=None, prepare=True, settle=True,
-              tailsitter_camera=False):
+              tailsitter_camera=False, profile_name=PROFILE):
         config = deepcopy(defaults)
-        config["Follower"]["FollowerOverrides"]["FW_ATTITUDE_RATE"]["ENABLE_ALTITUDE_CONTROL"] = altitude
+        section = canonical['follower_profiles'][profile_name]['config_section']
+        config["Follower"]["FollowerOverrides"].setdefault(section, {})["ENABLE_ALTITUDE_CONTROL"] = altitude
         Parameters.publish_config_mapping(config)
         controller = SimpleNamespace(is_command_preview=False)
-        follower = FWNavigationChaseFollower(controller, initial, geometry_policy=GEOMETRY, profile_name=PROFILE)
+        follower = FWNavigationChaseFollower(controller, initial, geometry_policy=GEOMETRY, profile_name=profile_name)
         state = state or aircraft_state(attitude_timing=attitude_timing())
         result = SimpleNamespace(follower=follower, controller=controller, state=state, session=None,
                                  now=now, output=None, fixture=None)
@@ -205,6 +211,151 @@ def test_duplicate_measurement_readiness_and_processing_cannot_renew_intent(envi
     assert repeated.created_at_monotonic_s == original.created_at_monotonic_s
     assert repeated.fields == original.fields
     assert env.output.image_measurement.provenance.capture.captured_at == original.created_at_monotonic_s
+
+
+def test_new_authoritative_state_recalculates_a_retained_world_bearing_without_restamping_image(environment):
+    env = environment(altitude=True)
+    assert env.follower.follow_target(env.output)
+    original = env.follower.get_last_command_intent()
+    measurement, alignment = env.output.image_measurement, env.fixture.last_alignment
+    advance(env, .35, velocity_ned_m_s=Vector3(10., 0., 0.),
+            attitude_body_to_ned=Quaternion.from_euler(.1, -.2, .3), navigation_heading_rad=.3,
+            fixed_wing_envelope=replace(env.state.fixed_wing_envelope, maximum_eas_m_s=16., trim_eas_m_s=14.))
+    assert env.session.observe(env.state, owner_confirmed=True, target_confirmed=True).pursuit_allowed
+    assert env.follower.follow_target(env.output)
+    updated = env.follower.get_last_command_intent()
+    assert updated.created_at_monotonic_s == env.now[0] > original.created_at_monotonic_s
+    assert updated.fields['course_rad'] == original.fields['course_rad']
+    assert updated.fields['equivalent_airspeed_m_s'] == 16.
+    assert updated.fields['height_rate_m_s'] == pytest.approx(original.fields['height_rate_m_s']/2)
+    assert env.output.image_measurement is measurement and env.fixture.last_alignment is alignment
+
+
+def test_accepted_aggregate_source_progress_does_not_require_restamping_its_oldest_measurement(environment):
+    env = environment()
+    assert env.follower.follow_target(env.output)
+    original_state = env.state
+    env.now[0] += .1
+    env.state = replace(env.state, sequence=env.state.sequence+1)
+    env.session.observe(env.state, owner_confirmed=True, target_confirmed=True)
+    assert env.follower.follow_target(env.output)
+    assert env.follower.get_last_command_intent().created_at_monotonic_s == env.now[0]
+    assert env.state.observed_at_monotonic_s == original_state.observed_at_monotonic_s
+    assert env.output.image_measurement.provenance.capture.captured_at == original_state.observed_at_monotonic_s
+
+
+@pytest.mark.parametrize('change', ['receipt_only', 'source', 'sequence_backwards'])
+def test_changed_receipt_or_rewritten_state_cannot_become_controller_progress(environment, change):
+    env = environment()
+    assert env.follower.follow_target(env.output)
+    original = env.follower.get_last_command_intent()
+    env.now[0] += .1
+    changed = {'observed_at_monotonic_s': env.now[0]}
+    if change == 'source':
+        changed.update(sequence=env.state.sequence+1, source='superseded_source')
+    elif change == 'sequence_backwards':
+        changed.update(sequence=env.state.sequence-1)
+    env.session._state = replace(env.state, **changed)
+    assert not env.follower.follow_target(env.output)
+    assert env.follower.get_last_command_intent() is None
+    assert env.follower._last_guidance_intent == original
+
+
+def publication_environment(env, monkeypatch):
+    """Compose real ownership/continuity/publication classes with an in-memory adapter."""
+    monkeypatch.setattr('classes.offboard_commander.time', SimpleNamespace(monotonic=lambda: env.now[0]))
+    states = AircraftStateOwner(clock=lambda: env.now[0])
+    states.bind(env.state.binding)
+    assert states.commit(env.state)
+    connection = SimpleNamespace(get_aircraft_state=lambda: states.snapshot(timeout_s=.75),
+                                 commit_aircraft_state=states.commit)
+    client = SimpleNamespace(session_identity=env.session.identity, submit=AsyncMock(), abort=Mock(),
+                             handoff=AsyncMock(return_value={'hold_observed': True}))
+    client.observe = AsyncMock(side_effect=lambda: {
+        'aircraft_state': asdict(connection.get_aircraft_state()), 'fresh': True,
+        'owner_confirmed': True, 'rescue_active': False,
+    })
+    continuity = TargetContinuitySupervisor(ContinuityPolicy.resolve(
+        Parameters.TargetContinuity, env.follower.profile_name, AirframePhase.FIXED_WING), clock=lambda: env.now[0])
+    continuity.reset_session(session_epoch=0, reason='component_test')
+    app = object.__new__(AppController)
+    app.follower = SimpleNamespace(follower=env.follower)
+    app.px4_interface, app.target_continuity = connection, continuity
+    app.get_tracker_output = lambda: env.output
+    base = ContinuityContext('PX4_NATIVE', AirframePhase.FIXED_WING, 'fixed_wing_external',
+                             True, True, True, guidance_identity=env.session.identity)
+    binding = NativeFollowBinding(env.session, connection, client, continuity, profile_name=env.follower.profile_name,
+        continuity_config=Parameters.TargetContinuity, target_evidence=lambda: app._target_evidence_snapshot(env.output),
+        context=lambda: base, circuit_breaker=lambda: False, clock=lambda: env.now[0])
+    commander = OffboardCommander(connection, env.follower.setpoint_handler,
+                                  command_transport=binding.transport, command_ttl_s=.3)
+
+    async def dispatch():
+        evidence = app._target_evidence_snapshot(env.output)
+        nominal = None
+        if evidence.state is TargetEvidenceState.CONFIRMED:
+            assert env.follower.follow_target(env.output)
+            nominal = env.follower.get_last_command_intent()
+        decision = continuity.evaluate(evidence, binding.context(base), nominal)
+        assert decision.handoff_request is None
+        intent = replace(decision.authorized_intent, fields=env.follower.prepare_authorized_command(
+            decision.authorized_intent.fields, loss_decay=False))
+        assert commander.submit_intent(intent)
+        continuity.record_authorized_intent(intent)
+        assert await commander.publish_once()
+        return evidence, intent
+
+    return SimpleNamespace(commander=commander, continuity=continuity, client=client,
+                           states=states, dispatch=dispatch)
+
+
+@pytest.mark.asyncio
+async def test_progressing_state_keeps_publication_until_original_image_expiry_then_shared_recovery(environment, monkeypatch):
+    env = environment(altitude=True, profile_name='fw_navigation_chase')
+    run = publication_environment(env, monkeypatch)
+    measured = env.output.image_measurement
+    _, original = await run.dispatch()
+    for elapsed in (.35, .2):
+        advance(env, elapsed)
+        assert run.states.commit(env.state)
+        assert env.session.observe(env.state, owner_confirmed=True, target_confirmed=True).pursuit_allowed
+        evidence, intent = await run.dispatch()
+        assert evidence.state is TargetEvidenceState.CONFIRMED
+        assert intent.created_at_monotonic_s == env.now[0] > original.created_at_monotonic_s
+        assert env.output.image_measurement is measured
+        run.client.handoff.assert_not_awaited()
+    advance(env, .25)
+    assert run.states.commit(env.state)
+    env.session.observe(env.state, owner_confirmed=True, target_confirmed=True)
+    evidence, recovery = await run.dispatch()
+    assert evidence.state is TargetEvidenceState.UNCERTAIN
+    assert recovery.reason == 'bounded_fixed_wing_recovery'
+    assert recovery.fields['height_rate_m_s'] == 0.
+    assert recovery.created_at_monotonic_s == env.now[0]
+    assert run.continuity.get_status()['authority_state'] == 'COASTING'
+    assert run.commander.stale_intent_resets == 0
+    run.client.handoff.assert_not_awaited()
+    deadline = run.continuity._loss_deadline
+    advance(env, .2)
+    assert run.states.commit(env.state)
+    env.session.observe(env.state, owner_confirmed=True, target_confirmed=True)
+    await run.dispatch()
+    assert run.continuity._loss_deadline == deadline
+    assert env.output.image_measurement is measured
+
+
+@pytest.mark.asyncio
+async def test_frozen_aircraft_state_and_duplicate_image_cannot_renew_publisher_ttl(environment, monkeypatch):
+    env = environment(profile_name='fw_navigation_chase')
+    run = publication_environment(env, monkeypatch)
+    _, original = await run.dispatch()
+    env.now[0] += .35
+    evidence, duplicate = await run.dispatch()
+    assert evidence.state is TargetEvidenceState.CONFIRMED
+    assert duplicate.created_at_monotonic_s == original.created_at_monotonic_s
+    assert run.client.submit.await_count == 1
+    run.client.handoff.assert_awaited_once_with(env.session.identity, reason='manual')
+    assert run.commander.stale_intent_resets == 1
 
 
 def test_stale_or_missing_input_invalidates_intent_without_inventing_a_command(environment):
