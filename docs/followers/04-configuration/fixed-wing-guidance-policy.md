@@ -5,6 +5,11 @@ PX4 owns coordinated turns, energy management, attitude control and allocation.
 The same policy is intended for native FW objectives produced from gimbal rays
 or image tracking. Input geometry remains specific to each tracker contract.
 
+Current consolidation policy ends following on transition and requires a new
+Start afterward. VTOL admission remains gated pending transition-preserving
+release. Phase-retaining cycles below are historical evidence, not the current
+operator contract; see the [consolidation plan](../05-development/follower-consolidation-plan.md).
+
 | Setting | Factory value | Meaning |
 | --- | --- | --- |
 | `Follower.AIRFRAME_LAYOUT` | `AUTO` | Use fresh PX4 state; an explicit MC/FW/VTOL/tailsitter choice verifies the installation |
@@ -79,6 +84,13 @@ an explicit `ned` frame and a finite unit direction, and uses the same course,
 EAS, vertical-path and altitude-envelope calculation without another rotation.
 Callers must separately qualify measurement-time alignment and pursuit authority;
 this shared math entry does not enable or qualify image-based FW following.
+
+Native FW consumes an input-independent `BearingGeometryPolicy`: four validated
+vertical-cone and forward/rearward thresholds. Gimbal Vector extracts those
+values from its existing configuration. An image strategy can supply its own
+resolved thresholds without importing gimbal capabilities, reverse translation,
+stationary-yaw or grace/dwell policy. No controller or parameter resolver is
+duplicated, and existing gimbal values remain unchanged.
 
 Transition holding latches the preceding feasible course and FW request for the
 transition episode. It does not chase physical yaw changes as a tailsitter

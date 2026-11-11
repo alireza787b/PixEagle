@@ -34,7 +34,7 @@ def session(*, altitude=True, state=None):
         controls=AirframeSessionControls.from_multicopter_control(identity,
             SessionControl("requested_speed", "3D speed", "m/s", 0., None, .5, 0., configured_maximum=6.)),
         supported_phases=frozenset({AirframePhase.MULTICOPTER, AirframePhase.FIXED_WING, AirframePhase.VTOL_TRANSITION}),
-        geometry_policy=GimbalGuidancePolicy(),
+        geometry_policy=GimbalGuidancePolicy().geometry,
         altitude_control=altitude, altitude_limits=AltitudeLimits(5., 120., 2.), confirmation_s=.3,
         observation_timeout_s=.75, transition_timeout_s=10., clock=lambda: now[0],
     )
@@ -62,7 +62,7 @@ def fixed_wing_session(*, altitude=True):
     owner = VectorGuidanceSession(
         identity, NativeCapabilities('native', 'test', 2, True, True, False),
         profile_name='fw_navigation_fixture', controls=AirframeSessionControls.for_fixed_wing(identity, step_m_s=.5),
-        supported_phases=frozenset({AirframePhase.FIXED_WING}), geometry_policy=GimbalGuidancePolicy(),
+        supported_phases=frozenset({AirframePhase.FIXED_WING}), geometry_policy=GimbalGuidancePolicy().geometry,
         altitude_control=altitude, altitude_limits=AltitudeLimits(5., 120., 2.), confirmation_s=.3,
         observation_timeout_s=.75, transition_timeout_s=10., clock=lambda: now[0],
     )
@@ -129,7 +129,7 @@ def test_supported_phase_declaration_is_explicit_and_typed(phases):
     with pytest.raises(ValueError, match='session_supported_phases_invalid'):
         VectorGuidanceSession(
             owner.identity, owner.phase_owner.capabilities, profile_name='fw_fixture', controls=owner.controls,
-            supported_phases=phases, geometry_policy=GimbalGuidancePolicy(), altitude_control=True,
+            supported_phases=phases, geometry_policy=GimbalGuidancePolicy().geometry, altitude_control=True,
             altitude_limits=owner.altitude_limits, confirmation_s=.3, observation_timeout_s=.75, transition_timeout_s=10.,
         )
 
@@ -140,7 +140,7 @@ def test_controls_from_another_session_cannot_be_adopted():
     with pytest.raises(ValueError, match='session_controls_binding_invalid'):
         VectorGuidanceSession(
             owner.identity, owner.phase_owner.capabilities, profile_name='fw_fixture', controls=foreign,
-            supported_phases=frozenset({AirframePhase.FIXED_WING}), geometry_policy=GimbalGuidancePolicy(),
+            supported_phases=frozenset({AirframePhase.FIXED_WING}), geometry_policy=GimbalGuidancePolicy().geometry,
             altitude_control=True, altitude_limits=owner.altitude_limits, confirmation_s=.3,
             observation_timeout_s=.75, transition_timeout_s=10.,
         )

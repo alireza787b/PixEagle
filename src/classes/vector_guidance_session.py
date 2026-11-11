@@ -12,10 +12,11 @@ from typing import Callable
 
 from classes.aircraft_state import AircraftLayout, AircraftState, AirframePhase, GuidanceSessionIdentity, Vector3, body_ray_to_heading_frame
 from classes.airframe_session_controls import AirframeSessionControls
+from classes.bearing_geometry_policy import BearingGeometryPolicy
 from classes.command_intent import CommandIntent
 from classes.fixed_wing_vector_guidance import FixedWingCommand, FixedWingVectorGuidance
 from classes.fixed_wing_guidance_policy import FixedWingGuidancePolicy, UpperSpeedPolicy
-from classes.gimbal_guidance import GimbalGuidanceCapabilities, GimbalGuidancePolicy
+from classes.gimbal_guidance import GimbalGuidanceCapabilities
 from classes.guidance_phase_session import GuidancePhaseSession, PhaseDecision, PhaseSessionState
 from classes.native_guidance import NativeCapabilities, NativeTransitionCommand
 from classes.safety_types import AltitudeLimits
@@ -24,7 +25,7 @@ from classes.safety_types import AltitudeLimits
 class VectorGuidanceSession:
     def __init__(self, identity: GuidanceSessionIdentity, capabilities: NativeCapabilities, *,
                  profile_name: str, controls: AirframeSessionControls,
-                 supported_phases: frozenset[AirframePhase], geometry_policy: GimbalGuidancePolicy,
+                 supported_phases: frozenset[AirframePhase], geometry_policy: BearingGeometryPolicy,
                  altitude_control: bool, altitude_limits: AltitudeLimits, confirmation_s: float,
                  observation_timeout_s: float, transition_timeout_s: float, clock=time.monotonic,
                  fixed_wing_policy: FixedWingGuidancePolicy | None = None,

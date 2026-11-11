@@ -15,7 +15,7 @@ from tools.sitl_gimbal_geometry_fixture import camera_angles_for_world_target
 
 
 def _planner(state, *, altitude=True):
-    planner = FixedWingVectorGuidance(enable_altitude_control=altitude, geometry_policy=GimbalGuidancePolicy())
+    planner = FixedWingVectorGuidance(enable_altitude_control=altitude, geometry_policy=GimbalGuidancePolicy().geometry)
     identity = GuidanceSessionIdentity('follow', state.binding, 1)
     planner.begin_phase(identity, state, now=100.0, timeout_s=0.5)
     return planner, dict(identity=identity, requested_eas_m_s=20.0,

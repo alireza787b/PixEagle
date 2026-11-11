@@ -13,7 +13,7 @@ from tests.unit.drone_interface.test_aircraft_state import aircraft_state
 
 def calculate(ray, *, planner=None, state=None, **kwargs):
     planner = planner or FixedWingVectorGuidance(enable_altitude_control=True,
-                                                geometry_policy=GimbalGuidancePolicy())
+                                                geometry_policy=GimbalGuidancePolicy().geometry)
     state = state or aircraft_state()
     identity = kwargs.pop("identity", GuidanceSessionIdentity("follow-a", state.binding, 1))
     if planner._identity is None and state.phase is AirframePhase.FIXED_WING:
@@ -33,7 +33,7 @@ def test_los_controls_course_and_world_path_not_euler_pitch_or_thrust():
 
 
 def test_disabled_altitude_holds_engagement_amsl_not_zero_pitch():
-    planner = FixedWingVectorGuidance(enable_altitude_control=False, geometry_policy=GimbalGuidancePolicy())
+    planner = FixedWingVectorGuidance(enable_altitude_control=False, geometry_policy=GimbalGuidancePolicy().geometry)
     first = calculate(Vector3(1, 0, 1), planner=planner)
     second = calculate(Vector3(1, 0, -1), planner=planner, state=aircraft_state(altitude_amsl_m=555))
     assert first.command.altitude_amsl_m == second.command.altitude_amsl_m == 550
@@ -49,7 +49,7 @@ def test_vertical_ray_keeps_course_and_viable_forward_airspeed(down, expected):
 
 
 def test_rearward_noise_does_not_reverse_turn_direction():
-    planner = FixedWingVectorGuidance(enable_altitude_control=True, geometry_policy=GimbalGuidancePolicy())
+    planner = FixedWingVectorGuidance(enable_altitude_control=True, geometry_policy=GimbalGuidancePolicy().geometry)
     commands = [calculate(Vector3(-1, y, 0), planner=planner).command for y in [.001, -.001, .002, -.002]]
     assert all(0 < command.course_rad < math.pi for command in commands)
     assert all(command.equivalent_airspeed_m_s == 20 for command in commands)
@@ -80,12 +80,12 @@ def test_unrestricted_requests_require_verified_native_capability_and_are_finite
     limited = calculate(Vector3(1, 0, 0), speed=40)
     assert limited.command.equivalent_airspeed_m_s == 30
     assert limited.limiting_reason == "native_maximum_speed"
-    unsupported = FixedWingVectorGuidance(enable_altitude_control=True, geometry_policy=GimbalGuidancePolicy(),
+    unsupported = FixedWingVectorGuidance(enable_altitude_control=True, geometry_policy=GimbalGuidancePolicy().geometry,
                                          policy=FixedWingGuidancePolicy(UpperSpeedPolicy.NO_UPPER_SPEED_BOUND, .15))
     assert unsupported.policy == FixedWingGuidancePolicy()
     assert unsupported.policy_reason == "unrestricted_speed_not_supported"
     assert calculate(Vector3(1, 0, 0), speed=20., planner=unsupported).limiting_reason == "unrestricted_speed_not_supported"
-    planner = FixedWingVectorGuidance(enable_altitude_control=True, geometry_policy=GimbalGuidancePolicy(),
+    planner = FixedWingVectorGuidance(enable_altitude_control=True, geometry_policy=GimbalGuidancePolicy().geometry,
                                      policy=FixedWingGuidancePolicy(UpperSpeedPolicy.NO_UPPER_SPEED_BOUND),
                                      unrestricted_capability=True)
     result = calculate(Vector3(1, 0, 0), speed=40, planner=planner)
@@ -155,7 +155,7 @@ def test_command_field_variants_match_complete_native_intents(height_rate, altit
 
 
 def test_new_fw_phase_recaptures_altitude_and_drops_old_turn_history():
-    planner = FixedWingVectorGuidance(enable_altitude_control=False, geometry_policy=GimbalGuidancePolicy())
+    planner = FixedWingVectorGuidance(enable_altitude_control=False, geometry_policy=GimbalGuidancePolicy().geometry)
     calculate(Vector3(-1, 0.1, 0), planner=planner)
     next_state = aircraft_state(altitude_amsl_m=575)
     next_identity = GuidanceSessionIdentity("follow-a", next_state.binding, 3)
@@ -168,7 +168,7 @@ def test_new_fw_phase_recaptures_altitude_and_drops_old_turn_history():
 
 
 def test_altitude_reference_reset_invalidates_a_retained_hold_target():
-    planner = FixedWingVectorGuidance(enable_altitude_control=False, geometry_policy=GimbalGuidancePolicy())
+    planner = FixedWingVectorGuidance(enable_altitude_control=False, geometry_policy=GimbalGuidancePolicy().geometry)
     calculate(Vector3(1, 0, 0), planner=planner)
     with pytest.raises(ValueError, match="altitude_reference_changed"):
         calculate(Vector3(1, 0, 0), planner=planner, state=aircraft_state(altitude_reference_generation=1))

@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Mapping, Optional, Tuple
 
+from classes.bearing_geometry_policy import BearingGeometryPolicy
+
 
 class GuidanceState(str, Enum):
     FORWARD = "forward"
@@ -48,10 +50,7 @@ class GimbalGuidancePolicy:
         )
         if not all(math.isfinite(float(value)) for value in values):
             raise ValueError("Gimbal guidance policy values must be finite")
-        if not 0.0 <= self.vertical_enter_horizontal_norm < self.vertical_exit_horizontal_norm <= 1.0:
-            raise ValueError("Vertical enter/exit thresholds must satisfy 0 <= enter < exit <= 1")
-        if not 0.0 <= self.forward_reentry_bearing_deg < self.rearward_entry_bearing_deg <= 180.0:
-            raise ValueError("Bearing thresholds must satisfy 0 <= reentry < entry <= 180")
+        _ = self.geometry
         if self.transition_dwell_ms < 0.0 or self.rearward_grace_ms < 0.0:
             raise ValueError("Transition dwell and rearward grace cannot be negative")
 
@@ -85,6 +84,14 @@ class GimbalGuidancePolicy:
             if key != "policy":
                 kwargs[key] = float(kwargs[key])
         return cls(**kwargs)
+
+    @property
+    def geometry(self) -> BearingGeometryPolicy:
+        """Share direction thresholds without granting gimbal manoeuvre policy."""
+        return BearingGeometryPolicy(
+            self.vertical_enter_horizontal_norm, self.vertical_exit_horizontal_norm,
+            self.rearward_entry_bearing_deg, self.forward_reentry_bearing_deg,
+        )
 
     @property
     def transition_dwell_s(self) -> float:

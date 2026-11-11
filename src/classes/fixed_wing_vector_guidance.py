@@ -12,7 +12,7 @@ import math
 from classes.aircraft_state import AircraftState, AirframePhase, GuidanceSessionIdentity, Vector3, finite_number
 from classes.command_intent import CommandIntent
 from classes.fixed_wing_guidance_policy import FixedWingGuidancePolicy, UpperSpeedPolicy
-from classes.gimbal_guidance import GimbalGuidancePolicy
+from classes.bearing_geometry_policy import BearingGeometryPolicy
 from classes.safety_types import AltitudeLimits
 
 
@@ -89,10 +89,12 @@ class FixedWingGuidanceResult:
 class FixedWingVectorGuidance:
     """Produce feasible navigation objectives from physical-body or NED rays."""
 
-    def __init__(self, *, enable_altitude_control: bool, geometry_policy: GimbalGuidancePolicy,
+    def __init__(self, *, enable_altitude_control: bool, geometry_policy: BearingGeometryPolicy,
                  policy: FixedWingGuidancePolicy | None = None, unrestricted_capability: bool = False):
         if type(enable_altitude_control) is not bool:
             raise ValueError("altitude_control_invalid")
+        if not isinstance(geometry_policy, BearingGeometryPolicy):
+            raise ValueError("bearing_geometry_policy_invalid")
         self.enable_altitude_control = enable_altitude_control
         self.geometry_policy = geometry_policy
         self.requested_policy = policy if policy is not None else FixedWingGuidancePolicy()
