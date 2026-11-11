@@ -196,7 +196,7 @@ altitude-off scenario cannot silently become an altitude-on test through a flag.
 The retained scenario records actual resolved limits/policy and the once-frozen
 target anchor. Separate Chase scenarios have `-loss`, `-retarget`, `-takeover`
 and `-stale` suffixes. The same validated fault shapes apply to the other MC
-profiles. `target_loss` checks the default immediate handoff; `retarget` supplies
+image profiles. `target_loss` checks their default immediate handoff; `retarget` supplies
 explicit cumulative world-target offsets and uses production target preparation/
 generation changes, without renewing an active recovery episode. Live rate/thrust
 retarget is explicitly unsupported and requires Stop. `pilot_takeover` represents
@@ -258,10 +258,31 @@ observed altitude hold; on requires at least 0.1 m target-directed vertical work
 Both require observed bearing response, range closure and confirmed Hold without
 later publication. The ordinary level hold does not prove a 30-degree tilt case;
 retain observed roll/pitch and keep deterministic component geometry evidence
-separate. This initial GM renewal rejects fault injection and saved speed edits.
-Retarget scenarios are explicitly unsupported and fail scenario validation before
-any container starts; waypoint motion is the same independent target, not an App
-retarget. Qualify changed target selection separately after Stop.
+separate. Saved speed edits and GM `stale_telemetry` injection remain unsupported.
+
+Reviewed GM scenarios may use the existing `target_loss`, `retarget` and
+`pilot_takeover` fault shapes through `--scenario`. A short loss explicitly sets
+`qualification.expected_handoff: false` and must show received typed TARGET_LOST,
+fresh TRACKING_ACTIVE, REACQUIRING and restored ACTIVE under the saved policy.
+A longer loss sets it true and must cause budget handoff before final operator
+cleanup. Scheduled windows or cached polls cannot establish loss/recovery. The
+worker retains `fault-outcome-before-cleanup.json`; a failed fault verdict remains
+failed even when subsequent cleanup reaches Hold.
+
+GM retarget tests exercise **simulated target-generation lifecycle**, using the
+original source pin/session and canonical App preparation/generation hooks. They
+record a simulated dispatch boundary, then require actually progressed
+post-boundary GAC/TRC receipts. No candidate angle packet, pixel/ROI, physical
+camera selection API or frame-token acceptance is fabricated. Rapid requests
+preserve the existing episode's deadline and travel budget. Waypoint motion
+alone remains the same independent target, without a generation change.
+Takeover observes actual SDK Hold/Offboard-Stop calls; only the independent
+pilot's Hold is permitted during release. Retained-evidence validation also
+requires fault-specific raw witnesses, accepting older valid trace formats
+without treating `operator_stop`-only cleanup as fault success. Derive reviewed
+fault variants from the existing nominal files and retain their source hashes
+and exact preparation script with the new capture; no fault changes gains,
+limits or recovery policy.
 
 Synthetic image samples preserve the existing tracker normalization:
 `normalized = (pixel - dimension/2) / (dimension/2)`. The inverse uses

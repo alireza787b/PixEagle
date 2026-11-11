@@ -121,8 +121,6 @@ class MCScenario:
         if family == 'angles' and 'fixed_camera' in raw:
             raise VisualizationValidationError("Gimbal boresight scenarios must not invent image optics")
         camera = FixedCamera.from_mapping(raw.get("fixed_camera")) if family == 'image' else None
-        if family == 'angles' and visual.faults:
-            raise VisualizationValidationError('Gimbal MC renewal does not support retarget or fault injection')
         if family == 'angles' and visual.lateral_guidance_mode not in {'sideslip', 'coordinated_turn'}:
             raise VisualizationValidationError('Gimbal MC renewal requires a declared lateral mode')
         if len(visual.target_waypoints) < 2 or visual.target_waypoints[0].time_s != 0.:
@@ -140,6 +138,8 @@ class MCScenario:
         telemetry_outage = None
         for fault in visual.faults:
             if fault.get("kind") == "stale_telemetry":
+                if family == 'angles':
+                    raise VisualizationValidationError('Gimbal MC renewal does not support stale_telemetry injection')
                 if set(fault) != {"kind", "at_s", "duration_s"} or telemetry_outage is not None:
                     raise VisualizationValidationError("One explicit stale_telemetry window is supported")
                 at = finite_number(fault["at_s"], "telemetry_outage_at_s")
@@ -184,8 +184,11 @@ class MCScenario:
         if not required <= set(qualification) or set(qualification) - required - {"minimum_vertical_response_m"}:
             raise VisualizationValidationError("Explicit qualification tolerances and expected handoff are required")
         expected = qualification["expected_handoff"]
-        if type(expected) is not bool or expected != (bool(windows) or takeover is not None or telemetry_outage is not None):
-            raise VisualizationValidationError("Loss/takeover/telemetry scenarios must explicitly expect terminal handoff")
+        if (type(expected) is not bool
+                or (takeover is not None or telemetry_outage is not None) and not expected
+                or not windows and takeover is None and telemetry_outage is None and expected
+                or windows and family != 'angles' and not expected):
+            raise VisualizationValidationError("Fault outcome must explicitly match the supported handoff/recovery contract")
         altitude = finite_number(qualification["altitude_tolerance_m"], "altitude_tolerance")
         position = finite_number(qualification["position_tolerance_m"], "position_tolerance")
         if not 0. < altitude <= 2. or not 0. < position <= 2.:

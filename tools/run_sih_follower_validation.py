@@ -31,6 +31,7 @@ from classes.sih_visualization import (  # noqa: E402
     analyze_timeline,
     build_timeline,
     load_evidence,
+    read_jsonl,
 )
 try:
     from tools.sih_visualizer import build_html, write_csv, write_png  # noqa: E402
@@ -257,6 +258,25 @@ def validate_px4_evidence(root: Path, scenario: VisualizationScenario, *, normal
         if (result.get("passed") is not True or result.get("scope") != "actual_mc_follower_component_only"
                 or result.get("follower") != scenario.follower_profile):
             raise VisualizationValidationError("MC response/authority acceptance did not pass")
+        if scenario.faults:
+            import yaml
+            from tools.mc_follower_sih import validate_retained_fault_outcome
+            captured = yaml.safe_load((root / 'scenario.yaml').read_text())
+            qualification = captured.get('qualification')
+            if not isinstance(qualification, dict):
+                raise VisualizationValidationError('captured_mc_fault_outcome_unproven')
+            try:
+                validate_retained_fault_outcome(scenario, result, evidence,
+                    expected_handoff=qualification.get('expected_handoff'),
+                    fault_events=read_jsonl(root / 'fault-events.jsonl'),
+                    takeover_cleanup=(_evidence_object(root / 'takeover-cleanup.json')
+                                      if (root / 'takeover-cleanup.json').exists() else None),
+                    pre_cleanup=(_evidence_object(root / 'fault-outcome-before-cleanup.json')
+                                 if (root / 'fault-outcome-before-cleanup.json').exists() else None),
+                    mode_calls=(read_jsonl(root / 'sdk-mode-calls.jsonl')
+                                if (root / 'sdk-mode-calls.jsonl').exists() else None))
+            except ValueError as exc:
+                raise VisualizationValidationError(str(exc)) from exc
     samples = build_timeline(scenario, evidence)
     summary = analyze_timeline(scenario, samples)
     if result is not None:

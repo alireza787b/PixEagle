@@ -281,6 +281,104 @@ def test_new_pose_progress_recovers_but_backward_source_time_is_rejected():
         progress.accept((149, 170), 10.3)
 
 
+def fault_scenario(tmp_path, fault, *, expected_handoff=False, profile='gm_velocity_vector', mount='horizontal', altitude=False):
+    from tools.fixed_camera_world_target import MCScenario
+    path = runner.ROOT / f'tools/sih_visualization_scenarios/{profile}-qualification-{mount}-{"on" if altitude else "off"}.yaml'
+    raw = yaml.safe_load(path.read_text())
+    raw['faults'] = [fault]
+    raw['qualification']['expected_handoff'] = expected_handoff
+    path = tmp_path / 'fault.yaml'
+    path.write_text(yaml.safe_dump(raw))
+    return MCScenario.from_yaml(path)
+
+
+def fault_checks(scenario, records, **overrides):
+    values = dict(following_active=True, handoff=None, retarget_count=0,
+        takeover_requested_at=None, mode_calls=[], telemetry_outage_injected=False)
+    values.update(overrides)
+    return runner.evaluate_fault_outcome(scenario, records, **values)
+
+
+def received_row(elapsed, tracking, authority, *, reason=None):
+    return dict(elapsed_s=elapsed, loss_active=tracking == 'TARGET_LOST',
+        target_evidence_state='ABSENT' if tracking == 'TARGET_LOST' else 'CONFIRMED',
+        gimbal_observation=dict(tracking_state=tracking),
+        continuity=dict(authority_state=authority, reason_code=reason))
+
+
+def test_scheduled_loss_or_unchanged_polls_cannot_prove_received_loss(tmp_path):
+    scenario = fault_scenario(tmp_path, dict(kind='target_loss', at_s=8., duration_s=1.))
+    scheduled_only = [dict(received_row(8.1, 'TRACKING_ACTIVE', 'ACTIVE'), scheduled_loss_active=True)]
+    assert not fault_checks(scenario, scheduled_only)['expected_faults_executed']
+    assert not fault_checks(scenario, [])['expected_faults_executed']
+
+
+@pytest.mark.parametrize('missing', ['lost', 'reacquiring', 'restored', None])
+def test_loss_recovery_requires_received_loss_confirmation_and_restoration(tmp_path, missing):
+    scenario = fault_scenario(tmp_path, dict(kind='target_loss', at_s=8., duration_s=1.))
+    rows = dict(lost=received_row(8.1, 'TARGET_LOST', 'COASTING'),
+        reacquiring=received_row(9.1, 'TRACKING_ACTIVE', 'REACQUIRING'),
+        restored=received_row(10.3, 'TRACKING_ACTIVE', 'ACTIVE'))
+    result = fault_checks(scenario, [row for key, row in rows.items() if key != missing])
+    assert all(result.values()) is (missing is None)
+
+
+@pytest.mark.parametrize('reason,active,expected', [
+    ('operator_stop', False, False), ('maximum_coast_time_reached', True, False),
+    ('following_observation_source_changed', False, False), ('maximum_coast_time_reached', False, True),
+])
+def test_loss_handoff_must_be_fault_caused_before_operator_cleanup(tmp_path, reason, active, expected):
+    scenario = fault_scenario(tmp_path, dict(kind='target_loss', at_s=8., duration_s=9.), expected_handoff=True)
+    result = fault_checks(scenario, [received_row(8.1, 'TARGET_LOST', 'COASTING')],
+        following_active=active, handoff=dict(reason_code=reason, result='confirmed_hold'))
+    assert result['fault_handoff_before_operator_cleanup'] is expected
+
+
+@pytest.mark.parametrize('extra', [None, 'action.hold', 'offboard.stop'])
+@pytest.mark.parametrize('profile', ['gm_velocity_chase', 'gm_velocity_vector'])
+@pytest.mark.parametrize('mount', ['horizontal', 'vertical'])
+@pytest.mark.parametrize('altitude', [False, True])
+def test_takeover_requires_one_actual_pilot_hold_and_no_additional_backend_mode_call(tmp_path, extra, profile, mount, altitude):
+    scenario = fault_scenario(tmp_path, dict(kind='pilot_takeover', at_s=12.), expected_handoff=True,
+                             profile=profile, mount=mount, altitude=altitude)
+    calls = [dict(method='action.hold', monotonic_s=1.), dict(method='action.hold', monotonic_s=12.01)]
+    if extra is not None:
+        calls.append(dict(method=extra, monotonic_s=12.02))
+    result = fault_checks(scenario, [], following_active=False,
+        handoff=dict(reason_code='offboard_mode_exited', result='stopped'),
+        takeover_requested_at=12., mode_calls=calls)
+    assert result['takeover_no_additional_mode_call'] is (extra is None)
+
+
+@pytest.mark.asyncio
+async def test_sdk_mode_observer_preserves_returns_exceptions_and_original_methods():
+    from unittest.mock import AsyncMock
+    hold, stop = AsyncMock(return_value='held'), AsyncMock(side_effect=RuntimeError('sdk refused'))
+    drone = SimpleNamespace(action=SimpleNamespace(hold=hold), offboard=SimpleNamespace(stop=stop))
+    calls = []
+    with runner.observe_mode_calls(drone, calls.append):
+        assert await drone.action.hold() == 'held'
+        with pytest.raises(RuntimeError, match='sdk refused'):
+            await drone.offboard.stop()
+    assert [row['method'] for row in calls] == ['action.hold', 'offboard.stop']
+    assert drone.action.hold is hold and drone.offboard.stop is stop
+    hold.assert_awaited_once_with()
+    stop.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_failed_diagnostic_recording_never_suppresses_sdk_mode_call():
+    from unittest.mock import AsyncMock
+    hold = AsyncMock(return_value='held')
+    drone = SimpleNamespace(action=SimpleNamespace(hold=hold), offboard=SimpleNamespace(stop=AsyncMock()))
+    def failed_record(_row):
+        raise OSError('diagnostic storage unavailable')
+    with runner.observe_mode_calls(drone, failed_record) as errors:
+        assert await drone.action.hold() == 'held'
+    assert errors == ['OSError']
+    hold.assert_awaited_once_with()
+
+
 def test_partial_source_progress_cannot_hide_reordering_on_the_next_poll():
     progress = runner.PoseProgress()
     assert progress.accept((100, 110), 10.)

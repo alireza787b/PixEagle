@@ -171,17 +171,24 @@ def test_gimbal_execute_requires_source_attestation_before_any_host_launch(tmp_p
 @pytest.mark.parametrize('profile', ['gm_velocity_chase', 'gm_velocity_vector'])
 @pytest.mark.parametrize('mount', ['horizontal', 'vertical'])
 @pytest.mark.parametrize('altitude', ['off', 'on'])
-def test_gimbal_retarget_is_rejected_before_any_host_or_container_launch(
-        tmp_path, monkeypatch, readonly_cli, profile, mount, altitude):
+@pytest.mark.parametrize('fault,expected_handoff', [
+    ([dict(kind='retarget', at_s=8., target_offset_ned=[0., 2., 0.])], False),
+    ([dict(kind='target_loss', at_s=8., duration_s=1.)], False),
+    ([dict(kind='target_loss', at_s=8., duration_s=9.)], True),
+    ([dict(kind='pilot_takeover', at_s=12.)], True),
+])
+def test_gimbal_fault_dry_run_is_validated_without_any_host_or_container_launch(
+        tmp_path, monkeypatch, capsys, readonly_cli, profile, mount, altitude, fault, expected_handoff):
     source = ROOT / f'tools/sih_visualization_scenarios/{profile}-qualification-{mount}-{altitude}.yaml'
     raw = yaml.safe_load(source.read_text())
-    raw['faults'] = [dict(kind='retarget', at_s=4., target_offset_ned=[0., 2., 0.])]
-    scenario = tmp_path / 'retarget.yaml'
+    raw['faults'] = fault
+    raw['qualification']['expected_handoff'] = expected_handoff
+    scenario = tmp_path / 'fault.yaml'
     scenario.write_text(yaml.safe_dump(raw))
-    monkeypatch.setattr(sys, 'argv', ['runner', '--execute', '--follower', profile, '--scenario', str(scenario),
+    monkeypatch.setattr(sys, 'argv', ['runner', '--follower', profile, '--scenario', str(scenario),
         '--sih-build-manifest', 'not-read-before-scenario-validation.json', '--evidence-root', str(tmp_path / 'new')])
-    with pytest.raises(VisualizationValidationError, match='does not support retarget or fault injection'):
-        readonly_cli.main()
+    assert readonly_cli.main() == 0
+    assert json.loads(capsys.readouterr().out)['mode'] == 'dry_run'
     readonly_cli.run_external.assert_not_called()
     assert not (tmp_path / 'new').exists()
 
@@ -470,6 +477,100 @@ def test_px4_gate_distinguishes_released_owner_from_obsolete_publication(tmp_pat
             validate_px4_evidence(tmp_path, scenario)
     else:
         assert validate_px4_evidence(tmp_path, scenario)["stale_after_fresh_samples"] == 0
+
+
+def retained_fault_capture(root, kind, *, angles=False):
+    source = scenario_path('gm_velocity_vector') if angles else scenario_path('mc_velocity_chase')
+    raw = yaml.safe_load(source.read_text())
+    fault = dict(kind=kind, at_s=8.)
+    if kind in {'target_loss', 'stale_telemetry'}:
+        fault['duration_s'] = 1.
+    raw['faults'] = [fault]
+    raw['qualification']['expected_handoff'] = True
+    (root / 'scenario.yaml').write_text(yaml.safe_dump(raw))
+    scenario = VisualizationScenario.from_yaml(root / 'scenario.yaml')
+    reason = {'target_loss': 'tracker_unusable_for_following', 'pilot_takeover': 'offboard_mode_exited',
+              'stale_telemetry': 'vehicle_state_stale'}[kind]
+    result = dict(passed=True, scope='actual_mc_follower_component_only', follower=scenario.follower_profile,
+                  handoff=dict(reason_code=reason, result='stopped' if kind == 'pilot_takeover' else 'confirmed_hold'))
+    output = dict(data_type='gimbal_angles' if angles else 'position_2d', tracking_active=False,
+                  has_output=angles, usable_for_following=False)
+    if angles:
+        output['gimbal_observation'] = dict(tracking_state='TARGET_LOST')
+    paths = {
+        'px4/pose_trace.jsonl': [dict(timestamp=t, vehicle_ned=[0., 0., -20.],
+                                      vehicle_quaternion=[1., 0., 0., 0.]) for t in (0., .1, .2)],
+        'trace/target_truth.jsonl': [dict(timestamp=t, target_ned=[18., 0., -20.]) for t in (0., .1, .2)],
+        'trace/offboard_publish_trace.jsonl': [dict(timestamp=t, record_type='offboard_publish', publish_success=True,
+            submitted_fields=dict(vel_body_fwd=.1, vel_body_right=0., vel_body_down=0., yawspeed_deg_s=0.)) for t in (0., .1, .2)],
+        'trace/tracker_command_trace.jsonl': [dict(timestamp=.1, record_type='tracker_command', tracker_output=output,
+            dispatch_accepted=False, continuity=dict(authority_state='HANDOFF_PENDING', handoff_request=dict(reason_code=reason)))],
+        'trace/follower_state.jsonl': [dict(timestamp=.2, state='INACTIVE', reason_code='handoff_confirmed')],
+        'fault-events.jsonl': [dict(timestamp=.05, event=kind, mode='Hold' if kind == 'pilot_takeover' else None)],
+    }
+    for name, rows in paths.items():
+        path = root / name
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(''.join(json.dumps(row)+'\n' for row in rows))
+    (root / 'result.json').write_text(json.dumps(result))
+    if kind == 'pilot_takeover':
+        (root / 'takeover-cleanup.json').write_text(json.dumps(dict(errors=[], sender_quiesce=dict(
+            authority_released=True, local_sender_quiesced=True, vehicle_hold_acknowledged=False))))
+    return scenario, result
+
+
+@pytest.mark.parametrize('kind', ['target_loss', 'pilot_takeover', 'stale_telemetry'])
+def test_retained_faults_accept_existing_legacy_witnesses_without_new_fields(tmp_path, kind):
+    scenario, _ = retained_fault_capture(tmp_path, kind)
+    before = raw_capture_bytes(tmp_path)
+    assert validate_px4_evidence(tmp_path, scenario, normalize=False)['qualification_result']['passed']
+    assert raw_capture_bytes(tmp_path) == before
+
+
+@pytest.mark.parametrize('kind', ['target_loss', 'pilot_takeover', 'stale_telemetry'])
+def test_retained_faults_reject_cleanup_only_success_without_rewriting_raw_evidence(tmp_path, kind):
+    scenario, result = retained_fault_capture(tmp_path, kind)
+    result['handoff'] = dict(reason_code='operator_stop', result='confirmed_hold')
+    (tmp_path / 'result.json').write_text(json.dumps(result))
+    before = raw_capture_bytes(tmp_path)
+    with pytest.raises(VisualizationValidationError, match='fault_outcome_unproven'):
+        validate_px4_evidence(tmp_path, scenario, normalize=False)
+    assert raw_capture_bytes(tmp_path) == before
+
+
+@pytest.mark.parametrize('angles', [False, True])
+def test_retained_loss_requires_received_loss_not_only_a_scheduled_event(tmp_path, angles):
+    scenario, _ = retained_fault_capture(tmp_path, 'target_loss', angles=angles)
+    trace = tmp_path / 'trace/tracker_command_trace.jsonl'
+    row = json.loads(trace.read_text())
+    row['tracker_output'].update(tracking_active=True, has_output=True, usable_for_following=True)
+    if angles:
+        row['tracker_output']['gimbal_observation']['tracking_state'] = 'TRACKING_ACTIVE'
+    trace.write_text(json.dumps(row)+'\n')
+    before = raw_capture_bytes(tmp_path)
+    with pytest.raises(VisualizationValidationError, match='fault_outcome_unproven'):
+        validate_px4_evidence(tmp_path, scenario, normalize=False)
+    assert raw_capture_bytes(tmp_path) == before
+
+
+@pytest.mark.parametrize('method', ['action.hold', 'offboard.stop'])
+def test_retained_takeover_rejects_additional_actual_mode_calls(tmp_path, method):
+    scenario, _ = retained_fault_capture(tmp_path, 'pilot_takeover')
+    (tmp_path / 'sdk-mode-calls.jsonl').write_text(''.join(json.dumps(dict(timestamp=t, method=name))+'\n'
+        for t, name in ((.06, 'action.hold'), (.07, method))))
+    with pytest.raises(VisualizationValidationError, match='fault_outcome_unproven'):
+        validate_px4_evidence(tmp_path, scenario, normalize=False)
+
+
+def test_retained_failed_pre_cleanup_verdict_cannot_be_replaced_by_successful_cleanup(tmp_path):
+    scenario, result = retained_fault_capture(tmp_path, 'target_loss')
+    (tmp_path / 'fault-outcome-before-cleanup.json').write_text(json.dumps(dict(
+        following_active=True, handoff=None, checks=dict(fault_handoff_before_operator_cleanup=False))))
+    before = raw_capture_bytes(tmp_path)
+    with pytest.raises(VisualizationValidationError, match='fault_outcome_unproven'):
+        validate_px4_evidence(tmp_path, scenario, normalize=False)
+    assert result['passed']
+    assert raw_capture_bytes(tmp_path) == before
 
 
 def test_failed_run_keeps_visual_evidence_without_an_acceptance_claim(tmp_path):
