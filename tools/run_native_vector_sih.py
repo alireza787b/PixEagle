@@ -20,6 +20,7 @@ import subprocess
 import sys
 import time
 from types import SimpleNamespace
+from typing import Literal
 
 import yaml
 
@@ -60,6 +61,13 @@ class ComponentProfile:
                 raise ValueError("native_component_vtol_contract_unavailable")
             return "vtol_external"
         return native["fixed_wing"]
+
+
+@dataclass(frozen=True)
+class ComponentFaultWindow:
+    kind: Literal["target_loss", "airspeed_loss"]
+    start_s: float
+    end_s: float
 
 
 def component_profile(name: str) -> ComponentProfile:
@@ -133,6 +141,11 @@ def measurement_world_target(output: TrackerOutput, target):
     if output.data_type is TrackerDataType.POSITION_2D:
         return output.raw_data.get("measurement_target_ned") if output.image_measurement is not None else None
     return target
+
+
+def observed_airspeed_status(state: AircraftState, feedback: dict) -> dict:
+    return dict(speed_source=state.airspeed.source, airspeed_valid=state.airspeed.valid,
+                airspeed_control_enabled=feedback.get("airspeed_control_enabled"))
 
 
 def observed_pose_record(packet, *, follow_start: float, previous_timestamp_us: int | None):
@@ -214,6 +227,156 @@ def native_parameters(socket: Path, isolation: dict) -> str:
     executable = str(Path(isolation["process"]["args"][0]).with_name("px4-param"))
     return command("docker", "exec", "--user", str(socket.stat().st_uid), isolation["container_id"],
                    executable, "--instance", str(isolation["instance"]), "show")
+
+
+def require_airspeed_failure_injection(parameters: str, isolation: dict) -> None:
+    if isolation.get("firmware_build") is None:
+        raise ValueError("native_component_fault_requires_verified_source_build")
+    enabled = re.findall(r"(?m)^\s*(?:[x+*]\s+)?SYS_FAILURE_EN(?:\s+\[[^]\n]+\])?\s*:\s*(\S+)\s*$", parameters)
+    if enabled != ["1"]:
+        raise ValueError("native_component_failure_injection_disabled")
+
+
+def native_airspeed_failure(socket: Path, isolation: dict, blocked: bool) -> dict:
+    """Use only the verified SIH binary's CLI and pinned container/instance."""
+    if type(blocked) is not bool:
+        raise ValueError("native_component_airspeed_fault_invalid")
+    executable = str(Path(isolation["process"]["args"][0]).with_name("px4-failure"))
+    argv = ("docker", "exec", "--user", str(socket.stat().st_uid), isolation["container_id"],
+            executable, "--instance", str(isolation["instance"]), "airspeed", "off" if blocked else "ok", "-i", "1")
+    started = time.monotonic()
+    try:
+        completed = subprocess.run(argv, text=True, capture_output=True, timeout=15, check=False)
+        return dict(argv=list(argv), returncode=completed.returncode, stdout=completed.stdout, stderr=completed.stderr,
+                    started_at_monotonic_s=started, finished_at_monotonic_s=time.monotonic())
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return dict(argv=list(argv), returncode=None, error=f"{type(error).__name__}:{error}",
+                    started_at_monotonic_s=started, finished_at_monotonic_s=time.monotonic())
+
+
+class AirspeedLossInjection:
+    """One test-only CLI task; target guidance and publication keep running."""
+
+    def __init__(self, socket, isolation, windows, *, log, started, clock=time.monotonic):
+        self.socket, self.isolation, self.windows = socket, isolation, windows
+        self.log, self.started, self.clock = log, started, clock
+        self.events = []
+        self._active = False
+        self._task = None
+
+    @property
+    def active(self):
+        return self._active
+
+    def _record(self, phase, blocked, **details):
+        now = self.clock()
+        event = dict(kind="airspeed_loss", phase=phase, operation="off" if blocked else "ok",
+                     timestamp=now-self.started, observed_at_monotonic_s=now, **details)
+        self.events.append(event)
+        self.log("fault-events.jsonl", event)
+
+    async def _apply(self, blocked):
+        self._record("started", blocked)
+        result = await asyncio.to_thread(native_airspeed_failure, self.socket, self.isolation, blocked)
+        self._record("finished", blocked, command=result)
+        if result.get("returncode") != 0:
+            raise RuntimeError("native_component_airspeed_fault_command_failed")
+        if not blocked:
+            self._active = False
+
+    async def tick(self, elapsed):
+        if self._task is not None:
+            if not self._task.done():
+                return
+            task, self._task = self._task, None
+            await task
+        desired = any(window.start_s <= elapsed < window.end_s for window in self.windows)
+        if desired != self._active:
+            # Even a failed/timed-out off command may have reached PX4.
+            if desired:
+                self._active = True
+            self._task = asyncio.create_task(self._apply(desired), name="native-sih-airspeed-fault")
+
+    async def close(self):
+        pending_error = None
+        if self._task is not None:
+            task, self._task = self._task, None
+            try:
+                await task
+            except Exception as error:
+                pending_error = error
+        if self._active:
+            await self._apply(False)
+        if pending_error is not None:
+            raise pending_error
+
+
+def airspeed_fault_response_checks(response, events) -> dict[str, bool]:
+    checks = dict(airspeed_fault_commands_succeeded=False, airspeed_source_degraded=False,
+                  airspeed_sensor_restored=False)
+    finished = [event for event in events if event.get("phase") == "finished"]
+    if (not finished or len(finished) % 2
+            or any(event.get("operation") != ("off" if index % 2 == 0 else "ok")
+                   or event.get("command", {}).get("returncode") != 0 for index, event in enumerate(finished))):
+        return checks
+    intervals = []
+    try:
+        for off, restored in zip(finished[::2], finished[1::2]):
+            off_start = (finite_number(off["command"]["started_at_monotonic_s"], "fault_start")
+                         - finite_number(off["observed_at_monotonic_s"], "fault_event_receipt") + off["timestamp"])
+            restore_finish = (finite_number(restored["command"]["finished_at_monotonic_s"], "fault_finish")
+                              - finite_number(restored["observed_at_monotonic_s"], "fault_event_receipt")
+                              + restored["timestamp"])
+            if not 0. <= off_start <= restore_finish:
+                return checks
+            intervals.append((off_start, restore_finish))
+    except (KeyError, TypeError, ValueError):
+        return checks
+    checks["airspeed_fault_commands_succeeded"] = True
+    degraded = restored = True
+    for index, (off_start, restore_finish) in enumerate(intervals):
+        end = intervals[index+1][0] if index+1 < len(intervals) else math.inf
+        baseline = any(row["timestamp"] < off_start and row.get("speed_source") == "sensor"
+                       and row.get("airspeed_valid") is True for row in response)
+        lost = [row for row in response if off_start <= row["timestamp"] < restore_finish
+                and ((row.get("speed_source") == "ground_minus_wind" and row.get("airspeed_valid") is True)
+                     or (row.get("speed_source") == "unavailable" and row.get("airspeed_valid") is False
+                         and row.get("airspeed_control_enabled") is False))]
+        degraded = degraded and baseline and bool(lost)
+        restored = restored and baseline and bool(lost) and any(
+            max(restore_finish, lost[0]["timestamp"]) < row["timestamp"] < end
+            and row.get("speed_source") == "sensor" and row.get("airspeed_valid") is True for row in response)
+    checks["airspeed_source_degraded"] = degraded
+    checks["airspeed_sensor_restored"] = restored
+    return checks
+
+
+async def cleanup_component_run(commander, binding, fault_injection, result):
+    """Quiesce/release control before waiting for test-sensor CLI cleanup."""
+    try:
+        try:
+            if commander is not None and commander.running:
+                if await commander.stop(publish_final=False) is False:
+                    raise RuntimeError("native_component_publisher_not_quiesced")
+        except Exception as error:
+            result["passed"] = False
+            result["publisher_cleanup_error"] = str(error)
+    finally:
+        try:
+            try:
+                if binding is not None and binding.owner_confirmed:
+                    result["cleanup"] = await binding.stop("isolated_sih_cleanup")
+            except Exception as error:
+                result["passed"] = False
+                result["cleanup_error"] = str(error)
+        finally:
+            if fault_injection is not None:
+                try:
+                    await fault_injection.close()
+                except Exception as error:
+                    result["passed"] = False
+                    result["fault_cleanup_error"] = str(error)
+                result["fault_events"] = fault_injection.events
 
 
 def verify_simulator(container: str, instance: int, socket: Path, *, sih_build_manifest: Path | None = None) -> dict:
@@ -358,7 +521,7 @@ def load_component_scenario(path, *, mount, altitude, duration, is_vtol, followe
             or scenario.command_contract != selected.command_contract(is_vtol=is_vtol)
             or scenario.mount_type != mount or scenario.altitude_control is not altitude):
         raise ValueError("native_component_scenario_contract_mismatch")
-    component_loss_windows(scenario.faults, duration)
+    component_fault_windows(scenario.faults, duration)
     if scenario.requested_speed is not None:
         raise ValueError("native_component_use_explicit_mc_request_action")
     if scenario.target_at(0.) is None or scenario.target_at(duration) is None:
@@ -371,11 +534,11 @@ def load_component_scenario(path, *, mount, altitude, duration, is_vtol, followe
     return raw
 
 
-def component_loss_windows(faults, duration):
+def component_loss_windows(faults, duration, *, kind="target_loss"):
     """Validate test stimuli; the production supervisor owns recovery policy."""
     windows = []
     for fault in faults:
-        if fault.get("kind") != "target_loss":
+        if fault.get("kind") != kind:
             raise ValueError("native_component_fault_injection_not_implemented")
         if set(fault) != {"kind", "at_s", "duration_s"}:
             raise ValueError("native_component_loss_window_invalid")
@@ -388,6 +551,24 @@ def component_loss_windows(faults, duration):
     if any(right[0] < left[1] for left, right in zip(windows, windows[1:])):
         raise ValueError("native_component_loss_windows_overlap")
     return windows
+
+
+def component_fault_windows(faults, duration) -> tuple[ComponentFaultWindow, ...]:
+    if (isinstance(duration, bool) or not isinstance(duration, (int, float))
+            or not math.isfinite(duration) or duration <= 0.):
+        raise ValueError("native_component_fault_duration_invalid")
+    if any(not isinstance(fault, dict) or not isinstance(fault.get("kind"), str) for fault in faults):
+        raise ValueError("native_component_fault_injection_not_implemented")
+    kinds = {fault.get("kind") for fault in faults}
+    if not kinds:
+        return ()
+    if not kinds.issubset({"target_loss", "airspeed_loss"}):
+        raise ValueError("native_component_fault_injection_not_implemented")
+    if len(kinds) != 1:
+        raise ValueError("native_component_fault_families_mixed")
+    kind = next(iter(kinds))
+    return tuple(ComponentFaultWindow(kind, start, end)
+                 for start, end in component_loss_windows(faults, duration, kind=kind))
 
 
 def loss_tracker_output(data_type=TrackerDataType.GIMBAL_ANGLES):
@@ -454,12 +635,14 @@ async def run(args, isolation):
         logs[name].flush()
 
     client = NativeGuidanceClient(args.socket)
-    commander = binding = None
+    commander = binding = fault_injection = None
+    failure_injection_enabled = None
+    response = []
     result = dict(passed=False, reason="not_started")
     started = time.monotonic()
     try:
-        (output / "px4/parameters-before.txt").write_text(native_parameters(
-            args.socket, isolation))
+        parameters_before = native_parameters(args.socket, isolation)
+        (output / "px4/parameters-before.txt").write_text(parameters_before)
         capabilities = await client.connect()
         aircraft = AircraftBinding(isolation["aircraft_uid"], f"sih-{output.name}", 1)
         log("runtime.jsonl", dict(timestamp=time.monotonic(), capabilities=asdict(capabilities),
@@ -527,7 +710,13 @@ async def run(args, isolation):
         scenario_path = output / "scenario.yaml"
         scenario_path.write_text(yaml.safe_dump(scenario_raw, sort_keys=False))
         scenario = VisualizationScenario.from_yaml(scenario_path)
-        loss_windows = component_loss_windows(scenario.faults, args.duration)
+        fault_windows = component_fault_windows(scenario.faults, args.duration)
+        loss_windows = [(window.start_s, window.end_s) for window in fault_windows if window.kind == "target_loss"]
+        airspeed_windows = tuple(window for window in fault_windows if window.kind == "airspeed_loss")
+        if airspeed_windows:
+            failure_injection_enabled = False
+            require_airspeed_failure_injection(parameters_before, isolation)
+            failure_injection_enabled = True
         projected = None
         if selected.tracker_type is TrackerDataType.POSITION_2D:
             projected = image_fixture(scenario_raw, state, runtime_id=capabilities.runtime_id, run_id=output.name)
@@ -576,16 +765,19 @@ async def run(args, isolation):
         if not commander.submit_intent(baseline):
             raise ValueError(commander.last_error)
         follow_start = time.monotonic()
+        if airspeed_windows:
+            fault_injection = AirspeedLossInjection(args.socket, isolation, airspeed_windows, log=log, started=follow_start)
         if not await commander.start():
             raise ValueError(commander.last_error)
         initial_altitude = state.relative_altitude_m
         initial_publications = commander.successful_publishes
-        response = []
         mc_request_applied = False
         handoff_reason = None
         handoff_time = None
         previous_pose_timestamp = None
         while (elapsed := time.monotonic() - follow_start) < args.duration:
+            if fault_injection is not None:
+                await fault_injection.tick(elapsed)
             packet = connection.last_packet
             state = connection.get_aircraft_state()
             if state is None or not commander.running or commander.failed_publishes:
@@ -629,6 +821,7 @@ async def run(args, isolation):
             feedback = packet.get("native_guidance_feedback") or {}
             p = packet["vehicle_pose"]
             response.append(dict(timestamp=elapsed, phase=state.phase.value, range_m=math.dist(p["vehicle_ned"], target),
+                                 **observed_airspeed_status(state, feedback),
                                  altitude_m=state.relative_altitude_m,
                                  eas_m_s=state.airspeed.equivalent_m_s,
                                  pose_observed_at=p["observed_at_monotonic_s"]))
@@ -638,6 +831,7 @@ async def run(args, isolation):
                 previous_pose_timestamp = pose_record["px4_timestamp_us"]
             log("trace/target_truth.jsonl", dict(timestamp=elapsed, target_ned=target))
             log("trace/tracker_command_trace.jsonl", dict(record_type="tracker_command", timestamp=elapsed,
+                **observed_airspeed_status(state, feedback),
                 requested_speed=(guidance.controls.current_control.value if guidance.controls.current_control else None),
                 command_intent=None if intent is None else asdict(intent),
                 measurement_age_s=(None if measurement_time(target_output[0]) is None
@@ -645,12 +839,14 @@ async def run(args, isolation):
                 measurement_target_ned=measurement_world_target(target_output[0], measurement_target),
                 tracker_output=target_output[0].to_dict()))
             log("trace/follower_state.jsonl", dict(timestamp=elapsed, state=decision.authority_state.value,
+                **observed_airspeed_status(state, feedback),
                 aircraft_phase=state.phase.value, observed_eas_m_s=state.airspeed.equivalent_m_s,
                 native_effective_eas_m_s=feedback.get("effective_eas_m_s"),
                 phase_state=guidance.phase_owner.state.value, phase_reason=guidance.phase_owner.reason,
                 guidance_generation=guidance.identity.guidance_generation,
                 pursuit_paused=binding.pursuit_paused, effective_continuity_policy=asdict(supervisor.policy),
                 continuity=supervisor.get_status(), injected_target_loss=loss_active,
+                airspeed_fault_requested=bool(fault_injection is not None and fault_injection.active),
                 events=["injected_target_loss"] if loss_active else [], limiting_reason=decision.reason_code))
             if decision.handoff_request is not None:
                 handoff_reason, handoff_time = decision.reason_code, elapsed
@@ -703,13 +899,17 @@ async def run(args, isolation):
         result = dict(passed=False, reason=f"{type(error).__name__}:{error}")
         raise
     finally:
-        if commander is not None and commander.running:
-            await commander.stop(publish_final=False)
-        if binding is not None and binding.owner_confirmed:
-            try:
-                result["cleanup"] = await binding.stop("isolated_sih_cleanup")
-            except Exception as error:
-                result["cleanup_error"] = str(error)
+        await cleanup_component_run(commander, binding, fault_injection, result)
+        if fault_injection is not None:
+            fault_checks = airspeed_fault_response_checks(response, fault_injection.events)
+            result.setdefault("response_checks", {}).update(fault_checks)
+            if not all(fault_checks.values()):
+                if result["passed"]:
+                    result["reason"] = "airspeed_fault_response_not_observed"
+                result["passed"] = False
+                result["fault_response_failures"] = [key for key, value in fault_checks.items() if not value]
+        if failure_injection_enabled is not None:
+            result["failure_injection_enabled"] = failure_injection_enabled
         await client.close()
         try:
             (output / "px4/parameters-after.txt").write_text(native_parameters(

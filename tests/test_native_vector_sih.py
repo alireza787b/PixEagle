@@ -2,9 +2,13 @@
 
 from copy import deepcopy
 from dataclasses import asdict, replace
+import asyncio
 import json
 import math
 import socket
+import subprocess
+import threading
+import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -24,10 +28,13 @@ from classes.tracker_output import TrackerDataType
 from tests.unit.drone_interface.test_aircraft_state import aircraft_state, attitude_timing
 from tests.unit.followers import test_fw_navigation_chase_follower as native_image_cases
 from tools.run_native_vector_sih import (
-    ROOT, ObservationConnection, archive_configuration, attach_component_observer, component_loss_windows, component_profile,
+    ROOT, AirspeedLossInjection, ObservationConnection, airspeed_fault_response_checks,
+    archive_configuration, attach_component_observer, cleanup_component_run,
+    component_fault_windows, component_loss_windows, component_profile,
     component_target_evidence, image_fixture,
     load_component_scenario, loss_tracker_output, measurement_time, measurement_world_target,
-    native_parameters, observed_pose_record, phase_response_segments,
+    native_airspeed_failure, native_parameters, observed_airspeed_status, observed_pose_record,
+    phase_response_segments, require_airspeed_failure_injection,
     prepare_component_intent, project_component_image, stable_window, tracker_for_world_target,
     verify_simulator,
 )
@@ -75,6 +82,275 @@ def test_parameter_snapshot_uses_only_verified_runtime_executable_sibling(monkey
         assert native_parameters(path, isolation) == "SIH_F_T_MAX: 6.0\n"
         assert calls == [("docker", "exec", "--user", str(path.stat().st_uid), "verified-container-id",
                           "/firmware/bin/px4-param", "--instance", "7", "show")]
+
+
+@pytest.mark.parametrize('blocked,operation', [(True, 'off'), (False, 'ok')])
+def test_airspeed_failure_uses_only_pinned_runtime_and_instance(monkeypatch, tmp_path, blocked, operation):
+    path = tmp_path / 'native.sock'
+    path.touch()
+    run = Mock(return_value=subprocess.CompletedProcess([], 0, 'acknowledged', 'native CLI diagnostic'))
+    monkeypatch.setattr('tools.run_native_vector_sih.subprocess.run', run)
+    isolation = {'container_id': 'verified-container-id', 'instance': 7, 'process': {'args': ['/firmware/bin/px4']}}
+    result = native_airspeed_failure(path, isolation, blocked)
+    run.assert_called_once_with(('docker', 'exec', '--user', str(path.stat().st_uid), 'verified-container-id',
+        '/firmware/bin/px4-failure', '--instance', '7', 'airspeed', operation, '-i', '1'),
+        text=True, capture_output=True, timeout=15, check=False)
+    assert result['returncode'] == 0 and result['stdout'] == 'acknowledged'
+    assert result['stderr'] == 'native CLI diagnostic'
+    assert result['finished_at_monotonic_s'] >= result['started_at_monotonic_s']
+
+
+def test_airspeed_failure_timeout_is_retained_as_an_uncertain_cli_result(monkeypatch, tmp_path):
+    path = tmp_path / 'native.sock'
+    path.touch()
+    monkeypatch.setattr('tools.run_native_vector_sih.subprocess.run',
+                        Mock(side_effect=subprocess.TimeoutExpired('px4-failure', 15)))
+    result = native_airspeed_failure(path, {
+        'container_id': 'verified-id', 'instance': 7, 'process': {'args': ['/firmware/bin/px4']},
+    }, True)
+    assert result['returncode'] is None and result['error'].startswith('TimeoutExpired:')
+    assert result['finished_at_monotonic_s'] >= result['started_at_monotonic_s']
+
+
+@pytest.mark.parametrize('text', ['x     SYS_FAILURE_EN [1022,1539] : 1\n', 'SYS_FAILURE_EN: 1\n'])
+def test_fault_injection_requires_enabled_read_only_parameter_and_verified_firmware(text):
+    require_airspeed_failure_injection(text, {'firmware_build': {'binary_sha256': 'a'*64}})
+    with pytest.raises(ValueError, match='verified_source_build'):
+        require_airspeed_failure_injection(text, {'firmware_build': None})
+
+
+@pytest.mark.parametrize('text', ['', 'SYS_FAILURE_EN: 0\n', 'SYS_FAILURE_EN: true\n',
+                               'SYS_FAILURE_EN: 1.0\n', 'SYS_FAILURE_EN: 1\nSYS_FAILURE_EN: 1\n'])
+def test_disabled_missing_or_ambiguous_failure_permission_is_refused(text):
+    with pytest.raises(ValueError, match='failure_injection_disabled'):
+        require_airspeed_failure_injection(text, {'firmware_build': {}})
+
+
+@pytest.mark.parametrize('source,valid', [('sensor', True), ('ground_minus_wind', True), ('unavailable', False)])
+def test_airspeed_trace_reports_actual_native_selection_and_controller_state(source, valid):
+    state = aircraft_state()
+    state = replace(state, airspeed=replace(state.airspeed, source=source, valid=valid,
+                                           equivalent_m_s=20. if valid else None))
+    assert observed_airspeed_status(state, {'airspeed_control_enabled': valid}) == {
+        'speed_source': source, 'airspeed_valid': valid, 'airspeed_control_enabled': valid,
+    }
+    assert observed_airspeed_status(state, {})['airspeed_control_enabled'] is None
+
+
+def airspeed_fault(*, log=lambda *args: None):
+    windows = component_fault_windows([{'kind': 'airspeed_loss', 'at_s': 0., 'duration_s': .5}], 1.)
+    return AirspeedLossInjection(None, {}, windows, log=log, started=time.monotonic())
+
+
+@pytest.mark.asyncio
+async def test_real_airspeed_fault_handler_keeps_async_control_work_running_during_cli(monkeypatch):
+    entered, finish = threading.Event(), threading.Event()
+    commands = []
+
+    def cli(_socket, _isolation, blocked):
+        commands.append(blocked)
+        if blocked:
+            entered.set()
+            assert finish.wait(timeout=2.)
+        return {'returncode': 0, 'stdout': 'ack', 'stderr': ''}
+
+    monkeypatch.setattr('tools.run_native_vector_sih.native_airspeed_failure', cli)
+    events = []
+    fault = airspeed_fault(log=lambda name, event: events.append((name, event)))
+    try:
+        await fault.tick(0.)
+        assert await asyncio.to_thread(entered.wait, 1.)
+        for _ in range(20):
+            await asyncio.sleep(0)
+            await fault.tick(.1)
+        assert commands == [True] and not fault._task.done()
+        finish.set()
+        await asyncio.wait_for(fault._task, 1.)
+        await fault.tick(.6)
+    finally:
+        finish.set()
+        await fault.close()
+    assert commands == [True, False]
+    assert [event['phase'] for event in fault.events] == ['started', 'finished', 'started', 'finished']
+    assert [event['operation'] for event in fault.events] == ['off', 'off', 'ok', 'ok']
+    assert all(name == 'fault-events.jsonl' for name, _ in events)
+    assert all(b['observed_at_monotonic_s'] >= a['observed_at_monotonic_s']
+               for a, b in zip(fault.events, fault.events[1:]))
+    assert not fault.active
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('error', [RuntimeError('control_failed'), asyncio.CancelledError()])
+async def test_control_failure_restores_active_airspeed_fault_without_another_tick(monkeypatch, error):
+    commands = []
+    monkeypatch.setattr('tools.run_native_vector_sih.native_airspeed_failure',
+                        lambda _socket, _isolation, blocked: commands.append(blocked) or {'returncode': 0})
+    fault = airspeed_fault()
+    with pytest.raises(type(error)):
+        try:
+            await fault.tick(0.)
+            await fault._task
+            raise error
+        finally:
+            await fault.close()
+    assert commands == [True, False] and not fault.active
+    await fault.close()
+    assert commands == [True, False]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('failed_code', [1, None])
+async def test_failed_or_uncertain_off_command_still_requires_restore(monkeypatch, failed_code):
+    commands = []
+    monkeypatch.setattr('tools.run_native_vector_sih.native_airspeed_failure',
+                        lambda _socket, _isolation, blocked: commands.append(blocked) or
+                        {'returncode': failed_code if blocked else 0})
+    fault = airspeed_fault()
+    await fault.tick(0.)
+    with pytest.raises(RuntimeError, match='fault_command_failed'):
+        await fault.close()
+    assert commands == [True, False] and not fault.active
+    assert fault.events[1]['command']['returncode'] == failed_code
+
+
+def successful_fault_events():
+    return [dict(phase='finished', operation=operation, timestamp=end, observed_at_monotonic_s=100.+end,
+                 command={'returncode': 0, 'started_at_monotonic_s': 100.+start,
+                          'finished_at_monotonic_s': 100.+end})
+            for operation, start, end in [('off', 4., 4.1), ('ok', 12., 12.1)]]
+
+
+def source_row(timestamp, source, *, valid=True, control=True):
+    return dict(timestamp=timestamp, speed_source=source, airspeed_valid=valid, airspeed_control_enabled=control)
+
+
+@pytest.mark.parametrize('degradation', [source_row(6., 'ground_minus_wind'),
+                                       source_row(6., 'unavailable', valid=False, control=False)])
+def test_fault_case_requires_actual_qualified_source_degradation_and_sensor_return(degradation):
+    checks = airspeed_fault_response_checks([
+        source_row(1., 'sensor'), degradation, source_row(13., 'sensor'),
+    ], successful_fault_events())
+    assert all(checks.values())
+
+
+def test_noop_fault_command_cannot_pass_without_actual_source_change():
+    checks = airspeed_fault_response_checks([
+        source_row(1., 'sensor'), source_row(6., 'sensor'), source_row(13., 'sensor'),
+    ], successful_fault_events())
+    assert checks == dict(airspeed_fault_commands_succeeded=True, airspeed_source_degraded=False,
+                          airspeed_sensor_restored=False)
+
+
+@pytest.mark.parametrize('late_degradation', [source_row(13., 'ground_minus_wind'),
+    source_row(13., 'unavailable', valid=False, control=False)])
+def test_unrelated_degradation_after_restoration_cannot_qualify_the_injected_fault(late_degradation):
+    checks = airspeed_fault_response_checks([
+        source_row(1., 'sensor'), source_row(6., 'sensor'), late_degradation, source_row(16., 'sensor'),
+    ], successful_fault_events())
+    assert checks == dict(airspeed_fault_commands_succeeded=True, airspeed_source_degraded=False,
+                          airspeed_sensor_restored=False)
+
+
+@pytest.mark.parametrize('degradation', [source_row(6., 'unavailable', valid=False, control=True),
+    source_row(6., 'unavailable', valid=False, control=None), source_row(6., 'ground_minus_wind', valid=False),
+    source_row(6., 'ground_speed_proxy'), source_row(6., 'native_auto')])
+def test_unqualified_sensorless_or_proxy_labels_cannot_pass_source_fault_acceptance(degradation):
+    checks = airspeed_fault_response_checks([
+        source_row(1., 'sensor'), degradation, source_row(13., 'sensor'),
+    ], successful_fault_events())
+    assert checks['airspeed_fault_commands_succeeded']
+    assert not checks['airspeed_source_degraded'] and not checks['airspeed_sensor_restored']
+
+
+@pytest.mark.parametrize('rows', [
+    [source_row(1., 'sensor'), source_row(6., 'ground_minus_wind'), source_row(13., 'ground_minus_wind')],
+    [source_row(1., 'sensor'), source_row(6., 'ground_minus_wind'), source_row(11., 'sensor')],
+    [source_row(1., 'sensor'), source_row(6., 'ground_minus_wind'), source_row(13., 'sensor', valid=False)],
+])
+def test_sensor_return_must_be_valid_and_observed_after_the_restore_command(rows):
+    checks = airspeed_fault_response_checks(rows, successful_fault_events())
+    assert checks['airspeed_source_degraded']
+    assert not checks['airspeed_sensor_restored']
+
+
+def test_degradation_needs_a_sensor_baseline_and_cannot_precede_the_off_command():
+    checks = airspeed_fault_response_checks([
+        source_row(1., 'sensor'), source_row(3., 'ground_minus_wind'), source_row(13., 'sensor'),
+    ], successful_fault_events())
+    assert not checks['airspeed_source_degraded']
+    checks = airspeed_fault_response_checks([
+        source_row(1., 'ground_minus_wind'), source_row(6., 'ground_minus_wind'), source_row(13., 'sensor'),
+    ], successful_fault_events())
+    assert not checks['airspeed_source_degraded']
+
+
+@pytest.mark.parametrize('kind', ['off_failed', 'restore_failed', 'restore_missing', 'missing_timing'])
+def test_failed_incomplete_or_unproven_commands_cannot_pass_fault_acceptance(kind):
+    events = successful_fault_events()
+    if kind == 'restore_missing':
+        events.pop()
+    elif kind == 'missing_timing':
+        events[0]['command'].pop('started_at_monotonic_s')
+    else:
+        events[int(kind == 'restore_failed')]['command']['returncode'] = 1
+    checks = airspeed_fault_response_checks([
+        source_row(1., 'sensor'), source_row(6., 'ground_minus_wind'), source_row(13., 'sensor'),
+    ], events)
+    assert not any(checks.values())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('failed', [None, 'publisher', 'owner', 'fault'])
+async def test_cleanup_quiesces_and_releases_owner_before_fault_cli_even_when_an_earlier_step_fails(failed):
+    order = []
+
+    async def step(name, **_):
+        order.append(name)
+        if failed == name:
+            raise RuntimeError(f'{name}_failed')
+        return True
+
+    async def stop(**kw):
+        return await step('publisher', **kw)
+
+    async def handoff(reason):
+        return await step('owner')
+
+    async def restore():
+        return await step('fault')
+
+    commander = SimpleNamespace(running=True, stop=AsyncMock(side_effect=stop))
+    binding = SimpleNamespace(owner_confirmed=True, stop=AsyncMock(side_effect=handoff))
+    fault = SimpleNamespace(events=[], close=AsyncMock(side_effect=restore))
+    result = {'passed': True}
+    await cleanup_component_run(commander, binding, fault, result)
+    assert order == ['publisher', 'owner', 'fault']
+    assert result['passed'] is (failed is None)
+    commander.stop.assert_awaited_once_with(publish_final=False)
+    binding.stop.assert_awaited_once_with('isolated_sih_cleanup')
+    fault.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_cleanup_restores_fault_if_publisher_quiescence_is_cancelled():
+    order = []
+
+    async def stop(**_):
+        order.append('publisher')
+        raise asyncio.CancelledError
+
+    async def handoff(_):
+        order.append('owner')
+
+    async def restore():
+        order.append('fault')
+
+    commander = SimpleNamespace(running=True, stop=stop)
+    binding = SimpleNamespace(owner_confirmed=True, stop=handoff)
+    fault = SimpleNamespace(events=[], close=restore)
+    with pytest.raises(asyncio.CancelledError):
+        await cleanup_component_run(commander, binding, fault, {'passed': False})
+    assert order == ['publisher', 'owner', 'fault']
 
 
 def image_scenario():
@@ -547,6 +823,48 @@ def test_loss_windows_reject_overlap_and_unimplemented_faults():
                                 dict(kind="target_loss", at_s=2., duration_s=2.)], 10.)
     with pytest.raises(ValueError, match="fault_injection_not_implemented"):
         component_loss_windows([dict(kind="pilot_takeover", at_s=1., duration_s=2.)], 10.)
+
+
+def test_airspeed_windows_are_typed_bounded_and_do_not_reanchor_target(tmp_path):
+    raw = image_scenario()
+    raw['faults'] = [dict(kind='airspeed_loss', at_s=2., duration_s=3.)]
+    original = deepcopy(raw)
+    path = tmp_path / 'scenario.yaml'
+    path.write_text(yaml.safe_dump(raw))
+    loaded = load_component_scenario(path, mount='HORIZONTAL', altitude=False, duration=10.,
+                                     is_vtol=False, follower='fw_navigation_chase')
+    assert loaded['target'] == original['target']
+    assert raw == original
+    window, = component_fault_windows(raw['faults'], 10.)
+    assert (window.kind, window.start_s, window.end_s) == ('airspeed_loss', 2., 5.)
+    target = component_fault_windows([dict(kind='target_loss', at_s=1., duration_s=2.)], 10.)
+    assert [(row.start_s, row.end_s) for row in target] == component_loss_windows(
+        [dict(kind='target_loss', at_s=1., duration_s=2.)], 10.)
+
+
+@pytest.mark.parametrize('at,length', [(-1., 1.), (0., 0.), (True, 1.), (1., False),
+                                      (float('nan'), 1.), (1., float('inf')), (9., 2.)])
+def test_airspeed_fault_rejects_invalid_or_uncovered_intervals(at, length):
+    with pytest.raises(ValueError, match='loss_window_invalid'):
+        component_fault_windows([dict(kind='airspeed_loss', at_s=at, duration_s=length)], 10.)
+
+
+@pytest.mark.parametrize('faults,code', [
+    ([dict(kind='target_loss', at_s=1., duration_s=2.), dict(kind='airspeed_loss', at_s=4., duration_s=1.)], 'families_mixed'),
+    ([dict(kind='airspeed_loss', at_s=1., duration_s=2.), dict(kind='airspeed_loss', at_s=2., duration_s=2.)], 'windows_overlap'),
+    ([dict(kind='airspeed_loss', at_s=1., duration_s=2., instance=2)], 'loss_window_invalid'),
+    ([dict(kind=['airspeed_loss'], at_s=1., duration_s=2.)], 'injection_not_implemented'),
+    ([None], 'injection_not_implemented'),
+])
+def test_fault_family_scope_and_shape_are_closed(faults, code):
+    with pytest.raises(ValueError, match=code):
+        component_fault_windows(faults, 10.)
+
+
+@pytest.mark.parametrize('duration', [True, 0., -1., float('nan'), float('inf')])
+def test_fault_run_duration_must_be_finite_and_positive(duration):
+    with pytest.raises(ValueError, match='fault_duration_invalid'):
+        component_fault_windows([dict(kind='airspeed_loss', at_s=0., duration_s=1.)], duration)
 
 
 @pytest.mark.parametrize("unsafe", ["host_network", "bridge_network", "container_network", "privileged", "devices", "ports", None])
