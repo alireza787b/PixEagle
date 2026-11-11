@@ -78,3 +78,16 @@ permission; existing eight profiles keep their admission. Native FW direction
 thresholds no longer import gimbal manoeuvre policy (1,110-test focused gate).
 Full software renewal uses frozen `d5458ee85`; timing association and calibrated
 FW readiness/integration remain in progress. No hardware or private tuning changed.
+
+Renewal completed: 5,149 unit passed (11 optional skips), 196 integration passed,
+and 155 Phase 0 checks passed after a documentation-only clean-clone link repair.
+Per-gate revisions and initial failure logs remain at `software-gates-r2/` in
+the current run root. Subsequent alignment/startup work needs its own checks.
+
+Image/attitude association and pre-acquisition observation checks are now
+committed (`016154ff2`, `919674af9`). Physical timing stays unqualified without
+measured bounds; isolated SIH uses an explicitly labelled paired projection.
+The shared native retarget reset preserves session controls and altitude
+reference. Focused gates pass (384, 143 and 261 tests; overlapping broader checks
+recorded in the checkpoint). The native adapter rebuild passes 38 contracts;
+image-FW integration and actual airplane response remain next, without hardware.

@@ -445,8 +445,13 @@ The November 11 continuation commits four bounded changes:
 
 These test commands overlap; counts are not additive unique coverage. Logs are
 under `reports/sitl/follower-consolidation-20261111/software-gates-r1/`.
-The renewed full software gate runs on a detached `d5458ee85` snapshot under
-`software-gates-r2/`; its own result records its exact completion separately.
+The renewed full software gate passes on detached `d5458ee85`: 5,149 unit tests
+(11 optional GStreamer skips), 196 integration tests, current schema and zero
+fatal lint errors. Phase 0 passes 155 tests at documentation-only revision
+`3b4e1c73c`. Its initial clean-clone failure exposed three generated-report
+links being advertised as source links; the guide now identifies them as local
+artifacts with regeneration instructions. Original failures and exact per-gate
+revisions remain in `software-gates-r2/{manifest,result}.json` and logs.
 
 Calibration is a closed optional `VideoSource.FIXED_CAMERA_CALIBRATION` object
 with public default `null`. The saved source digest identifies the actual
@@ -469,7 +474,37 @@ profiles. It does not promote image FW, direct FW rates or VTOL, and it is not
 proof of installation/field acceptance. Shared FW math still uses the existing
 native EAS/envelope/altitude owner; gains, speeds and mount values are unchanged.
 
-Next: bounded image/attitude association with an explicit simulation-only paired
-sample contract, input readiness before native mode acquisition, the native
-image-FW strategy and actual moving-target airplane SIH. Backend receipt is not
-exposure time; physical alignment remains unqualified. S5 is still open.
+`016154ff2` adds immutable image/attitude association. Physical receipt-time
+qualification requires explicit source-bound measured delay intervals and clock
+uncertainty; missing bounds refuse it. Exact SIH pairing is separately labelled
+and disabled unless the isolated fixture opts in. Duplicate reads retain their
+original result/time; rewritten samples, changed bindings/resets and silent
+timing-policy changes reject. Root's 384-test alignment/calibration/native-input
+gate passes; the broader expert gate passes 1,196 overlapping tests.
+
+`8a5104e2e` adds an explicit native target-geometry reset, preserving last feasible
+course, engagement altitude, speed controls and authority identity. It does not
+renew continuity budgets or revive a stopped session; 143 planner/session tests
+pass. This hook is available for the new image strategy; existing gimbal retarget
+adoption remains part of S6's provider audit.
+
+`919674af9` makes additional guidance-input validation a read-only follower hook,
+shared by startup readiness and continuity evidence. Native discovery precedes
+the specialized check; source/target identity is rechecked before engagement,
+after engagement and before activation. A discovery-only failure aborts locally
+instead of requesting Hold that was never acquired. Actual/uncertain acquisition
+retains owner-aware cleanup. The 27 new cases and final 261-test owner gate pass;
+the broader core/follower gate passes 2,904 tests. No fresh timestamp is created
+by these reads, and video-only epoch changes do not invalidate non-video camera
+evidence. Inactive catalog input-readiness projection remains future integration.
+
+The adapter rebuild at
+`reports/native-guidance/image-fw-runtime-20261111-r1/` also passes 38 native
+contracts in the pinned network-isolated environment. Its source hashes, binary
+checksum and dependency/extension identity are retained for the upcoming SIH
+run. No service was installed or aircraft firmware changed.
+
+Next: native image-FW strategy integration and actual moving-target airplane
+SIH, including separate altitude modes and recovery/Stop evidence. Backend
+receipt is not exposure time; physical alignment remains unqualified. S5 is
+still open, with no new public live profile or hardware readiness claim.
