@@ -15,6 +15,7 @@ from typing import Callable
 
 from classes.aircraft_state import AircraftBinding, AircraftState, AirframePhase, GuidanceSessionIdentity, Vector3, finite_number
 from classes.fixed_wing_vector_guidance import FixedWingCommand, UpperSpeedPolicy
+from classes.command_dispatch_guard import validate_before_dispatch
 
 
 PROTOCOL_VERSION = 1
@@ -246,7 +247,9 @@ class NativeGuidanceClient:
                 await self._disconnect()
                 raise NativeGuidanceError("native_aircraft_binding_unconfirmed")
 
-    async def engage(self, identity: GuidanceSessionIdentity, *, circuit_breaker_active: bool) -> dict:
+    async def engage(self, identity: GuidanceSessionIdentity, *, circuit_breaker_active: bool,
+                     before_dispatch: Callable[[], None] | None = None,
+                     on_mode_dispatch: Callable[[], None] | None = None) -> dict:
         async with self._lock:
             if circuit_breaker_active is not False:
                 if self._identity is not None:
@@ -258,7 +261,8 @@ class NativeGuidanceClient:
                 raise NativeGuidanceError("native_session_already_owned")
             now = self._clock()
             result = await self._exchange("engage", {"identity": asdict(identity),
-                                                     "expires_at_monotonic_s": now + self.request_timeout_s})
+                                                     "expires_at_monotonic_s": now + self.request_timeout_s},
+                                          before_dispatch=before_dispatch, on_dispatch=on_mode_dispatch)
             if result.get("owner_confirmed") is not True:
                 await self._disconnect()
                 raise NativeGuidanceError("native_ownership_not_confirmed")
@@ -266,7 +270,8 @@ class NativeGuidanceClient:
             self._last_sequence = -1
             return result
 
-    async def submit(self, intent: ExternalModeIntent, *, circuit_breaker_active: bool) -> dict:
+    async def submit(self, intent: ExternalModeIntent, *, circuit_breaker_active: bool,
+                     before_dispatch: Callable[[], None] | None = None) -> dict:
         async with self._lock:
             if circuit_breaker_active is not False:
                 if self._identity is not None:
@@ -291,7 +296,7 @@ class NativeGuidanceClient:
                 "expires_at_monotonic_s": intent.expires_at_monotonic_s,
                 "phase": intent.phase.value,
                 "command": intent.command.wire_payload(),
-            })
+            }, before_dispatch=before_dispatch)
             if (type(result.get("accepted_sequence")) is not int
                     or result["accepted_sequence"] != intent.sequence or result.get("owner_confirmed") is not True):
                 await self._disconnect()
@@ -318,15 +323,24 @@ class NativeGuidanceClient:
             self._last_sequence = -1
             return result
 
-    async def handoff(self, identity: GuidanceSessionIdentity, *, reason: str) -> dict:
+    async def handoff(self, identity: GuidanceSessionIdentity, *, reason: str,
+                      before_dispatch: Callable[[], None] | None = None) -> dict:
         async with self._lock:
             if identity != self._identity or self._identity is None:
                 raise NativeGuidanceError("native_session_stale")
+            dispatched = False
+
+            def mark_dispatched():
+                nonlocal dispatched
+                dispatched = True
+
             try:
-                return await self._exchange("handoff", {"identity": asdict(identity), "reason": str(reason)})
+                return await self._exchange("handoff", {"identity": asdict(identity), "reason": str(reason)},
+                                            before_dispatch=before_dispatch, on_dispatch=mark_dispatched)
             finally:
-                # A rejected or timed-out handoff must not permit old pursuit.
-                self._identity = None
+                # After dispatch, refusal or timeout must not permit old pursuit.
+                if dispatched:
+                    self._identity = None
 
     def _retire_socket(self):
         self._generation += 1
@@ -347,17 +361,21 @@ class NativeGuidanceClient:
             except (OSError, asyncio.TimeoutError):
                 pass
 
-    async def _exchange(self, operation: str, payload: dict) -> dict:
+    async def _exchange(self, operation: str, payload: dict, *,
+                        before_dispatch: Callable[[], None] | None = None,
+                        on_dispatch: Callable[[], None] | None = None) -> dict:
         if self._reader is None or self._writer is None:
             raise NativeGuidanceError("native_disconnected")
         reader, writer = self._reader, self._writer
-        self._request_id += 1
-        generation, request_id = self._generation, self._request_id
+        generation, request_id = self._generation, self._request_id + 1
         request = dict(protocol_version=PROTOCOL_VERSION, request_id=request_id,
                        generation=generation, operation=operation, payload=payload)
         encoded = json.dumps(request, allow_nan=False, separators=(",", ":")).encode() + b"\n"
         if len(encoded) > MAX_MESSAGE_BYTES:
             raise NativeGuidanceError("native_message_too_large")
+        validate_before_dispatch(before_dispatch)
+        validate_before_dispatch(on_dispatch)
+        self._request_id = request_id
         try:
             writer.write(encoded)
             await asyncio.wait_for(writer.drain(), timeout=self.request_timeout_s)

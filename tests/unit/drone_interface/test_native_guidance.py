@@ -8,6 +8,7 @@ import time
 import pytest
 
 from classes.aircraft_state import AircraftBinding, Vector3
+from classes.command_dispatch_guard import DispatchRefusalKind, DispatchRefused
 from classes.fixed_wing_vector_guidance import FixedWingCommand, UpperSpeedPolicy
 from classes.native_guidance import (
     ExternalModeIntent, GuidanceSessionIdentity, NativeCapabilities,
@@ -391,6 +392,156 @@ async def test_wire_expiry_cannot_be_renewed_by_queue_delay(native_server):
         await client.submit(intent(), circuit_breaker_active=False)
         assert requests[-1]["payload"]["expires_at_monotonic_s"] == 100.5
         assert "remaining_lease_s" not in requests[-1]["payload"]
+    finally:
+        await client.close()
+
+
+@pytest.mark.parametrize("operation", ["engage", "intent"])
+async def test_final_guard_rejects_after_rpc_lock_without_wire_effects(native_server, operation):
+    path, requests, _ = native_server
+    client = NativeGuidanceClient(path, clock=lambda: 100)
+    await client.connect()
+    if operation == "intent":
+        await client.engage(identity(), circuit_breaker_active=False)
+    refusal = DispatchRefused("target_replaced", DispatchRefusalKind.SUPERSEDED)
+    valid = True
+    receipts = []
+
+    def guard():
+        if not valid:
+            raise refusal
+
+    await client._lock.acquire()
+    try:
+        call = (client.engage(identity(), circuit_breaker_active=False, before_dispatch=guard,
+                              on_mode_dispatch=lambda: receipts.append("acquire"))
+                if operation == "engage" else
+                client.submit(intent(), circuit_breaker_active=False, before_dispatch=guard))
+        task = asyncio.create_task(call)
+        await asyncio.sleep(0)
+        valid = False
+        request_id, last_sequence = client._request_id, client._last_sequence
+        previous = list(requests)
+    finally:
+        client._lock.release()
+    try:
+        with pytest.raises(DispatchRefused) as error:
+            await task
+        assert error.value is refusal
+        assert requests == previous
+        assert client._request_id == request_id
+        assert client._last_sequence == last_sequence
+        assert client.capabilities is not None
+        assert receipts == []
+        valid = True
+        if operation == "engage":
+            await client.engage(identity(), circuit_breaker_active=False, before_dispatch=guard,
+                                on_mode_dispatch=lambda: receipts.append("acquire"))
+            assert receipts == ["acquire"]
+        else:
+            await client.submit(intent(), circuit_breaker_active=False, before_dispatch=guard)
+        assert requests[-1]["operation"] == operation
+    finally:
+        await client.close()
+
+
+@pytest.mark.parametrize("operation", ["engage", "intent"])
+async def test_async_final_native_guard_is_not_a_transport_failure(native_server, operation):
+    path, requests, _ = native_server
+    client = NativeGuidanceClient(path, clock=lambda: 100)
+    await client.connect()
+    if operation == "intent":
+        await client.engage(identity(), circuit_breaker_active=False)
+
+    async def invalid():
+        raise AssertionError("async guard body must not run")
+
+    previous = list(requests)
+    try:
+        with pytest.raises(DispatchRefused, match="dispatch_guard_contract_invalid"):
+            if operation == "engage":
+                await client.engage(identity(), circuit_breaker_active=False, before_dispatch=invalid)
+            else:
+                await client.submit(intent(), circuit_breaker_active=False, before_dispatch=invalid)
+        assert requests == previous
+        assert client.capabilities is not None
+    finally:
+        await client.close()
+
+
+async def test_native_acquisition_receipt_precedes_missing_ack(native_server):
+    path, requests, behavior = native_server
+    client = NativeGuidanceClient(path, clock=lambda: 100)
+    await client.connect()
+    behavior["delay_operation"] = "engage"
+    receipts = []
+    task = asyncio.create_task(client.engage(
+        identity(), circuit_breaker_active=False, before_dispatch=lambda: None,
+        on_mode_dispatch=lambda: receipts.append("possibly_sent"),
+    ))
+    await asyncio.wait_for(behavior["delay_started"].wait(), 1)
+    assert receipts == ["possibly_sent"]
+    assert requests[-1]["operation"] == "engage"
+    assert client.session_identity is None
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    await client.close()
+
+
+async def test_guarded_queued_ttl_handoff_does_not_hold_a_superseding_target(native_server):
+    path, requests, _ = native_server
+    client = NativeGuidanceClient(path, clock=lambda: 100)
+    await client.connect()
+    await client.engage(identity(), circuit_breaker_active=False)
+    current = True
+    refusal = DispatchRefused("target_replaced", DispatchRefusalKind.SUPERSEDED)
+
+    def guard():
+        if not current:
+            raise refusal
+
+    await client._lock.acquire()
+    try:
+        task = asyncio.create_task(client.handoff(identity(), reason="intent_expired", before_dispatch=guard))
+        await asyncio.sleep(0)
+        current = False
+        request_id = client._request_id
+        previous = list(requests)
+    finally:
+        client._lock.release()
+    try:
+        with pytest.raises(DispatchRefused) as error:
+            await task
+        assert error.value is refusal
+        assert requests == previous
+        assert client._request_id == request_id
+        assert client.session_identity == identity()
+        assert client.capabilities is not None
+        # Explicit safety teardown remains exempt from an obsolete target guard.
+        await client.handoff(identity(), reason="operator_stop")
+        assert requests[-1]["operation"] == "handoff"
+        assert client.session_identity is None
+    finally:
+        await client.close()
+
+
+async def test_invalid_acquisition_observer_cannot_advance_wire_or_session(native_server):
+    path, requests, _ = native_server
+    client = NativeGuidanceClient(path, clock=lambda: 100)
+    await client.connect()
+    previous, request_id = list(requests), client._request_id
+
+    async def invalid():
+        raise AssertionError("async acquisition observer must not run")
+
+    try:
+        with pytest.raises(DispatchRefused, match="dispatch_guard_contract_invalid"):
+            await client.engage(identity(), circuit_breaker_active=False, on_mode_dispatch=invalid)
+        assert requests == previous
+        assert client._request_id == request_id
+        assert client.session_identity is None
+        assert client.capabilities is not None
     finally:
         await client.close()
 

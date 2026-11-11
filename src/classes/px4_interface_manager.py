@@ -4,7 +4,7 @@ import logging
 import time
 from dataclasses import asdict
 from pathlib import Path
-from typing import List, Literal, NamedTuple, Optional, TypedDict
+from typing import Callable, List, Literal, NamedTuple, Optional, TypedDict
 from mavsdk import System
 from classes.parameters import Parameters
 from mavsdk.offboard import OffboardError, VelocityBodyYawspeed, AttitudeRate
@@ -12,6 +12,8 @@ from classes.command_safety import (
     CommandValidationError,
     validate_and_clamp_command_values,
 )
+from classes.command_dispatch_guard import DispatchRefused, validate_before_dispatch
+from classes.command_intent import CommandIntent
 from classes.setpoint_handler import SetpointHandler
 from classes.attitude_envelope import guard_body_rates
 from classes.aircraft_state import AircraftBinding, AircraftKind, AircraftState, AircraftStateOwner, Quaternion, finite_number
@@ -303,6 +305,7 @@ class PX4InterfaceManager:
         self._mavsdk_offboard_sender_last_reason = None
         self._mavsdk_offboard_sender_last_transition_monotonic_s = None
         self._offboard_mode_start_acknowledged = False
+        self.last_start_cleanup_outcome = None
 
         # Determine if we are using MAVLink2Rest for telemetry data
         if Parameters.USE_MAVLINK2REST and self.app_controller:
@@ -334,6 +337,7 @@ class PX4InterfaceManager:
         _px4_command_params=None,
         _px4_gate_checked=False,
         _marks_offboard_sender=False,
+        _before_dispatch: Callable[[], None] | None = None,
         **kwargs,
     ):
         """
@@ -355,6 +359,7 @@ class PX4InterfaceManager:
                 velocity_setpoint
             )
         """
+        validate_before_dispatch(_before_dispatch)
         connection_generation = self._connection_generation
         disconnect_error = self._validation_mavsdk_disconnect_error()
         if disconnect_error:
@@ -389,8 +394,14 @@ class PX4InterfaceManager:
                 return False
 
         try:
+            async def invoke_guarded():
+                validate_before_dispatch(_before_dispatch)
+                if _marks_offboard_sender:
+                    self._set_offboard_sender_state("primed", f"dispatching:{_px4_command_type}")
+                return await coro_func(*args, **kwargs)
+
             await asyncio.wait_for(
-                coro_func(*args, **kwargs),
+                invoke_guarded(),
                 timeout=self.get_mavsdk_command_timeout_s(),
             )
             if not self.is_command_connection_ready(
@@ -406,6 +417,8 @@ class PX4InterfaceManager:
             if _marks_offboard_sender:
                 self._set_offboard_sender_state("primed", _px4_command_type)
             return True
+        except DispatchRefused:
+            raise
         except asyncio.TimeoutError:
             logger.error(
                 "MAVSDK command %s exceeded %.2f s deadline",
@@ -2188,7 +2201,20 @@ class PX4InterfaceManager:
         return self.current_ground_speed
 
 
-    async def send_velocity_body_offboard_commands(self):
+    def _command_dispatch_fields(self, command_intent: CommandIntent | None, control_type: str) -> dict:
+        """Copy an accepted snapshot without substituting a newer handler frame."""
+        if command_intent is None:
+            return self.setpoint_handler.get_fields()
+        if (not isinstance(command_intent, CommandIntent)
+                or command_intent.control_type != control_type
+                or command_intent.profile_name != self.setpoint_handler.profile_name):
+            raise ValueError("command_dispatch_snapshot_mismatch")
+        return dict(command_intent.fields)
+
+    async def send_velocity_body_offboard_commands(
+        self, *, command_intent: CommandIntent | None = None,
+        before_dispatch: Callable[[], None] | None = None,
+    ):
         """
         Sends body velocity offboard commands for quadcopter control.
         Uses the new body velocity field names (vel_body_fwd, vel_body_right, vel_body_down, yawspeed_deg_s).
@@ -2207,7 +2233,7 @@ class PX4InterfaceManager:
                 )
                 return False
                 
-            setpoint = self.setpoint_handler.get_fields()
+            setpoint = self._command_dispatch_fields(command_intent, control_type)
             if not setpoint:
                 logger.error("No setpoint data available")
                 return False
@@ -2267,8 +2293,11 @@ class PX4InterfaceManager:
                     "yawspeed_deg_s": yawspeed,
                 },
                 _marks_offboard_sender=True,
+                _before_dispatch=before_dispatch,
             )
 
+        except DispatchRefused:
+            raise
         except OffboardError as e:
             logger.error(f"MAVSDK offboard velocity_body_offboard command failed: {e}")
             return False
@@ -2407,15 +2436,24 @@ class PX4InterfaceManager:
             "error": None,
         }
 
-    async def start_offboard_mode(self) -> PX4ActionOutcome:
+    async def start_offboard_mode(
+        self, *, before_dispatch: Callable[[], None] | None = None,
+        on_mode_dispatch: Callable[[], None] | None = None,
+    ) -> PX4ActionOutcome:
         """
         Prime a fail-closed default setpoint stream and enter PX4 Offboard mode.
 
         MAVSDK independently retransmits the latest accepted setpoint. Waiting
         after the first setter call establishes more than one second of PX4
         Offboard proof-of-life before mode entry without depending on frame rate.
+
+        A guarded pre-acquire refusal uses read-only sender cleanup. Its outcome
+        remains in last_start_cleanup_outcome, including unconfirmed quiescence.
+        on_mode_dispatch runs only immediately before the mode-start RPC.
         """
         self._offboard_start_attempt_monotonic_s = time.monotonic()
+        self.last_start_cleanup_outcome = None
+        mode_dispatched = False
         disconnect_error = self._validation_mavsdk_disconnect_error()
         if disconnect_error:
             logger.error("Cannot start Offboard during validation disconnect: %s", disconnect_error)
@@ -2463,15 +2501,18 @@ class PX4InterfaceManager:
             )
 
         try:
+            validate_before_dispatch(before_dispatch)
             control_type = self.setpoint_handler.get_control_type()
             self.setpoint_handler.reset_setpoints()
-            initial_setpoint_success = await self.send_commands_unified()
+            initial_setpoint_success = (await self.send_commands_unified() if before_dispatch is None
+                                        else await self.send_commands_unified(before_dispatch=before_dispatch))
             if initial_setpoint_success is not True:
                 raise RuntimeError(
                     f"MAVSDK rejected the initial {control_type} setpoint"
                 )
 
             await asyncio.sleep(self.OFFBOARD_PRIME_DURATION_S)
+            validate_before_dispatch(before_dispatch)
             if not self.active_mode:
                 raise RuntimeError(
                     "MAVSDK vehicle connection was lost while priming Offboard"
@@ -2493,7 +2534,9 @@ class PX4InterfaceManager:
             if post_prime_gate.blocked:
                 quiesce = await self.quiesce_offboard_sender(
                     reason=f"start_gate_changed:{post_prime_gate.reason}",
+                    allow_hold=before_dispatch is None,
                 )
+                self.last_start_cleanup_outcome = quiesce
                 outcome = _blocked_action_outcome(
                     "start_offboard_mode",
                     post_prime_gate,
@@ -2511,13 +2554,22 @@ class PX4InterfaceManager:
             # externally hosted MAVSDK server can discard its pending setpoint
             # during the proof-of-life interval while still acknowledging the
             # first setter call.
-            if await self.send_commands_unified() is not True:
+            final_setpoint_success = (await self.send_commands_unified() if before_dispatch is None
+                                      else await self.send_commands_unified(before_dispatch=before_dispatch))
+            if final_setpoint_success is not True:
                 raise RuntimeError(
                     f"MAVSDK rejected the final {control_type} setpoint"
                 )
 
+            async def acquire_guarded():
+                nonlocal mode_dispatched
+                validate_before_dispatch(before_dispatch)
+                validate_before_dispatch(on_mode_dispatch)
+                mode_dispatched = True
+                return await self.drone.offboard.start()
+
             await asyncio.wait_for(
-                self.drone.offboard.start(),
+                acquire_guarded(),
                 timeout=self.get_mavsdk_command_timeout_s(),
             )
             self._offboard_mode_start_acknowledged = True
@@ -2564,16 +2616,26 @@ class PX4InterfaceManager:
                     "MAVSDK Offboard start command acknowledged.",
                 ],
             )
+        except DispatchRefused:
+            quiesce = await self.quiesce_offboard_sender(
+                reason="offboard_start_dispatch_refused",
+                allow_hold=False,
+            )
+            self.last_start_cleanup_outcome = quiesce
+            raise
         except asyncio.CancelledError:
-            await self.quiesce_offboard_sender(
+            self.last_start_cleanup_outcome = await self.quiesce_offboard_sender(
                 reason="offboard_start_canceled",
+                allow_hold=before_dispatch is None or mode_dispatched,
             )
             raise
         except Exception as e:
             logger.error(f"Failed to start offboard mode: {e}")
             quiesce = await self.quiesce_offboard_sender(
                 reason="offboard_start_failed",
+                allow_hold=before_dispatch is None or mode_dispatched,
             )
+            self.last_start_cleanup_outcome = quiesce
             outcome = _px4_action_outcome(
                 "start_offboard_mode",
                 status="failed",
@@ -2826,7 +2888,10 @@ class PX4InterfaceManager:
         logging.critical("Initiating Return to Launch due to altitude safety violation")
         return await self.trigger_return_to_launch()
         
-    async def send_commands_unified(self):
+    async def send_commands_unified(
+        self, *, command_intent: CommandIntent | None = None,
+        before_dispatch: Callable[[], None] | None = None,
+    ):
         """
         Unified command dispatcher that automatically selects the appropriate 
         MAVSDK method based on the current follower's control type from schema.
@@ -2846,18 +2911,31 @@ class PX4InterfaceManager:
             
             # Dispatch to appropriate method
             if control_type == 'attitude_rate':
-                return await self.send_attitude_rate_commands()
+                if command_intent is None and before_dispatch is None:
+                    return await self.send_attitude_rate_commands()
+                return await self.send_attitude_rate_commands(
+                    command_intent=command_intent, before_dispatch=before_dispatch,
+                )
             elif control_type == 'velocity_body_offboard':
-                return await self.send_velocity_body_offboard_commands()
+                if command_intent is None and before_dispatch is None:
+                    return await self.send_velocity_body_offboard_commands()
+                return await self.send_velocity_body_offboard_commands(
+                    command_intent=command_intent, before_dispatch=before_dispatch,
+                )
             else:
                 logger.error(f"Unknown control type from schema: {control_type}")
                 return False
             
+        except DispatchRefused:
+            raise
         except Exception as e:
             logger.error(f"Error in unified command dispatch: {e}")
             return False
 
-    async def send_attitude_rate_commands(self):
+    async def send_attitude_rate_commands(
+        self, *, command_intent: CommandIntent | None = None,
+        before_dispatch: Callable[[], None] | None = None,
+    ):
         """
         Enhanced schema-aware attitude rate command sender.
         Only sends attitude rate commands if the current profile supports them.
@@ -2879,7 +2957,7 @@ class PX4InterfaceManager:
                 )
                 return False
 
-            setpoint = self.setpoint_handler.get_fields()
+            setpoint = self._command_dispatch_fields(command_intent, control_type)
             if not setpoint:
                 logger.error("No setpoint data available")
                 return False
@@ -2949,8 +3027,11 @@ class PX4InterfaceManager:
                     "thrust": thrust,
                 },
                 _marks_offboard_sender=True,
+                _before_dispatch=before_dispatch,
             )
 
+        except DispatchRefused:
+            raise
         except OffboardError as e:
             logger.error(f"MAVSDK offboard attitude rate command failed: {e}")
             return False

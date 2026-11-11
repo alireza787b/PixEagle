@@ -22,6 +22,9 @@ from unittest.mock import patch, MagicMock, AsyncMock, PropertyMock
 import sys
 import os
 
+from classes.command_dispatch_guard import DispatchRefusalKind, DispatchRefused
+from classes.command_intent import CommandIntent
+
 # Add fixtures to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'fixtures'))
 
@@ -160,6 +163,237 @@ def px4_interface(mock_parameters, mock_mavsdk_system, mock_setpoint_handler, mo
 # ============================================================================
 # Test Classes
 # ============================================================================
+
+class TestFinalDispatchBoundary:
+    @pytest.fixture(autouse=True)
+    def _connected_with_telemetry(self, px4_interface):
+        px4_interface.active_mode = True
+        px4_interface._connection_state = "connected"
+        px4_interface._reset_telemetry_health("mavlink2rest")
+        px4_interface._commit_telemetry_snapshot(dict(
+            roll_deg=0., pitch_deg=0., yaw_deg=0., relative_altitude_m=50., ground_speed_m_s=0.,
+        ))
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("control_type,profile,fields,setter", [
+        ("velocity_body_offboard", "mc_velocity_chase", dict(
+            vel_body_fwd=.2, vel_body_right=.1, vel_body_down=-.1, yawspeed_deg_s=.3,
+        ), "set_velocity_body"),
+        ("attitude_rate", "fw_attitude_rate", dict(
+            rollspeed_deg_s=.2, pitchspeed_deg_s=.1, yawspeed_deg_s=-.1, thrust=.3,
+        ), "set_attitude_rate"),
+    ])
+    @pytest.mark.parametrize("refused", [False, True])
+    async def test_queued_sdk_attempt_retains_exact_snapshot_and_checks_at_dispatch(
+        self, px4_interface, control_type, profile, fields, setter, refused,
+    ):
+        handler = px4_interface.setpoint_handler
+        handler.profile_name = profile
+        handler.get_control_type.return_value = control_type
+        handler.get_fields.return_value = {key: 0. for key in fields}
+        accepted = CommandIntent(profile, control_type, dict(fields), "follower")
+        queued, release = asyncio.Event(), asyncio.Event()
+        real_wait_for = asyncio.wait_for
+        current = True
+        refusal = DispatchRefused("target_replaced", DispatchRefusalKind.SUPERSEDED)
+
+        def guard():
+            if not current:
+                raise refusal
+
+        async def queue_before_invocation(coroutine, timeout):
+            queued.set()
+            await release.wait()
+            return await real_wait_for(coroutine, timeout)
+
+        with patch("classes.px4_interface_manager.asyncio.wait_for", side_effect=queue_before_invocation):
+            task = asyncio.create_task(px4_interface.send_commands_unified(
+                command_intent=accepted, before_dispatch=guard,
+            ))
+            await queued.wait()
+            # Ordinary new frames must not replace the accepted command or
+            # invalidate its semantic owner. A target replacement must.
+            handler.get_fields.return_value = {key: 9. for key in fields}
+            accepted.fields.update({key: 8. for key in fields})
+            current = not refused
+            release.set()
+            if refused:
+                with pytest.raises(DispatchRefused) as error:
+                    await task
+                assert error.value is refusal
+            else:
+                assert await task is True
+        sdk_setter = getattr(px4_interface.drone.offboard, setter)
+        if refused:
+            sdk_setter.assert_not_called()
+            assert px4_interface._mavsdk_offboard_sender_state == "idle"
+        else:
+            actual = sdk_setter.call_args.args[0]
+            assert list(vars(actual).values()) == list(fields.values())
+            handler.get_fields.assert_not_called()
+            assert px4_interface._mavsdk_offboard_sender_state == "primed"
+        px4_interface.drone.offboard.stop.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("control_type", ["velocity_body_offboard", "attitude_rate"])
+    async def test_async_guard_refusal_survives_all_sender_layers(self, px4_interface, control_type):
+        handler = px4_interface.setpoint_handler
+        handler.get_control_type.return_value = control_type
+        if control_type == "attitude_rate":
+            handler.get_fields.return_value = dict(
+                rollspeed_deg_s=0., pitchspeed_deg_s=0., yawspeed_deg_s=0., thrust=.3,
+            )
+
+        async def invalid():
+            raise AssertionError("async guard must not run")
+
+        with pytest.raises(DispatchRefused, match="dispatch_guard_contract_invalid"):
+            await px4_interface.send_commands_unified(before_dispatch=invalid)
+        px4_interface.drone.offboard.set_velocity_body.assert_not_called()
+        px4_interface.drone.offboard.set_attitude_rate.assert_not_called()
+        assert px4_interface._mavsdk_offboard_sender_state == "idle"
+
+    @pytest.mark.asyncio
+    async def test_snapshot_profile_mismatch_never_reaches_sdk(self, px4_interface):
+        px4_interface.setpoint_handler.profile_name = "mc_velocity_position"
+        fields = dict(px4_interface.setpoint_handler.get_fields.return_value)
+        intent = CommandIntent("mc_velocity_chase", "velocity_body_offboard", fields, "follower")
+        assert await px4_interface.send_commands_unified(command_intent=intent) is False
+        px4_interface.drone.offboard.set_velocity_body.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_guarded_start_refusal_after_priming_has_no_mode_dispatch_or_hold(self, px4_interface):
+        current = True
+        receipts = []
+        refusal = DispatchRefused("source_changed", DispatchRefusalKind.TERMINAL)
+        px4_interface.drone.offboard.is_active = AsyncMock(return_value=False)
+
+        def guard():
+            if not current:
+                raise refusal
+
+        async def change_source(_duration):
+            nonlocal current
+            current = False
+
+        with patch("classes.px4_interface_manager.asyncio.sleep", side_effect=change_source):
+            with pytest.raises(DispatchRefused) as error:
+                await px4_interface.start_offboard_mode(
+                    before_dispatch=guard, on_mode_dispatch=lambda: receipts.append("sent"),
+                )
+        assert error.value is refusal
+        assert receipts == []
+        assert px4_interface.drone.offboard.set_velocity_body.await_count == 1
+        px4_interface.drone.offboard.start.assert_not_called()
+        px4_interface.drone.offboard.stop.assert_not_called()
+        assert px4_interface.last_start_cleanup_outcome["local_sender_quiesced"] is True
+        px4_interface.drone.offboard.is_active.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_guarded_start_checks_inside_queued_acquisition(self, px4_interface):
+        current = True
+        receipts = []
+        refusal = DispatchRefused("target_replaced", DispatchRefusalKind.SUPERSEDED)
+        px4_interface.drone.offboard.is_active = AsyncMock(return_value=False)
+        real_wait_for = asyncio.wait_for
+
+        def guard():
+            if not current:
+                raise refusal
+
+        async def delayed_acquisition(coroutine, timeout):
+            nonlocal current
+            if getattr(coroutine, "cr_code", None) and coroutine.cr_code.co_name == "acquire_guarded":
+                current = False
+            return await real_wait_for(coroutine, timeout)
+
+        with patch("classes.px4_interface_manager.asyncio.sleep", new_callable=AsyncMock), \
+             patch("classes.px4_interface_manager.asyncio.wait_for", side_effect=delayed_acquisition):
+            with pytest.raises(DispatchRefused) as error:
+                await px4_interface.start_offboard_mode(
+                    before_dispatch=guard, on_mode_dispatch=lambda: receipts.append("sent"),
+                )
+        assert error.value is refusal
+        assert receipts == []
+        assert px4_interface.drone.offboard.set_velocity_body.await_count == 2
+        px4_interface.drone.offboard.start.assert_not_called()
+        px4_interface.drone.offboard.stop.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_start_receipt_precedes_missing_acquire_ack(self, px4_interface):
+        receipts = []
+
+        async def no_ack():
+            assert receipts == ["possibly_sent"]
+            raise asyncio.TimeoutError
+
+        px4_interface.drone.offboard.start.side_effect = no_ack
+        with patch("classes.px4_interface_manager.asyncio.sleep", new_callable=AsyncMock):
+            outcome = await px4_interface.start_offboard_mode(
+                before_dispatch=lambda: None,
+                on_mode_dispatch=lambda: receipts.append("possibly_sent"),
+            )
+        assert outcome["status"] == "failed"
+        assert receipts == ["possibly_sent"]
+        px4_interface.drone.offboard.stop.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("failure", ["cancel", "timeout"])
+    async def test_unacknowledged_initial_setter_is_not_mistaken_for_idle(self, px4_interface, failure):
+        entered = asyncio.Event()
+        px4_interface.drone.offboard.is_active = AsyncMock(return_value=False)
+
+        async def no_ack(_setpoint):
+            entered.set()
+            assert px4_interface._mavsdk_offboard_sender_state == "primed"
+            if failure == "timeout":
+                raise asyncio.TimeoutError
+            await asyncio.Event().wait()
+
+        px4_interface.drone.offboard.set_velocity_body.side_effect = no_ack
+        task = asyncio.create_task(px4_interface.start_offboard_mode(before_dispatch=lambda: None))
+        await entered.wait()
+        if failure == "cancel":
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        else:
+            assert (await task)["status"] == "failed"
+        assert px4_interface.last_start_cleanup_outcome["attempted"] is True
+        assert px4_interface.last_start_cleanup_outcome["local_sender_quiesced"] is True
+        px4_interface.drone.offboard.is_active.assert_awaited_once()
+        px4_interface.drone.offboard.start.assert_not_called()
+        px4_interface.drone.offboard.stop.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_unconfirmed_pre_acquire_cleanup_remains_visible(self, px4_interface):
+        def refuse():
+            raise DispatchRefused("source_changed", DispatchRefusalKind.TERMINAL)
+
+        px4_interface._set_offboard_sender_state("primed", "earlier_attempt")
+        px4_interface.drone.offboard.is_active = AsyncMock(side_effect=asyncio.TimeoutError)
+        with pytest.raises(DispatchRefused):
+            await px4_interface.start_offboard_mode(before_dispatch=refuse)
+        assert px4_interface.last_start_cleanup_outcome["local_sender_quiesced"] is False
+        assert px4_interface._mavsdk_offboard_sender_state == "unknown"
+        px4_interface.drone.offboard.stop.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_invalid_acquisition_observer_never_sends_start_or_hold(self, px4_interface):
+        px4_interface.drone.offboard.is_active = AsyncMock(return_value=False)
+
+        async def invalid():
+            raise AssertionError("async acquisition observer must not run")
+
+        with patch("classes.px4_interface_manager.asyncio.sleep", new_callable=AsyncMock):
+            with pytest.raises(DispatchRefused, match="dispatch_guard_contract_invalid"):
+                await px4_interface.start_offboard_mode(
+                    before_dispatch=lambda: None, on_mode_dispatch=invalid,
+                )
+        assert px4_interface.drone.offboard.set_velocity_body.await_count == 2
+        px4_interface.drone.offboard.start.assert_not_called()
+        px4_interface.drone.offboard.stop.assert_not_called()
+        assert px4_interface.last_start_cleanup_outcome["local_sender_quiesced"] is True
 
 class TestPX4InterfaceManagerInitialization:
     """Tests for PX4InterfaceManager initialization."""
