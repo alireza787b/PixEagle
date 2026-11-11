@@ -11,7 +11,9 @@ import pytest
 import yaml
 
 from classes.app_controller import AppController
-from classes.command_preview import CommandPreviewController
+from classes.command_preview import COMMAND_PREVIEW_EXECUTION_MODE, CommandPreviewController
+from classes.frame_publisher import CaptureStamp
+from classes.guidance_observation import ImageFrameContext, ObservationProvenance
 from classes.parameters import Parameters
 from classes.followers.gm_velocity_vector_follower import GMVelocityVectorFollower
 from classes.followers.mc_velocity_position_follower import MCVelocityPositionFollower
@@ -34,9 +36,12 @@ from tests.fixtures.synthetic_tracker_scene import (
 class _CapturingCommander:
     def __init__(self):
         self.intents = []
+        self.dispatch_contexts = []
+        self.context_getter = lambda: {}
 
     def submit_intent(self, intent):
         self.intents.append(intent)
+        self.dispatch_contexts.append(self.context_getter())
         return True
 
     def get_status(self):
@@ -44,9 +49,11 @@ class _CapturingCommander:
             "exists": True,
             "running": True,
             "health_state": "healthy",
-            "successful_publishes": 0,
+            "successful_publishes": None,
             "rejected_intents": 0,
-            "command_publication_source": "offboard_commander",
+            "command_publication_source": "command_preview",
+            "sends_mavsdk_commands": False,
+            "commands_sent_to_px4": False,
         }
 
 
@@ -151,7 +158,9 @@ def _build_app_controller_stub(follower, *, external_tracker: bool = False):
     controller = AppController.__new__(AppController)
     commander = _CapturingCommander()
     controller.follower = follower
+    controller.following_execution_mode = COMMAND_PREVIEW_EXECUTION_MODE
     controller.offboard_commander = commander
+    commander.context_getter = controller._command_dispatch_context
     if external_tracker:
         controller.tracker = SimpleNamespace(
             is_external_tracker=True,
@@ -294,7 +303,7 @@ async def test_sitl_validation_injection_reports_continuity_handoff():
     assert result["command_intent"] is None
     assert result["offboard_commander"]["exists"] is True
     assert result["offboard_commander"]["running"] is True
-    assert result["offboard_commander"]["command_publication_source"] == "offboard_commander"
+    assert result["offboard_commander"]["command_publication_source"] == "command_preview"
     assert result["continuity"]["authority_state"] == "HANDOFF_PENDING"
     assert commander.intents == []
     controller._execute_target_continuity_handoff.assert_awaited_once()
@@ -377,6 +386,13 @@ async def test_synthetic_tracker_app_controller_smoke_writes_normalized_trace_ar
     tracker.start_tracking(scene[0].frame, scene[0].bbox)
     follower = _build_position_follower_stub()
     controller, commander = _build_app_controller_stub(follower)
+    controller.following_active = False
+    controller.tracker = tracker
+    controller.get_tracker_output = tracker.get_output
+    tracker.app_controller = controller
+    tracker.video_handler._source_epoch = 'synthetic-clip-source'
+    controller.frame_publisher = SimpleNamespace(stream_id='synthetic-clip-owner',
+                                                control_source_epoch='synthetic-clip-source')
     tracker_trace = tmp_path / "trace" / "tracker_command_trace.jsonl"
     offboard_trace = tmp_path / "trace" / "offboard_publish_trace.jsonl"
     trace_status = controller.configure_tracker_trace_artifacts(
@@ -388,9 +404,19 @@ async def test_synthetic_tracker_app_controller_smoke_writes_normalized_trace_ar
     assert trace_status["enabled"] is True
     assert "does not prove PX4" in trace_status["claim_boundary"]
 
+    observed_captures = []
     for index, sample in enumerate(scene.samples[:3]):
+        capture = CaptureStamp('synthetic-clip-source', f'synthetic-frame-{sample.index}', time.monotonic(), 'fresh')
+        context = ImageFrameContext(ObservationProvenance('synthetic-clip-owner',
+            controller._tracking_session_generation, 'synthetic-640x480', None, capture), (640, 480))
+        controller.tracking_input_context = context
         success, bbox = tracker.update(sample.frame)
+        tracker.image_measurement = context.at_pixel(tuple(float(value) for value in tracker.center))
         output = tracker.get_output()
+        observed_captures.append(capture)
+        if index == 0:
+            controller._freeze_following_observation_source()
+            controller.following_active = True
         accepted = await controller._follow_tracker_output(output)
 
         assert success is True
@@ -402,9 +428,11 @@ async def test_synthetic_tracker_app_controller_smoke_writes_normalized_trace_ar
             {
                 "command_intent": commander.intents[-1],
                 "publish_status": {
-                    "last_publish_success": True,
-                    "command_publication_source": "offboard_commander",
+                    "last_publish_success": None,
+                    "command_publication_source": "command_preview",
                 },
+                "publication_attempted": False,
+                "dispatch_context": commander.dispatch_contexts[-1],
             }
         )
 
@@ -441,14 +469,25 @@ async def test_synthetic_tracker_app_controller_smoke_writes_normalized_trace_ar
         "yawspeed_deg_s",
     }
     assert tracker_lines[0]["offboard_commander"]["command_publication_source"] == (
-        "offboard_commander"
+        "command_preview"
     )
     assert tracker_lines[0]["frame_status"]["status"] == "fresh"
     assert "does not prove PX4" in tracker_lines[0]["claim_boundary"]
 
     assert [line["sequence"] for line in offboard_lines] == [0, 1, 2]
     assert all(line["record_type"] == "offboard_publish" for line in offboard_lines)
-    assert all(line["publish_success"] is True for line in offboard_lines)
+    assert all(line["publish_success"] is None for line in offboard_lines)
+    assert all(line["publication_attempted"] is False for line in offboard_lines)
+    assert all(line["dispatch_context"]["observation_source"]["source_id"] == 'synthetic-clip-owner'
+               for line in offboard_lines)
+    assert all(line["dispatch_context"]["target_generation"] == 1 for line in offboard_lines)
+    for line, sample, capture in zip(tracker_lines, scene.samples[:3], observed_captures):
+        measured = line['tracker_output']['image_measurement']
+        x, y, width, height = sample.bbox
+        assert measured['pixel_xy'] == [x + width / 2, y + height / 2]
+        assert measured['provenance']['capture']['capture_id'] == f'synthetic-frame-{sample.index}'
+        assert measured['provenance']['capture']['captured_at'] == capture.captured_at
+    assert len({capture.capture_id for capture in observed_captures}) == 3
     assert all(line["source"] == "unit_test.synthetic_color_blob" for line in offboard_lines)
     assert offboard_lines[0]["command_intent"]["reason"] == (
         "mc_velocity_position_normal_tracking"

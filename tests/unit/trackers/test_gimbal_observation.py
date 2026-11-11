@@ -119,8 +119,10 @@ def test_geometry_revision_tracks_canonical_mount_mapping(environment):
 
 def test_video_epoch_does_not_change_angle_owner_or_packet_identity(environment):
     env = environment()
-    first = output(env).gimbal_observation
-    identity = env.app._follow_start_input_identity()
+    current = output(env)
+    first = current.gimbal_observation
+    env.app.get_tracker_output = lambda: current
+    identity = env.app._freeze_following_observation_source()
     env.app.frame_publisher.control_source_epoch = 'video-2'
     assert env.app._follow_start_input_identity() == identity
     assert output(env).gimbal_observation is first
@@ -192,7 +194,8 @@ def test_source_generation_rejects_old_receipts_until_actual_gac_progress(enviro
     env = environment()
     first = output(env)
     old_data = env.provider.get_current_data()
-    identity = env.app._follow_start_input_identity()
+    env.app.get_tracker_output = lambda: first
+    identity = env.app._freeze_following_observation_source()
     env.provider.stop()
     assert env.provider.start()
     assert env.app._follow_start_input_identity() != identity
@@ -240,7 +243,8 @@ def test_same_object_restart_invalidates_startup_and_retarget_context(environmen
     env.app._camera_selection_dispatched_wall_time = 0.
     env.app._camera_selection_dispatched_monotonic = 100.
     assert env.app._camera_angle_sample_current(first, require_tracking=True)
-    identity = env.app._follow_start_input_identity()
+    env.app.get_tracker_output = lambda: first
+    identity = env.app._freeze_following_observation_source()
     fake_workers(monkeypatch)
     monkeypatch.setattr(env.provider, '_init_listening_socket', lambda: True)
     env.provider.stop_listening()
