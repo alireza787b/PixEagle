@@ -28,6 +28,15 @@ class Eligibility:
     reason_code: str | None = None
 
 
+def validate_live_qualified_phases(value, *, declared_phases: Mapping[str, str]) -> tuple[str, ...]:
+    """Validate explicit admission independently of a command capability map."""
+    if (not isinstance(value, list)
+            or any(not isinstance(phase, str) or phase not in declared_phases for phase in value)
+            or len(value) != len(set(value))):
+        raise ValueError("live_qualified_phases must be a unique list of declared phases")
+    return tuple(value)
+
+
 @dataclass(frozen=True)
 class FollowerProfile:
     mode: str
@@ -41,6 +50,7 @@ class FollowerProfile:
     required_fields: tuple[str, ...]
     required_tracker_data: tuple[str, ...]
     native_phase_contracts: tuple[tuple[str, str], ...]
+    live_qualified_phases: tuple[str, ...]
     implementation_available: bool
 
     @classmethod
@@ -49,12 +59,18 @@ class FollowerProfile:
         visibility = info.get("visibility")
         if family not in PROFILE_FAMILIES or visibility not in PROFILE_VISIBILITIES:
             raise ValueError("follower_catalog_metadata_invalid")
+        qualified = validate_live_qualified_phases(
+            info.get("live_qualified_phases"),
+            declared_phases={info["airframe_phase"]: info["control_type"],
+                             **info.get("native_phase_contracts", {})},
+        )
         return cls(
             mode=mode, display_name=info["display_name"], description=info["description"],
             family=family, visibility=visibility, config_section=info["config_section"], control_type=info["control_type"],
             airframe_phase=info["airframe_phase"], required_fields=tuple(info["required_fields"]),
             required_tracker_data=tuple(info["required_tracker_data"]),
             native_phase_contracts=tuple(info.get("native_phase_contracts", {}).items()),
+            live_qualified_phases=qualified,
             implementation_available=info.get("implementation_available") is True,
         )
 
@@ -64,11 +80,18 @@ class FollowerProfile:
 
     @property
     def live_eligibility(self) -> Eligibility:
+        """Catalog summary; Start separately checks the actual aircraft phase."""
         if not self.implementation_available:
             return Eligibility(False, "follower_implementation_unavailable")
-        # Preserve the existing live gate for non-native FW/rate implementations.
-        if (self.airframe_phase in {"fixed_wing", "vtol_transition"}
-                and self.airframe_phase not in dict(self.native_phase_contracts)):
+        if not self.live_qualified_phases:
+            return Eligibility(False, "profile_not_live_qualified")
+        return Eligibility(True)
+
+    def live_eligibility_for(self, phase: str) -> Eligibility:
+        summary = self.live_eligibility
+        if not summary.eligible:
+            return summary
+        if phase not in self.live_qualified_phases:
             return Eligibility(False, "profile_not_live_qualified")
         return Eligibility(True)
 
@@ -159,4 +182,4 @@ def evaluate_aircraft(profile: FollowerProfile, aircraft_kind: str, *,
         return Eligibility(False, "aircraft_phase_mismatch")
     if phase not in profile.phase_command_contracts:
         return Eligibility(False, "follower_aircraft_incompatible")
-    return profile.live_eligibility
+    return profile.live_eligibility_for(phase)

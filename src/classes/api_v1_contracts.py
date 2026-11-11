@@ -229,6 +229,7 @@ class APINativeFollowingProfile(BaseModel):
     visibility: Literal["basic", "advanced", "experimental"] = "advanced"
     required_tracker_data: List[str] = Field(default_factory=list)
     phase_command_contracts: Dict[str, str] = Field(default_factory=dict)
+    live_qualified_phases: List[Literal["multicopter", "fixed_wing", "vtol_transition"]] = Field(default_factory=list)
     selection_eligible: bool = False
     selection_reason_code: Optional[str] = None
     live_eligible: bool = False

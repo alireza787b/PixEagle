@@ -38,6 +38,44 @@ def test_all_eight_implementations_have_explicit_operator_and_command_contracts(
     }
     assert catalog["fw_attitude_rate"].phase_command_contracts == {"fixed_wing": "attitude_rate"}
     assert catalog["fw_attitude_rate"].live_eligibility.reason_code == "profile_not_live_qualified"
+    assert catalog["gm_velocity_vector"].live_qualified_phases == ("multicopter", "fixed_wing")
+    assert catalog["fw_attitude_rate"].live_qualified_phases == ()
+    assert all("multicopter" in item.live_qualified_phases for item in catalog.values()
+               if item.airframe_phase == "multicopter")
+
+
+def test_native_command_contract_cannot_grant_live_qualification():
+    profile = replace(
+        get_follower_profile("fw_attitude_rate"),
+        native_phase_contracts=(("fixed_wing", "fixed_wing_external"),),
+    )
+    assert profile.phase_command_contracts == {"fixed_wing": "fixed_wing_external"}
+    assert not profile.live_eligibility.eligible
+    assert evaluate_aircraft(profile, "fixed_wing").reason_code == "profile_not_live_qualified"
+
+
+def test_qualification_for_one_phase_does_not_admit_another_declared_phase():
+    profile = replace(get_follower_profile("gm_velocity_vector"), live_qualified_phases=("multicopter",))
+    assert profile.live_eligibility.eligible
+    assert evaluate_aircraft(profile, "multicopter").eligible
+    assert evaluate_aircraft(profile, "fixed_wing").reason_code == "profile_not_live_qualified"
+
+
+def test_explicit_transition_qualification_cannot_bypass_the_vtol_release_gate():
+    profile = replace(get_follower_profile("gm_velocity_vector"), live_qualified_phases=("vtol_transition",))
+    assert profile.live_eligibility.eligible
+    assert evaluate_aircraft(profile, "vtol", observed_phase="vtol_transition").reason_code == "following_transition_unavailable"
+    assert evaluate_aircraft(profile, "vtol", observed_phase="fixed_wing").reason_code == "vtol_transition_release_unqualified"
+
+
+@pytest.mark.parametrize("value", [None, "fixed_wing", ["unknown"], ["multicopter", "multicopter"], [True], [{}]])
+def test_unvalidated_catalog_inputs_cannot_infer_qualification(value):
+    from classes.follower import FollowerFactory
+    from classes.follower_catalog import FollowerProfile
+
+    info = {**FollowerFactory.get_follower_info("mc_velocity_chase"), "live_qualified_phases": value}
+    with pytest.raises(ValueError, match="live_qualified_phases"):
+        FollowerProfile.from_info("mc_velocity_chase", info)
 
 
 @pytest.mark.parametrize("schema,tracker,eligible", [

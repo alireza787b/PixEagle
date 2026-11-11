@@ -3,7 +3,7 @@
 `configs/follower_commands.yaml` is the checked-in authority for profile
 requirements, command fields/units and dispatch contracts. It is a developer
 contract asset, separate from saved operator settings in ConfigService.
-`SetpointHandler` validates it before use; current schema version is `2.3.0`.
+`SetpointHandler` validates it before use; current schema version is `2.5.0`.
 
 ## Profile declaration
 
@@ -18,6 +18,7 @@ follower_profiles:
     display_name: "MC Velocity Chase"
     description: "Pursuit profile: forward ramp with yaw or sideslip and optional vertical control"
     airframe_phase: multicopter
+    live_qualified_phases: [multicopter]
     control_type: velocity_body_offboard
     required_fields: [vel_body_fwd, vel_body_right, vel_body_down, yawspeed_deg_s]
     ui_category: velocity
@@ -31,6 +32,18 @@ requirements, not permission to fly. Keep stable profile IDs and explicit
 implementation registration. A new YAML profile without an implementation
 remains visible but unavailable.
 
+`live_qualified_phases` is a required, unique list drawn from the profile's
+declared phases. Use `[]` while a profile is unqualified. A native command
+contract describes capability; it never grants live admission. Start checks the
+actual phase against this list in addition to aircraft/input readiness. The
+catalog's aggregate `live_eligible` means at least one phase is admitted, not
+that every declared phase is. VTOL admission retains its separate pending
+transition-release gate.
+
+Developer-owned command schemas upgrading from 2.4 must supply this declaration
+explicitly; there is no permissive fallback. This migration does not rewrite
+saved operator configuration or qualify new aircraft behavior.
+
 `config_section` explicitly binds algorithm settings, shared follower overrides
 and SafetyManager lookup. Renaming/subclassing a Python implementation must not
 change that binding. Developer-owned declarations must add it when upgrading
@@ -41,6 +54,12 @@ Every required command field belongs to every atomic snapshot. Partial/optional
 command snapshots are unsupported. Units, scalar types and any static structural
 bounds live in `command_fields`; operational limits remain owned by SafetyManager
 or native PX4, not copied into this schema.
+
+Control types declare `transport: mavsdk` with a MAVSDK method, or
+`transport: px4_native` with exact typed field variants. Native FW objectives
+have either course/EAS/height-rate or course/EAS/AMSL-altitude, with no scalar
+defaults. A native-only profile therefore declares `required_fields: []`;
+`FixedWingCommand` validates the complete variant and session binding.
 
 ## Native phase contracts
 

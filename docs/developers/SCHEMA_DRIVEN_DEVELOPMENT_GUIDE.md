@@ -35,9 +35,11 @@ The maintained command fields are:
 | `pitchspeed_deg_s` | deg/s | MAVSDK attitude-rate convention |
 | `thrust` | normalized | 0.0 through 1.0 |
 
-The maintained control types are `velocity_body_offboard` and
-`attitude_rate`. Removed field names and control types are rejected; they are
-not runtime aliases.
+The maintained MAVSDK control types are `velocity_body_offboard` and
+`attitude_rate`. The separate `fixed_wing_external` native contract has exact
+course/EAS/height-rate or course/EAS/AMSL-altitude variants, without scalar
+defaults. Its schema declaration does not enable a profile. Removed field names
+and control types are rejected; they are not runtime aliases.
 
 Follower code publishes one atomic snapshot:
 
@@ -63,8 +65,12 @@ tightening `Safety.FollowerOverrides`. Supported session controls can explicitly
 replace saved velocity caps through SafetyManager; other protections remain
 separate. Do not duplicate operational limits in `follower_commands.yaml`.
 
-The shipped command schema is version `2.3.0`. Developer-owned command-schema
-files must declare `family`, `visibility` and explicit `config_section` on every profile. Native strategies
+The shipped command schema is version `2.5.0`. Developer-owned command-schema
+files must declare `family`, `visibility`, explicit `config_section` and
+`live_qualified_phases` on every profile. Use an empty phase list until the
+corresponding implementation is qualified; a native contract cannot grant live
+admission. This required declaration replaces inferred permission when upgrading
+from 2.4; saved operator settings remain unchanged. Native strategies
 declare `native_phase_contracts` as a phase-to-command-type mapping; the old
 `native_airframe_phases` list is not a runtime alias. This tracked contract asset
 is distinct from persisted operator configuration.

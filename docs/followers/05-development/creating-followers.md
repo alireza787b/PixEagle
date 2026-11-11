@@ -4,9 +4,11 @@ Start from an existing follower with the same input and command contract.
 Describe what it controls and what it does not estimate. Image centering does
 not establish range; a provider bearing is not a measured pixel.
 
-1. Declare the stable ID in `configs/follower_commands.yaml` (schema 2.3.0):
+1. Declare the stable ID in `configs/follower_commands.yaml` (schema 2.5.0):
    `family`, `visibility`, `config_section`, label/purpose, aircraft phase,
    control type, every required command field, and required tracker schemas.
+   Set `live_qualified_phases: []` until the profile's phase-specific gate passes;
+   declaring native contracts never grants that permission.
    The [command schema](../04-configuration/schema-system.md) is authoritative.
 2. Register its implementation in `FollowerFactory`. An unimplemented YAML
    declaration remains unavailable. Do not add another compatibility matrix.

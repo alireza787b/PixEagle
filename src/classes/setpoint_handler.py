@@ -22,7 +22,7 @@ from classes.safety_types import FIELD_LIMIT_MAPPING
 # Set up logging
 logger = logging.getLogger(__name__)
 
-SUPPORTED_FOLLOWER_COMMAND_SCHEMA_VERSIONS = frozenset({"2.4.0"})
+SUPPORTED_FOLLOWER_COMMAND_SCHEMA_VERSIONS = frozenset({"2.5.0"})
 _SCHEMA_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
@@ -239,6 +239,7 @@ def validate_follower_command_schema(schema: Any) -> Dict[str, Any]:
                 "optional_tracker_data",
                 "session_controls",
                 "native_phase_contracts",
+                "live_qualified_phases",
                 "family",
                 "config_section",
                 "visibility",
@@ -299,6 +300,15 @@ def validate_follower_command_schema(schema: Any) -> Dict[str, Any]:
                 f"follower_profiles.{profile_name}.airframe_phase has unsupported "
                 f"value {airframe_phase!r}"
             )
+        from classes.follower_catalog import validate_live_qualified_phases
+
+        try:
+            validate_live_qualified_phases(
+                profile.get("live_qualified_phases"),
+                declared_phases={airframe_phase: control_type, **native},
+            )
+        except ValueError as exc:
+            raise ValueError(f"follower_profiles.{profile_name}.{exc}") from exc
         native_control = control_types[control_type]["transport"] == "px4_native"
         required_fields = _require_unique_string_list(
             profile.get("required_fields"),

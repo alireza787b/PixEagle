@@ -19,11 +19,12 @@ from unittest.mock import patch, MagicMock, AsyncMock
 def mock_schema():
     """Create a mock schema for testing."""
     return {
-        'schema_version': '2.4.0',
+        'schema_version': '2.5.0',
         'follower_profiles': {
             'mc_velocity_chase': {
                 'control_type': 'velocity_body_offboard',
                 'airframe_phase': 'multicopter',
+                'live_qualified_phases': ['multicopter'],
                 'display_name': 'MC Velocity Chase',
                 'description': 'Body-frame velocity control',
                 'required_fields': ['vel_body_fwd', 'vel_body_right', 'vel_body_down', 'yawspeed_deg_s']
@@ -31,6 +32,7 @@ def mock_schema():
             'fw_attitude_rate': {
                 'control_type': 'attitude_rate',
                 'airframe_phase': 'fixed_wing',
+                'live_qualified_phases': [],
                 'display_name': 'FW Attitude Rate',
                 'description': 'Angular rate control',
                 'required_fields': ['rollspeed_deg_s', 'pitchspeed_deg_s', 'yawspeed_deg_s', 'thrust']

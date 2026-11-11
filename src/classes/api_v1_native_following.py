@@ -71,6 +71,7 @@ def following_snapshot(owner, principal, *, client_control_contract_version: int
             description=profile.description, family=profile.family, visibility=profile.visibility,
             required_tracker_data=list(profile.required_tracker_data),
             phase_command_contracts=profile.phase_command_contracts,
+            live_qualified_phases=list(profile.live_qualified_phases),
             control_type=profile.control_type, airframe_phase=profile.airframe_phase,
             compatible=reason is None, reason_code=reason,
             selection_eligible=selection.eligible, selection_reason_code=selection.reason_code,

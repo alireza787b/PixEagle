@@ -72,6 +72,9 @@ def test_catalog_separates_selection_from_live_qualification(owner):
     assert row["live_reason_code"] == "profile_not_live_qualified"
     assert row["family"] == "fixed_wing" and row["visibility"] == "experimental"
     assert row["phase_command_contracts"] == {"fixed_wing": "attitude_rate"}
+    assert row["live_qualified_phases"] == []
+    vector = next(item for item in snapshot["profiles"] if item["mode"] == "gm_velocity_vector")
+    assert vector["live_qualified_phases"] == ["multicopter", "fixed_wing"]
 
 
 def test_catalog_generation_and_saved_selection_do_not_follow_aircraft_readiness(owner, monkeypatch):
