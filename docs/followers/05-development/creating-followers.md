@@ -81,3 +81,23 @@ Add one concise reference page linked from the
 command meaning and evidence status; reuse the existing read-only visualizer.
 See the [consolidation checkpoint](../../reporting/agent-ops/codex-modernization/checkpoints/2026-11-09-follower-consolidation.md)
 for currently completed boundaries and remaining qualification.
+
+## Image and attitude association
+
+`observation_alignment.py` accepts explicit calibrated image and observed
+attitude references; it never fetches the latest attitude or grants authority.
+Physical capture is unqualified by default. Receive-time qualification requires
+source-bound evidence for camera acquisition-to-receipt delay, total attitude
+sample-to-publication-receipt delay, relative-clock uncertainty and allowed skew.
+The attitude delay includes source processing and transport; DDS-adjusted source
+timestamps are not host monotonic timestamps. The separate, default-disabled
+SIH API pairs a simulated projection with the exact observed state used to
+generate it. Only the trusted isolated fixture may opt in; this is not hardware
+synchronization. Preserve the returned immutable progress record: exact duplicate
+pairs reuse it, while rewritten/reordered captures, changed source/geometry/
+calibration/target, aircraft/runtime or quaternion-reset bindings are rejected.
+Changing timing kind, bounds or evidence also requires an explicit owner reset;
+a new capture cannot silently upgrade SIH pairing to physical qualification.
+Ending or rebinding an owner explicitly resets that record. CaptureStamp receipt
+time remains unchanged, and neither path adds exposure timestamps or attitude
+interpolation.
