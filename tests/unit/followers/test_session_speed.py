@@ -157,7 +157,7 @@ def test_operator_override_replaces_all_velocity_caps_at_the_final_command_bound
 
     follower = override_follower()
     monkeypatch.setattr(SafetyManager, '_instance', follower.safety_manager)
-    monkeypatch.setattr('classes.parameters._safety_manager', follower.safety_manager)
+    monkeypatch.setattr('classes.parameters._get_safety_manager', lambda: follower.safety_manager)
     follower.update_session_control('requested_speed', 4, 0)
     follower.current_velocity_magnitude = 4
     commands = _run_normalization(follower, 40, 30)

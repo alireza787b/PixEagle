@@ -39,25 +39,15 @@ logger = logging.getLogger(__name__)
 # Thread lock for config reload operations
 _config_reload_lock = threading.RLock()
 
-# Lazy imports to avoid circular dependencies
-_safety_manager = None
-_follower_config_manager = None
-
 def _get_safety_manager():
-    """Lazy load SafetyManager to avoid circular import."""
-    global _safety_manager
-    if _safety_manager is None:
-        from classes.safety_manager import SafetyManager
-        _safety_manager = SafetyManager.get_instance()
-    return _safety_manager
+    """Resolve the registered manager lazily without retaining a second owner."""
+    from classes.safety_manager import SafetyManager
+    return SafetyManager.get_instance()
 
 def _get_follower_config_manager():
-    """Lazy load FollowerConfigManager to avoid circular import."""
-    global _follower_config_manager
-    if _follower_config_manager is None:
-        from classes.follower_config_manager import FollowerConfigManager
-        _follower_config_manager = FollowerConfigManager.get_instance()
-    return _follower_config_manager
+    """Use the same registered instance as followers after lifecycle changes."""
+    from classes.follower_config_manager import FollowerConfigManager
+    return FollowerConfigManager.get_instance()
 
 
 class _ParametersMeta(type):
