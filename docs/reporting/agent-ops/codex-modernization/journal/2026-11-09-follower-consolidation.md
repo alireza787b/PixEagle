@@ -151,3 +151,16 @@ passes 155, and the tracker fixture renewal passes 584 tests. Full unit renewal
 on the combined reviewed source is pending. Failed runs remain retained; no new
 SIH, hardware or full-pass claim follows from these fixture corrections. The
 capability-policy and attitude-association steps still precede S6 closeout.
+
+November 12 continuation: the reviewed input-policy/native-association cutover
+and shared SIH fixtures are committed (`adb9b68f6`, `2f7082a4c`). The frozen
+combined gate passes 6,072 unit, 196 integration, 155 Phase 0 and 141 special
+tests; Dashboard passes all 523 tests, lint and production build. Independent
+review repaired provider/timing/cache gaps, pre-acquire qualification ordering,
+FW input expiry reaching MC emergency Stop, and merge imports dropping pending
+legacy restrictions. The first actual MC capture safely stopped on a harness
+policy-parser mismatch; raw evidence remains failed. Tools-only `115192e15`
+and its 336-test gate correct that boundary without relaxing authored-scenario
+restrictions or changing production/configuration bytes. Actual nominal/fault
+and native-FW response renewal continues. No hardware/deployment or release is
+claimed, and S6 remains open. Details and exact revisions are in the checkpoint.

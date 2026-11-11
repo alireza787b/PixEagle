@@ -704,3 +704,79 @@ S6 remains open for separating observation limits from aircraft manoeuvre
 support, bounded attitude association and renewed actual horizontal/vertical
 gimbal SIH. Physical timing and native-FW installation gates stay closed. Public
 defaults, the saved private profile, QGC, hardware and services are unchanged.
+
+### November 12 continuation — frozen foundation renewal
+
+`fb21da6d4` routes eight nominal gimbal MC scenarios through the canonical
+source-owned SIH worker: PID/Vector, horizontal/vertical, altitude off/on. The
+335-test tooling gate and eight read-only launch dry-runs pass. Actual captures
+remain pending. Synthetic image pixels now round-trip through the production
+normalizer; unsupported gimbal fault/retarget scenarios refuse before launch
+rather than failing after simulated acquisition. This is deliberately narrower
+than complete gimbal fault qualification.
+
+`3ac33e443` fixes the audited last pre-SDK MAVSDK Stop scheduling gap. The original
+SDK/connection/aircraft/session/start context survives queued cleanup and retries;
+takeover or replacement withholds Hold, without clearing a replacement sender's
+state. Its frozen integrated gate passes 1,026 tests, with 168 focused manager
+checks and four preserved scheduling reproductions invoking zero SDK Stop calls.
+The limitation after an SDK RPC has already been invoked remains explicit.
+Native transition-preserving release and S7 actual SIH are still unimplemented.
+
+`f23753005` shares image/gimbal bearing association without synthetic gimbal
+pixels or exposure claims. Independent review reproduced and repaired provider
+identity drift, cached physical-bound expiry and same-sample quaternion rewrites.
+The 322-test focused and 1,976-test follower/drone gates pass. Reported estimator
+resets remain visible and invalidate older associations. These counts overlap;
+they are not additive unique tests.
+
+The coherent frozen source at `f23753005` passes **5,940 unit tests**, **196
+integration tests**, **155 Phase 0 checks**, schema/inventory and fatal lint;
+11 optional GStreamer introspection tests skip. Exact commands, exclusions,
+checkout and logs are in `software-gates-s6-foundations-r1/`. This excludes the
+subsequent capability migration/native-gimbal consumer cutover, which still needs
+its own combined gate and actual horizontal/vertical MC/FW response renewal.
+
+Read-only S7 native review also found a distinct activation-epoch problem: late
+cleanup can replace the original lease's activation timestamp with the current
+same-mode activation. The audit and pinned source excerpts are retained in
+`software-gates-r1/s7-native-transition-release-audit/`. It is not repaired or
+qualified by the MAVSDK foundation. No hardware, private saved configuration,
+installed service, QGC, main branch or release artifact has changed.
+
+### S6 input cutover — combined software gate
+
+`adb9b68f6` separates implemented MC manoeuvres from optional observed-ray
+windows, removes provider permission grants, and migrates the retired mixed
+capability object through Config Sync. Known factory placeholders preserve the
+accepted boresight behavior. Ambiguous/custom legacy values keep API/startup
+available but require explicit canonical choices before Vector Start. Unrelated
+merge imports and ancestor updates preserve pending retirements; canonical
+digests reject boolean/integer overwrite ambiguity. Explicit reviewed removal,
+CAS, backup and rollback remain the existing configuration service's operations.
+Dashboard accepts the backend's existing nested 1–16-component paths.
+
+Native gimbal preparation retains its unbound session for input qualification
+before acquisition. No command can be calculated before binding. Both native
+input families share association/progression checks; ordinary input expiry uses
+the existing FW recovery budget, while Stop and geometry/authority guards retain
+precedence. Review reproduced and repaired missing-current-state acceptance,
+preparation ordering and accidental MC emergency Stop on ordinary FW expiry.
+
+`2f7082a4c` shares retained actual native-pose validation between image and
+gimbal SIH fixtures. The frozen combined gate passes **6,072 unit**, **196
+integration**, **155 Phase 0**, and **141 special harness/smoke tests**, plus
+schema/inventory/fatal lint. Dashboard passes **523 tests** (65 suites), lint
+and production build. Eleven optional GStreamer introspection tests skip. Exact
+commands/source are in `software-gates-s6-combined-r1/`; overlapping development
+gates and independent review logs remain separately scoped.
+
+The first actual GM MC run reached stable flight but stopped before Offboard:
+the harness rejected its own recorded resolved continuity policy as an authored
+override. The failed `s6-mc-gm_velocity_vector-horizontal-off-r1` is retained.
+`115192e15` fixes only this report-analysis boundary; authored policy overrides
+remain forbidden. Its frozen 336-test harness gate passes; production/config/
+Dashboard/native bytes are identical to the combined gate. The retry confirms
+actual range closure, zero failed publications and Hold after Stop. The remaining
+nominal matrix, gimbal fault captures and native-FW response renewal are still
+required; S6 is not closed by the software gate or one passing run.
