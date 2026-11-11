@@ -355,3 +355,9 @@ remain open. Integration work is unpublished.
   The native source-change comparison and full software renewal now close S5's
   component/software gate; S6 source hygiene is in progress. Physical, application
   input and hardware qualification remain open in the same checkpoint.
+- **2026-11-11 — External source lifecycle:** S6a removes synthetic gimbal pixels
+  and preserves independently timed angle/status receipts under one camera owner.
+  Review found and repaired a Stop lock wait and orphan-provider replacement;
+  476 final focused checks pass. The pure source-comparison foundation is tested,
+  but the active original-source pin and queued publication fence remain open.
+  Physical timing, target identity and capability qualification remain separate.

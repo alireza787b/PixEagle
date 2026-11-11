@@ -603,3 +603,43 @@ cutover. The first sub-slice preserves accepted MC angular calculations and does
 not pretend that GAC/TRC proves target-centre alignment or physical exposure.
 Backend receipt is not exposure time. No Pi, private-profile, QGC, service or
 firmware deployment occurred.
+
+### S6a — external observation identity
+
+`70c69f75e` removes an implicit all-capabilities fallback from incompletely
+constructed Vector followers. Missing classifier state now refuses instead of
+inventing vertical/reverse permission. Real construction and both mounts retain
+their existing calculations; the focused gate passes 139 tests and the follower
+regression passes 1,127 tests.
+
+`f0928a40f` binds received gimbal angles and independent tracking status to
+the camera transport incarnation and local selection generation. Receipt time,
+boresight semantics and unconfirmed physical target identity remain explicit.
+Gimbal output no longer synthesizes pixels or advertises image normalization.
+Manual gesture cancellation must leave the observation source intact; real
+provider start/stop/replacement invalidates it independently of video epochs.
+
+The first affected gate passes 3,097 tests. Independent review then identified a
+startup lock held across manual-worker readiness, which could delay camera Stop,
+and an unsupported in-place replacement that could orphan a running provider.
+The final captured gate passes 476 tests after both repairs, including real
+blocked-worker readiness, immediate cancellation, idle control availability,
+original-provider cleanup and a normalized provider independent of SIP inheritance.
+Commands and input hashes are retained in
+`software-gates-r1/s6a-source-hygiene-final-focused.{log,json}`. Earlier broad
+results are labelled transcript summaries, not frozen final-source evidence.
+
+`a4ebef4cf` adds the pure source-comparison contract (47 focused tests). It checks
+independent publisher/runtime ownership as well as the sample's geometry/source,
+without rebinding on retarget, frame progress or media delivery changes. A source
+identity read remains available during real lifecycle invalidation; it is separate
+from the availability of usable angle data. The next consumer sub-slice must
+retain the original source before awaited startup, apply the existing continuity
+policy to missing data, and reject definitively changed or superseded work at
+the actual publication boundary. These foundations do not yet claim that gate.
+
+Tracker reference/development docs now remove the old synthetic-pixel and
+duplicate Euler-transform examples. Physical target, mechanical capability and
+timing/frame qualification remain open. S6 is not closed, and no new live phase
+is admitted. The completed S5 isolated simulator was stopped to release resources;
+its container, evidence and software-only shutdown record remain retained.

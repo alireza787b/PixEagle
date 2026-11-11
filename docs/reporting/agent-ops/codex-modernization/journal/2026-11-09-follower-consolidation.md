@@ -123,3 +123,12 @@ parameter was restored, with no aircraft change. Full frozen `132396744` renewal
 passes 5,514 unit, 196 integration and 155 Phase 0 tests plus schema/inventory/fatal
 lint. S6 now begins with source/receipt metadata and removal of synthetic gimbal
 pixels; timing/capability policy and physical qualification are separate steps.
+
+S6a now commits source/receipt identity without changing guidance gains or
+capability policy (`f0928a40f`). Review reproduced a Stop lock regression and an
+orphan-provider lifetime; both are repaired, with 476 captured final tests and
+explicitly separate earlier transcript summaries. The pure original-source
+comparison foundation (`a4ebef4cf`) passes 47 focused tests. Tracker docs no longer
+recommend synthetic gimbal pixels or duplicated mount/Euler transforms. Active
+session pinning and final queued-write admission remain the next consumer gate;
+receipt identity does not establish physical target/exposure qualification.
