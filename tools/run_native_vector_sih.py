@@ -199,6 +199,23 @@ def command(*args):
     return subprocess.check_output(args, text=True, timeout=15)
 
 
+def archive_configuration(output: Path) -> dict:
+    artifacts = {}
+    for name in ("config.yaml", "config_schema.yaml", "follower_commands.yaml"):
+        source = output / name if name == "config.yaml" else ROOT / "configs" / name
+        data = source.read_bytes()
+        if name != "config.yaml":
+            (output / name).write_bytes(data)
+        artifacts[name] = {"path": name, "sha256": hashlib.sha256(data).hexdigest()}
+    return artifacts
+
+
+def native_parameters(socket: Path, isolation: dict) -> str:
+    executable = str(Path(isolation["process"]["args"][0]).with_name("px4-param"))
+    return command("docker", "exec", "--user", str(socket.stat().st_uid), isolation["container_id"],
+                   executable, "--instance", str(isolation["instance"]), "show")
+
+
 def verify_simulator(container: str, instance: int, socket: Path, *, sih_build_manifest: Path | None = None) -> dict:
     info = json.loads(command("docker", "inspect", container))[0]
     if (info["HostConfig"]["NetworkMode"] != "none" or info["HostConfig"]["Privileged"]
@@ -304,6 +321,20 @@ class ObservationConnection:
         return None if state is None else state.relative_altitude_m
 
 
+def attach_component_observer(binding, connection, log, *, started: float, clock=time.monotonic):
+    """Use one accepted-packet callback for acquisition and later publications."""
+    original_observer = binding.on_observation
+
+    async def observation(state, packet, intent):
+        coherent = connection.retain_packet(state, packet)
+        log("observations.jsonl", dict(timestamp=clock()-started, value=packet,
+                                      retained_for_projection=coherent))
+        return await original_observer(state, packet, intent)
+
+    binding.on_observation = observation
+    binding.transport.on_observation = observation
+
+
 def tracker_for_world_target(packet, target, mount, *, clock=time.monotonic):
     pose = packet["vehicle_pose"]
     measured_at = pose["observed_at_monotonic_s"]
@@ -399,6 +430,7 @@ async def run(args, isolation):
     config["FOLLOWER_CIRCUIT_BREAKER"] = False
     (output / "config.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
     Parameters.load_config(output / "config.yaml", strict_dependents=True)
+    configuration = archive_configuration(output)
     source = command("git", "-C", str(ROOT), "rev-parse", "HEAD").strip()
     patch = command("git", "-C", str(ROOT), "diff", "HEAD")
     (output / "source.patch").write_text(patch)
@@ -409,6 +441,8 @@ async def run(args, isolation):
         follower=selected.profile.mode, input_contract=selected.input_contract,
         simulated_tracker_input=True,
         argv=list(sys.argv), working_directory=str(Path.cwd()),
+        configuration=configuration,
+        parameter_snapshots={"before": "px4/parameters-before.txt", "after": "px4/parameters-after.txt"},
         expected_handoff_reason=args.expect_handoff,
     ), indent=2))
     logs = {}
@@ -424,6 +458,8 @@ async def run(args, isolation):
     result = dict(passed=False, reason="not_started")
     started = time.monotonic()
     try:
+        (output / "px4/parameters-before.txt").write_text(native_parameters(
+            args.socket, isolation))
         capabilities = await client.connect()
         aircraft = AircraftBinding(isolation["aircraft_uid"], f"sih-{output.name}", 1)
         log("runtime.jsonl", dict(timestamp=time.monotonic(), capabilities=asdict(capabilities),
@@ -519,15 +555,7 @@ async def run(args, isolation):
             continuity_config=continuity_config, target_evidence=target_evidence, context=lambda: base,
             circuit_breaker=lambda: False,
         )
-        original_observer = binding.transport.on_observation
-
-        async def observation(state, packet, intent):
-            coherent = connection.retain_packet(state, packet)
-            log("observations.jsonl", dict(timestamp=time.monotonic() - started, value=packet,
-                                          retained_for_projection=coherent))
-            return await original_observer(state, packet, intent)
-
-        binding.transport.on_observation = observation
+        attach_component_observer(binding, connection, log, started=started)
         target_output[0] = tracker_input(connection.last_packet, state, scenario.target_at(0.))
         initial_evidence = target_evidence()
         if initial_evidence.state is not TargetEvidenceState.CONFIRMED:
@@ -683,6 +711,12 @@ async def run(args, isolation):
             except Exception as error:
                 result["cleanup_error"] = str(error)
         await client.close()
+        try:
+            (output / "px4/parameters-after.txt").write_text(native_parameters(
+                args.socket, isolation))
+        except Exception as error:
+            result["passed"] = False
+            result["parameter_snapshot_error"] = str(error)
         (output / "result.json").write_text(json.dumps(result, indent=2))
         for log_file in logs.values():
             log_file.close()

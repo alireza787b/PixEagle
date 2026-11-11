@@ -6,25 +6,75 @@ import json
 import math
 import socket
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 import yaml
 
-from classes.aircraft_state import AirframePhase, Quaternion
-from classes.target_continuity import IdentityVerdict, TargetEvidenceSnapshot, TargetEvidenceState
+from classes.aircraft_state import AirframePhase, GuidanceSessionIdentity, Quaternion
+from classes.follower import FollowerFactory
+from classes.native_follow_binding import NativeFollowBinding
+from classes.native_guidance import NativeCapabilities
+from classes.parameters import Parameters
+from classes.target_continuity import (
+    ContinuityContext, ContinuityPolicy, IdentityVerdict, TargetContinuitySupervisor,
+    TargetEvidenceSnapshot, TargetEvidenceState,
+)
 from classes.tracker_output import TrackerDataType
 from tests.unit.drone_interface.test_aircraft_state import aircraft_state, attitude_timing
 from tests.unit.followers import test_fw_navigation_chase_follower as native_image_cases
 from tools.run_native_vector_sih import (
-    ROOT, ObservationConnection, component_loss_windows, component_profile, component_target_evidence, image_fixture,
+    ROOT, ObservationConnection, archive_configuration, attach_component_observer, component_loss_windows, component_profile,
+    component_target_evidence, image_fixture,
     load_component_scenario, loss_tracker_output, measurement_time, measurement_world_target,
-    observed_pose_record, phase_response_segments,
+    native_parameters, observed_pose_record, phase_response_segments,
     prepare_component_intent, project_component_image, stable_window, tracker_for_world_target,
     verify_simulator,
 )
 
 
 native_follower_environment = native_image_cases.environment
+
+
+def test_run_archive_preserves_exact_configuration_and_schema_bytes(monkeypatch, tmp_path):
+    source = tmp_path / "source"
+    (source / "configs").mkdir(parents=True)
+    commands = b"schema_version: 2\nfollower_profiles: {}\n"
+    schema = b"title: Test configuration\ntype: object\n"
+    (source / "configs/follower_commands.yaml").write_bytes(commands)
+    (source / "configs/config_schema.yaml").write_bytes(schema)
+    monkeypatch.setattr("tools.run_native_vector_sih.ROOT", source)
+    output = tmp_path / "run"
+    output.mkdir()
+    (output / "config.yaml").write_bytes(b"FOLLOWER_CIRCUIT_BREAKER: false\n")
+    first = archive_configuration(output)
+    assert (output / "follower_commands.yaml").read_bytes() == commands
+    assert (output / "config_schema.yaml").read_bytes() == schema
+    assert set(first) == {"config.yaml", "config_schema.yaml", "follower_commands.yaml"}
+    assert all(len(artifact["sha256"]) == 64 for artifact in first.values())
+    (output / "config.yaml").write_bytes(b"FOLLOWER_CIRCUIT_BREAKER: true\n")
+    second = archive_configuration(output)
+    assert second["config.yaml"]["sha256"] != first["config.yaml"]["sha256"]
+    assert second["follower_commands.yaml"] == first["follower_commands.yaml"]
+    assert second["config_schema.yaml"] == first["config_schema.yaml"]
+
+
+def test_parameter_snapshot_uses_only_verified_runtime_executable_sibling(monkeypatch, tmp_path):
+    path = tmp_path / "native.sock"
+    calls = []
+
+    def read_command(*args):
+        calls.append(args)
+        return "SIH_F_T_MAX: 6.0\n"
+
+    monkeypatch.setattr("tools.run_native_vector_sih.command", read_command)
+    with socket.socket(socket.AF_UNIX) as listener:
+        listener.bind(str(path))
+        isolation = {"container_id": "verified-container-id", "instance": 7,
+                     "process": {"args": ["/firmware/bin/px4"]}}
+        assert native_parameters(path, isolation) == "SIH_F_T_MAX: 6.0\n"
+        assert calls == [("docker", "exec", "--user", str(path.stat().st_uid), "verified-container-id",
+                          "/firmware/bin/px4-param", "--instance", "7", "show")]
 
 
 def image_scenario():
@@ -77,6 +127,67 @@ def test_rewritten_attitude_timing_packet_does_not_become_a_stable_gate_sample()
     assert not connection.retain_packet(connection.get_aircraft_state(), packet)
     assert connection.last_packet is env.packet
     assert connection.retain_packet(env.state, env.packet)
+
+
+@pytest.mark.usefixtures("native_follower_environment")
+async def test_engagement_and_publication_share_accepted_image_observation_before_first_projection():
+    env = native_image_context()
+    connection = ObservationConnection(env.state.binding, clock=lambda: env.now[0])
+    assert connection.commit_aircraft_state(env.state)
+    assert connection.retain_packet(env.state, env.packet)
+    follower = FollowerFactory.create_follower("fw_navigation_chase", connection, (.5, .5))
+    follower.bind_guidance_input_resolver(env.fixture.resolve)
+    guidance = follower.create_airframe_session(
+        GuidanceSessionIdentity("image-start", env.state.binding, 1),
+        NativeCapabilities("native-fixture", "fixture", 2, True, False, False),
+        confirmation_s=.3, observation_timeout_s=.75, transition_timeout_s=10., clock=lambda: env.now[0],
+    )
+    output = project_component_image(env.fixture, env.packet, env.state, [100., 20., -40.], timestamp_s=1.)
+    input_owner = SimpleNamespace(follower=SimpleNamespace(follower=follower), px4_interface=connection)
+    config = Parameters.get_runtime_config_snapshot()["TargetContinuity"]
+    supervisor = TargetContinuitySupervisor(ContinuityPolicy.resolve(config, "fw_navigation_chase", env.state.phase),
+                                            clock=lambda: env.now[0])
+    supervisor.reset_session(session_epoch=1, reason="test_start")
+    base = ContinuityContext("PX4_NATIVE", env.state.phase, "fixed_wing_external", True, False, True)
+    client = SimpleNamespace(session_identity=None, abort=Mock(), submit=AsyncMock())
+
+    async def own(identity, **_):
+        client.session_identity = identity
+
+    client.engage = AsyncMock(side_effect=own)
+    client.advance_generation = AsyncMock(side_effect=own)
+    env.now[0] = 100.1
+    current = replace(env.state, sequence=2, observed_at_monotonic_s=100.1,
+        attitude_timing=replace(env.state.attitude_timing, publication_timestamp_us=1_100_000,
+            sample_timestamp_us=1_090_000, publication_received_at_monotonic_s=100.1,
+            sample_received_at_monotonic_s=100.1))
+    packet = deepcopy(env.packet)
+    packet.update(aircraft_state=asdict(current), attitude_timing=asdict(current.attitude_timing),
+                  owner_confirmed=True, rescue_active=False, nav_state=23, nav_state_timestamp=100)
+    packet["vehicle_pose"].update(px4_timestamp_us=1_050_000, observed_at_monotonic_s=100.1,
+                                   vehicle_ned=[2., 0., -50.])
+    client.observe = AsyncMock(return_value=packet)
+    binding = NativeFollowBinding(guidance, connection, client, supervisor, profile_name="fw_navigation_chase",
+        continuity_config=config, target_evidence=lambda: component_target_evidence(
+            output, input_owner=input_owner, session_epoch=1, now=lambda: env.now[0]),
+        context=lambda: base, circuit_breaker=lambda: False, clock=lambda: env.now[0])
+    logs = []
+    attach_component_observer(binding, connection, lambda name, value: logs.append((name, value)),
+                              started=100., clock=lambda: env.now[0])
+    assert binding.on_observation is binding.transport.on_observation
+    baseline = await binding.engage()
+    assert connection.get_aircraft_state() == current
+    assert connection.last_packet is packet
+    follower.bind_airframe_session(guidance)
+    first = project_component_image(env.fixture, connection.last_packet, connection.get_aircraft_state(),
+                                    [100., 20., -40.], timestamp_s=2.)
+    assert first.image_measurement.provenance.capture.capture_id == "1050000"
+    assert measurement_time(first) == 100.1
+    assert logs[0][1]["retained_for_projection"] is True
+    await binding.transport.on_observation(current, packet, baseline)
+    assert len(logs) == 2
+    client.submit.assert_not_called()
+    binding.abort("test_complete")
 
 
 def test_pose_trace_uses_actual_receipt_and_does_not_refresh_on_repeated_polls():

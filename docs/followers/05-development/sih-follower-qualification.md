@@ -80,6 +80,8 @@ scenario speed edits rather than pretending to execute them; `--mc-request`
 remains an explicit simulated operator action. Actual limits and continuity
 policy come from the loaded configuration and appear in the retained scenario
 and per-phase state trace. Target coordinates are never reanchored to the drone.
+Each run retains exact configuration/schema copies and SHA-256 identities, plus
+read-only PX4 parameter snapshots before engagement and after cleanup.
 Phase spans report actual range/altitude changes without replacing the overall
 response checks. In particular, a 6 m/s target can outrun the public 0.25 m/s²
 MC startup ramp in a short transition test. Successful ownership transitions
@@ -111,6 +113,8 @@ PX4 pose and attitude samples, with the original pose receipt and exact
 association preserved. A partial pose/attitude update retains the previous frame
 and its original target truth until expiry. Pose traces use source receipt times,
 not repeated poll times; pre-start pose baselines may have negative run timestamps.
+Reordered observations remain in the raw log, but only a packet matching the
+accepted aircraft state can replace the projection input or advance readiness.
 The production read-only input qualifier must pass before
 mode engagement and before nominal guidance. An unavailable association enters
 the existing bounded recovery; polling cannot refresh the image timestamp.
