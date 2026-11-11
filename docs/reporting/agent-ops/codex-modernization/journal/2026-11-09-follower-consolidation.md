@@ -203,3 +203,10 @@ intention tests and generated-message compilation pass. The checkpoint records
 exact scope, logs, source hashes and retained failed attempts. Full firmware/SIH
 renewal and transition-preserving release remain next; VTOL admission stays
 closed, with no hardware, saved configuration, gains or QGC changes.
+
+The committed S7 foundation (`3233d0faa`) now also builds the complete pinned SIH
+firmware. A fresh stable airplane passes renewed Gimbal Vector response on both
+mounts and calibrated image-FW response: 870 successful component submissions,
+confirmed native Hold, no subsequent publication, and three browser-checked
+interactive reports. Causal ownership fault scenarios and neutral release
+draining remain next; this does not reopen VTOL admission or qualify hardware.

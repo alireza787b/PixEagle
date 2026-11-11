@@ -956,3 +956,36 @@ firmware build, continuous neutral publication during release, transition
 disposition, end-on-transition/new-Start wiring and actual tailsitter/standard
 VTOL fault evidence remain open. VTOL admission stays closed. No hardware,
 public/private saved settings, controller gains or QGC files were changed.
+
+### S7 source build and first observed response
+
+Committed foundation `3233d0faa` passes the normal pinned SIH builder: 1,172
+compile/link steps, `DONT_RUN=1`, network disabled. The verified bundle is
+`reports/native-guidance/sih-s7-ownership-build-20261112-r1/`; its build result
+retains board configuration, generated header, CMake cache, compiler/runtime
+pins and binary/ROMFS hashes. This is an explicitly selected test bundle, not a
+new default image or hardware firmware.
+
+A fresh isolated `sihsim_airplane` then reached seven stable native-Hold samples
+near 30 m before any native acquisition. Three production-component moving-target
+runs pass on the new firmware and generated-message adapter:
+
+| Input/profile | Mount | Actual target range, start → end | Maximum altitude-hold error |
+| --- | --- | --- | --- |
+| Gimbal Vector | Vertical | 162.60 → 36.06 m | 0.524 m |
+| Gimbal Vector | Horizontal | 162.95 → 32.07 m | 0.063 m |
+| Calibrated image FW navigation | Horizontal | 163.30 → 33.47 m | 0.129 m |
+
+These altitude-guidance-off cases record **870 successful component submissions,
+1,347 adapter-observed publications, zero failures**, and maximum recorded write
+gap **55.636 ms**. Each retains the original acquisition context through observed
+native Hold and has no later publication. Independent checks and raw/derived file
+hashes are in `software-gates-s7-r1/native-nominal-independent-proof-r1.json` under
+the consolidation run root. All three validated HTML/CSV/PNG reports load in a
+real browser with actual pose, independent target, finite native command values,
+working scrub/views/orbit and zero page errors.
+
+This renews component acquisition/normal release, not takeover/disconnect,
+transition preservation, altitude-enabled response or full-application startup.
+Those scopes retain their separate gates; the new causal-ownership fault harness
+and terminal neutral draining are next. No hardware or installed service changed.
