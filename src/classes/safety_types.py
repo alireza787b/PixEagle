@@ -127,5 +127,6 @@ FOLLOWER_VEHICLE_TYPE = {
     'GM_VELOCITY_VECTOR': VehicleType.MULTICOPTER,
     'GM_VELOCITY_CHASE': VehicleType.MULTICOPTER,
     # Fixed-wing followers
+    'FW_NAVIGATION_CHASE': VehicleType.FIXED_WING,
     'FW_ATTITUDE_RATE': VehicleType.FIXED_WING,
 }

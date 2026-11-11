@@ -79,6 +79,7 @@ SECTION_CATEGORIES = {
     'GM_VELOCITY_CHASE': {'category': 'follower', 'display_name': 'Gimbal Velocity Chase', 'icon': 'control_camera'},
     'GM_VELOCITY_VECTOR': {'category': 'follower', 'display_name': 'Gimbal Velocity Vector', 'icon': 'control_camera'},
     'FW_ATTITUDE_RATE': {'category': 'follower', 'display_name': 'Fixed-Wing Attitude Rate', 'icon': 'flight'},
+    'FW_NAVIGATION_CHASE': {'category': 'follower', 'display_name': 'FW Navigation Chase (experimental)', 'icon': 'flight'},
     'FixedWingGuidance': {'category': 'follower', 'display_name': 'Fixed-Wing Guidance', 'icon': 'flight'},
 
     # Safety & Control
@@ -268,6 +269,18 @@ def load_tracker_artifact_options(
 # Manual schema overrides for parameters where comment parsing is ambiguous.
 # Applied AFTER auto-generation. Keys are "SectionName.PARAM_NAME".
 SCHEMA_OVERRIDES = {
+    'FW_NAVIGATION_CHASE.VERTICAL_ENTER_HORIZONTAL_NORM': {
+        'type': 'float', 'min': 0.0, 'max': 1.0, 'step': 0.01,
+        'description': 'Near-vertical enter threshold on the unit NED ray horizontal magnitude; must be lower than exit.'},
+    'FW_NAVIGATION_CHASE.VERTICAL_EXIT_HORIZONTAL_NORM': {
+        'type': 'float', 'min': 0.0, 'max': 1.0, 'step': 0.01,
+        'description': 'Near-vertical exit threshold; must be higher than enter.'},
+    'FW_NAVIGATION_CHASE.REARWARD_ENTRY_BEARING_DEG': {
+        'type': 'float', 'min': 0.0, 'max': 180.0, 'step': 1.0, 'unit': 'deg',
+        'description': 'Absolute bearing at which coordinated-turn direction latches; must exceed forward re-entry.'},
+    'FW_NAVIGATION_CHASE.FORWARD_REENTRY_BEARING_DEG': {
+        'type': 'float', 'min': 0.0, 'max': 180.0, 'step': 1.0, 'unit': 'deg',
+        'description': 'Absolute bearing within which the turn-direction latch clears; must be below rearward entry.'},
     'VideoSource.FIXED_CAMERA_CALIBRATION': {
         'type': 'object',
         'nullable': True,
@@ -1553,6 +1566,7 @@ SECTION_RELOAD_TIERS = {
     'GM_VELOCITY_CHASE': 'follower_restart',
     'GM_VELOCITY_VECTOR': 'follower_restart',
     'FW_ATTITUDE_RATE': 'follower_restart',
+    'FW_NAVIGATION_CHASE': 'follower_restart',
 
     # tracker_restart — tracker/detection params, need tracker reinit
     'Tracking': 'tracker_restart',

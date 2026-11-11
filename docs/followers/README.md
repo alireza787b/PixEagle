@@ -14,7 +14,7 @@ for actual response evidence and live availability; implementation is not flight
 | Section | Description |
 |---------|-------------|
 | [Architecture](01-architecture/README.md) | System design, inheritance, factory pattern |
-| [Follower Reference](02-reference/README.md) | All 8 follower implementations |
+| [Follower Reference](02-reference/README.md) | Registered follower purposes, contracts and qualification |
 | [GNC Concepts](03-gnc-concepts/README.md) | Proportional Navigation, L1, TECS, PID |
 | [Configuration](04-configuration/README.md) | Parameters, schema, tuning |
 | [Development Guide](05-development/README.md) | Creating new followers |
@@ -39,6 +39,7 @@ for actual response evidence and live availability; implementation is not flight
 
 | Follower | Control Type | Use Case |
 |----------|--------------|----------|
+| [fw_navigation_chase](02-reference/fw-navigation-chase.md) | fixed_wing_external | Calibrated image pursuit through native PX4 navigation; experimental, live gate closed |
 | [fw_attitude_rate](02-reference/fw-attitude-rate.md) | attitude_rate | Research visual guidance; current live gate remains |
 
 ### Gimbal (GM)
@@ -64,8 +65,8 @@ attitude_rate          - Angular rate commands (rollspeed, pitchspeed, yawspeed,
 - **velocity_body_offboard**: Most multicopter applications. Stable, GPS-aided control.
 - **attitude_rate**: Advanced direct rates/thrust; it does not itself qualify GPS-denied or fixed-wing operation.
 
-The developing native Vector path separately commands FW course, EAS and
-altitude/height rate. See the [FW policy](04-configuration/fixed-wing-guidance-policy.md).
+The experimental native image and Vector paths separately command FW course,
+EAS and altitude/height rate. See the [FW policy](04-configuration/fixed-wing-guidance-policy.md).
 
 ---
 
@@ -82,7 +83,7 @@ altitude/height rate. See the [FW policy](04-configuration/fixed-wing-guidance-p
                             ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                      FollowerFactory                             │
-│  - Registry pattern (8 implementations + 14 removed aliases)    │
+│  - Explicit registered implementations and removed aliases      │
 │  - Lazy initialization                                          │
 │  - Profile validation                                           │
 └───────────────────────────┬─────────────────────────────────────┘
@@ -100,7 +101,7 @@ altitude/height rate. See the [FW policy](04-configuration/fixed-wing-guidance-p
         ▼                   ▼                   ▼
 ┌───────────────┐   ┌───────────────┐   ┌───────────────┐
 │ MC Followers  │   │ FW Followers  │   │ GM Followers  │
-│ (5 variants)  │   │ (1 variant)   │   │ (2 variants)  │
+│ image inputs │   │ native/rates │   │ external rays│
 └───────────────┘   └───────────────┘   └───────────────┘
 ```
 

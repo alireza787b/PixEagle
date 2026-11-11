@@ -111,7 +111,7 @@ class Parameters(metaclass=_ParametersMeta):
         'MC_VELOCITY_POSITION', 'MC_VELOCITY_DISTANCE', 'MC_VELOCITY_GROUND',
         'MC_VELOCITY_CHASE', 'MC_ATTITUDE_RATE',
         'GM_VELOCITY_VECTOR', 'GM_VELOCITY_CHASE',
-        'FW_ATTITUDE_RATE',
+        'FW_ATTITUDE_RATE', 'FW_NAVIGATION_CHASE',
         # Tracker sections
         'GimbalTracker',
         'ClassicTracker_Common',
@@ -471,6 +471,15 @@ class Parameters(metaclass=_ParametersMeta):
         except Exception as exc:
             failures.append(f"aircraft-guidance config validation failed: {exc}")
             logger.warning("Could not validate aircraft-guidance config: %s", exc)
+
+        if "FW_NAVIGATION_CHASE" in normalized_config:
+            try:
+                from classes.bearing_geometry_policy import BearingGeometryPolicy
+
+                BearingGeometryPolicy.from_mapping(normalized_config["FW_NAVIGATION_CHASE"])
+            except (TypeError, ValueError) as exc:
+                failures.append(f"FW navigation geometry validation failed: {exc}")
+                logger.warning("Could not validate FW navigation geometry: %s", exc)
 
         video_source = normalized_config.get("VideoSource")
         calibration = video_source.get("FIXED_CAMERA_CALIBRATION") if isinstance(video_source, dict) else None

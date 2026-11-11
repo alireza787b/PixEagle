@@ -117,10 +117,10 @@ def target(env, world, *, generation=3, tailsitter_camera=False):
     return env.output
 
 
-def test_foundation_is_not_in_the_shipped_profile_catalog():
+def test_registered_foundation_still_has_no_live_phase_permission():
     schema = SetpointHandler.load_and_validate_schema(ROOT / "configs/follower_commands.yaml")
-    assert "fw_navigation_chase" not in schema["follower_profiles"]
-    assert all(profile["control_type"] != "fixed_wing_external" for profile in schema["follower_profiles"].values())
+    assert schema["follower_profiles"]["fw_navigation_chase"]["live_qualified_phases"] == []
+    assert schema["follower_profiles"]["fw_navigation_chase"]["control_type"] == "fixed_wing_external"
 
 
 def test_native_strategy_uses_one_real_handler_and_authoritative_safety(environment):

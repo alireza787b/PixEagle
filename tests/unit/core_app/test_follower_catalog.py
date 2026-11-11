@@ -22,16 +22,16 @@ def manager():
     return SchemaManager()
 
 
-def test_all_eight_implementations_have_explicit_operator_and_command_contracts():
+def test_all_registered_implementations_have_explicit_operator_and_command_contracts():
+    from classes.follower_types import FollowerType
+
     catalog = {item.mode: item for item in get_follower_catalog()}
-    assert set(catalog) == {
-        "mc_velocity_position", "mc_velocity_chase", "mc_velocity_ground", "mc_velocity_distance",
-        "mc_attitude_rate", "fw_attitude_rate", "gm_velocity_chase", "gm_velocity_vector",
-    }
+    assert set(catalog) == {item.value for item in FollowerType}
     assert {item.mode for item in catalog.values() if item.visibility == "basic"} == {
         "mc_velocity_position", "mc_velocity_chase",
     }
-    assert all(item.description and item.required_fields and item.implementation_available for item in catalog.values())
+    assert all(item.description and item.implementation_available for item in catalog.values())
+    assert all(item.required_fields for item in catalog.values() if item.control_type != "fixed_wing_external")
     assert catalog["gm_velocity_vector"].phase_command_contracts == {
         "multicopter": "velocity_body_offboard", "fixed_wing": "fixed_wing_external",
         "vtol_transition": "vtol_transition_external",
@@ -40,6 +40,10 @@ def test_all_eight_implementations_have_explicit_operator_and_command_contracts(
     assert catalog["fw_attitude_rate"].live_eligibility.reason_code == "profile_not_live_qualified"
     assert catalog["gm_velocity_vector"].live_qualified_phases == ("multicopter", "fixed_wing")
     assert catalog["fw_attitude_rate"].live_qualified_phases == ()
+    native = catalog["fw_navigation_chase"]
+    assert native.phase_command_contracts == {"fixed_wing": "fixed_wing_external"}
+    assert native.required_fields == () and native.live_qualified_phases == ()
+    assert native.live_eligibility.reason_code == "profile_not_live_qualified"
     assert all("multicopter" in item.live_qualified_phases for item in catalog.values()
                if item.airframe_phase == "multicopter")
 

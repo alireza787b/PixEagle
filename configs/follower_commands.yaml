@@ -199,6 +199,28 @@ follower_profiles:
         unit: m/s
         step: 0.5
 
+  # Calibrated image pursuit through native PX4 navigation; qualification is separate.
+  fw_navigation_chase:
+    config_section: FW_NAVIGATION_CHASE
+    family: fixed_wing
+    visibility: experimental
+    display_name: "FW Navigation Chase"
+    description: "Calibrated image pursuit through native PX4 course, airspeed and vertical-path control; live qualification pending"
+    control_type: fixed_wing_external
+    airframe_phase: fixed_wing
+    live_qualified_phases: []
+    native_phase_contracts:
+      fixed_wing: fixed_wing_external
+    required_fields: []
+    ui_category: navigation
+    required_tracker_data: [POSITION_2D]
+    optional_tracker_data: []
+    session_controls:
+      requested_speed:
+        label: Airspeed
+        unit: m/s
+        step: 0.5
+
   # FW Attitude Rate Follower - visual L1/TECS-inspired control
   fw_attitude_rate:
     config_section: FW_ATTITUDE_RATE
@@ -271,7 +293,7 @@ control_types:
     description: "Offboard body velocity commands for quadcopters"
     ui_display: "Body Velocity Offboard"
 
-  # Dormant contract only; no shipped profile selects native FW guidance here.
+  # Registered experimental native profile; live admission is independently gated.
   fixed_wing_external:
     transport: px4_native
     description: "Native PX4 fixed-wing course, EAS and vertical objective"
@@ -300,7 +322,7 @@ ui_config:
       fields: ["rollspeed_deg_s", "pitchspeed_deg_s", "yawspeed_deg_s", "thrust"]
       color: "#FF5722"
 
-  profile_display_order: ["mc_velocity_ground", "mc_velocity_distance", "mc_velocity_position", "mc_velocity_chase", "mc_attitude_rate", "gm_velocity_chase", "gm_velocity_vector", "fw_attitude_rate"]
+  profile_display_order: ["mc_velocity_ground", "mc_velocity_distance", "mc_velocity_position", "mc_velocity_chase", "mc_attitude_rate", "gm_velocity_chase", "gm_velocity_vector", "fw_navigation_chase", "fw_attitude_rate"]
 
 # ==============================================================================
 # Validation Rules

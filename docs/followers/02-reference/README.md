@@ -1,6 +1,6 @@
 # Follower Reference
 
-> Detailed documentation for all 8 follower implementations
+> Purpose, contracts and qualification for registered followers
 
 This section provides comprehensive documentation for each follower, including control algorithms, configuration parameters, and use cases.
 
@@ -31,6 +31,7 @@ evidence status, and interactive replay links, see the
 
 | Follower | Profile | Use Case | Key Feature |
 |----------|---------|----------|-------------|
+| [fw_navigation_chase](fw-navigation-chase.md) | `fw_navigation_chase` | Calibrated image pursuit | Native course/EAS/vertical objective; experimental and not live-qualified |
 | [fw_attitude_rate](fw-attitude-rate.md) | `fw_attitude_rate` | Research visual guidance | Direct rates/thrust; currently gated for live following |
 
 ### Gimbal (GM)
@@ -43,6 +44,12 @@ evidence status, and interactive replay links, see the
 ---
 
 ## Control Types
+
+### fixed_wing_external
+
+Native PX4 course and EAS with exactly one vertical objective: AMSL altitude or
+height rate. PX4 retains coordinated turns and energy control. Registration and
+valid fields do not grant live following; see [FW Navigation Chase](fw-navigation-chase.md).
 
 ### velocity_body_offboard
 

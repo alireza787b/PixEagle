@@ -61,6 +61,12 @@ have either course/EAS/height-rate or course/EAS/AMSL-altitude, with no scalar
 defaults. A native-only profile therefore declares `required_fields: []`;
 `FixedWingCommand` validates the complete variant and session binding.
 
+The registered `fw_navigation_chase` declares that native FW contract and an
+empty live-qualified phase list. It accepts image-position tracker selection,
+then separately requires measured calibration and exact attitude association.
+See its [reference](../02-reference/fw-navigation-chase.md); compatible pixels
+alone cannot satisfy native pursuit readiness.
+
 ## Native phase contracts
 
 The developing Vector path explicitly declares:

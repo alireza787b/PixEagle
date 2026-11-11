@@ -30,7 +30,7 @@ class FollowerFactory:
 
         Naming Convention: {vehicle}_{control}_{behavior}
         - vehicle: mc_ (multicopter), fw_ (fixed-wing), gm_ (gimbal)
-        - control: velocity, attitude_rate
+        - control: velocity, navigation, attitude_rate
         - behavior: optional descriptor (chase, ground, distance, position, vector, unified)
         """
         if cls._registry_initialized:
@@ -46,6 +46,7 @@ class FollowerFactory:
             from classes.followers.gm_velocity_chase_follower import GMVelocityChaseFollower
             from classes.followers.gm_velocity_vector_follower import GMVelocityVectorFollower
             from classes.followers.fw_attitude_rate_follower import FWAttitudeRateFollower
+            from classes.followers.fw_navigation_chase_follower import FWNavigationChaseFollower
 
             # Primary registry with new naming convention
             cls._follower_registry = {
@@ -58,7 +59,8 @@ class FollowerFactory:
                 # Multicopter - Attitude Rate Control
                 'mc_attitude_rate': MCAttitudeRateFollower,
 
-                # Fixed-Wing - Attitude Rate Control (L1/TECS)
+                # Fixed-Wing - Native Navigation and research direct rates
+                'fw_navigation_chase': FWNavigationChaseFollower,
                 'fw_attitude_rate': FWAttitudeRateFollower,
 
                 # Gimbal - Velocity Control

@@ -1012,7 +1012,7 @@ Follower:
   TARGET_POSITION_MODE: center              # center = Tracking.DESIRE_AIM; initial = engagement location
 
   # === Following Mode ===
-  # Options: mc_velocity_ground | mc_velocity_distance | mc_velocity_position | mc_velocity_chase | mc_attitude_rate | fw_attitude_rate | gm_velocity_chase | gm_velocity_vector
+  # Options come from follower_commands.yaml; advanced profiles retain their live qualification gates.
   # Removed aliases raise migration errors: ground_view, constant_distance, constant_position, body_velocity_chase, gimbal_vector_body
   FOLLOWER_MODE: mc_velocity_position
 
@@ -1090,6 +1090,14 @@ Follower:
 # Default: true (BLOCKED). Follower test is selected through
 # Follower.FOLLOWER_EXECUTION_MODE=COMMAND_PREVIEW and has no PX4 publisher.
 FOLLOWER_CIRCUIT_BREAKER: true            # true blocks Following/PX4 dispatch; false permits the reviewed command path
+
+# Experimental calibrated-image FW pursuit thresholds; live admission stays gated.
+FW_NAVIGATION_CHASE:
+  # Image-bearing strategy only; no gimbal settings, speed limits or TECS gains.
+  VERTICAL_ENTER_HORIZONTAL_NORM: 0.20  # Enter near-vertical geometry below this unit-ray horizontal norm
+  VERTICAL_EXIT_HORIZONTAL_NORM: 0.30   # Leave near-vertical geometry above this norm
+  REARWARD_ENTRY_BEARING_DEG: 100.0     # Latch coordinated-turn direction beyond this absolute bearing
+  FORWARD_REENTRY_BEARING_DEG: 80.0     # Release the turn latch inside this bearing
 
 # Shared by FW guidance implementations using the qualified native PX4 owner.
 # Older direct-rate guidance cannot silently claim these native capabilities.

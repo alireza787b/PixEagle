@@ -2602,6 +2602,14 @@ class ConfigService:
                 errors.extend(result.errors)
                 warnings.extend(result.warnings)
 
+        if "FW_NAVIGATION_CHASE" in candidate:
+            try:
+                from classes.bearing_geometry_policy import BearingGeometryPolicy
+
+                BearingGeometryPolicy.from_mapping(candidate["FW_NAVIGATION_CHASE"])
+            except (TypeError, ValueError) as exc:
+                errors.append(f"FW navigation geometry semantic validation failed: {exc}")
+
         video_source = candidate.get("VideoSource")
         calibration = video_source.get("FIXED_CAMERA_CALIBRATION") if isinstance(video_source, dict) else None
         if calibration is not None:

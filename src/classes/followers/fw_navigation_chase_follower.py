@@ -1,6 +1,6 @@
 """Calibrated image pursuit through the shared native PX4 FW strategy.
 
-This foundation is not registered or live-qualified. The flight owner supplies
+This experimental profile is registered but not live-qualified. The flight owner supplies
 one read-only input resolver and owns publication, continuity and teardown.
 """
 
@@ -16,6 +16,8 @@ from classes.followers.base_follower import BaseFollower
 from classes.guidance_observation import ImageMeasurement
 from classes.guidance_phase_session import PhaseSessionState
 from classes.observation_alignment import AlignedBearing
+from classes.parameters import Parameters
+from classes.setpoint_handler import SetpointHandler
 from classes.tracker_output import TrackerOutput
 from classes.tracker_runtime_status import evaluate_tracker_command_freshness
 from classes.vector_guidance_session import VectorGuidanceSession
@@ -29,9 +31,12 @@ class FWNavigationChaseFollower(BaseFollower):
     """Produce course/EAS/vertical intent, with no MC or local TECS fallback."""
 
     def __init__(
-        self, px4_controller, initial_target_coords, *, geometry_policy: BearingGeometryPolicy,
+        self, px4_controller, initial_target_coords, *, geometry_policy: BearingGeometryPolicy | None = None,
         input_resolver: GuidanceInputResolver | None = None, profile_name: str = "fw_navigation_chase",
     ):
+        if geometry_policy is None:
+            section = SetpointHandler.get_profile_info(profile_name)["config_section"]
+            geometry_policy = BearingGeometryPolicy.from_mapping(getattr(Parameters, section, None))
         if not isinstance(geometry_policy, BearingGeometryPolicy):
             raise ValueError("bearing_geometry_policy_invalid")
         if input_resolver is not None and (not callable(input_resolver) or inspect.iscoroutinefunction(input_resolver)):

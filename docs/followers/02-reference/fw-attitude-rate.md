@@ -1,6 +1,6 @@
 # FW Attitude Rate Follower
 
-`fw_attitude_rate` is PixEagle's current fixed-wing visual guidance profile. It
+`fw_attitude_rate` is PixEagle's research fixed-wing direct-rate profile. It
 maps image error and vehicle telemetry into MAVSDK attitude-rate and thrust
 fields using L1- and TECS-inspired calculations.
 

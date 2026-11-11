@@ -670,7 +670,7 @@ class TestFollowerCommandSchemaContract:
 
 @pytest.fixture
 def native_schema():
-    """Native-only fixture; the shipped catalog retains its eight profiles."""
+    """Extra native profile fixture independent of the registered catalog."""
     from classes.setpoint_handler import validate_follower_command_schema
 
     schema = TestFollowerCommandSchemaContract._canonical_schema()
@@ -709,7 +709,7 @@ def native_intent(**changes):
 
 
 class TestNativeFollowerCommandSchema:
-    def test_canonical_native_contract_is_dormant_and_has_no_scalar_defaults(self):
+    def test_canonical_native_contract_is_gated_and_has_no_scalar_defaults(self):
         from classes.fixed_wing_vector_guidance import FixedWingCommand
 
         schema = TestFollowerCommandSchemaContract._canonical_schema()
@@ -720,9 +720,11 @@ class TestNativeFollowerCommandSchema:
             FixedWingCommand.field_variants()
         )
         assert not set().union(*FixedWingCommand.field_variants().values()) & set(schema['command_fields'])
-        assert len(schema['follower_profiles']) == 8
-        assert all(profile['required_fields'] for profile in schema['follower_profiles'].values())
-        assert all(profile['control_type'] != 'fixed_wing_external' for profile in schema['follower_profiles'].values())
+        native_profiles = [profile for profile in schema['follower_profiles'].values()
+                           if schema['control_types'][profile['control_type']]['transport'] == 'px4_native']
+        assert native_profiles
+        assert all(profile['required_fields'] == [] and profile['live_qualified_phases'] == []
+                   for profile in native_profiles)
 
     @pytest.mark.parametrize('mutate,match', [
         (lambda schema: schema['control_types']['fixed_wing_external'].__setitem__('mavsdk_method', 'set_velocity_body'),

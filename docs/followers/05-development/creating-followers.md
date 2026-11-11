@@ -64,6 +64,13 @@ Calibration/attitude alignment and live image-FW admission remain separate gates
 
 ## Verification
 
+The registered [FW Navigation Chase](../02-reference/fw-navigation-chase.md)
+demonstrates the native image contract. Its ordinary factory constructor reads
+only explicit `FW_NAVIGATION_CHASE` geometry plus shared operational/policy
+settings. It remains experimental with no live-qualified phase; constructor
+success, input selection compatibility and native command shape grant no
+aircraft authority.
+
 Use real constructors and actual defaults as well as focused math fixtures.
 Cover complete fields/units, nonzero aim, both axis signs, finite output,
 bounds, altitude off/on, configuration identity under class renaming, reset
