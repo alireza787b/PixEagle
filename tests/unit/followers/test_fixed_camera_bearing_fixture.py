@@ -47,7 +47,7 @@ def make_fixture(clock, state):
         binding = AlignmentBinding('synthetic-camera', 'source-1', 'geometry-1', 'synthetic-optics-1',
                                     3, state.binding, 'native-1', 255)
         args = dict(camera=camera, calibration=calibration, binding=binding, fixture_revision='synthetic-fixture-1',
-                    clock=lambda: clock[0], max_image_age_s=.5, max_attitude_age_s=.5, allow_simulation=True)
+                    clock=lambda: clock[0], max_observation_age_s=.5, max_attitude_age_s=.5, allow_simulation=True)
         args.update(changes)
         return FixedCameraBearingFixture(**args)
     return make
@@ -364,7 +364,7 @@ def test_old_pair_expires_even_when_current_aircraft_observation_is_fresh(make_f
         attitude_timing=attitude_timing(publication_timestamp_us=1_750_000, sample_timestamp_us=1_740_000,
             publication_received_at_monotonic_s=100.75, sample_received_at_monotonic_s=100.75))
     clock[0] = 100.875
-    with pytest.raises(ValueError, match='image_receipt_stale|attitude_stale'):
+    with pytest.raises(ValueError, match='observation_receipt_stale_or_future|attitude_stale'):
         owner.resolve(old, current)
 
 

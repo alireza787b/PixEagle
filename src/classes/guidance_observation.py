@@ -1,7 +1,7 @@
 """Immutable image/bearing values; geometry does not grant flight authority.
 
-CaptureStamp records backend receipt, not exposure. These contracts do
-not establish sensor timing, attitude alignment, tracker lock or live readiness.
+CaptureStamp and gimbal observations retain backend receipt, not exposure.
+These contracts do not establish timing, attitude alignment or live readiness.
 """
 
 from dataclasses import dataclass, field
@@ -9,6 +9,7 @@ import math
 
 from classes.aircraft_state import Quaternion, Vector3, finite_number
 from classes.frame_publisher import CaptureStamp
+from classes.gimbal_types import GimbalAngleObservation
 
 
 def _identity(value: str, name: str) -> None:
@@ -215,20 +216,58 @@ image_size_px and the intrinsics refer to the same calibration pixel grid.
 
 @dataclass(frozen=True)
 class CalibratedBearing:
-    """Unit direction from the camera, expressed in physical-body FRD.
+    """Unit direction under an explicit camera mapping, in physical-body FRD.
 
 This is a bearing without range. A camera lever arm cannot translate its ray
 to an aircraft-origin target position without additional real range evidence.
+Image bearings retain optical calibration; gimbal bearings retain their typed
+provider/mount observation without manufacturing an image calibration.
 """
 
-    provenance: ObservationProvenance
+    provenance: ObservationProvenance | GimbalAngleObservation
     direction_body_frd: Vector3
     frame: str = field(default="physical_body_frd", init=False)
 
     def __post_init__(self):
-        if not isinstance(self.provenance, ObservationProvenance):
+        if isinstance(self.provenance, ObservationProvenance):
+            _identity(self.provenance.calibration_revision, "calibration_revision")
+        elif isinstance(self.provenance, GimbalAngleObservation):
+            if self.provenance.source is None or self.provenance.target_generation is None:
+                raise ValueError("gimbal_bearing_ownership_unavailable")
+        else:
             raise ValueError("observation_provenance_invalid")
-        _identity(self.provenance.calibration_revision, "calibration_revision")
         if (not isinstance(self.direction_body_frd, Vector3)
                 or not math.isclose(self.direction_body_frd.magnitude, 1.0, rel_tol=0.0, abs_tol=1e-9)):
             raise ValueError("bearing_not_unit")
+
+
+@dataclass(frozen=True)
+class BearingReceipt:
+    """Read-only projection of existing provenance for one alignment algorithm.
+
+    This value does not create an image, sample, clock mapping or freshness. A
+    gimbal sequence remains a received angle packet, never a camera exposure.
+    """
+
+    source_id: str
+    source_epoch: str | int
+    geometry_revision: str
+    calibration_revision: str | None
+    target_generation: int
+    sample_id: str | int
+    received_at_monotonic_s: float
+    state: str
+    provider_id: str | None = None
+
+
+def bearing_receipt(provenance: ObservationProvenance | GimbalAngleObservation) -> BearingReceipt:
+    if isinstance(provenance, ObservationProvenance):
+        return BearingReceipt(provenance.source_id, provenance.capture.source_epoch,
+            provenance.geometry_revision, provenance.calibration_revision, provenance.target_generation,
+            provenance.capture.capture_id, provenance.capture.captured_at, provenance.capture.state)
+    if (isinstance(provenance, GimbalAngleObservation) and provenance.source is not None
+            and provenance.target_generation is not None):
+        return BearingReceipt(provenance.source.camera_id, provenance.source.source_generation,
+            provenance.geometry_revision, None, provenance.target_generation,
+            provenance.angle_receipt_sequence, provenance.angle_received_at_monotonic_s, "fresh", provenance.provider_id)
+    raise ValueError("bearing_provenance_unavailable")

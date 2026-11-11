@@ -104,6 +104,24 @@ EAS, vertical-path and altitude-envelope calculation without another rotation.
 Callers must separately qualify measurement-time alignment and pursuit authority;
 this shared math entry does not enable or qualify image-based FW following.
 
+`observation_alignment.py` has one association implementation for calibrated
+image bearings and typed gimbal boresight bearings. A gimbal retains its original
+provider, camera source generation, geometry, angle sequence and independent
+tracking-status receipt. It never acquires synthetic pixels, an image calibration
+or an exposure timestamp. `AlignmentBinding` includes the provider for gimbal
+input and the optical calibration for image input.
+
+Physical association requires explicit measured `ReceiveTimeBounds`; missing
+bounds remain unqualified. `observation_delay_s` bounds acquisition to receipt,
+while attitude bounds include native processing and transport. Both initial and
+cached-result validation check the same worst-case acquisition ages. A fresh
+status poll or a newer attitude publication cannot refresh the old measurement.
+An unchanged attitude sample retains its quaternion and first receipt; a reported
+estimator reset invalidates the old association. Isolated SIH can explicitly use
+`ExactSihSample.observation_provenance` with its retained observed attitude, but
+that is component evidence, never a physical timing qualification. Public live
+admission and the native gimbal consumer remain separate gates.
+
 Native FW consumes an input-independent `BearingGeometryPolicy`: four validated
 vertical-cone and forward/rearward thresholds. Gimbal Vector extracts those
 values from its existing configuration. An image strategy can supply its own

@@ -317,6 +317,20 @@ class AttitudeTiming:
                 and processing_age + packet_age <= timeout)
 
 
+def preserves_attitude_sample(before: AttitudeTiming, before_quaternion: Quaternion,
+                              current: AttitudeTiming, current_quaternion: Quaternion) -> bool:
+    """Republishing cannot rewrite an unchanged estimator sample.
+
+    A reported estimator reset remains observable to the session owner, which
+    must invalidate any old ray association. It is not ordinary sample reuse.
+    """
+    if current.sample_timestamp_us != before.sample_timestamp_us:
+        return True
+    return (current.sample_received_at_monotonic_s == before.sample_received_at_monotonic_s
+            and (current.quat_reset_counter != before.quat_reset_counter
+                 or current_quaternion == before_quaternion))
+
+
 @dataclass(frozen=True)
 class AircraftState:
     binding: AircraftBinding
@@ -433,8 +447,7 @@ class AircraftStateOwner:
                         or timing.sample_received_at_monotonic_s < before.sample_received_at_monotonic_s
                         or (timing.publication_timestamp_us == before.publication_timestamp_us
                             and (timing != before or state.attitude_body_to_ned != attitude))
-                        or (timing.sample_timestamp_us == before.sample_timestamp_us
-                            and timing.sample_received_at_monotonic_s != before.sample_received_at_monotonic_s)):
+                        or not preserves_attitude_sample(before, attitude, timing, state.attitude_body_to_ned)):
                     return False
             self._snapshot = state
             if timing is not None:

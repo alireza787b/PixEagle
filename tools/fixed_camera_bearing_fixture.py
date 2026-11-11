@@ -25,7 +25,7 @@ class FixedCameraBearingFixture:
     def __init__(
         self, *, camera: FixedCamera, calibration: PinholeCalibration,
         binding: AlignmentBinding, fixture_revision: str, clock: Callable[[], float],
-        max_image_age_s: float, max_attitude_age_s: float, allow_simulation: bool = False,
+        max_observation_age_s: float, max_attitude_age_s: float, allow_simulation: bool = False,
     ):
         if type(allow_simulation) is not bool or not allow_simulation:
             raise ValueError('sih_projection_fixture_not_enabled')
@@ -34,7 +34,7 @@ class FixedCameraBearingFixture:
             raise ValueError('sih_projection_fixture_contract_invalid')
         if not isinstance(fixture_revision, str) or not fixture_revision.strip():
             raise ValueError('sih_projection_fixture_revision_invalid')
-        for value in (max_image_age_s, max_attitude_age_s):
+        for value in (max_observation_age_s, max_attitude_age_s):
             if finite_number(value, 'sih_projection_age_limit') <= 0:
                 raise ValueError('sih_projection_age_limit_not_positive')
         self._camera = FixedCamera.from_mapping({
@@ -62,7 +62,7 @@ class FixedCameraBearingFixture:
             raise ValueError('sih_projection_intrinsics_fov_mismatch')
         self._calibration, self._binding = calibration, binding
         self._fixture_revision, self._clock = fixture_revision, clock
-        self._image_age, self._attitude_age = max_image_age_s, max_attitude_age_s
+        self._image_age, self._attitude_age = max_observation_age_s, max_attitude_age_s
         self._pose_identity = self._target = None
         self._observed_identity = self._observed_values = None
         self._output = self._measurement = self._sample = self._alignment = None
@@ -183,7 +183,7 @@ class FixedCameraBearingFixture:
                     bearing = image_to_body_bearing(measurement, self._calibration)
                     sample = ExactSihSample(provenance, state, self._binding.native_runtime_id, self._fixture_revision)
                     alignment = associate_sih_bearing(bearing, sample, binding=self._binding, now_monotonic_s=now,
-                        max_image_age_s=self._image_age, max_attitude_age_s=self._attitude_age,
+                        max_observation_age_s=self._image_age, max_attitude_age_s=self._attitude_age,
                         previous=self._previous_alignment, allow_simulation=True)
                     position_2d = ((pixel[0]-width/2)/(width/2), (pixel[1]-height/2)/(height/2))
             visible = measurement is not None
@@ -253,7 +253,7 @@ class FixedCameraBearingFixture:
             self._invalidated = True
             raise ValueError('sih_projection_aircraft_source_changed')
         return associate_sih_bearing(self._alignment.bearing, self._sample, binding=self._binding,
-            now_monotonic_s=now, max_image_age_s=self._image_age, max_attitude_age_s=self._attitude_age,
+            now_monotonic_s=now, max_observation_age_s=self._image_age, max_attitude_age_s=self._attitude_age,
             previous=self._alignment, allow_simulation=True)
 
     __call__ = resolve

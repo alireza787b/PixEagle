@@ -168,6 +168,22 @@ def test_duplicate_publication_cannot_change_its_quaternion_or_reset_counter():
         state.attitude_timing, publication_received_at_monotonic_s=100.5)))
 
 
+def test_new_publication_cannot_rewrite_the_same_underlying_attitude_sample():
+    owner = AircraftStateOwner(clock=lambda: 100.5)
+    state = aircraft_state(attitude_timing=attitude_timing())
+    owner.bind(state.binding)
+    assert owner.commit(state)
+    republished = replace(state.attitude_timing, publication_timestamp_us=1_050_000,
+                          publication_received_at_monotonic_s=100.05)
+    changed = replace(state, sequence=2, observed_at_monotonic_s=100.05,
+                      attitude_timing=republished, attitude_body_to_ned=Quaternion.from_euler(.1, .2, .3))
+    assert not owner.commit(changed)
+    assert owner.snapshot(timeout_s=1.) is state
+    # Explicit resets remain observable and separately invalidate associations.
+    reset = replace(republished, quat_reset_counter=0)
+    assert owner.commit(replace(changed, attitude_timing=reset))
+
+
 def test_future_attitude_receipt_is_rejected_and_new_binding_resets_progress():
     owner = AircraftStateOwner(clock=lambda: 100.)
     state = aircraft_state(attitude_timing=attitude_timing())

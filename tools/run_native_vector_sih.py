@@ -121,7 +121,7 @@ def image_fixture(raw: dict, state: AircraftState, *, runtime_id: str, run_id: s
     return FixedCameraBearingFixture(
         camera=camera, calibration=calibration, binding=binding,
         fixture_revision="fixed-camera-native-pose-v1", clock=clock,
-        max_image_age_s=.5, max_attitude_age_s=.5, allow_simulation=True,
+        max_observation_age_s=.5, max_attitude_age_s=.5, allow_simulation=True,
     )
 
 
@@ -507,9 +507,7 @@ def tracker_for_world_target(packet, target, mount, *, clock=time.monotonic):
     return TrackerOutput(TrackerDataType.GIMBAL_ANGLES, time.time(), True,
                          tracker_id="independent_sih_target", angular=angles,
                          raw_data={"angle_sample_monotonic": measured_at, "has_output": True,
-                                   "usable_for_following": True, "data_is_stale": False},
-                         metadata={"guidance_capabilities": dict(known=True, supports_vertical=True,
-                                   supports_reverse=True, supports_yaw_fallback=True)})
+                                   "usable_for_following": True, "data_is_stale": False})
 
 
 def load_component_scenario(path, *, mount, altitude, duration, is_vtol, follower="gm_velocity_vector"):

@@ -15,7 +15,7 @@ from classes.follower_config_manager import get_follower_config_manager
 from classes.followers.base_follower import BaseFollower
 from classes.guidance_observation import ImageMeasurement
 from classes.guidance_phase_session import PhaseSessionState
-from classes.observation_alignment import AlignedBearing
+from classes.observation_alignment import AlignedBearing, require_current_bearing_association
 from classes.parameters import Parameters
 from classes.setpoint_handler import SetpointHandler
 from classes.tracker_output import TrackerOutput
@@ -133,20 +133,12 @@ class FWNavigationChaseFollower(BaseFollower):
             if inspect.iscoroutine(aligned):
                 aligned.close()
             raise ValueError("guidance_input_resolver_contract_invalid")
-        if aligned.bearing.provenance != measurement.provenance:
-            raise ValueError("guidance_image_binding_changed")
-        if (aligned.binding.aircraft_binding != aircraft_state.binding
-                or aligned.binding.native_runtime_id != session.phase_owner.capabilities.runtime_id):
-            raise ValueError("guidance_aircraft_or_runtime_changed")
         # A resolver must revalidate timing on every read; a retained typed result
         # cannot bypass the owner's ordinary receipt/sample freshness contract.
-        timing = aligned.attitude_state.attitude_timing
-        timeout, now = session.phase_owner.observation_timeout_s, session.clock()
-        receipt = measurement.provenance.capture
-        if (receipt.state != "fresh" or not 0 <= now - receipt.captured_at <= timeout
-                or not aligned.attitude_state.fresh(now, timeout)
-                or timing is None or not timing.fresh(now, timeout)):
-            raise ValueError("guidance_input_stale")
+        timeout = session.phase_owner.observation_timeout_s
+        require_current_bearing_association(aligned, measurement.provenance, aircraft_state,
+            native_runtime_id=session.phase_owner.capabilities.runtime_id, now_monotonic_s=session.clock(),
+            max_observation_age_s=timeout, max_attitude_age_s=timeout)
         return aligned
 
     def require_guidance_input(

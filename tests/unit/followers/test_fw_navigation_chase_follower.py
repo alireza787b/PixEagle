@@ -113,7 +113,7 @@ def target(env, world, *, generation=3, tailsitter_camera=False):
                                 generation, env.state.binding, RUNTIME, env.state.attitude_timing.quat_reset_counter)
     env.fixture = FixedCameraBearingFixture(camera=camera, calibration=calibration, binding=binding,
         fixture_revision="independent-camera-fixture-1", clock=lambda: env.now[0],
-        max_image_age_s=.75, max_attitude_age_s=.75, allow_simulation=True)
+        max_observation_age_s=.75, max_attitude_age_s=.75, allow_simulation=True)
     packet = {"fresh": True, "runtime_id": RUNTIME, "aircraft_state": asdict(env.state),
         "attitude_timing": asdict(env.state.attitude_timing), "vehicle_pose": {
             "source": "px4_dds_observed", "observed_at_monotonic_s": env.now[0],
@@ -391,6 +391,20 @@ def test_stale_cached_resolver_result_cannot_bypass_freshness(environment):
     assert not env.follower.follow_target(env.output)
     assert env.follower.get_last_command_intent() is None
     assert env.follower._telemetry_metadata["guidance_input_reason"] == "guidance_input_stale"
+
+
+def test_cached_alignment_cannot_cross_a_fresh_estimator_reset(environment):
+    env = environment()
+    aligned = env.fixture.resolve(env.output, env.state)
+    env.follower._input_resolver = lambda *_: aligned
+    assert env.follower.follow_target(env.output)
+    advance(env)
+    env.state = replace(env.state, attitude_timing=replace(env.state.attitude_timing,
+        quat_reset_counter=(env.state.attitude_timing.quat_reset_counter + 1) % 256))
+    env.session.observe(env.state, owner_confirmed=True, target_confirmed=True)
+    assert not env.follower.follow_target(env.output)
+    assert env.follower.get_last_command_intent() is None
+    assert env.follower._telemetry_metadata["guidance_input_reason"] == "guidance_aircraft_or_reset_changed"
 
 
 def test_legitimate_speed_edit_recalculates_without_renewing_the_image_measurement(environment):

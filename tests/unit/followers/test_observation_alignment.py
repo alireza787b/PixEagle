@@ -13,6 +13,7 @@ from classes.image_bearing import image_to_body_bearing
 from classes.observation_alignment import (
     AlignmentBinding, ExactSihSample, ReceiveTimeBounds,
     associate_received_bearing, associate_sih_bearing,
+    require_current_bearing_association,
 )
 from tests.unit.drone_interface.test_aircraft_state import aircraft_state, attitude_timing
 
@@ -44,7 +45,7 @@ def bounds(binding):
 
 def sih(bearing, state, binding, **changes):
     sample = ExactSihSample(bearing.provenance, state, 'native-a', 'sih-projection-fixture-1')
-    args = dict(binding=binding, now_monotonic_s=100.125, max_image_age_s=.5,
+    args = dict(binding=binding, now_monotonic_s=100.125, max_observation_age_s=.5,
                 max_attitude_age_s=.5, previous=None, allow_simulation=True)
     args.update(changes)
     return associate_sih_bearing(bearing, sample, **args)
@@ -52,7 +53,7 @@ def sih(bearing, state, binding, **changes):
 
 def received(bearing, state, binding, bounds, **changes):
     args = dict(native_runtime_id='native-a', binding=binding, now_monotonic_s=100.125,
-                max_image_age_s=.5, max_attitude_age_s=.5, bounds=bounds, previous=None)
+                max_observation_age_s=.5, max_attitude_age_s=.5, bounds=bounds, previous=None)
     args.update(changes)
     return associate_received_bearing(bearing, state, **args)
 
@@ -67,6 +68,14 @@ def test_physical_capture_is_unqualified_without_explicit_bounds(bearing, state,
         received(bearing, state, binding, None)
 
 
+@pytest.mark.parametrize('now', [100.47, 100.49])
+def test_retained_physical_image_result_must_revalidate_acquisition_age(bearing, state, binding, bounds, now):
+    aligned = received(bearing, state, binding, bounds)
+    with pytest.raises(ValueError, match='guidance_input_stale'):
+        require_current_bearing_association(aligned, bearing.provenance, state, native_runtime_id='native-a',
+            now_monotonic_s=now, max_observation_age_s=.5, max_attitude_age_s=.5)
+
+
 @pytest.mark.parametrize('allow', [False, None, 1, 'true'])
 def test_sih_pair_is_not_an_ordinary_live_qualification_option(bearing, state, binding, allow):
     with pytest.raises(ValueError, match='not_enabled'):
@@ -77,7 +86,7 @@ def test_sih_default_is_disabled_and_result_claims_only_observed_projection_pair
     sample = ExactSihSample(bearing.provenance, state, 'native-a', 'sih-fixture')
     with pytest.raises(ValueError, match='not_enabled'):
         associate_sih_bearing(bearing, sample, binding=binding, now_monotonic_s=100.125,
-                              max_image_age_s=.5, max_attitude_age_s=.5, previous=None)
+                              max_observation_age_s=.5, max_attitude_age_s=.5, previous=None)
     result = sih(bearing, state, binding)
     assert result.association_kind == 'sih_projection_pair'
     assert result.worst_case_skew_s is None and result.receive_bounds is None
@@ -142,9 +151,9 @@ def test_aircraft_reconnection_requires_new_binding(bearing, state, binding):
 
 def test_sih_pair_cannot_attach_another_images_observed_state(bearing, state, binding):
     sample = ExactSihSample(next_bearing(bearing).provenance, state, 'native-a', 'sih-fixture')
-    with pytest.raises(ValueError, match='sih_projection_image_changed'):
+    with pytest.raises(ValueError, match='sih_projection_observation_changed'):
         associate_sih_bearing(bearing, sample, binding=binding, now_monotonic_s=100.125,
-                              max_image_age_s=.5, max_attitude_age_s=.5, previous=None, allow_simulation=True)
+                              max_observation_age_s=.5, max_attitude_age_s=.5, previous=None, allow_simulation=True)
 
 
 @pytest.mark.parametrize('change', ['cached', 'old_image', 'future_image', 'old_state', 'future_packet', 'missing_timing'])
@@ -271,7 +280,7 @@ def test_explicit_receive_bounds_check_intervals_without_clock_invention(bearing
 
 @pytest.mark.parametrize('change,error', [
     ({'attitude_sample_to_publication_receipt_s': (0., .005)}, 'contradicts_processing'),
-    ({'camera_delay_s': (.125, .25)}, 'skew_exceeded'),
+    ({'observation_delay_s': (.125, .25)}, 'skew_exceeded'),
     ({'relative_clock_uncertainty_s': .0625}, 'skew_exceeded'),
 ])
 def test_explicit_bounds_cannot_omit_processing_or_hide_skew(bearing, state, binding, bounds, change, error):
@@ -281,7 +290,7 @@ def test_explicit_bounds_cannot_omit_processing_or_hide_skew(bearing, state, bin
 
 def test_bound_acquisition_age_is_conservative_beyond_receipt_age(bearing, state, binding, bounds):
     with pytest.raises(ValueError, match='camera_acquisition_stale'):
-        received(bearing, state, binding, bounds, max_image_age_s=.15)
+        received(bearing, state, binding, bounds, max_observation_age_s=.15)
     with pytest.raises(ValueError, match='attitude_acquisition_stale'):
         received(bearing, state, binding, bounds, max_attitude_age_s=.14)
 
@@ -300,8 +309,8 @@ def test_republished_total_delay_bounds_must_include_the_original_sample_receipt
 
 
 @pytest.mark.parametrize('change', [
-    {'camera_delay_s': (-.1, .1)}, {'camera_delay_s': (.2, .1)}, {'camera_delay_s': (0., math.inf)},
-    {'camera_delay_s': (False, .1)}, {'attitude_sample_to_publication_receipt_s': (0., math.nan)},
+    {'observation_delay_s': (-.1, .1)}, {'observation_delay_s': (.2, .1)}, {'observation_delay_s': (0., math.inf)},
+    {'observation_delay_s': (False, .1)}, {'attitude_sample_to_publication_receipt_s': (0., math.nan)},
     {'relative_clock_uncertainty_s': -1.}, {'relative_clock_uncertainty_s': math.nan},
     {'relative_clock_uncertainty_s': True}, {'max_skew_s': 0.}, {'max_skew_s': math.inf},
     {'evidence_revision': ''},
@@ -312,7 +321,7 @@ def test_latency_bounds_require_finite_explicit_values_and_evidence(bounds, chan
 
 
 @pytest.mark.parametrize('change', [
-    {'now_monotonic_s': math.inf}, {'max_image_age_s': 0.}, {'max_attitude_age_s': math.nan},
+    {'now_monotonic_s': math.inf}, {'max_observation_age_s': 0.}, {'max_attitude_age_s': math.nan},
 ])
 def test_alignment_age_checks_are_strictly_finite(bearing, state, binding, change):
     with pytest.raises(ValueError):
