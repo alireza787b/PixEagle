@@ -1,10 +1,12 @@
 # Follower visual guide
 
-Open the local [current MC evidence selector](../../../reports/sitl/follower-consolidation-20261109/current-evidence/index.html)
+Open the local `reports/sitl/follower-consolidation-20261109/current-evidence/index.html`
 for the latest completed canonical SIH capture of each nominal, altitude and
 fault case. It uses the existing eight-profile contract catalog and links raw
-results, manifests, observed-pose replays and the
-[baseline comparison](../../../reports/sitl/follower-consolidation-20261109/baseline-comparison/index.html).
+results, manifests, observed-pose replays and the local baseline comparison at
+`reports/sitl/follower-consolidation-20261109/baseline-comparison/index.html`.
+Generated evidence is excluded from source clones; use the retained run archive
+or regenerate the selector from actual captures with the command below.
 The [qualification inventory](../05-development/follower-sih-validation-matrix.md)
 retains historical FW/VTOL evidence and the broader remaining gates.
 

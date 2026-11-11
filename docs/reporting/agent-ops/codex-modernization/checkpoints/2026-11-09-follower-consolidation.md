@@ -346,7 +346,7 @@ it is not optical-tracker, whole-application or aircraft qualification.
 
 ### Current evidence and next foundations
 
-The [single evidence selector](../../../../../reports/sitl/follower-consolidation-20261109/current-evidence/index.html)
+The local selector at `reports/sitl/follower-consolidation-20261109/current-evidence/index.html`
 scans canonical raw captures rather than a second qualification list. Its retained
 validation checks 54 attempts, 28 current passing cases, 114 local links, all eight
 selector entries and a clean Chrome console. Earlier failures remain accessible;
