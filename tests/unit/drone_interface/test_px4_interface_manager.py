@@ -2646,6 +2646,258 @@ class TestPX4InterfaceManagerSafeMAVSDKCall:
         assert px4_interface._mavsdk_offboard_sender_state == "quiesced"
 
 
+class TestMavsdkReleaseAuthority:
+    @pytest.fixture(autouse=True)
+    def _original_owner(self, px4_interface):
+        px4_interface.active_mode = True
+        px4_interface._connection_state = 'connected'
+        px4_interface._aircraft_identity = {'autopilot_uid': 'original-aircraft'}
+        px4_interface._aircraft_identity_revision = 1
+        px4_interface.app_controller._following_session_id = 'original-session'
+        px4_interface._offboard_start_attempt_monotonic_s = 100.
+        px4_interface._offboard_mode_start_acknowledged = True
+        px4_interface._set_offboard_sender_state('primed', 'original-owner')
+        px4_interface.drone.offboard.is_active = AsyncMock(return_value=False)
+        self.flight = dict(fresh=True, autopilot_uid='original-aircraft', flight_mode=393216,
+                           offboard_exit_observed_at_monotonic_s=None)
+        px4_interface.mavlink_data_manager.offboard_mode_code = 393216
+        px4_interface.mavlink_data_manager.get_flight_state.side_effect = lambda: dict(self.flight)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('change', ['position', 'land', 'rtl', 'uid', 'connection', 'sdk',
+                                        'session', 'start', 'flight_uid', 'vtol_transition', 'phase', 'rescue'])
+    async def test_release_rechecks_after_queued_sdk_invocation(self, px4_interface, change):
+        from dataclasses import replace
+        from classes.aircraft_state import AirframePhase
+        from tests.unit.drone_interface.test_aircraft_state import aircraft_state
+
+        if change in {'vtol_transition', 'phase', 'rescue'}:
+            binding = px4_interface.get_aircraft_state_binding()
+            state = aircraft_state(binding=binding, phase=AirframePhase.MULTICOPTER,
+                                   is_vtol=True, observed_at_monotonic_s=time.monotonic())
+            assert px4_interface.commit_aircraft_state(state)
+        original_sdk = px4_interface.drone
+        entered, release = asyncio.Event(), asyncio.Event()
+        real_wait_for = asyncio.wait_for
+
+        async def queue_stop(coroutine, timeout):
+            if coroutine.cr_code.co_name == 'stop_if_owned':
+                entered.set()
+                await release.wait()
+            return await real_wait_for(coroutine, timeout)
+
+        with patch('classes.px4_interface_manager.asyncio.wait_for', side_effect=queue_stop):
+            task = asyncio.create_task(px4_interface.quiesce_offboard_sender(reason='original_stop', force=True))
+            await real_wait_for(entered.wait(), 1.)
+            if change in {'position', 'land', 'rtl'}:
+                self.flight.update(flight_mode={'position': 196608, 'land': 100925440, 'rtl': 84148224}[change],
+                                   offboard_exit_observed_at_monotonic_s=101.)
+            elif change == 'uid':
+                px4_interface._aircraft_identity = {'autopilot_uid': 'replacement-aircraft'}
+            elif change == 'connection':
+                px4_interface._connection_generation += 1
+            elif change == 'sdk':
+                px4_interface.drone = SimpleNamespace(offboard=SimpleNamespace(stop=AsyncMock(), is_active=AsyncMock()))
+            elif change == 'session':
+                px4_interface.app_controller._following_session_id = 'replacement-session'
+            elif change == 'start':
+                px4_interface._offboard_start_attempt_monotonic_s = 102.
+            elif change == 'flight_uid':
+                self.flight['autopilot_uid'] = 'replacement-aircraft'
+            else:
+                changes = dict(sequence=2)
+                if change != 'rescue':
+                    changes['phase'] = (AirframePhase.VTOL_TRANSITION if change == 'vtol_transition'
+                                        else AirframePhase.FIXED_WING)
+                else:
+                    changes['rescue_active'] = True
+                assert px4_interface.commit_aircraft_state(replace(state, **changes))
+            release.set()
+            result = await task
+        original_sdk.offboard.stop.assert_not_called()
+        px4_interface.drone.offboard.stop.assert_not_called()
+        assert not result['vehicle_hold_acknowledged']
+        if change in {'uid', 'connection', 'sdk', 'session', 'start'}:
+            assert result['local_sender_quiesced'] is False
+            assert result['state_after'] == 'unknown'
+            assert px4_interface._mavsdk_offboard_sender_state == 'primed'
+            assert px4_interface._offboard_mode_start_acknowledged is True
+            original_sdk.offboard.is_active.assert_not_called()
+            px4_interface.drone.offboard.is_active.assert_not_called()
+        else:
+            assert result['local_sender_quiesced'] is True
+            assert result['authority_released'] is True
+            original_sdk.offboard.is_active.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_same_owner_stop_ignores_target_updates(self, px4_interface):
+        entered, release = asyncio.Event(), asyncio.Event()
+        real_wait_for = asyncio.wait_for
+
+        async def queue_stop(coroutine, timeout):
+            if coroutine.cr_code.co_name == 'stop_if_owned':
+                entered.set()
+                await release.wait()
+            return await real_wait_for(coroutine, timeout)
+
+        with patch('classes.px4_interface_manager.asyncio.wait_for', side_effect=queue_stop):
+            task = asyncio.create_task(px4_interface.quiesce_offboard_sender(reason='operator_stop', force=True))
+            await real_wait_for(entered.wait(), 1.)
+            px4_interface.app_controller._tracking_session_generation = 99
+            release.set()
+            result = await task
+        assert result['vehicle_hold_acknowledged'] is True
+        assert result['local_sender_quiesced'] is True
+        px4_interface.drone.offboard.stop.assert_awaited_once()
+        px4_interface.drone.offboard.is_active.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_delayed_cleanup_task_keeps_original_owner(self, px4_interface):
+        original_sdk = px4_interface.drone
+        task = px4_interface._begin_sender_quiesce('original_stop', force=True)
+        px4_interface.app_controller._following_session_id = 'replacement-session'
+        px4_interface._set_offboard_sender_state('primed', 'replacement-owner')
+        result = await task
+        assert result['local_sender_quiesced'] is False
+        original_sdk.offboard.stop.assert_not_called()
+        assert px4_interface._mavsdk_offboard_sender_last_reason == 'replacement-owner'
+        assert px4_interface._offboard_mode_start_acknowledged is True
+
+    @pytest.mark.asyncio
+    async def test_joined_force_retry_does_not_recapture_replacement_owner(self, px4_interface):
+        entered, release = asyncio.Event(), asyncio.Event()
+
+        async def earlier_idle_cleanup():
+            entered.set()
+            await release.wait()
+            return dict(attempted=False, local_sender_quiesced=True)
+
+        px4_interface._sender_quiesce_task = asyncio.create_task(earlier_idle_cleanup())
+        await entered.wait()
+        original_begin = px4_interface._begin_sender_quiesce
+        with patch.object(px4_interface, '_begin_sender_quiesce', wraps=original_begin) as begin:
+            task = asyncio.create_task(px4_interface.quiesce_offboard_sender(reason='original_stop', force=True))
+            await asyncio.sleep(0)
+            px4_interface._aircraft_identity = {'autopilot_uid': 'replacement-aircraft'}
+            px4_interface._set_offboard_sender_state('primed', 'replacement-owner')
+            release.set()
+            result = await task
+        assert begin.call_count == 2
+        assert begin.call_args_list[0].kwargs['release'] is begin.call_args_list[1].kwargs['release']
+        assert result['local_sender_quiesced'] is False
+        px4_interface.drone.offboard.stop.assert_not_called()
+        assert px4_interface._mavsdk_offboard_sender_last_reason == 'replacement-owner'
+
+    @pytest.mark.asyncio
+    async def test_joined_cleanup_cannot_mutate_replacement_state(self, px4_interface):
+        entered, release = asyncio.Event(), asyncio.Event()
+        real_wait_for = asyncio.wait_for
+
+        async def queue_stop(coroutine, timeout):
+            if coroutine.cr_code.co_name == 'stop_if_owned':
+                entered.set()
+                await release.wait()
+            return await real_wait_for(coroutine, timeout)
+
+        with patch('classes.px4_interface_manager.asyncio.wait_for', side_effect=queue_stop):
+            first = asyncio.create_task(px4_interface.quiesce_offboard_sender(reason='first', force=True))
+            await real_wait_for(entered.wait(), 1.)
+            original_task = px4_interface._sender_quiesce_task
+            second = asyncio.create_task(px4_interface.quiesce_offboard_sender(reason='joined', force=True))
+            await asyncio.sleep(0)
+            assert px4_interface._sender_quiesce_task is original_task
+            px4_interface._connection_generation += 1
+            px4_interface._set_offboard_sender_state('primed', 'replacement-owner')
+            release.set()
+            results = await asyncio.gather(first, second)
+        assert all(not result['local_sender_quiesced'] for result in results)
+        px4_interface.drone.offboard.stop.assert_not_called()
+        assert px4_interface._mavsdk_offboard_sender_last_reason == 'replacement-owner'
+        assert px4_interface._offboard_mode_start_acknowledged is True
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('changed_owner', [False, True])
+    async def test_timeout_does_not_claim_quiescence_or_overwrite_replacement(self, px4_interface, changed_owner):
+        px4_interface.get_mavsdk_command_timeout_s = lambda: .01
+
+        async def no_ack():
+            if changed_owner:
+                px4_interface._connection_generation += 1
+                px4_interface._set_offboard_sender_state('primed', 'replacement-owner')
+            await asyncio.Event().wait()
+
+        px4_interface.drone.offboard.stop.side_effect = no_ack
+        result = await px4_interface.quiesce_offboard_sender(reason='original_stop', force=True)
+        assert result['local_sender_quiesced'] is False
+        assert result['vehicle_hold_acknowledged'] is False
+        assert px4_interface._offboard_mode_start_acknowledged is True
+        assert px4_interface._mavsdk_offboard_sender_state == ('primed' if changed_owner else 'unknown')
+        if changed_owner:
+            assert px4_interface._mavsdk_offboard_sender_last_reason == 'replacement-owner'
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('changed_owner', [False, True])
+    async def test_cancelled_release_task_retains_uncertainty(self, px4_interface, changed_owner):
+        entered = asyncio.Event()
+
+        async def no_ack():
+            entered.set()
+            await asyncio.Event().wait()
+
+        px4_interface.drone.offboard.stop.side_effect = no_ack
+        task = px4_interface._begin_sender_quiesce('original_stop', force=True)
+        await entered.wait()
+        if changed_owner:
+            px4_interface._connection_generation += 1
+            px4_interface._set_offboard_sender_state('primed', 'replacement-owner')
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert px4_interface._offboard_mode_start_acknowledged is True
+        assert px4_interface._mavsdk_offboard_sender_state == ('primed' if changed_owner else 'unknown')
+
+    @pytest.mark.asyncio
+    async def test_waiter_cancellation_does_not_cancel_owned_release(self, px4_interface):
+        entered, release = asyncio.Event(), asyncio.Event()
+
+        async def delayed_ack():
+            entered.set()
+            await release.wait()
+
+        px4_interface.drone.offboard.stop.side_effect = delayed_ack
+        waiter = asyncio.create_task(px4_interface.quiesce_offboard_sender(reason='operator_stop', force=True))
+        await entered.wait()
+        owner_task = px4_interface._sender_quiesce_task
+        waiter.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await waiter
+        assert not owner_task.cancelled()
+        release.set()
+        assert (await owner_task)['vehicle_hold_acknowledged'] is True
+        px4_interface.drone.offboard.stop.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_queued_cleanup_cannot_renew_its_expired_budget(self, px4_interface):
+        px4_interface.get_mavsdk_command_timeout_s = lambda: .01
+        real_wait_for = asyncio.wait_for
+        clock = [1000.]
+
+        async def expire_before_invocation(coroutine, timeout):
+            if coroutine.cr_code.co_name == 'stop_if_owned':
+                clock[0] += .02
+            return await real_wait_for(coroutine, timeout)
+
+        with patch('classes.px4_interface_manager.time.monotonic', side_effect=lambda: clock[0]), \
+             patch('classes.px4_interface_manager.asyncio.wait_for', side_effect=expire_before_invocation):
+            result = await px4_interface.quiesce_offboard_sender(reason='original_stop', force=True)
+        assert result['local_sender_quiesced'] is False
+        assert result['vehicle_hold_acknowledged'] is False
+        assert px4_interface._mavsdk_offboard_sender_state == 'unknown'
+        assert px4_interface._offboard_mode_start_acknowledged is True
+        px4_interface.drone.offboard.stop.assert_not_called()
+        px4_interface.drone.offboard.is_active.assert_not_called()
+
+
 class TestPX4CommandGateFailClosed:
     """Regression tests for fail-closed command gating."""
 

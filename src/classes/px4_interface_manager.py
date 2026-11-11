@@ -16,7 +16,7 @@ from classes.command_dispatch_guard import DispatchRefused, validate_before_disp
 from classes.command_intent import CommandIntent
 from classes.setpoint_handler import SetpointHandler
 from classes.attitude_envelope import guard_body_rates
-from classes.aircraft_state import AircraftBinding, AircraftKind, AircraftState, AircraftStateOwner, Quaternion, finite_number
+from classes.aircraft_state import AircraftBinding, AircraftKind, AircraftState, AircraftStateOwner, AirframePhase, Quaternion, finite_number
 from classes.native_guidance import NativeGuidanceClient, NativeGuidanceError
 from classes.telemetry_observation import AltitudeObservation, AltitudeSourceSample
 
@@ -36,6 +36,16 @@ class PX4CommandGateDecision(NamedTuple):
     blocked: bool
     degraded: bool
     reason: str
+
+
+class _OffboardReleaseContext(NamedTuple):
+    drone: object
+    connection_generation: int
+    aircraft_uid: str | None
+    identity_generation: str | None
+    follow_session_id: str | None
+    start_attempt_monotonic_s: float
+    airframe_phase: AirframePhase | None
 
 
 class PX4ActionOutcome(TypedDict):
@@ -2317,23 +2327,123 @@ class PX4InterfaceManager:
         allow_hold: bool = True,
     ) -> dict:
         """Join the owned scheduler-stop RPC rather than issue concurrent Stops."""
-        result = await asyncio.shield(self._begin_sender_quiesce(reason, force=force, allow_hold=allow_hold))
+        release = self._capture_offboard_release_context()
+        result = await asyncio.shield(self._begin_sender_quiesce(
+            reason, force=force, allow_hold=allow_hold, release=release,
+        ))
         if force and not result["attempted"]:
-            result = await asyncio.shield(self._begin_sender_quiesce(reason, force=True, allow_hold=allow_hold))
+            result = await asyncio.shield(self._begin_sender_quiesce(
+                reason, force=True, allow_hold=allow_hold, release=release,
+            ))
         return result
 
-    def _begin_sender_quiesce(self, reason, *, force=False, allow_hold=True):
+    def _capture_offboard_release_context(self) -> _OffboardReleaseContext:
+        identity = self.get_aircraft_identity()
+        session = getattr(self.app_controller, '_following_session_id', None)
+        state = self.get_aircraft_state()
+        return _OffboardReleaseContext(
+            self.drone, self._connection_generation,
+            identity.get('autopilot_uid'), identity.get('connection_generation'),
+            session if isinstance(session, str) and session else None,
+            getattr(self, '_offboard_start_attempt_monotonic_s', 0.0),
+            state.phase if isinstance(state, AircraftState) else None,
+        )
+
+    def _offboard_release_context_current(self, release) -> bool:
+        current = self._capture_offboard_release_context()
+        return (
+            current.drone is release.drone
+            and current.connection_generation == release.connection_generation
+            and current.aircraft_uid == release.aircraft_uid
+            and current.identity_generation == release.identity_generation
+            and current.follow_session_id == release.follow_session_id
+            and current.start_attempt_monotonic_s == release.start_attempt_monotonic_s
+        )
+
+    def _offboard_release_hold_allowed(self, release) -> bool:
+        if not self._offboard_release_context_current(release):
+            return False
+        state = self.get_aircraft_state()
+        if isinstance(state, AircraftState) and (
+            state.rescue_active or state.phase is AirframePhase.VTOL_TRANSITION
+            or release.airframe_phase is not None and state.phase is not release.airframe_phase
+        ):
+            return False
+        manager = getattr(self, 'mavlink_data_manager', None)
+        getter = getattr(manager, 'get_flight_state', None)
+        flight = getter() if callable(getter) else {}
+        observed_mode = flight.get('flight_mode')
+        exited_at = flight.get('offboard_exit_observed_at_monotonic_s')
+        flight_uid = flight.get('autopilot_uid')
+        if flight.get('fresh') is not True:
+            return True
+        if (release.aircraft_uid is not None and flight_uid is not None
+                and flight_uid != release.aircraft_uid):
+            return False
+        return not (
+            type(observed_mode) is int and observed_mode != getattr(manager, 'offboard_mode_code', None)
+            and type(exited_at) in (int, float) and math.isfinite(exited_at)
+            and exited_at > release.start_attempt_monotonic_s
+        )
+
+    def _release_cleanup_result(self, release, *, state_before, reason, quiesced,
+                                hold_acknowledged=False, error=None, authority_released=False):
+        if not self._offboard_release_context_current(release):
+            # A replacement scheduler/owner is not the subject of this cleanup.
+            return dict(attempted=True, local_sender_quiesced=False, vehicle_hold_acknowledged=False,
+                        authority_released=True, state_before=state_before, state_after='unknown',
+                        reason=reason, error='Offboard release owner changed; Hold was withheld or unconfirmed')
+        state_after = 'quiesced' if quiesced else 'unknown'
+        self._set_offboard_sender_state(state_after, reason)
+        if quiesced:
+            self._offboard_mode_start_acknowledged = False
+        return dict(attempted=True, local_sender_quiesced=quiesced,
+                    vehicle_hold_acknowledged=hold_acknowledged, authority_released=authority_released,
+                    state_before=state_before, state_after=state_after, reason=reason, error=error)
+
+    async def _quiesce_offboard_sender_readonly(self, release, *, state_before, reason, deadline):
+        if not self._offboard_release_context_current(release):
+            return self._release_cleanup_result(
+                release, state_before=state_before, reason=reason, quiesced=False,
+            )
+        try:
+            quiesced = False
+            while time.monotonic() < deadline:
+                active = await asyncio.wait_for(release.drone.offboard.is_active(),
+                                                timeout=max(.001, deadline - time.monotonic()))
+                if not self._offboard_release_context_current(release):
+                    break
+                if active is False:
+                    quiesced = True
+                    break
+                await asyncio.sleep(min(.1, max(0, deadline - time.monotonic())))
+            error = None if quiesced else 'Waiting for MAVSDK to stop its sender after authority release'
+        except Exception as exc:
+            quiesced, error = False, str(exc)
+        return self._release_cleanup_result(
+            release, state_before=state_before, reason=reason, quiesced=quiesced,
+            authority_released=True, error=error,
+        )
+
+    def _begin_sender_quiesce(self, reason, *, force=False, allow_hold=True, release=None):
+        release = self._capture_offboard_release_context() if release is None else release
         task = getattr(self, '_sender_quiesce_task', None)
         if task is None or task.done():
-            task = asyncio.create_task(self._quiesce_offboard_sender_once(reason=reason, force=force, allow_hold=allow_hold),
-                                       name='pixeagle-mavsdk-sender-quiesce')
+            task = asyncio.create_task(self._quiesce_offboard_sender_once(
+                reason=reason, force=force, allow_hold=allow_hold, release=release,
+            ), name='pixeagle-mavsdk-sender-quiesce')
             self._sender_quiesce_task = task
         return task
 
     async def _quiesce_offboard_sender_once(self, *, reason: str, force: bool = False,
-                                           allow_hold: bool = True) -> dict:
+                                           allow_hold: bool = True, release=None) -> dict:
         """Stop MAVSDK's local setpoint scheduler without assuming PX4 receipt."""
+        release = self._capture_offboard_release_context() if release is None else release
         state_before = self._mavsdk_offboard_sender_state
+        if not self._offboard_release_context_current(release):
+            return self._release_cleanup_result(
+                release, state_before=state_before, reason=reason, quiesced=False,
+            )
         if state_before != "primed" and not force:
             return {
                 "attempted": False,
@@ -2346,95 +2456,55 @@ class PX4InterfaceManager:
             }
 
         timeout_s = self.get_mavsdk_command_timeout_s()
-        manager = getattr(self, 'mavlink_data_manager', None)
-        getter = getattr(manager, 'get_flight_state', None)
-        flight = getter() if callable(getter) else {}
-        observed_mode = flight.get('flight_mode')
-        exited_at = flight.get('offboard_exit_observed_at_monotonic_s')
-        started_at = getattr(self, '_offboard_start_attempt_monotonic_s', 0.0)
-        if (flight.get('fresh') is True and type(observed_mode) is int
-                and observed_mode != getattr(manager, 'offboard_mode_code', None)
-                and type(exited_at) in (int, float) and exited_at > started_at):
-            allow_hold = False
-        if not allow_hold:
-            # MAVSDK Stop also requests Hold. After takeover, use its read-only
-            # scheduler state; heartbeat processing stops the sender itself.
-            try:
-                deadline = time.monotonic() + timeout_s
-                quiesced = False
-                while time.monotonic() < deadline:
-                    active = await asyncio.wait_for(self.drone.offboard.is_active(),
-                                                    timeout=max(.001, deadline - time.monotonic()))
-                    if active is False:
-                        quiesced = True
-                        break
-                    await asyncio.sleep(min(.1, max(0, deadline - time.monotonic())))
-                error = None if quiesced else 'Waiting for MAVSDK to stop its sender after authority release'
-            except Exception as exc:
-                quiesced, error = False, str(exc)
-            self._set_offboard_sender_state('quiesced' if quiesced else 'unknown', reason)
-            self._offboard_mode_start_acknowledged = False
-            return dict(attempted=True, local_sender_quiesced=quiesced,
-                        vehicle_hold_acknowledged=False, authority_released=True,
-                        state_before=state_before, state_after=self._mavsdk_offboard_sender_state,
-                        reason=reason, error=error)
+        deadline = time.monotonic() + timeout_s
         try:
-            await asyncio.wait_for(
-                self.drone.offboard.stop(),
-                timeout=timeout_s,
+            if not allow_hold or not self._offboard_release_hold_allowed(release):
+                # MAVSDK Stop also requests Hold. After takeover, use its read-only
+                # scheduler state; heartbeat processing stops the sender itself.
+                return await self._quiesce_offboard_sender_readonly(
+                    release, state_before=state_before, reason=reason, deadline=deadline,
+                )
+
+            async def stop_if_owned():
+                if time.monotonic() >= deadline or not self._offboard_release_hold_allowed(release):
+                    return False
+                # Stock SDK Stop unconditionally requests Hold. Nothing here
+                # can retract it once the SDK's RPC has been invoked.
+                await release.drone.offboard.stop()
+                return True
+
+            hold_sent = await asyncio.wait_for(
+                stop_if_owned(), timeout=max(.001, deadline - time.monotonic()),
             )
+            if not hold_sent:
+                return await self._quiesce_offboard_sender_readonly(
+                    release, state_before=state_before, reason=reason, deadline=deadline,
+                )
+        except asyncio.CancelledError:
+            self._release_cleanup_result(release, state_before=state_before, reason=reason, quiesced=False)
+            raise
         except OffboardError as exc:
             # MAVSDK C++ stops its local scheduler before requesting Hold. An
             # OffboardError is a completed RPC response, so local quiescence did
             # occur even though PX4 did not acknowledge the mode change.
-            self._set_offboard_sender_state("quiesced", reason)
-            self._offboard_mode_start_acknowledged = False
-            return {
-                "attempted": True,
-                "local_sender_quiesced": True,
-                "vehicle_hold_acknowledged": False,
-                "state_before": state_before,
-                "state_after": "quiesced",
-                "reason": reason,
-                "error": str(exc),
-            }
+            return self._release_cleanup_result(
+                release, state_before=state_before, reason=reason, quiesced=True, error=str(exc),
+            )
         except asyncio.TimeoutError:
             error = f"MAVSDK Offboard sender quiesce exceeded {timeout_s:.2f} s"
-            self._set_offboard_sender_state("unknown", reason)
             logger.error(error)
-            return {
-                "attempted": True,
-                "local_sender_quiesced": False,
-                "vehicle_hold_acknowledged": False,
-                "state_before": state_before,
-                "state_after": "unknown",
-                "reason": reason,
-                "error": error,
-            }
+            return self._release_cleanup_result(
+                release, state_before=state_before, reason=reason, quiesced=False, error=error,
+            )
         except Exception as exc:
-            self._set_offboard_sender_state("unknown", reason)
             logger.error("MAVSDK Offboard sender quiesce failed: %s", exc)
-            return {
-                "attempted": True,
-                "local_sender_quiesced": False,
-                "vehicle_hold_acknowledged": False,
-                "state_before": state_before,
-                "state_after": "unknown",
-                "reason": reason,
-                "error": str(exc),
-            }
+            return self._release_cleanup_result(
+                release, state_before=state_before, reason=reason, quiesced=False, error=str(exc),
+            )
 
-        self._set_offboard_sender_state("quiesced", reason)
-        self._offboard_mode_start_acknowledged = False
-        return {
-            "attempted": True,
-            "local_sender_quiesced": True,
-            "vehicle_hold_acknowledged": True,
-            "state_before": state_before,
-            "state_after": "quiesced",
-            "reason": reason,
-            "error": None,
-        }
+        return self._release_cleanup_result(
+            release, state_before=state_before, reason=reason, quiesced=True, hold_acknowledged=True,
+        )
 
     async def start_offboard_mode(
         self, *, before_dispatch: Callable[[], None] | None = None,
