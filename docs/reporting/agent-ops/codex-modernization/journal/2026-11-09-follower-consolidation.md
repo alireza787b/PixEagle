@@ -503,3 +503,15 @@ refused obsolete intent and an original final publication sharing its retirement
 timestamp; sub-tick ordering is unknown. Root verifies nine derived and 313
 raw/source hashes without rewriting verdicts. Matched heading-response firmware
 and SIH checks remain in progress; no hardware or saved profile changes.
+
+The renewed `02b776b88`/R12 source passes all six backend gates. Both normal
+heading-comparison firmware builds and native-only captures close cleanly.
+Initial course follows qualified MC heading more closely, but full altitude
+errors remain 7.150879/7.135925 m, independently corroborated by SIH truth.
+Original failures remain; no external publication gate is exercised. A separate
+sparse-axis allocator normalization concern now has independent source/math
+review and needs native regression before adoption; further native builds need
+additional storage. The existing VTOL gate still blocks positive App/HTTP
+qualification. Independent S9 commit `e813d7b86` repairs Dashboard selection
+drafts, with 550 tests/build/lint and 74 API checks passing. Public/private
+settings, hardware, QGC and remote publication remain unchanged.

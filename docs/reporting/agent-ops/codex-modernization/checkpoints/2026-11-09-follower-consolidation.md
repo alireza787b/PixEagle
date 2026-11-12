@@ -1646,14 +1646,15 @@ gates remain required. The replay and candidate are in
 `software-gates-s7-transition-handover-replay-r1/` and
 `software-gates-s7-transition-acceleration-candidate-r1/`.
 
-S7 and VTOL admission stay open. No candidate firmware, gain, saved profile,
+S7 remains open and VTOL admission remains closed. No candidate firmware, gain, saved profile,
 QGC change or service has been deployed or published.
 
 ### S7 current diagnostics and native response
 
-Canonical source `e312400a0` passes all six gates: **6,391 unit, 196 integration,
-155 Phase 0**, inventory, schema and critical lint. Eleven optional GStreamer
-checks are skipped. R10's unit stage completed successfully before its runner
+Source `02b776b88`/R12 passes all six gates together on clean unchanged input:
+**6,391 unit, 196 integration, 155 Phase 0**, inventory, schema and critical
+lint. Eleven optional GStreamer checks are skipped. Earlier canonical
+`e312400a0`/R11 passed the same gates. R10's unit stage completed before its runner
 exited 143 during integration. R11 retains that unit receipt and reruns only
 unfinished stages after proving identical source bytes; the interrupted log and
 failed aggregate remain intact. The earlier paired-flight sources
@@ -1777,8 +1778,8 @@ critical lint. Actual native execution compiles/links all ten cases: the control
 has exactly five expected failures/five compatibility passes, and the candidate
 passes ten. Independent audit verifies 31 inputs, seven derived artifacts,
 unchanged operator source and only the intended production-source difference.
-The matched control SIH firmware build is complete; candidate compilation and
-actual heading/altitude response remain separate gates. Later 50° bank is native
+Both matched SIH firmware builds and their native-only captures are complete.
+Later 50° bank is native
 orbit-capture feedback; neither the complete altitude loss nor its remedy is
 established by the initial-heading finding.
 
@@ -1787,10 +1788,47 @@ for the controlled negative firmware comparison. The same context reaches source
 and pilot-event rechecks; canonical defaults and actual container/process/ELF
 checks are unchanged. No authority can bypass a missing manifest. Root verifies
 394 focused simulator/ownership/build tests, including real derived-manifest
-rejection and acceptance without global authority mutation. One renewed backend
-gate and the matched native-only response remain pending.
+rejection and acceptance without global authority mutation. R12 renews all six
+backend gates. Both actual flights use the same shared preparation, observation
+and archival code, with 43 offline guards and independently verified builds.
 
-Continue the native build verification and separate tailsitter performance investigation, then FW ownership,
+| Native-only Xvert heading comparison | Control | Corrected build |
+| --- | --- | --- |
+| First finite course / qualified MC heading | 17.347° / 2.719° | 0.568° / 0.574° |
+| Full original-reference altitude error | **7.150879 m — FAIL** | **7.135925 m — FAIL** |
+| Independent SIH truth minimum entry displacement | −7.103088 m | −7.116272 m |
+
+The first-course samples occur at different transition times (+0.112/+0.808 s),
+so they are not same-instant causal evidence. Startup barometer calibration also
+differs; the same four deliberate parameter changes and unchanged gains remain.
+Both logs are intact, contain no dropouts or external owner/publications, and
+their original containers are stopped. The external 100 ms gate is unexercised.
+Root verifies 12 derived artifacts, 98 raw file/link entries and 84 source pins.
+The initial-heading repair is supported; physical altitude improvement and
+tailsitter qualification are not.
+
+Independent source review identifies a sparse-axis allocator normalization
+concern: an absent pitch axis contributes a scale of one, overriding the active
+roll scale in this two-motor simulator. Its differential-thrust response then
+depends on the common effectiveness coefficient. This is not proof of a bad
+plant or a complete force balance. A general native regression/candidate is
+being prepared; neither an authority increase nor a gain/default change is
+adopted. Native compilation waits for additional host storage.
+
+The positive App/HTTP lifecycle remains behind the existing VTOL admission
+gate. Replay authorization does not bypass it. After native/ownership gates
+pass, the unpublished integration must use approved phase bindings and fresh
+native state, then test Start, transition termination, blocked transition Start
+and a new explicit Start after settlement. Deleting the blanket gate alone is
+insufficient. Existing mocked refusal/receipt tests remain separate evidence.
+
+The independent S9 Dashboard draft-selection fix is committed as `e813d7b86`:
+both selectors preserve pending choices through polls/failures and acknowledge
+only matching backend configuration. All 550 Dashboard tests, production build,
+lint and 74 API/reload checks pass; root renews 30 focused operator-flow tests.
+This does not enable VTOL or complete the remaining S9 catalog/QGC work.
+
+Continue the sparse-axis native regression and separate tailsitter performance investigation, then remaining ownership,
 abort/rescue/takeover, fault, mount and full-application matrix. Do not tune a
 follower to conceal a native-only failure or relax the 2 m/100 ms gates.
 The original report-owned replay remains historical evidence; the ten-test
@@ -1802,12 +1840,14 @@ All four new 3D replays pass browser checks at 320, 400, 800 and 1440 pixels:
 actual pose/target and command values, playback/scrub/reset, draggable 3D, correct
 original verdicts, no overflow, page errors or external requests.
 The review links the current native results and actual plots. Raw reports are
-not modified.
+not modified. Its latest 30 links and ten images load at 1500/800/400/320 pixels
+without overflow or page errors.
 
 Exact evidence under that run root:
 
 - `software-gates-s7-final-r8/` and `software-gates-s7-final-r9/`;
 - `software-gates-s7-final-r10/` and `software-gates-s7-final-r11/`;
+- `software-gates-s7-final-r12/`;
 - `software-gates-s7-canonical-native-r1/`;
 - `software-gates-s7-ownership-matrix-r4/actual-r4-same-mode-audit-r1/`;
 - `software-gates-s7-ownership-fw-normal-stop-actual-audit-r1/`;
@@ -1818,6 +1858,9 @@ Exact evidence under that run root:
 - `software-gates-s7-standard-vtol-pitch-trim-actual-audit-r1/`;
 - `software-gates-s7-xvert-threshold10-actual-audit-r1/`;
 - `software-gates-s7-xvert-lateral-causal-review-r1/`;
+- `software-gates-s7-xvert-heading-native-pair-actual-audit-r1/`;
+- `software-gates-s7-duo-allocator-contract-review-r1/`;
+- `software-gates-s9-dashboard-profile-draft-r1/`;
 - `../../native-guidance/transition-portable-native-20261112-r5/`;
 - `software-gates-s7-replay-browser-r2/`.
 

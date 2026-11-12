@@ -286,8 +286,11 @@ passes, then ten candidate passes. Actual execution on `f6e6add02` confirms
 those outcomes through the real ModeManager module and uORB publications.
 Both 16,435-file inputs remain unchanged and differ only in the production
 heading source; each has exactly 28 known generated files. See the
-[independent audit](../reports/sitl/follower-consolidation-20261111/software-gates-s7-heading-functional-actual-audit-r1/REPORT.md).
-Aircraft-response qualification remains pending. No operator runtime setting is added.
+[consolidation checkpoint](../docs/reporting/agent-ops/codex-modernization/checkpoints/2026-11-09-follower-consolidation.md)
+for the exact local audit artifacts. The matched native-only flights support
+the initial-heading boundary, while both still fail the unchanged altitude
+gate at about 7.1 m. This is not aircraft qualification. No operator runtime
+setting is added.
 
 Controlled SIH comparisons may use the same builder's temporary negative-control
 authority. The existing simulator verifier, source-contract reader and pilot

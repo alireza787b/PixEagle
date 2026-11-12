@@ -444,8 +444,17 @@ remain open. Integration work is unpublished.
 
 - **2026-11-12 — S7 heading regression and FW ownership renewal:** canonical
   ModeManager tests execute all ten cases, with the exact five-failure control
-  and ten-pass candidate. The first matched SIH firmware build is complete;
-  actual response remains unqualified. Frozen-source FW EOF and replacement
+  and ten-pass candidate. Both matched builds/captures are complete; heading
+  improves while altitude remains failed at 7.150879/7.135925 m. The sparse-axis
+  allocator normalization concern needs its own native regression; no authority
+  change is adopted. Frozen-source FW EOF and replacement
   checks stay within 2 m/100 ms. The old owner's final publication shares its
-  retirement timestamp, so within-tick ordering remains unknown. Full S7,
-  hardware and VTOL admission remain open; no saved tuning changes.
+  retirement timestamp, so within-tick ordering remains unknown. Full S7 and
+  hardware qualification remain open; VTOL admission stays closed. No saved tuning changes.
+
+- **2026-11-13 — S9 Dashboard draft selection:** `e813d7b86` removes the polling
+  reset that discarded a new profile before Save. Both views share one draft
+  hook; failed saves/refreshes and competing configured values preserve the
+  choice without replay. Matching backend configuration acknowledges it.
+  All 550 Dashboard tests, build/lint and 74 API checks pass. VTOL admission,
+  actual deployment and remaining client work are unchanged.
