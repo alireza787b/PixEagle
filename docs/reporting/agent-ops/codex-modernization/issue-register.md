@@ -393,8 +393,13 @@ remain open. Integration work is unpublished.
   not replacement-owner state. Commit `c2e053dac` and new standard-VTOL captures
   resolve release without reviving old pursuit or adopting a new owner's proof.
   Full software, native/sanitizer and actual source-backed checks pass at their
-  recorded scope. The reverse transition still fails altitude, and a recording
-  gap around release prevents complete-replay acceptance. Report-helper clock
-  qualification also fails after actual SIGKILL; missing original offsets remain
-  unknown. These distinct open gates are recorded in the same checkpoint; VTOL
-  stays unavailable.
+  recorded scope. Future terminal capture now removes the replay gap; old sparse
+  recordings stay unknown. The new forward transition fails altitude at 2.124 m,
+  while the retained reverse case fails at 4.493 m. The new crash fixture proves
+  clock alignment before SIGKILL, then stops at an incorrect healthy-flight
+  prerequisite for passive registration after native failsafe. Corrected R10
+  passes functional recovery, but native rotation deletes the first ULog before
+  its second takeoff; complete evidence retention remains open. The earlier
+  missing clock offsets stay unknown.
+  These distinct open gates are recorded in the same checkpoint; VTOL stays
+  unavailable. No gains, saved profile or firmware behavior is changed to pass.

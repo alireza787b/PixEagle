@@ -371,3 +371,27 @@ The portable real-packet fixture reproduces the earlier gap and validates the
 new recording path. Independent review, 283/74 scoped checks and root's combined
 430-check renewal pass; actual fresh capture and full combined renewal remain
 the next gates. No controller, schema, default, budget or hardware changed.
+
+The combined `952ff8950` gate passes 6,348/196/155 checks plus API inventory,
+schema and critical lint. A fresh standard-VTOL capture removes the replay gap
+(742 timeline/289 pose samples, zero stale intervals or flags) but fails altitude
+at 2.124 m against 2 m; receipt resolution and strict archive shutdown pass.
+The R9 actual crash proves the repaired pre-signal clock witness and original
+unexpired intent, then refuses a passive replacement registration after PX4
+enters native failsafe RTL. The fixture's healthy-flight prerequisite is wrong
+for read-only registration; actual Start guards remain authoritative. No landing
+or new backend engagement is claimed, and exact-CID cleanup stops the failed run.
+The separate native duration-10 contrast is also failed: source and ULog identify
+the early low-speed timeout, no FW entry, then configured native Return. Its
+accepted-only 0.288 m metric is not a full-flight bound. No tuning is adopted;
+native task-handover analysis and lifecycle qualification continue in S7.
+
+Independent R5 review confirms 289 exact ULog pose matches, 251 native MC
+setpoints and a 36 ms active gap; altitude remains failed at 2.123657 m. R10
+then passes functional crash recovery with passive registration, observed normal
+landing/automatic disarm and a distinct fresh backend session on the same
+replacement adapter. Native low-disk rotation deletes its first closed ULog
+before the second takeoff; only C's ULog remains. Raw functional success is
+retained separately from incomplete whole-case log evidence. A prospective
+closed-log checkpoint is required before rearming; no flight or native cleanup
+policy is weakened to preserve evidence.

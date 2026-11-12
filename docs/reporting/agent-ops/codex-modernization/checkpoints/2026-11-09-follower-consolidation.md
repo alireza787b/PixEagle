@@ -8,10 +8,13 @@ Current position (November 12): **S0–S6 component/software checkpoints complet
 S7 implementation in progress.** The S6 closeout below records 32 selected
 actual-PX4 component passes and retained failed history. Native causal ownership,
 transition-preserving release, clients, packaging and hardware remain open.
-The latest protocol-3 airplane renewal passes three component cases. Tailsitter
-transition ends its session correctly but fails altitude, including native-only
-comparisons; VTOL admission stays closed. See the
-[current S7 evidence](#s7-protocol-3-observed-renewal-and-tailsitter-baseline).
+The latest combined software gate passes on `952ff8950`. Protocol-3 airplane
+renewal passes three component cases, but VTOL altitude and remaining lifecycle
+gates stay open. A new standard-VTOL capture fixes the earlier replay gap yet
+fails the unchanged altitude tolerance. The adapter-crash clock and functional
+recovery checks now pass, but complete crash-log retention remains open.
+VTOL admission stays closed. See the
+[latest S7 renewal](#s7-combined-renewal--recording-and-process-loss).
 
 Continuation on 2026-11-11: the current MC component selector has 28 passing
 cases. Broader software renewal exposed and repaired duplicate manager caching;
@@ -1513,3 +1516,65 @@ renewal passes 430 checks, plus the four test-hygiene checks. These are overlapp
 software scopes; an actual fresh capture remains required after the next full
 coherent gate. Exact source, fixture, independent review and logs are in
 `software-gates-s7-poststop-projection-r1/`.
+
+### S7 combined renewal — recording and process loss
+
+The clean frozen `952ff8950` renewal passes 6,348 unit, 196 integration and
+155 Phase 0 checks, plus API inventory, schema and critical lint. Eleven optional
+GStreamer checks are skipped. The 24 compiled native inputs and three pins still
+match the reviewed adapter; no controller rebuild or tuning change is implied.
+Exact commands, source correspondence and final results are retained in
+`software-gates-s7-final-r5/`.
+
+The fresh standard-VTOL MC→FW capture records all six actual terminal/post-stop
+packets through the shared projection. The canonical reader now produces 742
+timeline samples with 289 actual pose samples, no stale intervals and no flags.
+This fixes future recording coverage without backfilling R4. Original Hold proof,
+cleared release-pending and strict logger/archive shutdown are retained. The raw
+flight verdict nevertheless fails: altitude deviation is 2.124 m against the
+unchanged 2 m gate. R4's 1.890 m forward result is therefore not robust transition
+qualification. Independent ULog review matches all 289 poses and 251 native MC
+setpoints, verifies a 36 ms maximum active gap, and measures 2.123657 m altitude
+error. New raw evidence is in `s7-protocol3-standard-vtol-runtime-r5/`; the audit
+and browser-checked failed 3D replay are bound by
+`software-gates-s7-standard-vtol-actual-audit-r3/review-manifest-r1.json`.
+
+The R9 adapter-crash experiment reaches stable MC flight and proves equal raw
+monotonic clock domains before and at the original process's SIGKILL. A matching
+positive intent ACK retains 0.283 s of its original lease at the signal; expiry
+and timestamps are not refreshed. Native PX4 then enters failsafe RTL. Replacement
+B registers without acquisition, but the fixture wrongly demands healthy-flight
+readiness for that passive registration and refuses. Land/disarm and a fresh
+backend Start are not run. The old owner remains unresolved; exact-CID cleanup
+flushes and stops the simulator without inventing Hold. R9 stays failed in
+`s7-process-restart-runtime-r9/`. The next report-only correction must distinguish
+passive registration from flight readiness, preserving all actual Start guards.
+
+The R10 report-only correction passes 191 helper checks and independent review.
+Its actual functional case passes: under observed `COM_MODE_ARM_CHK=1`, B
+registers with no binding, acquisition or publication, then remains the same
+adapter through normal landing and automatic disarm. A separate clean backend
+creates a new token/activation and confirms its own Stop/Hold without reviving
+A. Policy 0 and an explicit disarm command are not exercised. However, native
+low-disk log rotation deletes the first closed flight ULog when the next takeoff
+begins. Only the fresh-backend-C ULog remains; A/B/landing have raw wire, CLI,
+process and clock evidence but no retained ULog corroboration. The raw functional
+pass is not promoted to complete-evidence acceptance. R10 is retained in
+`s7-process-restart-runtime-r10/`. The next capture must seal the closed first
+log outside the logger-managed directory before rearming; native cleanup,
+parameters and flight guards must remain unchanged.
+
+The one native-only slower-transition contrast also remains failed. Source and
+ULog evidence identify the early low-speed timeout at 6.59 s, not expiry of the
+unchanged 15 s full timeout: selected CAS is 4.813 m/s, below the 6 m/s blend
+threshold. No FW state or TECS dataset appears. The reported 0.288 m altitude
+error covers only usable samples before rescue; the complete captured interval
+includes native RTL toward its configured 60 m reference. It is not a full-flight
+altitude bound and does not demonstrate a transport outage. Audit, source
+references and plots are in
+`software-gates-s7-xvert-duration10-actual-audit-r1/`. No setting is adopted.
+
+All these simulators are stopped. The native Transition→Auto trajectory handover
+is under causal review before any firmware change. S7, VTOL admission, S8's
+unrestricted-speed capability and hardware qualification remain open. Public and
+private defaults, QGC, installed services and remote repositories are unchanged.
