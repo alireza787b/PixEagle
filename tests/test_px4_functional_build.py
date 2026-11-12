@@ -17,15 +17,19 @@ from tools import build_native_guidance as cli
 from tools import px4_functional as tool
 
 
+PRODUCTION = "src/Example.cpp"
+TEST_SOURCE = "src/ExampleTest.cpp"
+PATCH = "patches/0001-example.patch"
+SUITE = "ExampleTest"
 NAMES = {f"Case{number}" for number in range(10)}
 NEGATIVE = {f"Case{number}" for number in range(6)}
 
 
-def xml(path, failures=(), *, skipped=False):
-    root = ET.Element("testsuites", tests="10", failures=str(len(failures)), disabled="0", errors="0")
-    suite = ET.SubElement(root, "testsuite")
-    for name in sorted(NAMES):
-        case = ET.SubElement(suite, "testcase", name=name, status="run", result="completed")
+def xml(path, failures=(), *, skipped=False, names=NAMES, suite=SUITE):
+    root = ET.Element("testsuites", tests=str(len(names)), failures=str(len(failures)), disabled="0", errors="0")
+    suite_node = ET.SubElement(root, "testsuite", name=suite)
+    for name in sorted(names):
+        case = ET.SubElement(suite_node, "testcase", name=name, classname=suite, status="run", result="completed")
         if name in failures:
             ET.SubElement(case, "failure", message="synthetic orchestration fixture")
         if skipped and name == "Case0":
@@ -41,18 +45,18 @@ def build_inputs(tmp_path, monkeypatch):
     source.mkdir()
     subprocess.run(["git", "init", "-q", str(source)], check=True)
     original, patched = "float derivative = 0;\n", "float derivative = 1;\n"
-    cpp = source / tool.TRANSITION
+    cpp = source / PRODUCTION
     cpp.parent.mkdir(parents=True)
     cpp.write_text(patched)
-    (source / tool.TEST_SOURCE).write_text("\n".join(f"TEST_F(TransitionAccelerationTest, {name}) {{}}" for name in sorted(NAMES)))
+    (source / TEST_SOURCE).write_text("\n".join(f"TEST_F({SUITE}, {name}) {{}}" for name in sorted(NAMES)))
     (source / "template.txt").write_text("synthetic generated fixture\n")
     (source / ".gitignore").write_text("generated.txt\n*.ignored\n")
-    patch = extension / tool.FEEDFORWARD_PATCH
+    patch = extension / PATCH
     patch.write_text("".join(difflib.unified_diff(original.splitlines(True), patched.splitlines(True),
-                                               fromfile="a/" + tool.TRANSITION, tofile="b/" + tool.TRANSITION)))
-    manifest = {"baseline_commit": "a" * 40, "patches": {tool.FEEDFORWARD_PATCH: tool.sih.digest(patch)},
-                "files": {tool.TRANSITION: tool.sih.digest(cpp)},
-                "original_files": {tool.TRANSITION: hashlib.sha256(original.encode()).hexdigest()}}
+                                               fromfile="a/" + PRODUCTION, tofile="b/" + PRODUCTION)))
+    manifest = {"baseline_commit": "a" * 40, "patches": {PATCH: tool.sih.digest(patch)},
+                "files": {PRODUCTION: tool.sih.digest(cpp), TEST_SOURCE: tool.sih.digest(source / TEST_SOURCE)},
+                "original_files": {PRODUCTION: hashlib.sha256(original.encode()).hexdigest()}}
     (extension / "extension.json").write_text(json.dumps(manifest))
     dependencies = {}
     for name in ("googletest", "abseil-cpp", "re2", "antlr_cpp"):
@@ -66,9 +70,13 @@ def build_inputs(tmp_path, monkeypatch):
             "sih_build": {"platform": "linux/amd64", "target": "px4_sitl_sih", "submodules": [],
                           "toolchain_image": "compiler@sha256:" + "b" * 64,
                           "runtime_image": "runtime@sha256:" + "c" * 64},
-            "px4_functional_tests": {"target": tool.TARGET, "expected_tests": 10,
-                                     "expected_negative_failures": sorted(NEGATIVE), "dependencies": dependencies,
-                                     "fuzztest_path": "test/fuzztest"}}
+            "px4_functional_tests": {"dependencies": dependencies, "fuzztest_path": "test/fuzztest",
+                "default_regression": "example", "regressions": {"example": {
+                    "target": "functional-Example", "expected_tests": 10,
+                    "expected_negative_failures": sorted(NEGATIVE), "test_source": TEST_SOURCE,
+                    "test_suite": SUITE, "negative_patch": PATCH, "original_files": [PRODUCTION],
+                    "characterization_env": "EXAMPLE_CHARACTERIZATION"}}}}
+
     (repository / "native/dependencies.lock.json").write_text(json.dumps(lock))
     policy = {"source_pins": {}, "expected_output_paths": 1,
               "outputs": {"generated.txt": {"template": "template.txt", "template_sha256": tool.sih.digest(source / "template.txt"),
@@ -79,7 +87,7 @@ def build_inputs(tmp_path, monkeypatch):
     def verify(checkout, authority, spec, verify_extension):
         assert os.environ.get("GIT_OPTIONAL_LOCKS") == "0"
         declared = json.loads((authority / "native/px4/extension.json").read_text())
-        assert tool.sih.digest(checkout / tool.TRANSITION) == declared["files"][tool.TRANSITION]
+        assert all(tool.sih.digest(checkout / path)==digest for path,digest in declared["files"].items())
         return {"submodules": []}
 
     monkeypatch.setattr(tool, "verify_functional_source", verify)
@@ -87,9 +95,33 @@ def build_inputs(tmp_path, monkeypatch):
                            patched=patched, lock=lock, policy=policy)
 
 
-def build(inputs, output, *, prepare_only=False):
+def build(inputs, output, *, prepare_only=False, regression=None):
     return tool.build_functional(inputs.source, output, inputs.cache, prepare_only=prepare_only,
-                                 verify_extension=lambda *args: None, repository=inputs.repository)
+                                 verify_extension=lambda *args: None, repository=inputs.repository, regression=regression)
+
+
+def add_second_regression(inputs):
+    production, test_source, patch_name = "src/Second.cpp", "src/SecondTest.cpp", "patches/0002-second.patch"
+    original, patched = "float heading = 0;\n", "float heading = 1;\n"
+    names, failures = {f"Other{number}" for number in range(5)}, {"Other1", "Other3"}
+    (inputs.source / production).write_text(patched)
+    (inputs.source / test_source).write_text("\n".join(f"TEST_F(SecondTest, {name}) {{}}" for name in sorted(names)))
+    extension = inputs.repository / "native/px4"
+    patch = extension / patch_name
+    patch.write_text("".join(difflib.unified_diff(original.splitlines(True), patched.splitlines(True),
+                                               fromfile="a/" + production, tofile="b/" + production)))
+    path = extension / "extension.json"
+    manifest = json.loads(path.read_text())
+    manifest["patches"][patch_name] = tool.sih.digest(patch)
+    manifest["files"].update({name: tool.sih.digest(inputs.source/name) for name in [production, test_source]})
+    manifest["original_files"][production] = hashlib.sha256(original.encode()).hexdigest()
+    path.write_text(json.dumps(manifest))
+    record = dict(target="functional-Second", test_source=test_source, test_suite="SecondTest",
+                  negative_patch=patch_name, original_files=[production], expected_tests=len(names),
+                  expected_negative_failures=sorted(failures), characterization_env=None)
+    inputs.lock["px4_functional_tests"]["regressions"]["second"] = record
+    (inputs.repository / "native/dependencies.lock.json").write_text(json.dumps(inputs.lock))
+    return record, names, failures
 
 
 def mock_compiler(monkeypatch, *, baseline_exit=8, candidate_exit=0, missing_xml=False, wrong_failure=False):
@@ -109,7 +141,14 @@ def mock_compiler(monkeypatch, *, baseline_exit=8, candidate_exit=0, missing_xml
             failures = {"Case9"}
         (source / "generated.txt").write_bytes((source / "template.txt").read_bytes())
         if not missing_xml:
-            xml(output / "native-tests.xml", failures)
+            environment = dict(argv[i+1].split("=",1) for i,value in enumerate(argv) if value=="--env")
+            repository = mounts["/plan"].parents[1]
+            records = json.loads((repository/"native/dependencies.lock.json").read_text())["px4_functional_tests"]["regressions"]
+            record = next(row for row in records.values() if row["target"]==environment["PX4_FUNCTIONAL_TARGET"])
+            import re
+            names=set(re.findall(r"^TEST_F\("+re.escape(record["test_suite"])+r", (\w+)\)",(source/record["test_source"]).read_text(),re.M))
+            failures=set(record["expected_negative_failures"]) if baseline and not wrong_failure else failures
+            xml(output / "native-tests.xml", failures, names=names, suite=record["test_suite"])
         (output / "build.ninja").write_text("synthetic identical build graph")
         (output / "compile_commands.json").write_text("[]")
         kwargs["stdout"].write("synthetic compiler boundary; no actual build\n")
@@ -127,6 +166,21 @@ def test_cli_dispatches_before_ros_preparation(monkeypatch, tmp_path):
     monkeypatch.setattr(tool, "build_functional", lambda *args, **kwargs: calls.append((args, kwargs)))
     cli.main()
     assert calls[0][1]["prepare_only"] is True
+    assert calls[0][1]["regression"] is None
+
+
+def test_cli_selects_regression_without_a_display_or_gui(monkeypatch, tmp_path):
+    monkeypatch.delenv("DISPLAY", raising=False)
+    calls = []
+    monkeypatch.setattr(cli.sys, "argv", ["build_native_guidance.py", "--target", "px4-functional",
+        "--regression", "second", "--prepare-only", "--px4-source", str(tmp_path), "--output-dir", str(tmp_path/"out")])
+    monkeypatch.setattr(tool, "build_functional", lambda *args, **kwargs: calls.append(kwargs))
+    cli.main()
+    assert calls[0]["regression"] == "second"
+    monkeypatch.setattr(cli.sys, "argv", ["build_native_guidance.py", "--regression", "second", "--output-dir", str(tmp_path/"out")])
+    with pytest.raises(SystemExit) as error:
+        cli.main()
+    assert error.value.code == 2 and len(calls) == 1
 
 
 def test_preparation_isolated_negative_control_never_mutates_operator_or_uses_docker(build_inputs, tmp_path, monkeypatch):
@@ -138,9 +192,9 @@ def test_preparation_isolated_negative_control_never_mutates_operator_or_uses_do
     output = tmp_path / "prepared"
     result = json.loads(build(build_inputs, output, prepare_only=True).read_text())
     assert result["prepared_only"] and result["completed"]
-    assert (build_inputs.source / tool.TRANSITION).read_text() == build_inputs.patched
-    assert (output / "source-baseline" / tool.TRANSITION).read_text() == build_inputs.original
-    assert (output / "source-candidate" / tool.TRANSITION).read_text() == build_inputs.patched
+    assert (build_inputs.source / PRODUCTION).read_text() == build_inputs.patched
+    assert (output / "source-baseline" / PRODUCTION).read_text() == build_inputs.original
+    assert (output / "source-candidate" / PRODUCTION).read_text() == build_inputs.patched
     assert not list(output.glob("**/native-tests.xml"))
     assert not list(output.glob("**/native/px4/extension.json"))
 
@@ -152,13 +206,79 @@ def test_expected_pair_retains_raw_negative_exit_xml_logs_and_same_build_recipe(
     baseline, candidate = (result["variants"][name] for name in ("baseline", "candidate"))
     assert baseline["raw_exit_code"] == 8 and baseline["tests"]["failed_names"] == sorted(NEGATIVE)
     assert candidate["raw_exit_code"] == 0 and candidate["tests"]["failed_names"] == []
-    assert (build_inputs.source / tool.TRANSITION).read_text() == build_inputs.patched
+    assert (build_inputs.source / PRODUCTION).read_text() == build_inputs.patched
     for argv in calls:
         assert argv[argv.index("--network") + 1] == "none"
         assert argv[argv.index("--cpus") + 1] == "2" and argv[argv.index("--memory") + 1] == "4g"
         assert "PYTHONDONTWRITEBYTECODE=1" in argv
         assert any(part.endswith("dst=/deps,readonly") for part in argv)
         assert any(part.endswith("dst=/plan,readonly") for part in argv)
+
+
+def test_second_record_reuses_same_builder_with_its_own_source_suite_counts_and_patch(build_inputs, tmp_path, monkeypatch):
+    record, names, failures = add_second_regression(build_inputs)
+    calls = mock_compiler(monkeypatch)
+    output = tmp_path / "second"
+    result = json.loads(build(build_inputs, output, regression="second").read_text())
+    assert result["regression"] == "second" and result["regression_record"] == record
+    baseline, candidate = (result["variants"][name] for name in ["baseline", "candidate"])
+    assert baseline["tests"]["failed_names"] == sorted(failures) and baseline["tests"]["tests"] == len(names)
+    assert candidate["tests"]["passed_names"] == sorted(names)
+    assert baseline["changed_from_canonical"] == record["original_files"]
+    assert baseline["omitted_patch"] == record["negative_patch"]
+    for variant in ["baseline", "candidate"]:
+        assert (output/("source-"+variant)/PRODUCTION).read_text() == build_inputs.patched
+    assert (build_inputs.source/record["original_files"][0]).read_text() == "float heading = 1;\n"
+    for argv in calls:
+        assert "PX4_FUNCTIONAL_TARGET=functional-Second" in argv
+        assert "PX4_FUZZTEST_PATH=test/fuzztest" in argv
+        assert not any("CHARACTERIZATION=" in value for value in argv)
+
+
+def test_unknown_selector_refuses_before_source_cache_output_or_gui(build_inputs, tmp_path, monkeypatch):
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.setattr(tool, "verify_functional_source", lambda *args: pytest.fail("source access"))
+    monkeypatch.setattr(tool, "prepare_dependencies", lambda *args: pytest.fail("cache access"))
+    output = tmp_path / "unknown"
+    with pytest.raises(ValueError, match="Unknown native functional regression"):
+        build(build_inputs, output, regression="unknown")
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("field,value", [("negative_patch", "patches/missing.patch"),
+    ("test_source", "src/MissingTest.cpp"), ("original_files", ["src/Missing.cpp"]),
+    ("target", "functional-Second;other"), ("test_source", "../OutsideTest.cpp")])
+def test_wrong_record_patch_source_or_target_is_refused_early(build_inputs, tmp_path, monkeypatch, field, value):
+    record, _, _ = add_second_regression(build_inputs)
+    record[field] = value
+    (build_inputs.repository/"native/dependencies.lock.json").write_text(json.dumps(build_inputs.lock))
+    monkeypatch.setattr(tool, "verify_functional_source", lambda *args: pytest.fail("source access"))
+    output = tmp_path / "wrong"
+    with pytest.raises(ValueError):
+        build(build_inputs, output, regression="second")
+    assert not output.exists()
+
+
+def test_wrong_existing_production_patch_cannot_reverse_a_different_file(build_inputs, tmp_path, monkeypatch):
+    second, _, _ = add_second_regression(build_inputs)
+    build_inputs.lock["px4_functional_tests"]["regressions"]["example"]["negative_patch"] = second["negative_patch"]
+    (build_inputs.repository/"native/dependencies.lock.json").write_text(json.dumps(build_inputs.lock))
+    calls = mock_compiler(monkeypatch)
+    output = tmp_path / "wrong-patch"
+    with pytest.raises(ValueError, match="only the selected production patch"):
+        build(build_inputs, output)
+    assert not calls and not (output/"source-candidate").exists()
+    assert (build_inputs.source/PRODUCTION).read_text() == build_inputs.patched
+
+
+def test_record_cannot_parse_test_names_from_another_suite(build_inputs, tmp_path, monkeypatch):
+    record, _, _ = add_second_regression(build_inputs)
+    record["test_suite"] = "UnrelatedSuite"
+    (build_inputs.repository/"native/dependencies.lock.json").write_text(json.dumps(build_inputs.lock))
+    calls = mock_compiler(monkeypatch)
+    with pytest.raises(ValueError, match="test names differ"):
+        build(build_inputs, tmp_path/"wrong-suite", regression="second")
+    assert not calls
 
 
 @pytest.mark.parametrize("change", [{"baseline_exit": 0}, {"baseline_exit": 1}, {"missing_xml": True}, {"wrong_failure": True}])
@@ -238,6 +358,13 @@ def test_complete_xml_cannot_hide_skipped_or_missing_cases(tmp_path):
         tool.validate_result(path, 8, "baseline", NAMES, NEGATIVE)
 
 
+def test_identical_xml_case_names_from_wrong_suite_are_rejected(tmp_path):
+    path = tmp_path/"wrong-suite.xml"
+    xml(path, NEGATIVE, suite="OtherFixture")
+    with pytest.raises(ValueError, match="complete executed"):
+        tool.validate_result(path, 8, "baseline", NAMES, NEGATIVE, suite=SUITE)
+
+
 def test_archive_path_escape_is_rejected_before_extraction(tmp_path, monkeypatch):
     data = io.BytesIO()
     with zipfile.ZipFile(data, "w") as archive:
@@ -292,5 +419,13 @@ def test_canonical_functional_inputs_are_pinned_without_report_paths():
     for name, digest in manifest["patches"].items():
         assert tool.sih.digest(root / "native/px4" / name) == digest
     assert set(lock["px4_functional_tests"]["dependencies"]) == {"googletest", "abseil-cpp", "re2", "antlr_cpp"}
-    assert tool.TRANSITION in manifest["original_files"]
+    _, record = tool.select_regression(root, None)
+    assert record["target"] == "functional-FlightTaskTransition"
+    assert record["characterization_env"] == "TRANSITION_CHARACTERIZATION"
+    assert record["original_files"][0] in manifest["original_files"]
     assert "reports/" not in json.dumps(lock["px4_functional_tests"])
+    assert not {"target", "expected_tests", "expected_negative_failures"} & lock["px4_functional_tests"].keys()
+    prospective = lock["px4_functional_tests"]["regressions"]["fw-mode-transition-heading"]
+    assert prospective["expected_tests"] == 10 and len(prospective["expected_negative_failures"]) == 5
+    assert tool.select_regression(root, "fw-mode-transition-heading")[1] == prospective
+    assert prospective["characterization_env"] is None

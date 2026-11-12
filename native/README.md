@@ -268,13 +268,23 @@ Use a new output directory. Preparation obtains checksum-verified test sources;
 compilation runs without network access. `--prepare-only` verifies and copies
 inputs without starting Docker. The operator's checkout is not changed.
 
-The target makes two isolated copies: a negative control omitting only the
-planned-acceleration patch, then the complete candidate. Both must compile/link
+The default `transition-acceleration` regression makes two isolated copies: a
+negative control omitting only the planned-acceleration patch, then the complete candidate. Both must compile/link
 and execute all ten named tests. The comparison must fail exactly six semantic
 checks while four compatibility checks pass; the candidate must pass ten.
 A configure/link failure or missing XML is an error, not a valid negative
 control. Logs, actual exits, XML and input-integrity receipts remain under the
 output directory, summarized by `functional-results.json`.
+
+Other native regressions use the same locked builder. To test the front-transition
+heading boundary, add `--regression fw-mode-transition-heading`. This selects
+the real ModeManager functional suite: explicit yaw wins, otherwise qualified
+raw MC heading; unavailable heading leaves Navigator geometry untouched. Its
+comparison omits only the heading patch, retaining the identical test seam and
+other patches. Expected results are five named failures/five compatibility
+passes, then ten candidate passes. Native execution and aircraft-response
+qualification of this new case remain pending; Python orchestration tests do
+not establish those outcomes. No operator runtime setting is added.
 
 The acceleration patch supplies the derivative of Transition's existing
 two-second vertical-velocity filter. It does not add a second filter or change

@@ -485,3 +485,10 @@ coverage adds exactly the 1,348 pinned submodule files. The separate settled-FW
 Stop component passes full-log altitude/publication/owner checks at 1.786469 m
 and 36 ms. Tailsitter transition-heading repair and remaining S7 fault/application
 work continue; saved profiles, hardware and remote publication remain unchanged.
+
+The next source boundary uses qualified native MC heading for front-transition
+waypoint creation, preserving explicit yaw and Navigator geometry when fallback
+is unavailable. Ten real-ModeManager cases and one declarative record reuse the
+native functional builder. Root's 63 build/source checks pass; native compile
+and actual heading/altitude response remain pending. No second controller,
+transform, timer, runtime setting or production VTOL admission is introduced.

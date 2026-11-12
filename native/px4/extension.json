@@ -6,7 +6,9 @@
     "patches/0002-correlated-owned-mode-requests.patch": "80b99a98e965d3118867be4825cc4f5bff19c5e2bd89bd4453b2960d30b1f598",
     "patches/0003-transition-planned-vertical-acceleration.patch": "8550f5cf4f98d1e0f0d560f920e0503973d1962f06fee91eb3971cb938b8bf57",
     "patches/0004-transition-acceleration-functional-tests.patch": "3d3c83434f29a04cc07183ed9a49eecb6d0d9c03cc83cd744662f4d8c8d24990",
-    "patches/0005-flight-task-transitive-dependencies.patch": "c9b09d194e1fb1ba7d9490022095fdae1a053992647e14f8a7798374951f9c03"
+    "patches/0005-flight-task-transitive-dependencies.patch": "c9b09d194e1fb1ba7d9490022095fdae1a053992647e14f8a7798374951f9c03",
+    "patches/0006-front-transition-native-heading.patch": "daa8cfc37f75a1980c6d32201ddf7a9aaae9626bb578e365f57f75f17283e8ac",
+    "patches/0007-fw-mode-transition-heading-functional-tests.patch": "21982a7ee5e6772d720539638d737e27d4b430f253a8c2c52b4efc304082cab3"
   },
   "files": {
     "msg/CMakeLists.txt": "8a3d4f411de620f30c5bd09f18de58b508977e9299e9972aa050dd58753b5c8e",
@@ -34,7 +36,11 @@
     "src/modules/flight_mode_manager/tasks/Transition/FlightTaskTransitionTest.cpp": "dd270d74f747dedbdc5a04502e38b7bbbad2b6840b5cc20d1b78f63abbcba0c9",
     "src/modules/flight_mode_manager/tasks/FlightTask/CMakeLists.txt": "0e3a43a7a10529b20a7d12ebb005c0b623a4f0c2342448db0410182f0d8ca5ae",
     "src/modules/flight_mode_manager/tasks/Utility/CMakeLists.txt": "568d6253292b09e11ec141831036a447cedb4cb7a626c9909d3b171fe18ad3a9",
-    "src/lib/collision_prevention/CMakeLists.txt": "e2cf4bc6d0531cc19e98c30bdfa4879870541b18199df7fefe498658e0e18854"
+    "src/lib/collision_prevention/CMakeLists.txt": "e2cf4bc6d0531cc19e98c30bdfa4879870541b18199df7fefe498658e0e18854",
+    "src/modules/fw_mode_manager/CMakeLists.txt": "062c80730f567ae38ac883f072cf83b23c5cc79fecd7f10d32951bdf242e403e",
+    "src/modules/fw_mode_manager/FixedWingModeManager.cpp": "27b75d7effcf9512fdbb74dc4a2fb7223c7a7b5cdba3a3121f98452ac9b8f1a7",
+    "src/modules/fw_mode_manager/FixedWingModeManagerTest.cpp": "b04f9b7dbcecc395f525638238c34abf5aaf75dfad2f6475ce0de4d9bce84e94",
+    "src/modules/fw_mode_manager/FixedWingModeManager.hpp": "823cb9036b8ab6b0cbca991f2177f60edd03a24e28130c4d48a4d85fde38d6f2"
   },
   "deleted_files": [
     "src/modules/commander/ExpectedModeGuard.hpp",
@@ -44,6 +50,9 @@
     "src/modules/flight_mode_manager/tasks/FlightTask/CMakeLists.txt": "5e4d100d3fbea3338835b84b8a62701a284da1ecb75500f393a138c4990dd787",
     "src/modules/flight_mode_manager/tasks/Utility/CMakeLists.txt": "3e8fadd431712de3fbb678bce25c7e9fb797502116443f9ff95aba0222e9c99e",
     "src/lib/collision_prevention/CMakeLists.txt": "5d805caefd47bb3cd572cadebcd89322ffc3108f8daa6871be3ed84cc6cfc922",
-    "src/modules/flight_mode_manager/tasks/Transition/FlightTaskTransition.cpp": "e76f47dc2b4ea2727af24326b25356862108a9c019ddec67b6c25e82fbd5f0df"
+    "src/modules/flight_mode_manager/tasks/Transition/FlightTaskTransition.cpp": "e76f47dc2b4ea2727af24326b25356862108a9c019ddec67b6c25e82fbd5f0df",
+    "src/modules/fw_mode_manager/CMakeLists.txt": "d46d14ab7901c37a62e6aca2515a9000a1fb6aa63732cd57e11d00fb5415693e",
+    "src/modules/fw_mode_manager/FixedWingModeManager.cpp": "e614b56f9dddbec221dab486867e03f659cd3babc7e0a22e5e0ddf65e5378c8b",
+    "src/modules/fw_mode_manager/FixedWingModeManager.hpp": "a05a36b10e504e2669837024350a16f8fb9eb1902504e1d5f2e834593832fdd4"
   }
 }

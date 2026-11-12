@@ -114,14 +114,17 @@ def main() -> None:
                         help="Canonical patched pinned PX4 checkout; required for SIH and PX4 functional targets")
     parser.add_argument("--image", default="pixeagle-native-contracts:development", help="Contract-test image tag")
     parser.add_argument("--target", choices=("contracts", "sih", "px4-functional"), default="contracts")
+    parser.add_argument("--regression", help="Locked PX4 functional regression; defaults to the lock's selected regression")
     args = parser.parse_args()
+    if args.regression is not None and args.target != "px4-functional":
+        parser.error("--regression requires --target px4-functional")
     if args.target == "px4-functional":
         if args.px4_source is None:
             parser.error("--target px4-functional requires --px4-source with the canonical extension applied")
         from tools.px4_functional import build_functional
 
         build_functional(args.px4_source, args.output_dir, args.cache_dir,
-                         prepare_only=args.prepare_only, verify_extension=verify_extension)
+                         prepare_only=args.prepare_only, verify_extension=verify_extension, regression=args.regression)
         return
     if args.target == "sih":
         if args.px4_source is None:

@@ -85,16 +85,46 @@
         "url": "https://www.antlr.org/download/antlr4-cpp-runtime-4.12.0-source.zip"
       }
     },
-    "target": "functional-FlightTaskTransition",
-    "expected_tests": 10,
-    "expected_negative_failures": [
-      "PlannedAccelerationBothDirectionsAndSeeds",
-      "PriorNanUsesStateAndInvalidStateStaysAbsent",
-      "AutoInheritsPlannedAccelerationInsteadOfMeasuredImpulse",
-      "DerivativeAgreesWithNonzeroDtFilterStep",
-      "AutoHandoverAcrossSignsStateFallbackAndVariableDt",
-      "HighSpeedHandoverPreservesPlannedReferenceThroughPositionControl"
-    ],
-    "fuzztest_path": "test/fuzztest"
+    "fuzztest_path": "test/fuzztest",
+    "default_regression": "transition-acceleration",
+    "regressions": {
+      "transition-acceleration": {
+        "target": "functional-FlightTaskTransition",
+        "expected_tests": 10,
+        "expected_negative_failures": [
+          "PlannedAccelerationBothDirectionsAndSeeds",
+          "PriorNanUsesStateAndInvalidStateStaysAbsent",
+          "AutoInheritsPlannedAccelerationInsteadOfMeasuredImpulse",
+          "DerivativeAgreesWithNonzeroDtFilterStep",
+          "AutoHandoverAcrossSignsStateFallbackAndVariableDt",
+          "HighSpeedHandoverPreservesPlannedReferenceThroughPositionControl"
+        ],
+        "test_source": "src/modules/flight_mode_manager/tasks/Transition/FlightTaskTransitionTest.cpp",
+        "test_suite": "TransitionAccelerationTest",
+        "negative_patch": "patches/0003-transition-planned-vertical-acceleration.patch",
+        "original_files": [
+          "src/modules/flight_mode_manager/tasks/Transition/FlightTaskTransition.cpp"
+        ],
+        "characterization_env": "TRANSITION_CHARACTERIZATION"
+      },
+      "fw-mode-transition-heading": {
+        "target": "functional-FixedWingModeManager",
+        "test_source": "src/modules/fw_mode_manager/FixedWingModeManagerTest.cpp",
+        "test_suite": "FixedWingModeManagerTest",
+        "negative_patch": "patches/0006-front-transition-native-heading.patch",
+        "original_files": [
+          "src/modules/fw_mode_manager/FixedWingModeManager.cpp"
+        ],
+        "expected_tests": 10,
+        "expected_negative_failures": [
+          "ActualUprightTailSitterUsesNativeMCHeading",
+          "TiltPerturbationsAndArbitraryYawKeepStableBoundary",
+          "NonfiniteExplicitYawUsesQualifiedNativeHeading",
+          "NonfiniteNativeHeadingKeepsNavigatorGeometry",
+          "UnqualifiedNativeHeadingKeepsNavigatorGeometry"
+        ],
+        "characterization_env": null
+      }
+    }
   }
 }

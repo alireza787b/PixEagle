@@ -1764,8 +1764,15 @@ does not qualify pursuit, transition response, calibrated trim or hardware.
 
 Existing tailsitter traces identify an initial heading-boundary defect: with
 Hold yaw absent, ModeManager uses near-vertical FW-axis azimuth rather than
-the native MC heading aligned with front-transition rotation. A separate
-regression/repair proposal is in preparation. Later 50° bank is native
+the native MC heading aligned with front-transition rotation. Reviewed patches
+0006/0007 now encode this boundary and ten real-ModeManager functional cases.
+Finite explicit yaw still wins. Invalid or unqualified fallback leaves the
+incoming Navigator geometry intact; existing waypoint latch/reset is unchanged.
+One declarative regression record reuses the existing builder, source authority,
+dependencies and script. The default Transition regression remains unchanged.
+Root renews 63 focused build/source tests, API/configuration checks, schema and
+critical lint; native compilation/execution of the heading case remains pending.
+Later 50° bank is native
 orbit-capture feedback; neither the complete altitude loss nor its remedy is
 established by the initial-heading finding.
 

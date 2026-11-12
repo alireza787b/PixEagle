@@ -19,10 +19,47 @@ from tools import sih_baseline as sih
 
 
 ROOT = Path(__file__).resolve().parents[1]
-TRANSITION = "src/modules/flight_mode_manager/tasks/Transition/FlightTaskTransition.cpp"
-TEST_SOURCE = "src/modules/flight_mode_manager/tasks/Transition/FlightTaskTransitionTest.cpp"
-FEEDFORWARD_PATCH = "patches/0003-transition-planned-vertical-acceleration.patch"
-TARGET = "functional-FlightTaskTransition"
+
+
+def select_regression(repository: Path, selector: str | None) -> tuple[str, dict]:
+    spec = json.loads((repository / "native/dependencies.lock.json").read_text())["px4_functional_tests"]
+    name = spec["default_regression"] if selector is None else selector
+    if not isinstance(name, str) or name not in spec["regressions"]:
+        raise ValueError("Unknown native functional regression: " + str(name))
+    record = spec["regressions"][name]
+    fields = {"target", "test_source", "test_suite", "negative_patch", "original_files",
+              "expected_tests", "expected_negative_failures", "characterization_env"}
+    if not isinstance(record, dict) or set(record) != fields:
+        raise ValueError("Incomplete native functional regression: " + name)
+    if (any(not isinstance(record[key], str) for key in ["target", "test_source", "test_suite", "negative_patch"])
+            or not isinstance(record["original_files"], list)
+            or any(not isinstance(path, str) for path in record["original_files"])
+            or not isinstance(record["expected_negative_failures"], list)
+            or any(not isinstance(case, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", case)
+                   for case in record["expected_negative_failures"])
+            or record["characterization_env"] is not None and not isinstance(record["characterization_env"], str)):
+        raise ValueError("Invalid native functional regression field types: " + name)
+    paths = [record["test_source"], record["negative_patch"], *record["original_files"]]
+    if (not record["original_files"] or len(set(record["original_files"])) != len(record["original_files"])
+            or any(not isinstance(path, str) or Path(path).is_absolute() or ".." in Path(path).parts for path in paths)
+            or not record["test_source"].startswith("src/") or not record["test_source"].endswith("Test.cpp")
+            or not record["negative_patch"].startswith("patches/") or not record["negative_patch"].endswith(".patch")
+            or any(not path.startswith("src/") for path in record["original_files"])
+            or not re.fullmatch(r"functional-[A-Za-z_][A-Za-z0-9_]*", record["target"])
+            or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", record["test_suite"])
+            or type(record["expected_tests"]) is not int or record["expected_tests"] <= 1
+            or not record["expected_negative_failures"]
+            or len(set(record["expected_negative_failures"])) != len(record["expected_negative_failures"])
+            or len(record["expected_negative_failures"]) >= record["expected_tests"]
+            or record["characterization_env"] is not None
+            and not re.fullmatch(r"[A-Z][A-Z0-9_]*", record["characterization_env"])):
+        raise ValueError("Invalid native functional regression: " + name)
+    manifest = json.loads((repository / "native/px4/extension.json").read_text())
+    if (record["negative_patch"] not in manifest["patches"] or record["test_source"] not in manifest["files"]
+            or any(path not in manifest.get("original_files", {}) or path not in manifest["files"]
+                   for path in record["original_files"])):
+        raise ValueError("Selected regression is not present in the canonical extension: " + name)
+    return name, record
 
 
 def write_json(path: Path, value: object) -> None:
@@ -104,19 +141,22 @@ def prepare_dependencies(cache: Path, spec: dict) -> dict:
 
 
 @contextmanager
-def source_authority(repository: Path, variant: str):
+def source_authority(repository: Path, variant: str, regression: dict | None = None):
     """Only the negative control has a temporary, derived verification authority."""
     if variant == "candidate":
         yield repository
         return
+    if regression is None:
+        _, regression = select_regression(repository, None)
     with tempfile.TemporaryDirectory(prefix="px4-negative-authority-") as directory:
         temporary = Path(directory)
         shutil.copytree(repository / "native/px4", temporary / "native/px4")
         shutil.copyfile(repository / "native/dependencies.lock.json", temporary / "native/dependencies.lock.json")
         path = temporary / "native/px4/extension.json"
         manifest = json.loads(path.read_text())
-        del manifest["patches"][FEEDFORWARD_PATCH]
-        manifest["files"][TRANSITION] = manifest["original_files"][TRANSITION]
+        del manifest["patches"][regression["negative_patch"]]
+        for name in regression["original_files"]:
+            manifest["files"][name] = manifest["original_files"][name]
         path.write_text(json.dumps(manifest, indent=2) + "\n")
         yield temporary
 
@@ -188,7 +228,8 @@ def source_integrity(source: Path, expected: dict, policy: dict, provenance: dic
     return {"source_entries": len(expected), "generated_files": generated, "ignored_files": sorted(ignored)}
 
 
-def validate_result(path: Path, returncode: int, variant: str, expected: set[str], negative: set[str]) -> dict:
+def validate_result(path: Path, returncode: int, variant: str, expected: set[str], negative: set[str],
+                    *, suite: str | None = None) -> dict:
     if not path.is_file():
         raise ValueError("Functional build produced no native XML")
     root = ET.parse(path).getroot()
@@ -198,6 +239,9 @@ def validate_result(path: Path, returncode: int, variant: str, expected: set[str
     if (len(names) != len(expected) or set(names) != expected or root.findall(".//skipped")
             or root.findall(".//error") or root.get("disabled") != "0" or root.get("errors") != "0"
             or any(case.get("status") != "run" or case.get("result") != "completed" for case in cases)
+            or suite is not None and (len(root.findall("testsuite")) != 1
+                or root.find("testsuite").get("name") != suite
+                or any(case.get("classname") != suite for case in cases))
             or int(root.get("tests", -1)) != len(expected) or int(root.get("failures", -1)) != len(failures)):
         raise ValueError("Functional XML does not contain the complete executed regression")
     if returncode != (8 if variant == "baseline" else 0) or failures != (negative if variant == "baseline" else set()):
@@ -207,12 +251,12 @@ def validate_result(path: Path, returncode: int, variant: str, expected: set[str
 
 
 def build_functional(source: Path, output: Path, cache: Path, *, prepare_only: bool,
-                     verify_extension, repository: Path = ROOT) -> Path:
+                     verify_extension, repository: Path = ROOT, regression: str | None = None) -> Path:
     previous = os.environ.get("GIT_OPTIONAL_LOCKS")
     os.environ["GIT_OPTIONAL_LOCKS"] = "0"
     try:
         return _build_functional(source, output, cache, prepare_only=prepare_only,
-                                 verify_extension=verify_extension, repository=repository)
+                                 verify_extension=verify_extension, repository=repository, regression=regression)
     finally:
         if previous is None:
             os.environ.pop("GIT_OPTIONAL_LOCKS", None)
@@ -221,26 +265,31 @@ def build_functional(source: Path, output: Path, cache: Path, *, prepare_only: b
 
 
 def _build_functional(source: Path, output: Path, cache: Path, *, prepare_only: bool,
-                      verify_extension, repository: Path) -> Path:
+                      verify_extension, repository: Path, regression: str | None) -> Path:
     source, output, cache = (path.expanduser().resolve() for path in (source, output, cache))
     if source.is_relative_to(output) or output.is_relative_to(source) or cache.is_relative_to(source):
         raise ValueError("Keep functional build evidence/cache separate from operator source")
     if output.exists():
         raise ValueError("Use a new functional output directory; evidence is never overwritten")
+    regression_name, record = select_regression(repository, regression)
     firmware, compiler = sih.authority(repository)
     spec = json.loads((repository / "native/dependencies.lock.json").read_text())["px4_functional_tests"]
-    if spec["target"] != TARGET or set(spec["dependencies"]) != {"googletest", "re2", "abseil-cpp", "antlr_cpp"}:
-        raise ValueError("Unsupported native functional target/dependency set")
+    if set(spec["dependencies"]) != {"googletest", "re2", "abseil-cpp", "antlr_cpp"}:
+        raise ValueError("Unsupported native functional dependency set")
     submodules = [*compiler["submodules"], spec["fuzztest_path"]]
+    if (len(set(submodules)) != len(submodules) or any(not isinstance(path, str) or Path(path).is_absolute()
+            or ".." in Path(path).parts or not re.fullmatch(r"[A-Za-z0-9_./-]+", path) for path in submodules)):
+        raise ValueError("Invalid locked functional submodule paths")
     policy = json.loads((repository / "native/px4/functional-generated-files.json").read_text())
     if len(policy["outputs"]) != policy["expected_output_paths"]:
         raise ValueError("Functional generated-file policy is incomplete")
     provenance = verify_functional_source(source, repository, spec, verify_extension)
     original = source_snapshot(source, policy["outputs"])
     source_integrity(source, original, policy, provenance, operator=True)
-    expected = set(re.findall(r"^TEST_F\(TransitionAccelerationTest, (\w+)\)", (source / TEST_SOURCE).read_text(), re.M))
-    negative = set(spec["expected_negative_failures"])
-    if len(expected) != spec["expected_tests"] or not negative < expected:
+    expected = set(re.findall(r"^TEST_F\(" + re.escape(record["test_suite"]) + r", (\w+)\)",
+                              (source / record["test_source"]).read_text(), re.M))
+    negative = set(record["expected_negative_failures"])
+    if len(expected) != record["expected_tests"] or not negative < expected:
         raise ValueError("Canonical functional test names differ from the locked regression")
     output.mkdir(parents=True)
     result = {"scope": "Native functional reference/controller component only; no flight/adoption qualification",
@@ -251,6 +300,7 @@ def _build_functional(source: Path, output: Path, cache: Path, *, prepare_only: 
               "builder_sha256": sih.digest(Path(__file__)),
               "compiler_entrypoint_override": None,
               "operator_Git_optional_locks": "0",
+              "regression": regression_name, "regression_record": record,
               "prepared_only": prepare_only, "completed": False, "variants": {}}
     try:
         result["dependencies"] = prepare_dependencies(cache, spec)
@@ -263,32 +313,37 @@ def _build_functional(source: Path, output: Path, cache: Path, *, prepare_only: 
             if source_snapshot(copied, policy["outputs"]) != original:
                 raise ValueError("Operator source changed during functional preparation")
             if variant == "baseline":
-                patch = repository / "native/px4" / FEEDFORWARD_PATCH
+                patch = repository / "native/px4" / record["negative_patch"]
                 subprocess.run(["git", "-C", str(copied), "apply", "--reverse", "--check", str(patch)], check=True)
                 subprocess.run(["git", "-C", str(copied), "apply", "--reverse", str(patch)], check=True)
-            with source_authority(repository, variant) as effective:
-                checked = verify_functional_source(copied, effective, spec, verify_extension)
+            with source_authority(repository, variant, record) as effective:
                 snapshot = source_snapshot(copied, policy["outputs"])
                 changed = sorted(key for key in original.keys() | snapshot.keys() if original.get(key) != snapshot.get(key))
-                if changed != ([TRANSITION] if variant == "baseline" else []):
-                    raise ValueError("Negative control must omit only the Transition feedforward change")
+                if changed != (sorted(record["original_files"]) if variant == "baseline" else []):
+                    raise ValueError("Negative control must omit only the selected production patch")
+                checked = verify_functional_source(copied, effective, spec, verify_extension)
                 write_json(output / (variant + "-source-inputs.json"), snapshot)
                 state = {"effective_authority_sha256": sih.digest(effective / "native/px4/extension.json"),
                          "source_inputs_sha256": sih.digest(output / (variant + "-source-inputs.json")),
                          "changed_from_canonical": changed,
-                         "omitted_patch": FEEDFORWARD_PATCH if variant == "baseline" else None,
+                         "omitted_patch": record["negative_patch"] if variant == "baseline" else None,
                          "source": checked, "before": source_integrity(copied, snapshot, policy, checked)}
                 result["variants"][variant] = state
                 build = output / (variant + "-debug")
                 argv = ["docker", "run", "--rm", "--pull=never", "--network", "none", "--platform", compiler["platform"],
                         "--cpus", "2", "--memory", "4g", "--env", "PYTHONDONTWRITEBYTECODE=1",
                         "--env", "PX4_GIT_SUBMODULES=" + ";".join(submodules),
+                        "--env", "PX4_FUNCTIONAL_TARGET=" + record["target"],
+                        "--env", "PX4_FUZZTEST_PATH=" + spec["fuzztest_path"],
                         "--user", f"{os.getuid()}:{os.getgid()}", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
                         "--mount", f"type=bind,src={copied},dst=/source",
                         "--mount", f"type=bind,src={cache},dst=/deps,readonly",
                         "--mount", f"type=bind,src={build},dst=/build",
                         "--mount", f"type=bind,src={repository / 'native/px4'},dst=/plan,readonly",
                         compiler["toolchain_image"], "bash", "/plan/build-functional-tests.sh"]
+                if record["characterization_env"] is not None:
+                    at = argv.index("--user")
+                    argv[at:at] = ["--env", record["characterization_env"] + "=/build/native-characterization.csv"]
                 state["argv"] = argv
                 if prepare_only:
                     continue
@@ -302,14 +357,15 @@ def _build_functional(source: Path, output: Path, cache: Path, *, prepare_only: 
                         state["build_error"] = type(error).__name__ + ": " + str(error)
                 state["log_sha256"] = sih.digest(output / (variant + "-build.log"))
                 state["build_artifacts"] = {name: sih.digest(build / name) for name in
-                    ("native-tests.xml", "native-characterization.csv", TARGET, "build.ninja", "compile_commands.json")
+                    ("native-tests.xml", "native-characterization.csv", record["target"], "build.ninja", "compile_commands.json")
                     if (build / name).is_file()}
                 errors = {}
                 postchecks = {
                     "after": lambda: source_integrity(copied, snapshot, policy, checked),
                     "authority_after": lambda: verify_functional_source(copied, effective, spec, verify_extension),
                     "dependencies_after": lambda: verify_dependencies(cache, spec),
-                    "tests": lambda: validate_result(build / "native-tests.xml", state["raw_exit_code"], variant, expected, negative),
+                    "tests": lambda: validate_result(build / "native-tests.xml", state["raw_exit_code"], variant,
+                                                     expected, negative, suite=record["test_suite"]),
                 }
                 for name, check in postchecks.items():
                     try:
