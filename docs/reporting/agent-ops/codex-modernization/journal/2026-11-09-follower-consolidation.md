@@ -489,6 +489,17 @@ work continue; saved profiles, hardware and remote publication remain unchanged.
 The next source boundary uses qualified native MC heading for front-transition
 waypoint creation, preserving explicit yaw and Navigator geometry when fallback
 is unavailable. Ten real-ModeManager cases and one declarative record reuse the
-native functional builder. Root's 63 build/source checks pass; native compile
-and actual heading/altitude response remain pending. No second controller,
+native functional builder. Root's 63 build/source checks pass. Actual native
+execution gives exactly five semantic failures/five compatibility passes for
+the control and ten passes for the candidate. Independent audit verifies the
+real module/uORB tests and unchanged source; actual heading/altitude response
+remains pending. No second controller,
 transform, timer, runtime setting or production VTOL admission is introduced.
+
+Settled FW EOF and replacement captures complete the next target-free ownership
+components on their frozen e4b/R8 source: maximum altitude errors 1.670288 m and
+1.685760 m, with 36 ms active publication gaps. The replacement case retains one
+refused obsolete intent and an original final publication sharing its retirement
+timestamp; sub-tick ordering is unknown. Root verifies nine derived and 313
+raw/source hashes without rewriting verdicts. Matched heading-response firmware
+and SIH checks remain in progress; no hardware or saved profile changes.

@@ -1667,6 +1667,8 @@ native build. No firmware is deployed or VTOL admission opened.
 | MC late cleanup/new acquisition | Old token cannot cancel replacement; both gaps 36 ms | Component supported; original outer archive failure retained |
 | MC same-mode reselection R4 | 63 ACKs, zero refusals; 95 native publications; 36 ms gap; 0.785 m altitude error | Renewed component supported; old receipt remains immutable |
 | Settled VTOL FW normal Stop R2 | 61/61 ACKs; 93 native publication pairs; 36 ms gap; 1.786469 m altitude error; own Hold and five inactive plateaus | Target-free ownership component supported under declared standard-SIH trim |
+| Settled VTOL FW EOF R3 | 61/61 ACKs; 93 native pairs; 36 ms gap; 1.670288 m full-log altitude error; original expiry and own Hold | Target-free ownership component supported on frozen e4b/R8 |
+| Settled VTOL FW replacement R3 | 130/131 ACKs; one terminal refusal; 95 original + 104 replacement pairs; 36 ms gaps; 1.685760 m altitude error | Timestamp-resolved checks supported; final old pair shares retirement timestamp, so sub-tick ordering remains unknown |
 | Observe-to-intent phase exit | Both renewed forward cases retain the typed refused RPC and reconcile the original owner | Actual MC→FW race repair exercised; reverse-race fixture coverage remains separate |
 
 The same-mode diagnostic repair `5fa1f35d9` does not rewrite the failed R3 run.
@@ -1771,8 +1773,12 @@ incoming Navigator geometry intact; existing waypoint latch/reset is unchanged.
 One declarative regression record reuses the existing builder, source authority,
 dependencies and script. The default Transition regression remains unchanged.
 Root renews 63 focused build/source tests, API/configuration checks, schema and
-critical lint; native compilation/execution of the heading case remains pending.
-Later 50° bank is native
+critical lint. Actual native execution compiles/links all ten cases: the control
+has exactly five expected failures/five compatibility passes, and the candidate
+passes ten. Independent audit verifies 31 inputs, seven derived artifacts,
+unchanged operator source and only the intended production-source difference.
+The matched control SIH firmware build is complete; candidate compilation and
+actual heading/altitude response remain separate gates. Later 50° bank is native
 orbit-capture feedback; neither the complete altitude loss nor its remedy is
 established by the initial-heading finding.
 
@@ -1786,7 +1792,7 @@ The read-only entry point is
 `reports/sitl/follower-consolidation-20261111/s7-review-r6/index.html`.
 All four new 3D replays pass browser checks at 320, 400, 800 and 1440 pixels:
 actual pose/target and command values, playback/scrub/reset, draggable 3D, correct
-original verdicts, no overflow, page errors or external requests. The review's
+original verdicts, no overflow, page errors or external requests.
 The review links the current native results and actual plots. Raw reports are
 not modified.
 
@@ -1797,6 +1803,8 @@ Exact evidence under that run root:
 - `software-gates-s7-canonical-native-r1/`;
 - `software-gates-s7-ownership-matrix-r4/actual-r4-same-mode-audit-r1/`;
 - `software-gates-s7-ownership-fw-normal-stop-actual-audit-r1/`;
+- `software-gates-s7-ownership-fw-batch-actual-audit-r1/`;
+- `software-gates-s7-heading-functional-actual-audit-r1/`;
 - `software-gates-s7-transition-reverse-paired-actual-audit-r3/`;
 - `software-gates-s7-standard-vtol-native-only-hover-actual-audit-r1/`;
 - `software-gates-s7-standard-vtol-pitch-trim-actual-audit-r1/`;

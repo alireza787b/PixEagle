@@ -441,3 +441,11 @@ remain open. Integration work is unpublished.
   ownership component, including full-log 1.786469 m altitude and 36 ms active
   publication gap. The separate native transition-heading defect has a bounded
   regression proposal; full tailsitter response and S7 admission remain open.
+
+- **2026-11-12 — S7 heading regression and FW ownership renewal:** canonical
+  ModeManager tests execute all ten cases, with the exact five-failure control
+  and ten-pass candidate. The first matched SIH firmware build is complete;
+  actual response remains unqualified. Frozen-source FW EOF and replacement
+  checks stay within 2 m/100 ms. The old owner's final publication shares its
+  retirement timestamp, so within-tick ordering remains unknown. Full S7,
+  hardware and VTOL admission remain open; no saved tuning changes.

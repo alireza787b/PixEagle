@@ -282,9 +282,12 @@ the real ModeManager functional suite: explicit yaw wins, otherwise qualified
 raw MC heading; unavailable heading leaves Navigator geometry untouched. Its
 comparison omits only the heading patch, retaining the identical test seam and
 other patches. Expected results are five named failures/five compatibility
-passes, then ten candidate passes. Native execution and aircraft-response
-qualification of this new case remain pending; Python orchestration tests do
-not establish those outcomes. No operator runtime setting is added.
+passes, then ten candidate passes. Actual execution on `f6e6add02` confirms
+those outcomes through the real ModeManager module and uORB publications.
+Both 16,435-file inputs remain unchanged and differ only in the production
+heading source; each has exactly 28 known generated files. See the
+[independent audit](../reports/sitl/follower-consolidation-20261111/software-gates-s7-heading-functional-actual-audit-r1/REPORT.md).
+Aircraft-response qualification remains pending. No operator runtime setting is added.
 
 The acceleration patch supplies the derivative of Transition's existing
 two-second vertical-velocity filter. It does not add a second filter or change
