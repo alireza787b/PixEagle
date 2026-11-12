@@ -35,6 +35,9 @@ EAS is not ground velocity or a 3D command magnitude. The course arrow is
 horizontal direction only, while observed PX4 pose supplies the flight path.
 PX4's native FW forward axis is required for the FW glyph, including tailsitters;
 the renderer never substitutes or rotates the physical mount a second time.
+For native scenarios, actual settled phase selects that axis even after commands
+have stopped. A retained MC/FW command cannot select the aircraft's displayed
+orientation. Missing native FW-axis evidence remains unknown.
 
 The reusable template is
 `tools/sih_visualization_scenarios/gimbal-vector-native-fw.yaml`. Record the
@@ -116,6 +119,16 @@ Phase spans report actual range/altitude changes without replacing the overall
 response checks. In particular, a 6 m/s target can outrun the public 0.25 m/s²
 MC startup ramp in a short transition test. Successful ownership transitions
 alone do not prove target closure or altitude acceptance.
+
+For native publication-gap qualification, retain source-rate ULog topics rather
+than inferring gaps from decimated logger output. On the pinned S7 PX4 build,
+`fs/etc/logging/logger_topics.txt` augments the normal profile; it does not replace
+`SDLOG_PROFILE`. Stage the reviewed topic file before PX4 starts and retain its
+hash, subscription/status output and flushed ULog. An inactive-owner native-only
+comparison validates capture and plant behavior, not active external publication.
+Observed native source rates differ by topic; interval zero does not make a
+slow status source publish at control-loop rate. The current S7 runs and retained
+failures are summarized in the [consolidation checkpoint](../../reporting/agent-ops/codex-modernization/checkpoints/2026-11-09-follower-consolidation.md#s7-protocol-3-observed-renewal-and-tailsitter-baseline).
 
 Native component scenarios support `target_loss` stimuli using the existing
 fault shape: `{kind: target_loss, at_s: 4, duration_s: 2}`. Target truth continues

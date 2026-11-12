@@ -299,3 +299,18 @@ race without manufacturing completion. Its 291-check gate and root's 307-check
 combination pass. The separately frozen lifecycle/viewer independent review finds
 no concrete blocker; actual VTOL remains unqualified pending the next full
 renewal and native ULog-backed scenarios.
+
+The clean `66d54217a` gate now passes 6,339 unit, 196 integration and 155 Phase 0
+tests. Three actual airplane component renewals pass with 871 acknowledged wire
+intents, independently matched PX4 pose and native setpoint gaps ≤36 ms. The real
+tailsitter transition ends its original session correctly but fails altitude.
+Two completed native-only comparisons also fail the unchanged 2 m gate: 6.962 m
+on default transition speed, 8.414 m on the explicit disposable trim-speed test.
+The latter crosses its valid CAS threshold yet breaches altitude during transition;
+it is rejected as a configuration solution. All failed/partial captures remain.
+A reviewed read-only viewer fix selects tailsitter orientation from actual phase
+after release without changing raw evidence or verdicts. Full-rate logger capture
+is validated separately from active external publication. All simulators are
+stopped; actual restart/fault/transition qualification remains open in S7, with
+no hardware, profile, QGC or publication change. See the checkpoint for the table,
+interactive replay entry point and exact gate/audit paths.

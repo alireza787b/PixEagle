@@ -8,6 +8,10 @@ Current position (November 12): **S0–S6 component/software checkpoints complet
 S7 implementation in progress.** The S6 closeout below records 32 selected
 actual-PX4 component passes and retained failed history. Native causal ownership,
 transition-preserving release, clients, packaging and hardware remain open.
+The latest protocol-3 airplane renewal passes three component cases. Tailsitter
+transition ends its session correctly but fails altitude, including native-only
+comparisons; VTOL admission stays closed. See the
+[current S7 evidence](#s7-protocol-3-observed-renewal-and-tailsitter-baseline).
 
 Continuation on 2026-11-11: the current MC component selector has 28 passing
 cases. Broader software renewal exposed and repaired duplicate manager caching;
@@ -1243,3 +1247,77 @@ wrong completion still fails. The three-file delta passes 291 focused checks;
 root's combined tool/native renewal passes 307. Exact artifacts are in
 `software-gates-s7-vtol-tool-r2/`. No cycle auto-start or runtime action is added;
 the original 2 m altitude and independent 100 ms native-gap gates remain.
+
+### S7 protocol-3 observed renewal and tailsitter baseline
+
+The frozen clean `66d54217a` backend gate passes **6,339 unit** tests (11
+optional-GStreamer skips), **196 integration** and **155 Phase 0** tests, plus
+schema and route inventory. Exact commands, source hashes and logs are in
+`reports/sitl/follower-consolidation-20261111/software-gates-s7-final-r2/`.
+This renews the backend software, not all later report/tool edits or aircraft
+admission. The unchanged native inputs match the compiled protocol-3 bundle:
+66 native, 66 ASan/UBSan and 35 packaging checks remain separately attested.
+
+Three fresh airplane component cases pass on that revision and matching bundle:
+
+| Input / mount, altitude guidance off | Successful submitted intents | Independent target range | Maximum altitude deviation |
+| --- | ---: | ---: | ---: |
+| Gimbal / vertical | 291 | 162.96 → 37.27 m | 0.386 m |
+| Gimbal / horizontal | 290 | 162.95 → 36.25 m | 0.277 m |
+| Calibrated image / horizontal | 290 | 162.95 → 33.14 m | 0.291 m |
+
+All 871 actual wire intents are finite and acknowledged. The independent ULog
+audit matches 869 unique pose points exactly, observes no logger dropouts and
+finds active native FW setpoint gaps no larger than 36 ms, including release
+edges. Each original session reaches confirmed Hold with no later submission.
+The audit and three checked interactive replays are linked from
+`reports/sitl/follower-consolidation-20261111/s7-protocol3-fw-runtime-r1/index.html`.
+These remain simulated-input component checks, not optical or full-App acceptance.
+
+The first real `sihsim_xvert` MC-to-FW run correctly ends following on transition,
+reconciles its original release receipt and makes no further acquisition or intent.
+PX4 settles in FW Hold. **The run nevertheless fails** its unchanged 2 m
+altitude gate, at 6.806 m. Its MC ULog was decimated at 200 ms, so the separate
+100 ms active-publication gate remains **unverified**, not failed or passed.
+An earlier parser refusal occurred before arming and is retained separately.
+
+Native-only comparisons then remove external ownership and following entirely:
+
+| Disposable simulator comparison | Completion | Maximum relative-altitude deviation | Result |
+| --- | --- | ---: | --- |
+| Default transition threshold 7 m/s, first observer | incomplete | retained physical trace only | observer failure; not accepted |
+| Default transition threshold 7 m/s, corrected observer | complete | 6.962 m | altitude gate failed |
+| Explicit trim-speed transition threshold 15 m/s | complete | 8.414 m | altitude gate failed |
+
+The higher threshold is **not adopted**. Its selected sensor CAS crosses 15 m/s
+4 ms before actual FW entry, with no TECS underspeed flag in the FW capture;
+the altitude breach begins during the longer 8.764 s transition. Native level
+altitude objectives remain present. These comparisons demonstrate that failure
+also occurs without PixEagle pursuit; hover entry differs from the moving
+follower case, so they do not isolate a single cause or exonerate every release
+effect. Native transition, loiter and plant/controller behavior still need review.
+Do not transplant simulator gains or relax acceptance to conceal that failure.
+
+Raw captures, parameter diffs, exact binaries and independent audits remain under
+`s7-protocol3-xvert-runtime-r2/`, `s7-xvert-onboard-baseline-runtime-r{1,2}/`,
+`s7-xvert-trim15-baseline-runtime-r1/` and their `software-gates-s7-*audit*`
+directories. The approved additive logger preserves profile 131, records actual
+control topics at source rate and reports zero dropouts in completed native-only
+runs. Those runs have no external publisher and cannot qualify its timing.
+All these owned simulators are stopped; public/private saved profiles and
+hardware are unchanged.
+
+Review also found a report-only defect: after release in FW, the tailsitter glyph
+could use the physical MC body axis because no current FW command remained.
+The renderer now selects the supplied PX4 native axis from actual settled phase,
+independently of command intent. Nine regression cases and the full affected
+viewer suite cover missing axes, retained intents and legacy pure-FW traces.
+The failed replay's earlier derived view remains alongside its corrected version;
+raw traces, aircraft movement and failed verdict are unchanged. The source/patch
+manifest is `software-gates-s7-viewer-phase-axis-r1/review-manifest-r1.json`.
+
+S7 remains open: actual adapter-process recovery, sustained neutral release,
+full-rate active MC publication, both transition directions/mounts, standard VTOL,
+abort/rescue/takeover and fresh explicit Starts still require evidence. VTOL live
+admission stays closed. No QGC build, Pi deployment, push, tag or release follows
+from this partial renewal.

@@ -375,3 +375,12 @@ remain open. Integration work is unpublished.
   have software regressions; removed source paths are verified absent. Full
   backend gates pass. Transition-preserving release, actual VTOL fault evidence
   and hardware remain open; see the [consolidation checkpoint](checkpoints/2026-11-09-follower-consolidation.md).
+
+- **2026-11-12 — S7 tailsitter altitude baseline (open):** the protocol-3 airplane
+  renewal passes three component cases, but the actual tailsitter transition
+  fails the original 2 m altitude gate. Completed native-only default/trim-speed
+  comparisons also fail (6.962/8.414 m); raising transition speed is not a fix.
+  Original-session termination works, while active MC timing remains unverified
+  in its decimated capture. The read-only replay orientation defect is repaired
+  separately. VTOL admission remains closed; details, negative evidence and next
+  gates are in the same consolidation checkpoint.

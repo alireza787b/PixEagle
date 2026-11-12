@@ -191,6 +191,75 @@ def test_native_fw_axis_is_unknown_without_px4_frame_evidence():
     assert sample.vehicle_quaternion is not None
 
 
+def test_released_vtol_fw_pose_keeps_native_axis_without_command_intent():
+    scenario = replace(VisualizationScenario.from_yaml(NATIVE_SCENARIO),
+                       airframe="vtol", command_contract="vtol_external")
+    evidence = native_evidence()
+    evidence["tracker"] = evidence["published"] = []
+    evidence["state"][0].update(state="INACTIVE", authority_state="INACTIVE",
+        command_expected=False, observed_hold=True, publisher_running=False,
+        publisher_task_active=False, command_owner_released_at=0.)
+    sample = build_timeline(scenario, evidence)[0]
+    assert sample.aircraft_phase == "fixed_wing"
+    assert sample.vehicle_forward_ned == (1., 0., 0.)
+    assert sample.command_contract is None
+    assert sample.command == {}
+    assert sample.command_expected is False
+
+
+def test_actual_fw_axis_does_not_follow_a_retained_mc_command_contract():
+    scenario = replace(VisualizationScenario.from_yaml(NATIVE_SCENARIO),
+                       airframe="vtol", command_contract="vtol_external")
+    evidence = native_evidence()
+    evidence["published"][0]["command_intent"] = {
+        "control_type": "velocity_body_offboard", "fields": {
+            "vel_body_fwd": 2., "vel_body_right": 0., "vel_body_down": 0.}}
+    sample = build_timeline(scenario, evidence)[0]
+    assert sample.aircraft_phase == "fixed_wing"
+    assert sample.vehicle_forward_ned == (1., 0., 0.)
+    assert sample.command_contract == "velocity_body_offboard"
+    assert sample.command["vel_body_fwd"] == 2.
+
+
+@pytest.mark.parametrize("phase", ["multicopter", "vtol_transition", "unknown", None])
+def test_retained_fw_intent_cannot_choose_fw_pose_axis_without_actual_fw_phase(phase):
+    scenario = replace(VisualizationScenario.from_yaml(NATIVE_SCENARIO),
+                       airframe="vtol", command_contract="vtol_external")
+    evidence = native_evidence()
+    evidence["state"][0]["aircraft_phase"] = phase
+    sample = build_timeline(scenario, evidence)[0]
+    assert sample.aircraft_phase == phase
+    assert sample.vehicle_forward_ned == pytest.approx((0., 0., -1.), abs=1e-12)
+    assert sample.command_contract == "fixed_wing_external"
+
+
+def test_released_fw_axis_stays_unknown_when_native_frame_evidence_is_missing():
+    scenario = replace(VisualizationScenario.from_yaml(NATIVE_SCENARIO),
+                       airframe="vtol", command_contract="vtol_external")
+    evidence = native_evidence()
+    evidence["tracker"] = evidence["published"] = []
+    evidence["state"][0]["state"] = "INACTIVE"
+    del evidence["pose"][0]["native_fw_forward_ned"]
+    sample = build_timeline(scenario, evidence)[0]
+    assert sample.aircraft_phase == "fixed_wing"
+    assert sample.vehicle_forward_ned is None
+    assert sample.vehicle_quaternion is not None
+    assert sample.command_contract is None
+
+
+@pytest.mark.parametrize("native_axis", [True, False])
+def test_legacy_pure_fw_missing_phase_keeps_native_axis_requirement(native_axis):
+    scenario = VisualizationScenario.from_yaml(NATIVE_SCENARIO)
+    evidence = native_evidence()
+    evidence["state"] = []
+    if not native_axis:
+        del evidence["pose"][0]["native_fw_forward_ned"]
+    sample = build_timeline(scenario, evidence)[0]
+    assert sample.aircraft_phase is None
+    assert sample.vehicle_forward_ned == ((1., 0., 0.) if native_axis else None)
+    assert sample.command_contract == "fixed_wing_external"
+
+
 def test_vtol_report_changes_contract_only_from_current_intent(tmp_path):
     raw = yaml.safe_load(NATIVE_SCENARIO.read_text())
     raw["airframe"] = "vtol"

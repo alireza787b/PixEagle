@@ -552,7 +552,11 @@ def build_timeline(
             "gimbal_velocity_body": "velocity_body_offboard", "velocity_body_offboard": "velocity_body_offboard",
             "attitude_rate": "attitude_rate", "fixed_wing_external": "fixed_wing_external",
         }.get(scenario.command_contract)
-        if contract == "fixed_wing_external":
+        aircraft_phase = (state_record or {}).get("aircraft_phase")
+        native_scenario = scenario.command_contract in {"fixed_wing_external", "vtol_external"}
+        legacy_fw_basis = (aircraft_phase is None and scenario.command_contract == "fixed_wing_external"
+                           and contract == "fixed_wing_external")
+        if native_scenario and (aircraft_phase == "fixed_wing" or legacy_fw_basis):
             # PX4 supplies its already transformed FW axis for tailsitters.
             # Absence remains unknown; never apply a second mount rotation.
             forward = _vector((pose_record or {}).get("native_fw_forward_ned"))
@@ -589,7 +593,7 @@ def build_timeline(
             command_ned=command_ned,
             course_direction_ned=course_direction,
             command_contract=contract,
-            aircraft_phase=(state_record or {}).get("aircraft_phase"),
+            aircraft_phase=aircraft_phase,
             observed_eas_m_s=_optional_measurement((state_record or {}).get("observed_eas_m_s")),
             native_effective_eas_m_s=_optional_measurement((state_record or {}).get("native_effective_eas_m_s")),
             command=command,
