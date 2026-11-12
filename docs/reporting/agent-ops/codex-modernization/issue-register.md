@@ -433,3 +433,11 @@ remain open. Integration work is unpublished.
   Tailsitter threshold 10 removes initial underspeed but still fails the 2 m
   altitude gate at 7.303 m. Existing bank/attitude/actuator traces require review;
   no further tuning, saved default or hardware change is justified yet.
+
+- **2026-11-12 — S7 canonical native regression and FW Stop:** `e312400a0`
+  integrates the reviewed reference fix/tests through one native build command.
+  Actual positive/negative outputs match the independent build; all six backend
+  gates pass on unchanged source. Settled VTOL FW Stop passes its target-free
+  ownership component, including full-log 1.786469 m altitude and 36 ms active
+  publication gap. The separate native transition-heading defect has a bounded
+  regression proposal; full tailsitter response and S7 admission remain open.

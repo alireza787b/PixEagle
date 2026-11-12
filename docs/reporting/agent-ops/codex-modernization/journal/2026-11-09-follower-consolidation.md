@@ -476,3 +476,12 @@ actual test exits, XML and input integrity. Root renews 52 build/source tests,
 74 API/configuration checks, schema and critical lint. Its first actual compiler
 execution remains a separate gate. No new configuration authority, controller,
 firmware deployment or VTOL admission is introduced.
+
+Canonical `e312400a0` now passes the actual reusable native build, producing
+the exact reviewed R5 executables, plus all six backend gates. The interrupted
+R10 integration attempt remains recorded; R11 reuses its completed unit receipt
+and finishes the remaining stages on unchanged source. Recursive native input
+coverage adds exactly the 1,348 pinned submodule files. The separate settled-FW
+Stop component passes full-log altitude/publication/owner checks at 1.786469 m
+and 36 ms. Tailsitter transition-heading repair and remaining S7 fault/application
+work continue; saved profiles, hardware and remote publication remain unchanged.

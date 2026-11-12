@@ -1651,18 +1651,22 @@ QGC change or service has been deployed or published.
 
 ### S7 current diagnostics and native response
 
-The repaired baseline `e4b366d5e`/R8 and unmerged Transition candidate
-`fd57059a6`/R9 each pass all six clean-source gates: **6,391 unit, 196 integration,
+Canonical source `e312400a0` passes all six gates: **6,391 unit, 196 integration,
 155 Phase 0**, inventory, schema and critical lint. Eleven optional GStreamer
-checks are skipped. The adapter's 24 compiled inputs and SDK are unchanged and
-hash-correlated with their retained native build. Python repairs did not require
-another adapter build. No firmware candidate is adopted.
+checks are skipped. R10's unit stage completed successfully before its runner
+exited 143 during integration. R11 retains that unit receipt and reruns only
+unfinished stages after proving identical source bytes; the interrupted log and
+failed aggregate remain intact. The earlier paired-flight sources
+`e4b366d5e`/R8 and `fd57059a6`/R9 retain their separate green gates. The adapter's
+24 compiled inputs and SDK are unchanged and hash-correlated with their retained
+native build. No firmware is deployed or VTOL admission opened.
 
 | Actual isolated ownership check | Observed result | Scope |
 | --- | --- | --- |
 | MC owner EOF | Own release; 36 ms active gap; 0.761 m altitude error | Declared component supported on its earlier frozen source |
 | MC late cleanup/new acquisition | Old token cannot cancel replacement; both gaps 36 ms | Component supported; original outer archive failure retained |
 | MC same-mode reselection R4 | 63 ACKs, zero refusals; 95 native publications; 36 ms gap; 0.785 m altitude error | Renewed component supported; old receipt remains immutable |
+| Settled VTOL FW normal Stop R2 | 61/61 ACKs; 93 native publication pairs; 36 ms gap; 1.786469 m altitude error; own Hold and five inactive plateaus | Target-free ownership component supported under declared standard-SIH trim |
 | Observe-to-intent phase exit | Both renewed forward cases retain the typed refused RPC and reconcile the original owner | Actual MC→FW race repair exercised; reverse-race fixture coverage remains separate |
 
 The same-mode diagnostic repair `5fa1f35d9` does not rewrite the failed R3 run.
@@ -1743,8 +1747,27 @@ dependencies. It retains the expected failing comparison's real exit/XML and
 requires the complete candidate to pass. Partial builds, missing/skipped cases,
 changed inputs and unknown generated files refuse acceptance. Root renews
 52 build/source tests, 74 API/reload checks, schema and critical lint. The new
-command's actual compiler execution is the next gate; the earlier R5 build is
-kept separate from orchestration tests. See `native/README.md` for reproduction.
+command's actual compiler execution also passes the exact six-failure comparison
+and ten-pass candidate. Both executables, characterization CSVs, Ninja graphs
+and compile commands are byte-identical to their reviewed R5 counterparts.
+The new inventory hashes all 16,434 recursive files: its 1,348 extra entries are
+exactly the pinned submodule contents, with every old entry unchanged. Both
+copies retain only 28 known generated outputs and the operator checkout remains
+unchanged. See `native/README.md` for reproduction.
+
+The separate FW Stop audit covers the complete airborne preparation/ownership/
+closed-log interval, confirms actual −2° native consumption, all 61 positive
+ACKs, matched 93 lateral/longitudinal publications, correlated original-owner
+Hold and no later command/publication. This uses the frozen e4b/R8 source and
+old firmware, not the new canonical controller build. It contains no target and
+does not qualify pursuit, transition response, calibrated trim or hardware.
+
+Existing tailsitter traces identify an initial heading-boundary defect: with
+Hold yaw absent, ModeManager uses near-vertical FW-axis azimuth rather than
+the native MC heading aligned with front-transition rotation. A separate
+regression/repair proposal is in preparation. Later 50° bank is native
+orbit-capture feedback; neither the complete altitude loss nor its remedy is
+established by the initial-heading finding.
 
 Continue the native build verification and separate tailsitter performance investigation, then FW ownership,
 abort/rescue/takeover, fault, mount and full-application matrix. Do not tune a
@@ -1757,16 +1780,21 @@ The read-only entry point is
 All four new 3D replays pass browser checks at 320, 400, 800 and 1440 pixels:
 actual pose/target and command values, playback/scrub/reset, draggable 3D, correct
 original verdicts, no overflow, page errors or external requests. The review's
-24 links and seven images also load. Raw reports are not modified.
+The review links the current native results and actual plots. Raw reports are
+not modified.
 
 Exact evidence under that run root:
 
 - `software-gates-s7-final-r8/` and `software-gates-s7-final-r9/`;
+- `software-gates-s7-final-r10/` and `software-gates-s7-final-r11/`;
+- `software-gates-s7-canonical-native-r1/`;
 - `software-gates-s7-ownership-matrix-r4/actual-r4-same-mode-audit-r1/`;
+- `software-gates-s7-ownership-fw-normal-stop-actual-audit-r1/`;
 - `software-gates-s7-transition-reverse-paired-actual-audit-r3/`;
 - `software-gates-s7-standard-vtol-native-only-hover-actual-audit-r1/`;
 - `software-gates-s7-standard-vtol-pitch-trim-actual-audit-r1/`;
 - `software-gates-s7-xvert-threshold10-actual-audit-r1/`;
+- `software-gates-s7-xvert-lateral-causal-review-r1/`;
 - `../../native-guidance/transition-portable-native-20261112-r5/`;
 - `software-gates-s7-replay-browser-r2/`.
 
