@@ -13,7 +13,7 @@ from classes.fixed_wing_vector_guidance import FixedWingCommand, UpperSpeedPolic
 from classes.native_guidance import (
     ExternalModeIntent, GuidanceSessionIdentity, NativeCapabilities,
     NativeGuidanceClient, NativeGuidanceError,
-    NativeMulticopterCommand, NativeTransitionCommand, NativeAcquisitionContext, NativeReleaseReceipt,
+    NativeMulticopterCommand, NativeAcquisitionContext, NativeReleaseReceipt, PROTOCOL_VERSION,
 )
 from tests.unit.drone_interface.test_aircraft_state import aircraft_state, attitude_timing
 from tests.fixtures.native_ownership import acquisition, release_receipt, TOKEN
@@ -21,7 +21,7 @@ from tests.fixtures.native_ownership import acquisition, release_receipt, TOKEN
 
 CAPABILITIES = dict(runtime_id="test-adapter", px4_firmware="test-firmware",
                     external_mode_api_version=2, fixed_wing_supported=True,
-                    vtol_transition_supported=True, unrestricted_speed_supported=False, owned_mode_supported=True, owned_mode_id=23)
+                    multicopter_supported=True, unrestricted_speed_supported=False, owned_mode_supported=True, owned_mode_id=23)
 
 
 @pytest.fixture
@@ -59,8 +59,6 @@ async def native_server():
                     ).wire_payload()
                     result = behavior["release_receipt"]
                     result = behavior.get("handoff_reply", result)
-                elif operation == "phase":
-                    result = {"accepted_generation": payload["identity"]["guidance_generation"], "owner_confirmed": True}
                 else:
                     state = asdict(aircraft_state(binding=identity().binding))
                     state.pop("attitude_timing")
@@ -73,7 +71,7 @@ async def native_server():
                     behavior["release_receipt"] = release_receipt(behavior["acquisition"]).wire_payload()
                     behavior["owner_confirmed"] = False
                     break
-                response = dict(protocol_version=behavior.get("protocol_version", 2), request_id=request["request_id"],
+                response = dict(protocol_version=behavior.get("protocol_version", PROTOCOL_VERSION), request_id=request["request_id"],
                                 generation=request["generation"], success=True, payload=result)
                 if behavior["wrong_reply_id"]:
                     response["request_id"] -= 1
@@ -312,23 +310,6 @@ async def test_unconfirmed_handoff_does_not_retain_pursuit_authority(native_serv
         with pytest.raises(NativeGuidanceError, match="session_stale"):
             await client.submit(intent(), ownership_token=client.acquisition_token, acquisition=client.acquisition_context, circuit_breaker_active=False)
         assert requests[-1]["operation"] == "handoff"
-    finally:
-        await client.close()
-
-
-async def test_phase_advance_invalidates_old_commands_without_starting_a_new_session(native_server):
-    path, requests, _ = native_server
-    client = NativeGuidanceClient(path, clock=lambda: 100)
-    try:
-        await client.connect()
-        await client.engage(identity(), circuit_breaker_active=False)
-        await client.submit(intent(), ownership_token=client.acquisition_token, acquisition=client.acquisition_context, circuit_breaker_active=False)
-        new_identity = replace(identity(), guidance_generation=3)
-        await client.advance_generation(new_identity, ownership_token=client.acquisition_token, acquisition=client.acquisition_context)
-        with pytest.raises(NativeGuidanceError, match="session_stale"):
-            await client.submit(intent(sequence=2), ownership_token=client.acquisition_token, acquisition=client.acquisition_context, circuit_breaker_active=False)
-        await client.submit(intent(identity=new_identity), ownership_token=client.acquisition_token, acquisition=client.acquisition_context, circuit_breaker_active=False)
-        assert len([r for r in requests if r["operation"] == "engage"]) == 1
     finally:
         await client.close()
 
@@ -586,7 +567,7 @@ async def test_invalid_acquisition_observer_cannot_advance_wire_or_session(nativ
         await client.close()
 
 
-@pytest.mark.parametrize("operation", ["engage", "intent", "phase", "handoff"])
+@pytest.mark.parametrize("operation", ["engage", "intent", "handoff"])
 async def test_cancelled_exchange_closes_the_socket_and_revokes_control(native_server, operation):
     path, requests, behavior = native_server
     client = NativeGuidanceClient(path, clock=lambda: 100)
@@ -597,7 +578,6 @@ async def test_cancelled_exchange_closes_the_socket_and_revokes_control(native_s
     calls = {
         "engage": lambda: client.engage(identity(), circuit_breaker_active=False),
         "intent": lambda: client.submit(intent(), ownership_token=client.acquisition_token, acquisition=client.acquisition_context, circuit_breaker_active=False),
-        "phase": lambda: client.advance_generation(replace(identity(), guidance_generation=2), ownership_token=client.acquisition_token, acquisition=client.acquisition_context),
         "handoff": lambda: client.handoff(identity(), ownership_token=client.acquisition_token, acquisition=client.acquisition_context, reason="stop"),
     }
     task = asyncio.create_task(calls[operation]())
@@ -612,7 +592,7 @@ async def test_cancelled_exchange_closes_the_socket_and_revokes_control(native_s
     await client.close()
 
 
-@pytest.mark.parametrize("bad", [{"external_mode_api_version": 3}, {"fixed_wing_supported": "true"},
+@pytest.mark.parametrize("bad", [{"external_mode_api_version": 3}, {"fixed_wing_supported": "true"}, {"multicopter_supported": 1},
                                   {"runtime_id": ""}, {"unrestricted_speed_supported": 1}])
 def test_capability_version_and_types_are_explicit(bad):
     with pytest.raises(NativeGuidanceError):
@@ -621,7 +601,6 @@ def test_capability_version_and_types_are_explicit(bad):
 
 @pytest.mark.parametrize("command,phase", [
     (NativeMulticopterCommand(Vector3(1, 2, -1), .1), "multicopter"),
-    (NativeTransitionCommand(.1, 18), "vtol_transition"),
 ])
 async def test_phase_specific_native_contracts_use_one_owned_socket(native_server, command, phase):
     path, requests, _ = native_server
@@ -637,8 +616,40 @@ async def test_phase_specific_native_contracts_use_one_owned_socket(native_serve
         await client.close()
 
 
+def test_transition_shaped_command_is_not_an_external_intent_contract():
+    from types import SimpleNamespace
+    command = SimpleNamespace(course_rad=.1, equivalent_airspeed_m_s=18.)
+    with pytest.raises(ValueError, match='intent_command_invalid'):
+        intent(command=command)
+
+
+def test_obsolete_transition_capability_has_no_compatibility_alias():
+    legacy = dict(CAPABILITIES)
+    legacy['vtol_transition_supported'] = legacy.pop('multicopter_supported')
+    with pytest.raises(NativeGuidanceError, match='capabilities_contract_mismatch'):
+        NativeCapabilities.from_payload(legacy)
+
+
+async def test_unadvertised_native_mc_refuses_without_an_intent_write(native_server):
+    path, requests, behavior = native_server
+    behavior['capabilities'] = CAPABILITIES | {'multicopter_supported': False}
+    client = NativeGuidanceClient(path, clock=lambda: 100.)
+    try:
+        await client.connect()
+        await client.engage(identity(), circuit_breaker_active=False)
+        with pytest.raises(NativeGuidanceError, match='multicopter_contract_unavailable'):
+            await client.submit(intent(command=NativeMulticopterCommand(Vector3(1, 2, -1), .1)),
+                ownership_token=client.acquisition_token, acquisition=client.acquisition_context,
+                circuit_breaker_active=False)
+        assert [row['operation'] for row in requests] == ['hello', 'engage']
+    finally:
+        await client.close()
+
+
 def test_python_ownership_contract_matches_shared_cpp_golden_json():
     golden = json.loads((Path(__file__).parents[3] / 'native/px4_guidance/test/fixtures/ownership-protocol.json').read_text())
+    assert golden['protocol_version'] == PROTOCOL_VERSION == 3
+    assert golden['capabilities']['external_mode_api_version'] == 2
     assert NativeCapabilities.from_payload(golden['capabilities']).owned_mode_supported
     context = NativeAcquisitionContext.from_payload(golden['acquisition'])
     receipt = NativeReleaseReceipt.from_payload(golden['release_receipt'])
@@ -731,19 +742,17 @@ async def test_acquisition_ack_is_not_replaced_by_later_navigation_observation(n
         await client.close()
 
 
-async def test_phase_advance_keeps_original_acquisition_identity_and_handoff_token(native_server):
+async def test_handoff_keeps_original_acquisition_identity_and_token(native_server):
     path, requests, _ = native_server
     client = NativeGuidanceClient(path)
     await client.connect()
     try:
         await client.engage(identity(), circuit_breaker_active=False, ownership_token=TOKEN)
         original = client.acquisition_context
-        current = replace(identity(), guidance_generation=2)
-        await client.advance_generation(current, ownership_token=client.acquisition_token, acquisition=client.acquisition_context)
-        receipt = await client.handoff(current, ownership_token=client.acquisition_token, acquisition=client.acquisition_context, reason='operator_stop')
+        receipt = await client.handoff(identity(), ownership_token=client.acquisition_token, acquisition=client.acquisition_context, reason='operator_stop')
         assert receipt.acquisition == original
         assert receipt.acquisition.identity == identity()
-        assert requests[-1]['payload'] == {'identity': asdict(current), 'token': TOKEN, 'reason': 'operator_stop'}
+        assert requests[-1]['payload'] == {'identity': asdict(identity()), 'token': TOKEN, 'reason': 'operator_stop'}
     finally:
         await client.close()
 
@@ -794,9 +803,10 @@ async def test_missing_owned_mode_support_refuses_before_engage(native_server):
         await client.close()
 
 
-async def test_protocol_one_is_not_accepted_as_owned_mode_support(native_server):
+@pytest.mark.parametrize('old_version', [1, 2])
+async def test_old_protocol_refuses_at_hello_before_any_acquisition(native_server, old_version):
     path, requests, behavior = native_server
-    behavior['protocol_version'] = 1
+    behavior['protocol_version'] = old_version
     client = NativeGuidanceClient(path)
     with pytest.raises(NativeGuidanceError, match='connection_unavailable'):
         await client.connect()
@@ -839,7 +849,7 @@ async def test_invalid_engage_ack_cannot_create_authority(native_server, reply):
     assert [row['operation'] for row in requests] == ['hello', 'engage']
 
 
-@pytest.mark.parametrize('operation', ['handoff', 'intent', 'phase'])
+@pytest.mark.parametrize('operation', ['handoff', 'intent'])
 async def test_queued_equal_identity_replacement_cannot_adopt_new_acquisition(native_server, operation):
     path, requests, _ = native_server
     client = NativeGuidanceClient(path)
@@ -853,8 +863,6 @@ async def test_queued_equal_identity_replacement_cannot_adopt_new_acquisition(na
             'intent': lambda: client.submit(
                 intent(created_at_monotonic_s=client._clock(), expires_at_monotonic_s=client._clock() + .5),
                 ownership_token=TOKEN, circuit_breaker_active=False, acquisition=original),
-            'phase': lambda: client.advance_generation(replace(identity(), guidance_generation=2),
-                ownership_token=TOKEN, acquisition=original),
         }
         call = calls[operation]()
         task = asyncio.create_task(call)
@@ -923,7 +931,7 @@ async def test_pending_release_receipt_must_match_original_registered_mode(nativ
     assert not any(row['operation'] in {'engage', 'intent', 'handoff', 'phase'} for row in requests)
 
 
-@pytest.mark.parametrize('operation', ['handoff', 'intent', 'phase'])
+@pytest.mark.parametrize('operation', ['handoff', 'intent'])
 async def test_contextless_write_cannot_adopt_client_ack(native_server, operation):
     path, requests, _ = native_server
     client = NativeGuidanceClient(path)
@@ -933,7 +941,6 @@ async def test_contextless_write_cannot_adopt_client_ack(native_server, operatio
     calls = {
         'handoff': lambda: client.handoff(identity(), ownership_token=TOKEN, acquisition=None, reason='stop'),
         'intent': lambda: client.submit(intent(), ownership_token=TOKEN, acquisition=None, circuit_breaker_active=False),
-        'phase': lambda: client.advance_generation(replace(identity(), guidance_generation=2), ownership_token=TOKEN, acquisition=None),
     }
     try:
         with pytest.raises(NativeGuidanceError, match='context_changed'):
@@ -991,7 +998,7 @@ async def test_drain_and_reply_share_one_rpc_budget_and_retire_socket_immediatel
         async def readline(self):
             await asyncio.sleep(.07)
             self.completed = True
-            return json.dumps({'protocol_version': 2, 'request_id': 1, 'generation': 0,
+            return json.dumps({'protocol_version': PROTOCOL_VERSION, 'request_id': 1, 'generation': 0,
                                'success': True, 'payload': CAPABILITIES}).encode() + b'\n'
 
     client = NativeGuidanceClient(tmp_path / 'control.sock', request_timeout_s=.1)
@@ -1084,7 +1091,7 @@ async def test_exchange_write_stays_inline_after_dispatch_guards(tmp_path):
 
     class Reader:
         async def readline(self):
-            return json.dumps({'protocol_version': 2, 'request_id': 1, 'generation': 0,
+            return json.dumps({'protocol_version': PROTOCOL_VERSION, 'request_id': 1, 'generation': 0,
                                'success': True, 'payload': CAPABILITIES}).encode() + b'\n'
 
     client = NativeGuidanceClient(tmp_path / 'control.sock')

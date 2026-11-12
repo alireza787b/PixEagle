@@ -506,18 +506,16 @@ async def test_engagement_and_publication_share_accepted_image_observation_befor
         validate_before_dispatch(kwargs.get('before_dispatch'))
         validate_before_dispatch(kwargs.get('on_mode_dispatch'))
         client.session_identity = identity
-        if 'ownership_token' in kwargs:
-            client.acquisition_token = kwargs['ownership_token']
-            client.acquisition_context = acquisition(identity, token=client.acquisition_token, runtime_id='native-fixture')
-            return {'owner_confirmed': True, 'runtime_id': 'native-fixture',
-                    'acquisition': client.acquisition_context.wire_payload()}
+        client.acquisition_token = kwargs['ownership_token']
+        client.acquisition_context = acquisition(identity, token=client.acquisition_token, runtime_id='native-fixture')
+        return {'owner_confirmed': True, 'runtime_id': 'native-fixture',
+                'acquisition': client.acquisition_context.wire_payload()}
 
     client.matches_acquisition = lambda original, runtime, token, known=None: (
         client.acquisition_context is not None and original == client.acquisition_context.identity
         and runtime == client.acquisition_context.runtime_id and token == client.acquisition_context.token
         and (known is None or known == client.acquisition_context))
     client.engage = AsyncMock(side_effect=own)
-    client.advance_generation = AsyncMock(side_effect=own)
     env.now[0] = 100.1
     current = replace(env.state, sequence=2, observed_at_monotonic_s=100.1,
         attitude_timing=replace(env.state.attitude_timing, publication_timestamp_us=1_100_000,

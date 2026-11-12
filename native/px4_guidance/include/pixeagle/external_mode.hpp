@@ -25,7 +25,6 @@ public:
     void updateSetpoint(float dt_s) override;
 
     void acquire(const Identity& identity, double expires);
-    void advance(const Identity& previous, const Identity& next, OwnershipToken token);
     void submit(Intent intent, OwnershipToken token);
     void revoke();
     bool observedOwner() const;

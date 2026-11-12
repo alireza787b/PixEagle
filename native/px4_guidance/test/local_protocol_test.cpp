@@ -14,7 +14,7 @@ static Json identityJson() {
 }
 
 static Json requestJson(std::uint64_t id = 1) {
-    return {{"protocol_version", 2u}, {"request_id", id}, {"generation", 1u},
+    return {{"protocol_version", kProtocolVersion}, {"request_id", id}, {"generation", 1u},
             {"operation", "observe"}, {"payload", Json::object()}};
 }
 
@@ -46,9 +46,21 @@ TEST(LocalProtocol, AllCommandContractsAndNoSilentSpeedPolicyDowngrade) {
     EXPECT_EQ(phaseOf(decodeIntent(payload).objective), Phase::Multicopter);
     payload["phase"] = "vtol_transition";
     payload["command"] = {{"course_rad", .3}, {"equivalent_airspeed_m_s", 18.}};
-    EXPECT_EQ(phaseOf(decodeIntent(payload).objective), Phase::Transition);
+    EXPECT_THROW(decodeIntent(payload), std::invalid_argument);
+    EXPECT_THROW(decodeObjective(payload.at("command"), Phase::Transition), std::invalid_argument);
     payload["command"]["equivalent_airspeed_m_s"] = true;
     EXPECT_THROW(decodeIntent(payload), std::invalid_argument);
+}
+
+TEST(LocalProtocol, RequestReplyAndErrorShareOnePrivateVersion) {
+    const auto request = decodeRequest(requestJson().dump());
+    EXPECT_EQ(kProtocolVersion, 3u);
+    EXPECT_EQ(Json::parse(encodeReply(request, Json::object())).at("protocol_version"), kProtocolVersion);
+    EXPECT_EQ(Json::parse(encodeError(request, "refused")).at("protocol_version"), kProtocolVersion);
+    for (const auto old_version : {1u, 2u}) {
+        auto old = requestJson(); old["protocol_version"] = old_version;
+        EXPECT_THROW(decodeRequest(old.dump()), std::invalid_argument);
+    }
 }
 
 class LocalServerTest : public testing::Test {
@@ -102,6 +114,19 @@ TEST_F(LocalServerTest, UsesRealLocalSocketAndDisconnectInvalidatesOwnership) {
     close(peer); peer = -1;
     server.poll(10.01);
     EXPECT_EQ(disconnected, 1);
+}
+
+TEST_F(LocalServerTest, ProtocolTwoHelloRefusesBeforeAnyHandlerOrAcquire) {
+    int disconnected = 0, actions = 0;
+    LocalServer server(path, [&](const Request&) -> std::optional<Json> {
+        ++actions;
+        return Json::object();
+    }, [&] { ++disconnected; }, .5);
+    auto old = requestJson(); old["protocol_version"] = 2u; old["operation"] = "hello";
+    connectPeer(); sendRequest(old); server.poll(10.);
+    EXPECT_EQ(actions, 0);
+    EXPECT_EQ(disconnected, 1);
+    EXPECT_TRUE(receive().is_null());
 }
 
 TEST_F(LocalServerTest, DuplicateRequestsCloseConnectionWithoutExecutingAgain) {

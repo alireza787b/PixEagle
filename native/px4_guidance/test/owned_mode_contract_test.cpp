@@ -14,6 +14,8 @@ TEST(OwnedModeContract, GoldenAcquisitionAndReceiptUseTheOriginalIdentity) {
     std::ifstream file(PIXEAGLE_OWNERSHIP_PROTOCOL_FIXTURE);
     ASSERT_TRUE(file.good());
     const auto fixture = Json::parse(file);
+    EXPECT_EQ(fixture.at("protocol_version"), kProtocolVersion);
+    EXPECT_EQ(fixture.at("capabilities").at("external_mode_api_version"), 2);
     EXPECT_EQ(context().wire("test-adapter"), fixture.at("acquisition"));
     EXPECT_EQ(fixture.at("release_receipt").at("acquisition"), fixture.at("acquisition"));
     auto source = context();

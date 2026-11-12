@@ -7,6 +7,7 @@
 namespace pixeagle {
 
 using Json = nlohmann::json;
+constexpr std::uint64_t kProtocolVersion = 3;
 constexpr std::size_t kMaximumMessageBytes = 65536;
 
 inline void exactFields(const Json& object, const std::set<std::string>& names) {
@@ -57,10 +58,6 @@ inline Objective decodeObjective(const Json& value, Phase phase) {
         return MulticopterObjective{finiteNumber(value.at("velocity_north_m_s")), finiteNumber(value.at("velocity_east_m_s")),
                                      finiteNumber(value.at("velocity_down_m_s")), finiteNumber(value.at("yaw_rate_rad_s"))};
     }
-    if (phase == Phase::Transition) {
-        exactFields(value, {"course_rad", "equivalent_airspeed_m_s"});
-        return TransitionObjective{finiteNumber(value.at("course_rad")), finiteNumber(value.at("equivalent_airspeed_m_s"))};
-    }
     throw std::invalid_argument("native_phase_unknown");
 }
 
@@ -69,7 +66,7 @@ inline Intent decodeIntent(const Json& payload) {
     nonemptyString(payload.at("token"));
     const auto phase_name = nonemptyString(payload.at("phase"));
     const auto phase = phase_name == "fixed_wing" ? Phase::FixedWing
-        : phase_name == "multicopter" ? Phase::Multicopter : phase_name == "vtol_transition" ? Phase::Transition : Phase::Unknown;
+        : phase_name == "multicopter" ? Phase::Multicopter : Phase::Unknown;
     auto result = Intent{decodeIdentity(payload.at("identity")), unsignedInteger(payload.at("sequence")),
                         finiteNumber(payload.at("created_at_monotonic_s")), finiteNumber(payload.at("expires_at_monotonic_s")),
                         decodeObjective(payload.at("command"), phase)};
@@ -87,19 +84,19 @@ inline Request decodeRequest(const std::string& raw) {
     if (raw.empty() || raw.size() > kMaximumMessageBytes) throw std::invalid_argument("native_message_oversized");
     auto object = Json::parse(raw);
     exactFields(object, {"protocol_version", "request_id", "generation", "operation", "payload"});
-    if (unsignedInteger(object.at("protocol_version")) != 2) throw std::invalid_argument("native_protocol_unsupported");
+    if (unsignedInteger(object.at("protocol_version")) != kProtocolVersion) throw std::invalid_argument("native_protocol_unsupported");
     if (!object.at("payload").is_object()) throw std::invalid_argument("native_payload_invalid");
     return {unsignedInteger(object.at("request_id")), unsignedInteger(object.at("generation")),
             nonemptyString(object.at("operation")), object.at("payload")};
 }
 
 inline std::string encodeReply(const Request& request, const Json& payload) {
-    return Json{{"protocol_version", 2}, {"request_id", request.request_id}, {"generation", request.generation},
+    return Json{{"protocol_version", kProtocolVersion}, {"request_id", request.request_id}, {"generation", request.generation},
                 {"success", true}, {"payload", payload}}.dump() + "\n";
 }
 
 inline std::string encodeError(const Request& request, const std::string& code) {
-    return Json{{"protocol_version", 2}, {"request_id", request.request_id}, {"generation", request.generation},
+    return Json{{"protocol_version", kProtocolVersion}, {"request_id", request.request_id}, {"generation", request.generation},
                 {"success", false}, {"error_code", code}}.dump() + "\n";
 }
 

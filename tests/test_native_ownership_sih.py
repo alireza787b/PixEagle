@@ -230,12 +230,7 @@ async def test_baseline_uses_production_binding_and_only_publisher_without_a_tar
                 'observed_at_monotonic_s': now, 'vehicle_ned': [0., 0., -50.], 'quaternion_wxyz': [1., 0., 0., 0.],
                 'source': 'px4_dds_observed'}}
 
-    async def advance(owner, **kwargs):
-        assert kwargs['acquisition'] == client.acquisition_context
-        client.session_identity = owner
-
     client.engage, client.observe = AsyncMock(side_effect=engage), AsyncMock(side_effect=observe)
-    client.advance_generation = AsyncMock(side_effect=advance)
     client.submit = AsyncMock()
     client.handoff = AsyncMock(side_effect=lambda *args, **kwargs: release_receipt(client.acquisition_context))
     client.abort = Mock(side_effect=lambda: setattr(client, 'session_identity', None))

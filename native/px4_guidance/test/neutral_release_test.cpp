@@ -98,7 +98,9 @@ TEST(NeutralRelease, StopEofExpiryAndPhaseExitAllLatchTheSameTerminalContextWith
         EXPECT_TRUE(neutralDrainPermitted(source, evidence(source)));
         // A return to the starting phase or a new guidance generation cannot restart pursuit.
         auto replacement = source.identity; ++replacement.guidance_generation;
-        EXPECT_THROW({ source.requirePursuit(); lease.advance(source.identity, replacement); }, std::invalid_argument);
+        EXPECT_THROW(source.requirePursuit(), std::invalid_argument);
+        EXPECT_THROW(lease.submit({replacement, 2, 10.1, 10.3, FixedWingObjective{1.2, 25., -4., {}}},
+                                 10.1, Phase::FixedWing), std::invalid_argument);
         source.endPursuit(lease);
         EXPECT_EQ(source.expires, deadline);
         const auto neutral = std::get<FixedWingObjective>(neutralReleaseObjective(Phase::FixedWing, .3, 12., 18., 30.));

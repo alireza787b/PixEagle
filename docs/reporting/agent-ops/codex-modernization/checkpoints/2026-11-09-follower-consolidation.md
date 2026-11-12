@@ -1140,3 +1140,35 @@ The private phase-advance API is retired next in a coordinated protocol cutover.
 Actual transition preservation, process-restart limits and the MAVSDK queued-Stop
 boundary remain S7 gates. These software changes do not reopen VTOL/hardware
 admission or change the installed Pi/QGC.
+
+### S7 private protocol retirement and coherent candidate
+
+Private RPC 3 removes the old phase-advance operation, transition pursuit payload
+and lease-rearming branch. Settled native MC support is named
+`multicopter_supported`; observed transition state and internal neutral draining
+remain. PX4 ROS API 2 and firmware ownership contract 1 are unchanged. Protocol-2
+peers are refused before acquisition, and historical protocol-2 captures/fixtures
+remain byte-identical. Backend and adapter must be updated together at deployment.
+
+The integrated software gate passes 727 affected checks, 74 Phase 0 checks and
+118 client tests on actual Python 3.10. The matching adapter/main compiles with
+66 native, 66 ASan/UBSan and 35 packaging checks. Its unchanged SDK/message inputs
+are hash-attested rather than rebuilt. Root's 218-check integration renewal passes
+after repairing a test-only dependency on a previously loaded dynamic Parameters
+attribute; the failed ordering-sensitive test run remains retained. Full combined
+unit/integration renewal follows on the committed candidate. Source and bundle
+manifests are in `software-gates-s7-protocol3-integration-r1/` and
+`software-gates-s7-protocol3-build-r1/`.
+
+A separate read-only review closes the **pre-SDK** MAVSDK queued-Stop software
+gate without a production change: the existing inner captured-owner guard runs
+inside the queued coroutine immediately before SDK entry. All 22 authority
+tests pass on Python 3.12; installed 3.10/3.11 scheduling sources were inspected,
+not presented as integration runs. `software-gates-s7-mavsdk-queued-stop-r2/`
+records exact sources and scope. Stock SDK/gRPC requests already submitted remain
+potentially nonretractable; this is not PX4-level atomic release qualification.
+
+S7 still needs actual VTOL transition, failure and restart evidence on this
+candidate. Restart remains fail-closed: a new runtime cannot confirm an old
+receipt, disarm alone does not clear the App barrier, and no automatic Start is
+permitted. Hardware, publication and release gates remain separate.

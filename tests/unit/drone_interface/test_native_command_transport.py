@@ -18,7 +18,7 @@ from tests.fixtures.native_ownership import acquisition, release_receipt
 def setup_transport(state=None):
     state = state or aircraft_state()
     identity = GuidanceSessionIdentity("follow", state.binding, 1)
-    client = SimpleNamespace(session_identity=identity, submit=AsyncMock(), advance_generation=AsyncMock(),
+    client = SimpleNamespace(session_identity=identity, submit=AsyncMock(),
                              handoff=AsyncMock(return_value=release_receipt(acquisition(identity))), observe=AsyncMock(return_value={
                                  "aircraft_state": asdict(state), "owner_confirmed": True,
                                  "fresh": True, "rescue_active": False,
@@ -193,7 +193,6 @@ def test_transport_cannot_rebind_or_submit_transition_pursuit():
     with pytest.raises(ValueError):
         transport.accept_intent(transition)
     assert not hasattr(transport, "advance_generation")
-    client.advance_generation.assert_not_called()
     client.submit.assert_not_called()
 
 

@@ -19,7 +19,7 @@ from classes.fixed_wing_vector_guidance import FixedWingCommand, UpperSpeedPolic
 from classes.command_dispatch_guard import validate_before_dispatch
 
 
-PROTOCOL_VERSION = 2
+PROTOCOL_VERSION = 3
 MAX_MESSAGE_BYTES = 65536
 DEFAULT_SOCKET_PATH = Path("/run/pixeagle/guidance.sock")
 
@@ -145,7 +145,7 @@ class NativeCapabilities:
     px4_firmware: str
     external_mode_api_version: int
     fixed_wing_supported: bool
-    vtol_transition_supported: bool
+    multicopter_supported: bool
     unrestricted_speed_supported: bool
     owned_mode_supported: bool = False
     owned_mode_id: int | None = None
@@ -160,7 +160,7 @@ class NativeCapabilities:
                 raise NativeGuidanceError("native_identity_missing")
         if type(payload["external_mode_api_version"]) is not int or payload["external_mode_api_version"] != 2:
             raise NativeGuidanceError("native_external_mode_api_unsupported")
-        for name in ("fixed_wing_supported", "vtol_transition_supported", "unrestricted_speed_supported", "owned_mode_supported"):
+        for name in ("fixed_wing_supported", "multicopter_supported", "unrestricted_speed_supported", "owned_mode_supported"):
             if type(payload[name]) is not bool:
                 raise NativeGuidanceError("native_capabilities_invalid")
         if not _unsigned(payload["owned_mode_id"], 8):
@@ -185,31 +185,17 @@ class NativeMulticopterCommand:
 
 
 @dataclass(frozen=True)
-class NativeTransitionCommand:
-    course_rad: float
-    equivalent_airspeed_m_s: float
-
-    def __post_init__(self):
-        finite_number(self.course_rad, "native_transition_course")
-        if finite_number(self.equivalent_airspeed_m_s, "native_transition_speed") <= 0:
-            raise ValueError("native_transition_speed_not_positive")
-
-    def wire_payload(self) -> dict:
-        return asdict(self)
-
-
-@dataclass(frozen=True)
 class ExternalModeIntent:
     identity: GuidanceSessionIdentity
     sequence: int
     created_at_monotonic_s: float
     expires_at_monotonic_s: float
-    command: FixedWingCommand | NativeMulticopterCommand | NativeTransitionCommand
+    command: FixedWingCommand | NativeMulticopterCommand
 
     def __post_init__(self):
         if not isinstance(self.identity, GuidanceSessionIdentity):
             raise ValueError("intent_identity_invalid")
-        if not isinstance(self.command, (FixedWingCommand, NativeMulticopterCommand, NativeTransitionCommand)):
+        if not isinstance(self.command, (FixedWingCommand, NativeMulticopterCommand)):
             raise ValueError("intent_command_invalid")
         if type(self.sequence) is not int or self.sequence < 0:
             raise ValueError("intent_sequence_invalid")
@@ -222,9 +208,7 @@ class ExternalModeIntent:
     def phase(self) -> AirframePhase:
         if isinstance(self.command, FixedWingCommand):
             return AirframePhase.FIXED_WING
-        if isinstance(self.command, NativeMulticopterCommand):
-            return AirframePhase.MULTICOPTER
-        return AirframePhase.VTOL_TRANSITION
+        return AirframePhase.MULTICOPTER
 
 
 class NativeGuidanceClient:
@@ -478,8 +462,8 @@ class NativeGuidanceClient:
                     and intent.command.upper_speed_policy is UpperSpeedPolicy.NO_UPPER_SPEED_BOUND
                     and not self.capabilities.unrestricted_speed_supported):
                 raise NativeGuidanceError("unrestricted_speed_not_supported")
-            if intent.phase is not AirframePhase.FIXED_WING and not self.capabilities.vtol_transition_supported:
-                raise NativeGuidanceError("native_vtol_contract_unavailable")
+            if intent.phase is AirframePhase.MULTICOPTER and not self.capabilities.multicopter_supported:
+                raise NativeGuidanceError("native_multicopter_contract_unavailable")
             result = await self._exchange("intent", {
                 "identity": asdict(intent.identity), "token": token, "sequence": intent.sequence,
                 "created_at_monotonic_s": intent.created_at_monotonic_s,
@@ -492,30 +476,6 @@ class NativeGuidanceClient:
                 await self._disconnect()
                 raise NativeGuidanceError("native_publication_unconfirmed")
             self._last_sequence = intent.sequence
-            return result
-
-    async def advance_generation(self, identity: GuidanceSessionIdentity, *, ownership_token: str,
-                                 acquisition: NativeAcquisitionContext) -> dict:
-        """Invalidate the old contract atomically without re-acquiring aircraft control."""
-        async with self._lock:
-            token = validate_ownership_token(ownership_token)
-            if (not isinstance(acquisition, NativeAcquisitionContext) or token != self._ownership_token
-                    or self._acquisition != acquisition):
-                raise NativeGuidanceError("native_acquisition_context_changed")
-            previous = self._identity
-            if (previous is None or identity.follow_session_id != previous.follow_session_id
-                    or identity.binding != previous.binding
-                    or identity.guidance_generation <= previous.guidance_generation):
-                raise NativeGuidanceError("native_phase_context_invalid")
-            result = await self._exchange("phase", {"previous_identity": asdict(previous), "token": token,
-                                                     "identity": asdict(identity)})
-            if (type(result.get("accepted_generation")) is not int
-                    or result["accepted_generation"] != identity.guidance_generation
-                    or result.get("owner_confirmed") is not True):
-                await self._disconnect()
-                raise NativeGuidanceError("native_phase_unconfirmed")
-            self._identity = identity
-            self._last_sequence = -1
             return result
 
     async def handoff(self, identity: GuidanceSessionIdentity, *, reason: str, ownership_token: str,

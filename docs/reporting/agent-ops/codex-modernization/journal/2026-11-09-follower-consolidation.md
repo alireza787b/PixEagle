@@ -261,3 +261,13 @@ the same read-only reconciliation now retains unresolved context and the Start
 barrier. Phase gates pass 708/87 checks, the link-loss delta 487 and root integration 67;
 full combined renewal follows private-protocol retirement. Actual VTOL/MAVSDK
 release boundaries, deployment and hardware acceptance remain open.
+
+Private RPC 3 now removes the remaining phase-advance/transition-pursuit route
+and advertises settled MC support explicitly. Old peers fail before acquisition;
+historical evidence and the separate PX4 API/firmware versions are unchanged.
+The combined scoped gate passes 727 checks; matching native/sanitizer gates pass
+66 each, with 35 packaging checks. Root's 218-check renewal corrects a test-only
+dynamic-config setup dependency. A source-backed 22-test review confirms the
+existing pre-SDK MAVSDK Stop fence, with no new production layer or claim that
+in-flight SDK/gRPC commands can be recalled. Full combined renewal and actual
+VTOL/restart tests are next; no hardware or remote publication occurred.

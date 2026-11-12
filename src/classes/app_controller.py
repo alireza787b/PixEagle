@@ -3296,7 +3296,7 @@ class AppController:
         phases = self.follower.follower.setpoint_handler.profile_config.get("native_phase_contracts", {})
         if state.phase not in {AirframePhase.MULTICOPTER, AirframePhase.FIXED_WING} or state.phase.value not in phases:
             raise RuntimeError("follower_airframe_strategy_unavailable")
-        if state.is_vtol and not capabilities.vtol_transition_supported:
+        if state.is_vtol and not capabilities.multicopter_supported:
             raise RuntimeError("native_vtol_contract_unavailable")
         layout = AircraftLayout(getattr(Parameters, "AIRFRAME_LAYOUT", "AUTO"))
         if not layout.matches(state):

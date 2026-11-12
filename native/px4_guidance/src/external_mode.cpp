@@ -195,15 +195,6 @@ void ExternalMode::acquire(const Identity& identity, double expires) {
     _neutral_drain_failure.clear();
 }
 
-void ExternalMode::advance(const Identity& previous, const Identity& next, OwnershipToken token) {
-    if (!_ownership_context) throw std::invalid_argument("native_session_stale");
-    _ownership_context->requireToken(token);
-    endPursuitOnPhaseExit();
-    _ownership_context->requirePursuit();
-    if (!observedOwner()) { revoke(); throw std::invalid_argument("native_ownership_lost"); }
-    _lease.advance(previous, next);
-}
-
 void ExternalMode::submit(Intent intent, OwnershipToken token) {
     if (!_ownership_context) throw std::invalid_argument("native_session_stale");
     _ownership_context->requireToken(token);

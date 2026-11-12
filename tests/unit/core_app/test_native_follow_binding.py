@@ -47,9 +47,6 @@ def fixture(*, phase=AirframePhase.FIXED_WING, is_vtol=True):
         return {"owner_confirmed": True, "runtime_id": client.acquisition_context.runtime_id,
                 "acquisition": client.acquisition_context.wire_payload()}
 
-    async def advance(identity, **_):
-        client.session_identity = identity
-
     def abort():
         client.session_identity = None
 
@@ -58,7 +55,6 @@ def fixture(*, phase=AirframePhase.FIXED_WING, is_vtol=True):
                 "fresh": True, "rescue_active": False, "nav_state": 23, "nav_state_timestamp": 300, "release_receipt": None}
 
     client.engage = AsyncMock(side_effect=engage)
-    client.advance_generation = AsyncMock(side_effect=advance)
     client.observe = AsyncMock(side_effect=packet)
     client.abort.side_effect = abort
     client.matches_acquisition = lambda identity, runtime, token, known=None: (
@@ -134,7 +130,6 @@ async def test_engagement_binds_one_generation_and_starts_with_a_phase_safe_obje
     f = fixture()
     baseline = await f.binding.engage()
     assert f.client.engage.await_count == 1
-    f.client.advance_generation.assert_not_called()
     assert baseline.guidance_identity == f.client.session_identity
     assert baseline.control_type == "fixed_wing_external"
     assert baseline.fields["height_rate_m_s"] == 0.
@@ -159,7 +154,6 @@ async def test_transition_ends_one_owner_and_does_not_reacquire_or_rebind(phase)
     assert f.guidance.identity.guidance_generation == original.guidance_generation + 1
     assert f.binding.transport.identity == original
     f.client.engage.assert_awaited_once()
-    f.client.advance_generation.assert_not_called()
     with pytest.raises(NativeGuidanceError, match="follow_stopping"):
         await f.binding.on_observation(f.state, f.packet(), None)
     result = await f.binding.stop("transition_cleanup")
@@ -191,7 +185,6 @@ async def test_retarget_loss_uses_frozen_configuration_without_phase_rebinding()
     f.clock[0] += .1
     await f.observation()
     assert f.continuity.policy.max_coast_time_s == 8.
-    f.client.advance_generation.assert_not_called()
     f.continuity.evaluate(f.target[0], f.binding.context(f.base), f.guidance.baseline())
     assert f.continuity.get_status()["loss_elapsed_s"] == pytest.approx(.2)
 
@@ -292,7 +285,6 @@ async def test_failed_initial_observation_revokes_partial_engagement(fresh, resc
         await f.binding.engage()
     assert not f.binding.owner_confirmed
     f.client.abort.assert_called_once()
-    f.client.advance_generation.assert_not_called()
 
 
 async def test_ack_activation_is_frozen_before_a_later_observation_epoch():
@@ -403,7 +395,6 @@ async def test_stop_during_delayed_engage_ack_cannot_revive_binding():
         await task
     assert not f.binding.owner_confirmed
     f.client.observe.assert_not_called()
-    f.client.advance_generation.assert_not_called()
     f.client.submit.assert_not_called()
     f.client.handoff.assert_not_called()
 

@@ -89,33 +89,19 @@ public:
             throw std::invalid_argument("native_session_invalid");
         _identity = std::move(identity);
         _expires = expires;
-        _phase_invalidated = false;
         _contract_phase.reset();
-        _last_sequence.reset();
-    }
-
-    void advance(const Identity& previous, Identity next) {
-        if (!_identity || !(*_identity == previous)) throw std::invalid_argument("native_session_stale");
-        Identity expected = previous;
-        expected.guidance_generation = next.guidance_generation;
-        if (!(expected == next) || next.guidance_generation <= previous.guidance_generation)
-            throw std::invalid_argument("native_phase_context_invalid");
-        _identity = std::move(next);
-        _phase_invalidated = false;
-        _contract_phase.reset();
-        _intent.reset();
         _last_sequence.reset();
     }
 
     void submit(Intent intent, double now, Phase observed_phase) {
         if (!_identity || !(*_identity == intent.identity)) throw std::invalid_argument("native_session_stale");
         if (observed_phase == Phase::Unknown) { revoke(); throw std::invalid_argument("native_phase_unknown"); }
+        if (observed_phase == Phase::Transition) { revoke(); throw std::invalid_argument("native_transition_pursuit_unsupported"); }
         if (_contract_phase && *_contract_phase != observed_phase) {
-            _intent.reset();
-            _phase_invalidated = true;
+            revoke();
+            throw std::invalid_argument("native_phase_changed");
         }
         if (now >= _expires) { revoke(); throw std::invalid_argument("native_intent_expired"); }
-        if (_phase_invalidated) throw std::invalid_argument("native_phase_generation_required");
         if (!std::isfinite(now) || !std::isfinite(intent.created) || !std::isfinite(intent.expires)
                 || intent.created > now || now >= intent.expires || intent.expires <= intent.created)
             throw std::invalid_argument("native_intent_expired");
@@ -130,13 +116,11 @@ public:
     }
 
     const Intent* current(double now, Phase phase, bool owner, bool fresh, bool rescue) {
-        if (!owner || !fresh || rescue || phase == Phase::Unknown || !std::isfinite(now)) { revoke(); return nullptr; }
+        if (!owner || !fresh || rescue || phase == Phase::Unknown || phase == Phase::Transition || !std::isfinite(now)) { revoke(); return nullptr; }
         if (now >= _expires) { revoke(); return nullptr; }
         if (!_intent) return nullptr;
         if (now < _intent->created || now >= _intent->expires) { revoke(); return nullptr; }
-        // A phase edge invalidates old commands immediately; only an explicit
-        // higher generation can install the new contract.
-        if (phaseOf(_intent->objective) != phase) { _intent.reset(); _phase_invalidated = true; return nullptr; }
+        if (phaseOf(_intent->objective) != phase) { revoke(); return nullptr; }
         return &*_intent;
     }
 
@@ -145,7 +129,6 @@ public:
 
 private:
     double _expires{};
-    bool _phase_invalidated{};
     std::optional<Phase> _contract_phase;
     std::optional<Identity> _identity;
     std::optional<std::uint64_t> _last_sequence;

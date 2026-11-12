@@ -65,7 +65,7 @@ int main(int argc, char** argv) {
                 if (firmware != PIXEAGLE_EXPECTED_FIRMWARE_HASH)
                     throw std::invalid_argument("native_firmware_revision_mismatch");
                 return Json{{"runtime_id", runtime}, {"px4_firmware", firmware}, {"external_mode_api_version", 2},
-                    {"fixed_wing_supported", true}, {"vtol_transition_supported", initial->is_vtol},
+                    {"fixed_wing_supported", true}, {"multicopter_supported", initial->is_vtol},
                     {"unrestricted_speed_supported", false}, {"owned_mode_supported", mode.ownedContractAvailable()},
                     {"owned_mode_id", mode.id()}};
             }
@@ -140,17 +140,6 @@ int main(int argc, char** argv) {
                 mode.submit(intent, token);
                 return Json{{"accepted_sequence", intent.sequence}, {"owner_confirmed", mode.observedOwner()},
                     {"publications", mode.publications()}};
-            }
-            if (request.operation == "phase") {
-                exactFields(request.payload, {"previous_identity", "identity", "token"});
-                const auto token = decodeOwnershipToken(request.payload.at("token"));
-                const auto previous = decodeIdentity(request.payload.at("previous_identity"));
-                const auto next = decodeIdentity(request.payload.at("identity"));
-                if (!observations.bindingMatches(next) || snapshot.is_null())
-                    throw std::invalid_argument("native_aircraft_context_unavailable");
-                mode.advance(previous, next, token);
-                pending_identity = next;
-                return Json{{"accepted_generation", next.guidance_generation}, {"owner_confirmed", true}};
             }
             if (request.operation == "handoff") {
                 exactFields(request.payload, {"identity", "token", "reason"});

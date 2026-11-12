@@ -131,6 +131,44 @@ async def test_read_only_native_preparation_failure_cannot_send_mavsdk_hold(app)
     app.f.client.engage.assert_not_called()
 
 
+@pytest.mark.parametrize("phase", ["multicopter", "fixed_wing"])
+@pytest.mark.parametrize("mc_supported", [False, True])
+async def test_native_preparation_uses_protocol3_mc_capability_before_acquisition(app, monkeypatch, phase, mc_supported):
+    from dataclasses import replace
+
+    from classes.aircraft_state import AirframePhase
+
+    ctrl = app.ctrl
+    state = replace(app.f.state, phase=AirframePhase(phase), is_vtol=True, is_tailsitter=True)
+    capabilities = replace(app.f.guidance.phase_owner.capabilities, multicopter_supported=mc_supported)
+    ctrl.px4_interface.prepare_native_guidance = AsyncMock(return_value=capabilities)
+    ctrl.px4_interface.get_aircraft_state = Mock(return_value=state)
+    ctrl.px4_interface.get_telemetry_stale_timeout_s = Mock(return_value=.75)
+    ctrl.px4_interface.native_guidance_client = app.f.client
+    ctrl._following_session_id = "prepared-session"
+    ctrl._following_continuity_config = CONFIG
+    create = Mock(return_value=app.f.guidance)
+    ctrl.follower = SimpleNamespace(follower=SimpleNamespace(
+        profile_name="gm_velocity_vector", create_airframe_session=create,
+        setpoint_handler=SimpleNamespace(profile_config={"native_phase_contracts": {
+            "multicopter": "velocity_body_offboard", "fixed_wing": "fixed_wing_external"}})))
+    binding = Mock()
+    construct = Mock(return_value=binding)
+    monkeypatch.setattr("classes.app_controller.NativeFollowBinding", construct)
+    monkeypatch.setattr(Parameters, "AIRFRAME_LAYOUT", "AUTO", raising=False)
+    if mc_supported:
+        assert await AppController._prepare_native_follow_binding(ctrl) is binding
+        assert create.call_args.kwargs["initial_phase"] is state.phase
+        construct.assert_called_once()
+    else:
+        with pytest.raises(RuntimeError, match="native_vtol_contract_unavailable"):
+            await AppController._prepare_native_follow_binding(ctrl)
+        create.assert_not_called()
+        construct.assert_not_called()
+    app.f.client.engage.assert_not_called()
+    ctrl.px4_interface.start_offboard_mode.assert_not_called()
+
+
 async def test_native_stop_joins_publisher_before_native_handoff(app):
     ctrl = app.ctrl
     assert not (await ctrl._connect_px4_on_flight_loop())["errors"]

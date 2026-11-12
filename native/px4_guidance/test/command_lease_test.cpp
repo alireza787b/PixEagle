@@ -24,18 +24,16 @@ TEST(CommandLease, QueuedRequestsCannotRenewTheLease) {
     EXPECT_THROW(lease.submit(intent(), 9.9, Phase::FixedWing), std::invalid_argument);
 }
 
-TEST(CommandLease, SupersededGenerationsCannotPublish) {
+TEST(CommandLease, SessionIdentityCannotBeReplacedWithinAnAcquisition) {
     CommandLease lease;
     auto first = identity(), next = first;
     next.guidance_generation++;
     lease.acquire(first, 10., 10.3);
     lease.submit(intent(), 10.1, Phase::FixedWing);
-    lease.advance(first, next);
-    EXPECT_EQ(lease.current(10.2, Phase::FixedWing, true, true, false), nullptr);
-    EXPECT_THROW(lease.submit(intent(), 10.1, Phase::FixedWing), std::invalid_argument);
     auto updated = intent(); updated.identity = next; updated.sequence = 0;
-    lease.submit(updated, 10.1, Phase::FixedWing);
+    EXPECT_THROW(lease.submit(updated, 10.1, Phase::FixedWing), std::invalid_argument);
     EXPECT_NE(lease.current(10.2, Phase::FixedWing, true, true, false), nullptr);
+    EXPECT_EQ(*lease.identity(), first);
 }
 
 TEST(CommandLease, TakeoverRescueAndStaleStateRevokeRatherThanResume) {
@@ -53,6 +51,7 @@ TEST(CommandLease, PhaseChangesInvalidatePreviousObjective) {
     lease.acquire(identity(), 10., 10.3); lease.submit(intent(), 10.1, Phase::FixedWing);
     EXPECT_EQ(lease.current(10.2, Phase::Transition, true, true, false), nullptr);
     EXPECT_EQ(lease.current(10.21, Phase::FixedWing, true, true, false), nullptr);
+    EXPECT_FALSE(lease.identity());
 }
 
 TEST(CommandLease, PhaseCannotChangeBeforeThePublicationTimerObservesIt) {
@@ -64,22 +63,29 @@ TEST(CommandLease, PhaseCannotChangeBeforeThePublicationTimerObservesIt) {
     EXPECT_THROW(lease.submit(next, 10.2, Phase::Multicopter), std::invalid_argument);
     EXPECT_EQ(lease.current(10.21, Phase::Multicopter, true, true, false), nullptr);
     auto generation = identity(); generation.guidance_generation++;
-    lease.advance(identity(), generation);
     next.identity = generation;
-    lease.submit(next, 10.21, Phase::Multicopter);
-    EXPECT_NE(lease.current(10.22, Phase::Multicopter, true, true, false), nullptr);
+    EXPECT_THROW(lease.submit(next, 10.21, Phase::Multicopter), std::invalid_argument);
+    EXPECT_EQ(lease.current(10.22, Phase::Multicopter, true, true, false), nullptr);
+    EXPECT_FALSE(lease.identity());
+}
+
+TEST(CommandLease, TransitionCanOnlyBeAnInternalNeutralObjectiveNotPursuit) {
+    CommandLease lease;
+    lease.acquire(identity(), 10., 10.3);
+    auto transition = intent(); transition.objective = TransitionObjective{.3, 18.};
+    EXPECT_THROW(lease.submit(transition, 10.1, Phase::Transition), std::invalid_argument);
+    EXPECT_FALSE(lease.identity());
+    EXPECT_THROW(lease.submit(intent(), 10.2, Phase::FixedWing), std::invalid_argument);
 }
 
 TEST(CommandLease, RejectsReorderingAndContractMismatch) {
     CommandLease lease;
     lease.acquire(identity(), 10., 10.3); lease.submit(intent(), 10.1, Phase::FixedWing);
     EXPECT_THROW(lease.submit(intent(), 10.2, Phase::FixedWing), std::invalid_argument);
-    auto next = intent(); next.sequence++;
-    EXPECT_THROW(lease.submit(next, 10.2, Phase::Multicopter), std::invalid_argument);
-    next.objective = FixedWingObjective{0., 18., 0., 100.};
-    EXPECT_THROW(lease.submit(next, 10.2, Phase::FixedWing), std::invalid_argument);
-    next.objective = FixedWingObjective{0., 0., 0., {}};
-    EXPECT_THROW(lease.submit(next, 10.2, Phase::FixedWing), std::invalid_argument);
-    next.objective = FixedWingObjective{0., std::numeric_limits<double>::max(), 0., {}};
-    EXPECT_THROW(lease.submit(next, 10.2, Phase::FixedWing), std::invalid_argument);
+    for (const auto objective : {FixedWingObjective{0., 18., 0., 100.}, FixedWingObjective{0., 0., 0., {}},
+                                FixedWingObjective{0., std::numeric_limits<double>::max(), 0., {}}}) {
+        auto next = intent(); next.sequence++; next.objective = objective;
+        EXPECT_THROW(lease.submit(next, 10.2, Phase::FixedWing), std::invalid_argument);
+        EXPECT_NE(lease.current(10.2, Phase::FixedWing, true, true, false), nullptr);
+    }
 }

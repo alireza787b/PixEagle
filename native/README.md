@@ -37,13 +37,20 @@ be replaced by MC yaw. No camera mount is changed during a VTOL transition.
 
 ## Correlated ownership contract
 
-Private RPC protocol 2 requires the optional `OwnedModeRequest`/`OwnedModeStatus`
+Private RPC protocol 3 requires the optional `OwnedModeRequest`/`OwnedModeStatus`
 firmware extension; there is no raw mode-command fallback. An engagement ACK
 contains the original causal acquisition receipt, not merely an accepted
 intention. The adapter advertises its actual registered `owned_mode_id`.
-Intent, phase and release writes require that acquisition's token. Stop, EOF
+Intent and release writes require that acquisition's token. Stop, EOF
 and lost-reply reconciliation retain the same context; a same-ID replacement,
 reused registration or firmware restart cannot become the old owner.
+
+Protocol 2 peers are refused during hello, before acquisition. The separate
+PX4 ROS external-mode API remains version 2 and the owned-mode firmware contract
+remains version 1. The `multicopter_supported` capability advertises settled
+native MC commands; it does not authorize transition pursuit. There is no
+phase-advance RPC or external transition-command payload. Observed phase remains
+available, and the adapter retains its internal neutral transition drain.
 
 The Python client supports Python 3.10 and newer without an extra async runtime
 dependency. Drain and reply share one monotonic RPC budget; read-only release
@@ -87,13 +94,13 @@ Firmware incarnation uses 128 bits from the platform's secure random provider.
 POSIX uses `/dev/urandom`; NuttX requires its linked random-pool provider. Missing,
 short or all-zero entropy leaves this optional capability unavailable. Current
 unit checks do not qualify NuttX hardware entropy, transitions or physical flight.
-Transition-preserving release and end-on-transition application wiring remain a
-separate S7 gate; this foundation does not reopen VTOL admission.
+Actual transition-preserving release remains a separate S7 gate; this
+foundation does not reopen VTOL admission.
 
 ## Reproduce the software build
 
 The adapter ends pursuit on Stop, EOF, expiry or a positively observed phase
-exit. That original acquisition cannot accept another intent or phase advance.
+exit. That original acquisition cannot accept another intent or resume pursuit.
 While conditional native release remains pending, its existing callback may
 publish only neutral commands under fresh exact original Acquired/Releasing
 ownership. No pursuit lease or release deadline is renewed. MC commands zero
