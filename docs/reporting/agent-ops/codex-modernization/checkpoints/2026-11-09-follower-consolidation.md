@@ -1734,21 +1734,30 @@ recovery. Both retain 15,086 unchanged source inputs, identical Ninja/compile
 graphs and exactly 28 known generated files. Earlier configuration/link failures
 remain separate failed attempts; they are not negative-control test evidence.
 These are native component results, not flight-envelope or normal-CI acceptance.
-The firmware candidate remains unmerged and unadopted.
+The reviewed source change and functional regressions are now integrated in the
+canonical PX4 patch series. Firmware deployment and VTOL admission remain closed.
 
-Next, integrate the portable tests through the existing native build workflow
-and continue the separate tailsitter performance investigation, then FW ownership,
+The existing native builder now provides `--target px4-functional`, using the
+same firmware authority/compiler pin, isolated copies and verified source-only
+dependencies. It retains the expected failing comparison's real exit/XML and
+requires the complete candidate to pass. Partial builds, missing/skipped cases,
+changed inputs and unknown generated files refuse acceptance. Root renews
+52 build/source tests, 74 API/reload checks, schema and critical lint. The new
+command's actual compiler execution is the next gate; the earlier R5 build is
+kept separate from orchestration tests. See `native/README.md` for reproduction.
+
+Continue the native build verification and separate tailsitter performance investigation, then FW ownership,
 abort/rescue/takeover, fault, mount and full-application matrix. Do not tune a
 follower to conceal a native-only failure or relax the 2 m/100 ms gates.
-The original eight-test replay and new ten-test portable fixture remain
-report-owned pending canonical integration. VTOL admission stays closed.
+The original report-owned replay remains historical evidence; the ten-test
+fixture now lives in canonical patch 0004. VTOL admission stays closed.
 
 The read-only entry point is
 `reports/sitl/follower-consolidation-20261111/s7-review-r6/index.html`.
 All four new 3D replays pass browser checks at 320, 400, 800 and 1440 pixels:
 actual pose/target and command values, playback/scrub/reset, draggable 3D, correct
 original verdicts, no overflow, page errors or external requests. The review's
-23 links and six images also load. Raw reports are not modified.
+24 links and seven images also load. Raw reports are not modified.
 
 Exact evidence under that run root:
 

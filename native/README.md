@@ -92,9 +92,11 @@ and refused RPC separately from PX4 command admission. An unconfirmed, stale or
 different owner's response remains a failure, never a successful publication.
 
 The latest S7 standard-VTOL captures verify original terminal proof through a
-fresh explicit session and strict archive shutdown. Both transition directions
-retain altitude failures. The declared MC process-loss component now has both
-flight logs and independent native corroboration; its post-crash silence is
+fresh explicit session and strict archive shutdown. The latest paired component
+checks pass both transition directions under an explicitly declared standard-SIH
+trim profile; earlier altitude failures remain unchanged. This is not tailsitter,
+repeatability or full-application qualification. The declared MC process-loss
+component has both flight logs and independent native corroboration; its post-crash silence is
 reported separately from normal publication timing. Full process/application
 and transition qualification remain open.
 See the consolidation checkpoint for separate control, recording and airframe
@@ -192,10 +194,14 @@ git -C "$PIXEAGLE_PX4_SOURCE" checkout --detach "$(python3 -c \
 git -C "$PIXEAGLE_PX4_SOURCE" submodule update --init --recursive -- \
   src/drivers/gps/devices src/lib/events/libevents src/lib/heatshrink/heatshrink \
   src/modules/mavlink/mavlink src/modules/uxrce_dds_client/Micro-XRCE-DDS-Client
-git -C "$PIXEAGLE_PX4_SOURCE" apply \
-  "$PWD/native/px4/patches/0001-guidance-observation-and-owned-mode-handoff.patch"
-git -C "$PIXEAGLE_PX4_SOURCE" apply \
-  "$PWD/native/px4/patches/0002-correlated-owned-mode-requests.patch"
+python3 - "$PIXEAGLE_PX4_SOURCE" <<'PY'
+import json, subprocess, sys
+from pathlib import Path
+extension = Path("native/px4")
+patches = json.loads((extension / "extension.json").read_text())["patches"]
+subprocess.run(["git", "-C", sys.argv[1], "apply",
+                *[str((extension / name).resolve()) for name in patches]], check=True)
+PY
 ```
 
 With both pinned Docker input images already available locally:
@@ -243,6 +249,39 @@ that a fresh compiler build or its SIH response has passed. A real source build,
 followed by the unchanged qualification gates against that built image, remains
 required before adopting a new default. Legacy SIH profile/CI repository-digest
 requirements are unchanged by this builder.
+
+## Native transition regression
+
+The same builder has an explicit `px4-functional` target. It uses the canonical
+extension and pinned SIH compiler, with PX4's real Transition, Auto and
+PositionControl functional tests. Ordinary PixEagle setup does not run it.
+Initialize the additional pinned test submodule in the separate checkout:
+
+```bash
+git -C "$PIXEAGLE_PX4_SOURCE" submodule update --init --recursive -- test/fuzztest
+python3 tools/build_native_guidance.py --target px4-functional \
+  --px4-source "$PIXEAGLE_PX4_SOURCE" \
+  --output-dir reports/native-guidance/transition-functional
+```
+
+Use a new output directory. Preparation obtains checksum-verified test sources;
+compilation runs without network access. `--prepare-only` verifies and copies
+inputs without starting Docker. The operator's checkout is not changed.
+
+The target makes two isolated copies: a negative control omitting only the
+planned-acceleration patch, then the complete candidate. Both must compile/link
+and execute all ten named tests. The comparison must fail exactly six semantic
+checks while four compatibility checks pass; the candidate must pass ten.
+A configure/link failure or missing XML is an error, not a valid negative
+control. Logs, actual exits, XML and input-integrity receipts remain under the
+output directory, summarized by `functional-results.json`.
+
+The acceleration patch supplies the derivative of Transition's existing
+two-second vertical-velocity filter. It does not add a second filter or change
+gains/limits. These tests cover reference handover and real controller
+saturation/recovery, not aircraft dynamics. New firmware requires its own
+build manifest and actual SIH qualification; the older binaries and failed
+flight verdicts remain historical evidence. VTOL admission stays closed.
 
 ## Read-only observations
 

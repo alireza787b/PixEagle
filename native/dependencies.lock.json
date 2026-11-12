@@ -51,5 +51,50 @@
     "sih": "pending",
     "hardware": "not_qualified",
     "unrestricted_speed": "unavailable_without_verified_firmware_extension"
+  },
+  "px4_functional_tests": {
+    "fuzztest_gitlink": "1e47f9d7437de5c3ee4cb0ac860d5ec875478059",
+    "dependencies": {
+      "googletest": {
+        "relative_cache_directory": "googletest",
+        "source_tree_sha256": "e9d85e897249328f564e0180c0ca41652767a496a02f849abace008571a0e8b1",
+        "source_file_count": 247,
+        "git_commit": "6910c9d9165801d8827d628cb72eb7ea9dd538c5",
+        "repository": "https://github.com/google/googletest.git"
+      },
+      "abseil-cpp": {
+        "relative_cache_directory": "abseil-cpp",
+        "source_tree_sha256": "a2cf763f8dc313ad7cca6637a803cddb394cbe51197b65b3ebbb177a98866b99",
+        "source_file_count": 1528,
+        "git_commit": "d04b964d82ed5146f7e5e34701a5ba69f9514c9a",
+        "repository": "https://github.com/abseil/abseil-cpp.git"
+      },
+      "re2": {
+        "relative_cache_directory": "re2",
+        "source_tree_sha256": "83497ee43aca07f9f1d53bd3cf6c588c182b05400af0ce6bb8333f2b5720b5d6",
+        "source_file_count": 136,
+        "git_commit": "6dcd83d60f7944926bfd308cc13979fc53dd69ca",
+        "repository": "https://github.com/google/re2.git"
+      },
+      "antlr_cpp": {
+        "relative_cache_directory": "antlr_cpp",
+        "source_tree_sha256": "fc3e3dfda0bd602ae5764cb1ef21508833d6e78ec6733e0ea801223d05acd3b6",
+        "source_file_count": 687,
+        "archive_sha256": "642d59854ddc0cebb5b23b2233ad0a8723eef20e66ef78b5b898d0a67556893b",
+        "archive_name": "antlr4-cpp-runtime-4.12.0-source.zip",
+        "url": "https://www.antlr.org/download/antlr4-cpp-runtime-4.12.0-source.zip"
+      }
+    },
+    "target": "functional-FlightTaskTransition",
+    "expected_tests": 10,
+    "expected_negative_failures": [
+      "PlannedAccelerationBothDirectionsAndSeeds",
+      "PriorNanUsesStateAndInvalidStateStaysAbsent",
+      "AutoInheritsPlannedAccelerationInsteadOfMeasuredImpulse",
+      "DerivativeAgreesWithNonzeroDtFilterStep",
+      "AutoHandoverAcrossSignsStateFallbackAndVariableDt",
+      "HighSpeedHandoverPreservesPlannedReferenceThroughPositionControl"
+    ],
+    "fuzztest_path": "test/fuzztest"
   }
 }

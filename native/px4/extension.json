@@ -3,7 +3,10 @@
   "baseline_commit": "155f415168cef08dca2f5d85d2bc258b44a589ec",
   "patches": {
     "patches/0001-guidance-observation-and-owned-mode-handoff.patch": "41f606fac2bf4626b998daa923d3069388d891006bdc7ac5dbe12f6ffb8c450f",
-    "patches/0002-correlated-owned-mode-requests.patch": "80b99a98e965d3118867be4825cc4f5bff19c5e2bd89bd4453b2960d30b1f598"
+    "patches/0002-correlated-owned-mode-requests.patch": "80b99a98e965d3118867be4825cc4f5bff19c5e2bd89bd4453b2960d30b1f598",
+    "patches/0003-transition-planned-vertical-acceleration.patch": "8550f5cf4f98d1e0f0d560f920e0503973d1962f06fee91eb3971cb938b8bf57",
+    "patches/0004-transition-acceleration-functional-tests.patch": "3d3c83434f29a04cc07183ed9a49eecb6d0d9c03cc83cd744662f4d8c8d24990",
+    "patches/0005-flight-task-transitive-dependencies.patch": "c9b09d194e1fb1ba7d9490022095fdae1a053992647e14f8a7798374951f9c03"
   },
   "files": {
     "msg/CMakeLists.txt": "8a3d4f411de620f30c5bd09f18de58b508977e9299e9972aa050dd58753b5c8e",
@@ -25,10 +28,22 @@
     "src/modules/commander/OwnedModeGuardTest.cpp": "d71fbd69d652cf98fc13c3a7acfa70ad90ad55904b4dc0bfb2df66ef30af4a4e",
     "src/modules/commander/UserModeIntention.cpp": "e34c018c8d1ff1014cc3c662729bb823cfa0aed34ea6fb7c9050f9b39948dfa6",
     "src/modules/commander/UserModeIntention.hpp": "0252c72e59566e48cd1d8adcb91fa10d107945a771be2d21a36560a54de93887",
-    "src/modules/commander/UserModeIntentionOwnedTest.cpp": "39b7c9c8f59f96db8e353239f175f5f277361e1ac27bd99d1e4e429a7a1b06f5"
+    "src/modules/commander/UserModeIntentionOwnedTest.cpp": "39b7c9c8f59f96db8e353239f175f5f277361e1ac27bd99d1e4e429a7a1b06f5",
+    "src/modules/flight_mode_manager/tasks/Transition/FlightTaskTransition.cpp": "ae86cd959dc53eb8356479a69d1e64a99dcc27a82211b93edc051f1c29f6e802",
+    "src/modules/flight_mode_manager/tasks/Transition/CMakeLists.txt": "2ed76a32d6dcf75a64dfc375ef6247c734f6fee040ada412e72177d47d9898d8",
+    "src/modules/flight_mode_manager/tasks/Transition/FlightTaskTransitionTest.cpp": "dd270d74f747dedbdc5a04502e38b7bbbad2b6840b5cc20d1b78f63abbcba0c9",
+    "src/modules/flight_mode_manager/tasks/FlightTask/CMakeLists.txt": "0e3a43a7a10529b20a7d12ebb005c0b623a4f0c2342448db0410182f0d8ca5ae",
+    "src/modules/flight_mode_manager/tasks/Utility/CMakeLists.txt": "568d6253292b09e11ec141831036a447cedb4cb7a626c9909d3b171fe18ad3a9",
+    "src/lib/collision_prevention/CMakeLists.txt": "e2cf4bc6d0531cc19e98c30bdfa4879870541b18199df7fefe498658e0e18854"
   },
   "deleted_files": [
     "src/modules/commander/ExpectedModeGuard.hpp",
     "src/modules/commander/ExpectedModeGuardTest.cpp"
-  ]
+  ],
+  "original_files": {
+    "src/modules/flight_mode_manager/tasks/FlightTask/CMakeLists.txt": "5e4d100d3fbea3338835b84b8a62701a284da1ecb75500f393a138c4990dd787",
+    "src/modules/flight_mode_manager/tasks/Utility/CMakeLists.txt": "3e8fadd431712de3fbb678bce25c7e9fb797502116443f9ff95aba0222e9c99e",
+    "src/lib/collision_prevention/CMakeLists.txt": "5d805caefd47bb3cd572cadebcd89322ffc3108f8daa6871be3ed84cc6cfc922",
+    "src/modules/flight_mode_manager/tasks/Transition/FlightTaskTransition.cpp": "e76f47dc2b4ea2727af24326b25356862108a9c019ddec67b6c25e82fbd5f0df"
+  }
 }

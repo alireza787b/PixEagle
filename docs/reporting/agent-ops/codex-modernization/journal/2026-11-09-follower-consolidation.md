@@ -468,3 +468,11 @@ build failures remain intact. Canonical test integration is still pending;
 these results do not qualify flight response or open VTOL admission. The
 checkpoint links the frozen XML, build receipts, actual plots and four working
 3D replays. Public/private configurations and hardware remain unchanged.
+
+The reviewed acceleration patch, ten native tests and owning CMake dependency
+fixes now use the canonical extension manifest. The existing native builder's
+`px4-functional` target prepares isolated positive/negative copies and validates
+actual test exits, XML and input integrity. Root renews 52 build/source tests,
+74 API/configuration checks, schema and critical lint. Its first actual compiler
+execution remains a separate gate. No new configuration authority, controller,
+firmware deployment or VTOL admission is introduced.

@@ -110,10 +110,19 @@ def main() -> None:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--cache-dir", type=Path, default=Path.home() / ".cache/pixeagle-native-guidance")
     parser.add_argument("--prepare-only", action="store_true", help="Verify and prepare sources without starting Docker")
-    parser.add_argument("--px4-source", type=Path, help="Patched pinned PX4 checkout; required for the SIH target")
+    parser.add_argument("--px4-source", type=Path,
+                        help="Canonical patched pinned PX4 checkout; required for SIH and PX4 functional targets")
     parser.add_argument("--image", default="pixeagle-native-contracts:development", help="Contract-test image tag")
-    parser.add_argument("--target", choices=("contracts", "sih"), default="contracts")
+    parser.add_argument("--target", choices=("contracts", "sih", "px4-functional"), default="contracts")
     args = parser.parse_args()
+    if args.target == "px4-functional":
+        if args.px4_source is None:
+            parser.error("--target px4-functional requires --px4-source with the canonical extension applied")
+        from tools.px4_functional import build_functional
+
+        build_functional(args.px4_source, args.output_dir, args.cache_dir,
+                         prepare_only=args.prepare_only, verify_extension=verify_extension)
+        return
     if args.target == "sih":
         if args.px4_source is None:
             parser.error("--target sih requires --px4-source with the reviewed extension applied")
