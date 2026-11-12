@@ -3,6 +3,29 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import axios from '../services/apiClient';
 import { endpoints } from '../services/apiEndpoints';
 
+export const useFollowerProfileSelection = (currentProfile) => {
+  const configuredMode = currentProfile?.configured_mode || currentProfile?.mode || '';
+  const sourceKey = JSON.stringify([
+    currentProfile?.instance_id, currentProfile?.runtime_id, currentProfile?.source,
+  ]);
+  const [draft, setDraft] = useState(null);
+  const selectedProfile = draft?.sourceKey === sourceKey ? draft.mode : configuredMode;
+
+  // Only the observed configured value acknowledges a draft, including after Save.
+  useEffect(() => {
+    setDraft(previous => (
+      previous && (previous.sourceKey !== sourceKey || previous.mode === configuredMode)
+        ? null : previous
+    ));
+  }, [configuredMode, sourceKey]);
+
+  const setSelectedProfile = useCallback(mode => {
+    setDraft(mode === configuredMode ? null : { mode, sourceKey });
+  }, [configuredMode, sourceKey]);
+
+  return { selectedProfile, setSelectedProfile, configuredMode };
+};
+
 export const useFollowerSchema = (refreshInterval = 10000) => {
   const [schema, setSchema] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -58,12 +81,14 @@ export const useCurrentFollowerProfile = (refreshInterval = 2000) => {
       abortControllerRef.current.abort();
     }
     
-    abortControllerRef.current = new AbortController();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
     
     try {
       const response = await axios.get(endpoints.followerCurrentProfile, {
-        signal: abortControllerRef.current.signal
+        signal: controller.signal
       });
+      if (controller.signal.aborted || abortControllerRef.current !== controller) return;
       
       // Only update if data actually changed
       if (JSON.stringify(response.data) !== JSON.stringify(lastSuccessfulProfile.current)) {
@@ -73,9 +98,8 @@ export const useCurrentFollowerProfile = (refreshInterval = 2000) => {
       
       setError(null);
       setLoading(false);
-      setIsTransitioning(false);
     } catch (err) {
-      if (err.name !== 'CanceledError') {
+      if (err.name !== 'CanceledError' && !controller.signal.aborted && abortControllerRef.current === controller) {
         console.error('Error fetching current follower profile:', err);
         setError(err.message);
         // Keep previous successful data on error
@@ -95,18 +119,13 @@ export const useCurrentFollowerProfile = (refreshInterval = 2000) => {
       });
       
       if (response.data.status === 'success') {
-        // Wait a moment for the backend to update, then refresh
-        setTimeout(() => {
-          fetchCurrentProfile();
-        }, 500);
+        await fetchCurrentProfile();
         return { success: true, message: response.data.message };
       } else {
-        setIsTransitioning(false);
         return { success: false, message: response.data.message };
       }
     } catch (err) {
       console.error('Error switching follower profile:', err);
-      setIsTransitioning(false);
       return {
         success: false,
         message: err.response?.data?.message
@@ -114,6 +133,8 @@ export const useCurrentFollowerProfile = (refreshInterval = 2000) => {
           || err.response?.data?.detail
           || err.message
       };
+    } finally {
+      setIsTransitioning(false);
     }
   }, [fetchCurrentProfile]);
 
