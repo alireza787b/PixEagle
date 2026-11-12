@@ -57,6 +57,11 @@ from classes.target_continuity import (
     TargetEvidenceState,
 )
 from tools.build_native_guidance import verify_extension
+from tools.linux_monotonic_domain import (
+    read_monotonic_domain,
+    require_same_monotonic_domain,
+    require_unchanged_monotonic_domain,
+)
 from tools.native_sih_wire import WireRecorder, archive_wire_helper
 from tools.run_native_vector_sih import (
     ObservationConnection,
@@ -247,6 +252,7 @@ class Session:
     acquisition: NativeAcquisitionContext | None = None
     previous_pose_timestamp: int | None = None
     baseline_producer: asyncio.Task | None = None
+    clock_domain: dict | None = None
 
 
 async def stable_aircraft(client, connection, *, timeout, altitude, hold_mode, log, airframe='pure_fixed_wing'):
@@ -484,14 +490,34 @@ def retained_mc_intent(events, acquisition):
         command['velocity_east_m_s'], command['velocity_down_m_s']), command['yaw_rate_rad_s']))
 
 
+def require_restart_clock(capture, host_clock, *, signal_domains=None):
+    """Original PID binding stays with the existing process owner; compare only clock evidence here."""
+    try:
+        original = capture['clock_domains']
+        if not isinstance(original, dict) or set(original) != {'host', 'helper', 'adapter'}:
+            raise ValueError
+        pid = capture['adapter_a']['pid']
+        if type(pid) is not int or pid <= 1 or original['adapter']['pid'] != pid:
+            raise ValueError
+        require_unchanged_monotonic_domain(host_clock, read_monotonic_domain())
+        require_same_monotonic_domain(host_clock, *original.values())
+        if signal_domains is not None:
+            if not isinstance(signal_domains, dict) or set(signal_domains) != set(original):
+                raise ValueError
+            require_unchanged_monotonic_domain(original['adapter'], signal_domains['adapter'])
+            if signal_domains['adapter']['pid'] != pid:
+                raise ValueError
+            require_same_monotonic_domain(host_clock, *signal_domains.values())
+    except (ValueError, TypeError, KeyError, OSError) as error:
+        raise ValueError('ownership_restart_signal_clock_unqualified') from error
+
+
 def accepted_intent_at_signal(events, acquisition, *, signal_at_monotonic_s, run_started,
-                              signal_begin_at_monotonic_s, time_namespace_inode, expected_time_namespace_inode=None):
+                              signal_begin_at_monotonic_s, capture, signal_domains, host_clock):
     """A real original-context ACK must precede the signal and retain its original deadline."""
-    if expected_time_namespace_inode is None:
-        expected_time_namespace_inode = Path('/proc/self/ns/time').stat().st_ino
-    if (type(time_namespace_inode) is not int or time_namespace_inode <= 0
-            or time_namespace_inode != expected_time_namespace_inode):
+    if signal_domains is None:
         raise ValueError('ownership_restart_signal_clock_unqualified')
+    require_restart_clock(capture, host_clock, signal_domains=signal_domains)
     signal = finite_number(signal_at_monotonic_s, 'ownership_signal_time')
     signal_begin = finite_number(signal_begin_at_monotonic_s, 'ownership_signal_begin')
     origin = finite_number(run_started, 'ownership_wire_origin')
@@ -546,7 +572,8 @@ def accepted_intent_at_signal(events, acquisition, *, signal_at_monotonic_s, run
         raise ValueError('ownership_restart_accepted_intent_expired_before_signal')
     return latest | {'signal_at_monotonic_s': signal, 'wire_host_clock_origin_s': origin,
                      'signal_begin_at_monotonic_s': signal_begin,
-                     'monotonic_time_namespace_inode': time_namespace_inode,
+                     'clock_domains': {'wire_host': host_clock, 'capture': capture['clock_domains'],
+                                       'signal': signal_domains},
                      'remaining_original_lease_s': latest['intent_expires_at_monotonic_s'] - signal}
 
 
@@ -588,6 +615,7 @@ async def process_restart(args, isolation, session, wire, log, progress, *, cont
             or not matches_receipt(source, session.acquisition) or source.get('owner_active') is not True
             or type(source.get('state')) is not int or source['state'] != contract['states']['acquired']):
         raise ValueError('ownership_restart_original_source_mismatch')
+    require_restart_clock(capture, session.clock_domain)
     intent = retained_mc_intent(wire, session.acquisition)
     log('cleanup-boundaries.jsonl', {'event': 'adapter_a_kill_begin',
                                     'acquisition': asdict(session.acquisition)})
@@ -598,10 +626,12 @@ async def process_restart(args, isolation, session, wire, log, progress, *, cont
     session.binding.abort('ownership_restart_adapter_dead')
     boundary = log('cleanup-boundaries.jsonl', {'event': 'original_sender_quiesced',
         'in_flight_bytes_retractable': False, 'no_publication_or_mode_write_allowed_after_this_boundary': True})
+    if killed.get('death', {}).get('original') != capture['adapter_a']:
+        raise ValueError('ownership_restart_original_process_mismatch')
     proof = accepted_intent_at_signal(wire, session.acquisition,
         signal_at_monotonic_s=killed.get('signal_at_monotonic_s'), run_started=session.run_started,
         signal_begin_at_monotonic_s=killed.get('signal_begin_at_monotonic_s'),
-        time_namespace_inode=killed.get('monotonic_time_namespace_inode'))
+        capture=capture, signal_domains=killed.get('clock_domains'), host_clock=session.clock_domain)
     log('live-command-at-signal.jsonl', proof)
     try:
         await session.binding.stop('ownership_restart_original_cleanup')
@@ -677,6 +707,7 @@ async def run(args, isolation, contract):
     (output / 'tool-source.py').write_bytes(tool_source)
     handles = {}
     wire = []
+    clock_domain = read_monotonic_domain() if args.case == 'adapter_process_restart' else None
     started = time.monotonic()
 
     def log(name, value):
@@ -706,6 +737,12 @@ async def run(args, isolation, contract):
         'revision': (await asyncio.to_thread(subprocess.check_output,
             ['git', '-C', str(ROOT), 'rev-parse', 'HEAD'], text=True)).strip()}
     if args.case == 'adapter_process_restart':
+        require_unchanged_monotonic_domain(clock_domain, read_monotonic_domain())
+        manifest['host_clock']['linux_monotonic_domain'] = clock_domain
+        clock_source = Path(__file__).with_name('linux_monotonic_domain.py').read_bytes()
+        (output / 'linux_monotonic_domain.py').write_bytes(clock_source)
+        manifest['tool_helpers']['linux_monotonic_domain'] = {
+            'path': 'linux_monotonic_domain.py', 'sha256': hashlib.sha256(clock_source).hexdigest()}
         plan = restart_plan(args, isolation)
         (output / 'restart-plan.json').write_bytes(args.restart_plan.read_bytes())
         helper = Path(plan['helper']['path'])
@@ -743,6 +780,7 @@ async def run(args, isolation, contract):
         identity = GuidanceSessionIdentity(output.name, aircraft, 1)
         active = create_session(client, connection, capabilities, identity, config, selected.profile, log, run_started=started,
                                 airframe=getattr(args, 'airframe', 'pure_fixed_wing'))
+        active.clock_domain = clock_domain
         await activate_session(active, log)
         await drive(active, args.duration, log)
         await confirmed_source(args, isolation, active, contract, log)

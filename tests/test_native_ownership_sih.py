@@ -636,14 +636,14 @@ async def test_original_probes_use_real_client_runtime_fence_then_local_identity
 async def test_kill_boundary_failure_does_not_run_unconditional_old_hold(tmp_path, monkeypatch):
     from unittest.mock import AsyncMock
     context = source_sample()[0]
-    session = SimpleNamespace(acquisition=context)
+    session = SimpleNamespace(acquisition=context, clock_domain=tool.read_monotonic_domain())
     monkeypatch.setattr(tool, 'quiesce', AsyncMock())
     calls = []
     async def step(args, isolation, log, operation):
         calls.append(operation)
         if operation == 'kill_a':
             raise ValueError('death_or_socket_proof_failed')
-        return {'owned': captured_owned(context)}
+        return restart_clock_capture(context)
     monkeypatch.setattr(tool, 'restart_step', step)
     progress = {'original_cleanup_read_only': False}
     with pytest.raises(ValueError, match='death_or_socket_proof_failed'):
@@ -681,7 +681,8 @@ async def test_restart_separates_unknown_a_from_clean_backend_c_without_an_extra
         identity=replace(original.identity, binding=replace(original.identity.binding, connection_generation='clean-c')))
     client = SimpleNamespace(acquisition_context=original, close=AsyncMock())
     binding = SimpleNamespace(abort=Mock(), stop=AsyncMock(side_effect=tool.NativeGuidanceError('native_connection_unavailable')))
-    session = SimpleNamespace(acquisition=original, client=client, binding=binding, run_started=10.)
+    session = SimpleNamespace(acquisition=original, client=client, binding=binding, run_started=10.,
+                              clock_domain=tool.read_monotonic_domain())
     quiesced, order = [False], []
     async def quiesce(_):
         quiesced[0] = True
@@ -690,9 +691,10 @@ async def test_restart_separates_unknown_a_from_clean_backend_c_without_an_extra
         order.append(operation)
         if operation == 'kill_a':
             assert quiesced[0] is False  # Keep the actual lease alive until the adapter crash.
-        return {'owned': captured_owned(original), 'runtime_id': replacement.runtime_id, 'policy_matched': True,
+        capture = restart_clock_capture(original)
+        return {**capture, 'runtime_id': replacement.runtime_id, 'policy_matched': True,
                 'signal_at_monotonic_s': 10.2, 'signal_begin_at_monotonic_s': 10.2,
-                'monotonic_time_namespace_inode': Path('/proc/self/ns/time').stat().st_ino}
+                'clock_domains': capture['clock_domains'], 'death': {'original': capture['adapter_a']}}
     def child(argv, **kwargs):
         assert quiesced[0] is True
         assert order.index('recovery_ready') < order.index('prepare_c')
@@ -743,9 +745,23 @@ def accepted_wire(context):
             'success': True, 'payload': {'owner_confirmed': True, 'accepted_sequence': 7}})]
 
 
+def restart_clock_capture(context):
+    from copy import deepcopy
+    host = tool.read_monotonic_domain()
+    helper, adapter = deepcopy(host), deepcopy(host)
+    helper['pid'], adapter['pid'] = 30, 20
+    for value in (helper, adapter):
+        for namespace in value['namespaces'].values():
+            namespace['inode'] += 1
+    return {'owned': captured_owned(context), 'adapter_a': {'pid': 20},
+            'clock_domains': {'host': host, 'helper': helper, 'adapter': adapter}}
+
+
 def lease_proof(events, context, **changes):
+    capture = restart_clock_capture(context)
     values = {'signal_at_monotonic_s': 10.2, 'signal_begin_at_monotonic_s': 10.2, 'run_started': 10.,
-              'time_namespace_inode': 1, 'expected_time_namespace_inode': 1} | changes
+              'capture': capture, 'signal_domains': capture['clock_domains'],
+              'host_clock': capture['clock_domains']['host']} | changes
     return tool.accepted_intent_at_signal(events, context, **values)
 
 
@@ -827,9 +843,33 @@ def test_latest_actual_accepted_deadline_wins_over_an_older_longer_deadline():
 
 def test_signal_proof_refuses_unknown_host_container_clock_relationship():
     context = source_sample()[0]
+    capture = restart_clock_capture(context)
+    capture['clock_domains']['helper']['timens_offsets'] = 'monotonic 1 0\nboottime 0 0\n'
     with pytest.raises(ValueError, match='signal_clock_unqualified'):
-        tool.accepted_intent_at_signal(accepted_wire(context), context, signal_at_monotonic_s=10.2,
-            run_started=10., signal_begin_at_monotonic_s=10.2, time_namespace_inode=2, expected_time_namespace_inode=1)
+        lease_proof(accepted_wire(context), context, capture=capture)
+
+
+@pytest.mark.parametrize('change', ['missing', 'boot', 'offset', 'children', 'pid', 'target_namespace'])
+def test_signal_proof_recomputes_required_original_clock_evidence(change):
+    from copy import deepcopy
+    context = source_sample()[0]
+    capture = restart_clock_capture(context)
+    signal_domains = deepcopy(capture['clock_domains'])
+    if change == 'missing':
+        signal_domains = None
+    elif change == 'boot':
+        signal_domains['helper']['boot_id'] = '12345678-1234-1234-1234-123456789abc'
+    elif change == 'offset':
+        signal_domains['adapter']['timens_offsets'] = 'monotonic 1 0\nboottime 0 0\n'
+    elif change == 'children':
+        signal_domains['helper']['namespaces']['time_for_children']['inode'] += 1
+    elif change == 'pid':
+        signal_domains['adapter']['pid'] += 1
+    else:
+        for namespace in signal_domains['adapter']['namespaces'].values():
+            namespace['inode'] += 1
+    with pytest.raises(ValueError, match='signal_clock_unqualified'):
+        lease_proof(accepted_wire(context), context, capture=capture, signal_domains=signal_domains)
 
 
 def test_ack_during_signal_syscall_bracket_cannot_be_claimed_pre_signal():
@@ -854,3 +894,38 @@ async def test_releasing_neutral_drain_source_cannot_qualify_crash_before_signal
         await tool.process_restart(None, None, SimpleNamespace(acquisition=context), accepted_wire(context),
             Mock(), {'original_cleanup_read_only': False}, contract=CONTRACT)
     assert step.await_count == 1
+
+
+@pytest.mark.parametrize('change', ['missing', 'boot', 'offset', 'children', 'pid', 'wire_host'])
+async def test_unqualified_restart_clock_refuses_before_process_signal(monkeypatch, change):
+    from unittest.mock import AsyncMock
+    context = source_sample()[0]
+    capture = restart_clock_capture(context)
+    host_clock = tool.read_monotonic_domain()
+    if change == 'missing':
+        capture['clock_domains'] = {}
+    elif change == 'boot':
+        capture['clock_domains']['helper']['boot_id'] = '12345678-1234-1234-1234-123456789abc'
+    elif change == 'offset':
+        capture['clock_domains']['adapter']['timens_offsets'] = 'monotonic 1 0\nboottime 0 0\n'
+    elif change == 'children':
+        capture['clock_domains']['helper']['namespaces']['time_for_children']['inode'] += 1
+    elif change == 'pid':
+        capture['clock_domains']['adapter']['pid'] += 1
+    else:
+        host_clock['pid'] += 1
+    session = SimpleNamespace(acquisition=context, clock_domain=host_clock)
+    calls = []
+    async def step(args, isolation, log, operation):
+        calls.append(operation)
+        if operation == 'kill_a':
+            raise AssertionError('clock qualification must precede destruction')
+        return capture
+    monkeypatch.setattr(tool, 'restart_step', step)
+    monkeypatch.setattr(tool, 'quiesce', AsyncMock())
+    progress = {'original_cleanup_read_only': False}
+    with pytest.raises(ValueError, match='clock_unqualified'):
+        await tool.process_restart(None, None, session, old_intent_wire(context), Mock(), progress,
+                                   contract=CONTRACT)
+    assert calls == ['capture']
+    assert progress['original_cleanup_read_only'] is False

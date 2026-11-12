@@ -354,3 +354,11 @@ unresolved original context and is flushed/stopped. The next clock proof must
 precede the signal, not infer missing offsets afterward. S7 remains open;
 hardware, QGC, gains and saved configuration are unchanged. Nothing was deployed
 or published remotely.
+
+The prospective crash fixture now shares one raw Linux monotonic-domain reader
+between host and report helper. Pre-signal validation replaces the invalid
+inode-equality assumption while retaining original timestamps, the PID owner and
+unresolved old-session barrier. The baseline regression fails before the repair;
+147 source/143 helper checks and root's 373-check combination pass. R7's actual
+unknown clock remains failed. Actual recovery is still pending a fresh capture;
+this diagnostic change introduces no production recovery or flight-control layer.

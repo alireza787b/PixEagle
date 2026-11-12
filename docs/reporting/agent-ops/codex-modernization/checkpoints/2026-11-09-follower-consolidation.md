@@ -1465,6 +1465,25 @@ The next fixture revision must prove the host/helper/original process monotonic
 domain before the signal and retain it at the signal. Unknown or unequal domains
 must refuse, with original timestamps and expiry unchanged. This is diagnostic
 test infrastructure, not another flight-control deadline or recovery mechanism.
+
+The prospective tooling now uses one shared read-only Linux clock reader and
+validator. It retains kernel boot identity, namespace identities and raw
+`timens_offsets`; equal monotonic offsets may qualify different namespaces.
+Active and child namespace must match because the kernel exposes the child
+namespace's offsets. Unknown or unequal domains refuse before SIGKILL; the
+runner revalidates the signal evidence independently afterward. No timestamp
+conversion, refreshed expiry or duplicated process-identity parser is added.
+The existing PID/UID/start-time/binary owner still controls signaling; permitting
+PID 1 as read-only clock evidence grants no signal permission.
+
+The baseline first reproduces rejection occurring too late, after the mocked
+signal. The repair passes 147 source and 143 report-helper checks; root's combined
+ownership/vector/documentation renewal passes 373 checks. These overlap and are
+not unique test totals. Candidate and preserved red/negative evidence are in
+`software-gates-s7-process-restart-r8/review-manifest-final-r2.json`.
+A fresh actual process-failure run remains required after coherent integration;
+R7's missing clock data and failed verdict remain unchanged.
+
 S7 stays open for both airframes' altitude failures and the remaining ownership,
 transition, rescue/takeover and application checks. Hardware and VTOL admission
 remain unchanged.
