@@ -68,19 +68,33 @@ inline OwnershipToken decodeOwnershipToken(const Json& value) {
     return token;
 }
 
+enum class OwnershipReceiptState { Pending, Acquired, Releasing, Released, Cancelled, Rejected, Expired, Superseded, Other };
+enum class TerminalReleaseOutcome { HoldConfirmed, OwnerAlreadyReleased };
+
+struct TerminalReleaseObservation {
+    TerminalReleaseOutcome outcome;
+    std::uint8_t mode;
+    std::uint64_t epoch;
+};
+
+struct NativeActivationEvidence;
+
 struct OwnershipContext {
     Identity identity;
     OwnershipToken token{}, incarnation{};
     std::uint64_t source_revision{}, source_epoch{}, acquired_epoch{}, expires{};
     std::uint8_t source_mode{}, mode{};
     std::uint64_t registration_id{};
-    bool retired{}, release_pending{};
+    bool retired{}, pursuit_ended{};
+    std::optional<TerminalReleaseObservation> terminal_release{};
 
-    void endPursuit(CommandLease& lease) { release_pending = true; lease.revoke(); }
+    void endPursuit(CommandLease& lease) { pursuit_ended = true; lease.revoke(); }
     void requirePursuit() const {
-        if (release_pending) throw std::invalid_argument("native_release_pending");
+        if (pursuit_ended) throw std::invalid_argument("native_pursuit_ended");
     }
-
+    bool releasePending() const { return pursuit_ended && !terminal_release; }
+    bool acquisitionOutstanding() const { return !terminal_release; }
+    bool observeTerminalRelease(const NativeActivationEvidence& evidence, std::uint8_t hold_mode, CommandLease& lease);
 
     void observeIncarnation(const OwnershipToken& received) {
         if ((received[0] != 0 || received[1] != 0) && received != incarnation) retired = true;
@@ -109,9 +123,16 @@ struct OwnershipContext {
             {"source_nav_state", source_mode}, {"source_nav_state_timestamp", source_epoch},
             {"mode_id", mode}, {"activation_timestamp", acquired_epoch}};
     }
-};
 
-enum class OwnershipReceiptState { Pending, Acquired, Releasing, Other };
+    Json releaseReceipt(const std::string& runtime, std::uint8_t observed_mode, std::uint64_t observed_epoch) const {
+        const auto outcome = terminal_release
+            ? terminal_release->outcome == TerminalReleaseOutcome::HoldConfirmed ? "hold_confirmed" : "owner_already_released"
+            : "unconfirmed";
+        return {{"acquisition", wire(runtime)}, {"outcome", outcome},
+            {"observed_nav_state", terminal_release ? terminal_release->mode : observed_mode},
+            {"observed_nav_state_timestamp", terminal_release ? terminal_release->epoch : observed_epoch}};
+    }
+};
 
 struct NativeActivationEvidence {
     OwnershipToken token{}, incarnation{};
@@ -119,12 +140,37 @@ struct NativeActivationEvidence {
     std::uint64_t registration_id{}, current_registration_id{}, intention_revision{};
     std::uint8_t source_mode{}, mode{}, actual_mode{}, vehicle_mode{};
     bool fresh{}, aircraft_matches{}, armed{}, rescue{}, owner_active{};
-    bool ownership_fresh{}, vehicle_fresh{}, vehicle_armed{}, vehicle_rescue{};
+    bool ownership_fresh{}, ownership_rescue{}, vehicle_fresh{}, vehicle_armed{}, vehicle_rescue{};
     OwnershipReceiptState state{OwnershipReceiptState::Other};
 };
 
+inline std::optional<TerminalReleaseObservation> classifyTerminalRelease(const OwnershipContext& context,
+        const NativeActivationEvidence& evidence, std::uint8_t hold_mode) {
+    if (!evidence.ownership_fresh || !evidence.aircraft_matches || evidence.owner_active
+            || evidence.acquired_epoch != context.acquired_epoch
+            || !context.matches(evidence.token, evidence.incarnation, evidence.source_revision, evidence.source_epoch,
+                                evidence.source_mode, evidence.mode, evidence.registration_id)) return std::nullopt;
+    if (evidence.state == OwnershipReceiptState::Released && context.acquired_epoch > context.source_epoch
+            && evidence.actual_mode == hold_mode
+            && evidence.actual_epoch > context.acquired_epoch && !evidence.ownership_rescue)
+        return TerminalReleaseObservation{TerminalReleaseOutcome::HoldConfirmed, evidence.actual_mode, evidence.actual_epoch};
+    if (evidence.state == OwnershipReceiptState::Cancelled || evidence.state == OwnershipReceiptState::Rejected
+            || evidence.state == OwnershipReceiptState::Expired || evidence.state == OwnershipReceiptState::Superseded)
+        return TerminalReleaseObservation{TerminalReleaseOutcome::OwnerAlreadyReleased, evidence.actual_mode, evidence.actual_epoch};
+    return std::nullopt;
+}
+
+inline bool OwnershipContext::observeTerminalRelease(const NativeActivationEvidence& evidence, std::uint8_t hold_mode,
+                                                      CommandLease& lease) {
+    if (!terminal_release) terminal_release = classifyTerminalRelease(*this, evidence, hold_mode);
+    if (!terminal_release) return false;
+    // A proven original departure is historical fact, never current command authority.
+    endPursuit(lease);
+    return true;
+}
+
 inline bool exactOriginalActivation(const OwnershipContext& context, const NativeActivationEvidence& evidence) {
-    return evidence.fresh && evidence.aircraft_matches && evidence.armed && !evidence.rescue
+    return !context.terminal_release && evidence.fresh && evidence.aircraft_matches && evidence.armed && !evidence.rescue
         && context.acquired_epoch > 0 && evidence.acquired_epoch == context.acquired_epoch
         && evidence.actual_mode == context.mode && evidence.vehicle_mode == context.mode
         && evidence.actual_epoch == context.acquired_epoch && evidence.vehicle_epoch == context.acquired_epoch
@@ -134,7 +180,7 @@ inline bool exactOriginalActivation(const OwnershipContext& context, const Nativ
 }
 
 inline bool neutralDrainPermitted(const OwnershipContext& context, const NativeActivationEvidence& evidence) {
-    return context.release_pending && exactOriginalActivation(context, evidence)
+    return context.pursuit_ended && exactOriginalActivation(context, evidence)
         && ((evidence.state == OwnershipReceiptState::Acquired && evidence.owner_active)
             || evidence.state == OwnershipReceiptState::Releasing);
 }
@@ -143,7 +189,7 @@ inline bool neutralDrainPermitted(const OwnershipContext& context, const NativeA
 // publication. This uses the original engagement deadline, never another timer.
 inline bool startupActivationMayWait(const OwnershipContext& context, const NativeActivationEvidence& evidence,
                                      double now, double original_deadline) {
-    if (context.retired || context.release_pending || !std::isfinite(now) || !std::isfinite(original_deadline)
+    if (context.retired || context.pursuit_ended || !std::isfinite(now) || !std::isfinite(original_deadline)
             || now >= original_deadline || evidence.vehicle_rescue
             || (evidence.vehicle_fresh && (!evidence.vehicle_armed || !evidence.aircraft_matches))) return false;
     if (evidence.vehicle_fresh) {

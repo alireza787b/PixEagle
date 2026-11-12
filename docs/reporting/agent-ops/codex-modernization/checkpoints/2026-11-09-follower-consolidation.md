@@ -1354,3 +1354,53 @@ binds the final hashes and all three fixes. Actual crash/recovery, native ULog
 timing and full application admission remain unqualified until the isolated run;
 the coherent post-merge backend gate is next. No firmware, guidance, configuration,
 hardware or live VTOL admission change accompanies these tools.
+
+### S7 standard-VTOL release diagnostic and recovery preparation
+
+The clean `d47835ee6` backend renewal passes 6,348 unit, 196 integration and
+155 Phase 0 tests, plus API inventory, schema and critical lint. Eleven optional
+GStreamer unit checks are skipped. Exact commands, source hashes and logs are in
+`software-gates-s7-final-r3/results-r3.json`; this is not client or flight acceptance.
+
+The actual `sihsim_standard_vtol` MC-to-FW capture reaches its original Hold
+receipt and settled FW phase with 162 successful finite MC intents, no later
+submission, 252 native publications and active publication gaps at most 36 ms.
+Its maximum relative-altitude deviation is 1.987 m against the unchanged 2 m
+gate. Independent ULog review matches the observed poses and finds no logger
+dropouts. The short MC pursuit interval does not demonstrate interception;
+post-release native Hold motion must not be attributed to follower commands.
+
+**The capture remains provisional.** Archive admission correctly refuses because
+`release_pending` remains true despite the genuine original Hold receipt. The
+adapter used that flag both as a permanent old-pursuit fence and as unresolved
+release status. The repair separates those meanings in the existing ownership
+context and retains only exact original terminal proof. Native Hold alone or a
+replacement owner cannot complete release. Contradictory active-owner evidence
+is rejected; confirmed Hold requires a real activation after the original source
+epoch. Valid pre-acquisition cancellation/expiry still supports zero activation.
+Later stale state, disarm or a new owner cannot rewrite historical proof or
+resume old pursuit. No new controller, timer, wire service or configuration is
+introduced.
+
+The rebuilt candidate passes 75 native, 75 ASan/UBSan and 35 packaging tests;
+both malformed-proof regressions first fail against the earlier candidate.
+Root's 326 backend/native-client/ownership/documentation checks pass. Exact
+source, adapter and unchanged SDK/firmware pins are retained in
+`software-gates-s7-release-receipt-r2/review-manifest-final-r2.json`.
+Actual middleware scheduling and fresh archive acceptance still require a new
+capture after independent source review and coherent full software renewal.
+
+Raw `result.json.passed: true` is retained with its original component scope;
+overall acceptance remains false. Evidence and the archive refusal are in
+`s7-protocol3-standard-vtol-runtime-r3/`; the independent audit is
+`software-gates-s7-standard-vtol-provisional-audit-r1/audit.json`.
+
+Two restart preparations failed before arming or following: sidecars were queried
+before startup, then unavailable aircraft data was parsed before its readiness
+check. Exact-CID cleanup stopped both simulators and retained their raw logs.
+Review subsequently caught a synthetic fixture accepting null where the healthy
+native producer emits an empty diagnostic string. Report helpers are being
+corrected against retained real replies, using the canonical client and recorder;
+none of these preparation failures qualifies an actual adapter crash/restart.
+No missing historical reply is reconstructed. The separate tailsitter altitude
+failure, public/private settings and closed VTOL admission remain unchanged.

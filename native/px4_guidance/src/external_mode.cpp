@@ -120,6 +120,7 @@ NativeActivationEvidence ExternalMode::activationEvidence() const {
     result.actual_mode = status.nav_state;
     result.vehicle_mode = _status.nav_state;
     result.ownership_fresh = ownedContractAvailable();
+    result.ownership_rescue = status.rescue_active;
     result.vehicle_fresh = phaseSourcesFresh(monotonicSeconds(), _status_received, -1., false, _status_timeout_s);
     result.fresh = fresh() && result.ownership_fresh && _registration_proof.ready();
     result.aircraft_matches = std::to_string(status.autopilot_uid) == context.identity.aircraft
@@ -129,9 +130,17 @@ NativeActivationEvidence ExternalMode::activationEvidence() const {
     result.armed = status.armed && result.vehicle_armed;
     result.rescue = status.rescue_active || result.vehicle_rescue;
     result.owner_active = status.owner_active;
-    result.state = status.state == status.STATE_PENDING ? OwnershipReceiptState::Pending
-        : status.state == status.STATE_ACQUIRED ? OwnershipReceiptState::Acquired
-        : status.state == status.STATE_RELEASING ? OwnershipReceiptState::Releasing : OwnershipReceiptState::Other;
+    switch (status.state) {
+    case status.STATE_PENDING: result.state = OwnershipReceiptState::Pending; break;
+    case status.STATE_ACQUIRED: result.state = OwnershipReceiptState::Acquired; break;
+    case status.STATE_RELEASING: result.state = OwnershipReceiptState::Releasing; break;
+    case status.STATE_RELEASED: result.state = OwnershipReceiptState::Released; break;
+    case status.STATE_CANCELLED: result.state = OwnershipReceiptState::Cancelled; break;
+    case status.STATE_REJECTED: result.state = OwnershipReceiptState::Rejected; break;
+    case status.STATE_EXPIRED: result.state = OwnershipReceiptState::Expired; break;
+    case status.STATE_SUPERSEDED: result.state = OwnershipReceiptState::Superseded; break;
+    default: break;
+    }
     return result;
 }
 
@@ -163,7 +172,7 @@ Phase ExternalMode::observedPhase() const {
 }
 
 void ExternalMode::endPursuitOnPhaseExit() {
-    if (!_ownership_context || releasePending()) return;
+    if (!_ownership_context || _ownership_context->pursuit_ended) return;
     const double now = monotonicSeconds();
     const auto recent = [now](double received, double budget) {
         return received >= 0. && now >= received && now - received < budget;
@@ -228,7 +237,7 @@ bool ExternalMode::ownedContractAvailable() const {
 }
 
 void ExternalMode::observeOwnership() {
-    if (!_ownership_context || _ownership_context->retired || !ownedContractAvailable()) return;
+    if (!_ownership_context || _ownership_context->terminal_release || _ownership_context->retired || !ownedContractAvailable()) return;
     auto& context = *_ownership_context;
     const auto& status = _ownership_status;
     if (!context.matches(status.token, status.incarnation, status.source_revision,
@@ -238,16 +247,15 @@ void ExternalMode::observeOwnership() {
         // It is never copied from current VehicleStatus or a replacement activation.
         context.acquired_epoch = status.acquired_nav_state_timestamp;
     }
+    if (context.observeTerminalRelease(activationEvidence(), px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_AUTO_LOITER, _lease)) {
+        _activation_hold.reset();
+        revoke();
+        _neutral_drain_failure.clear();
+    }
 }
 
 bool ExternalMode::acquisitionOutstanding() const {
-    if (!_ownership_context) return false;
-    if (_ownership_context->retired) return true;
-    const auto& context = *_ownership_context;
-    const auto& status = _ownership_status;
-    if (!ownedContractAvailable() || !context.matches(status.token, status.incarnation, status.source_revision,
-            status.source_nav_state_timestamp, status.source_nav_state, status.mode_id, status.registration_id)) return true;
-    return status.state == status.STATE_PENDING || status.state == status.STATE_ACQUIRED || status.state == status.STATE_RELEASING;
+    return _ownership_context && _ownership_context->acquisitionOutstanding();
 }
 
 Json ExternalMode::acquisition(const std::string& runtime) const {
@@ -256,19 +264,7 @@ Json ExternalMode::acquisition(const std::string& runtime) const {
 
 Json ExternalMode::releaseReceipt(const std::string& runtime) const {
     if (!_ownership_context) return nullptr;
-    const auto& context = *_ownership_context;
-    const auto& status = _ownership_status;
-    std::string outcome = "unconfirmed";
-    if (!context.retired && ownedContractAvailable() && std::to_string(status.autopilot_uid) == context.identity.aircraft
-            && context.matches(status.token, status.incarnation, status.source_revision,
-            status.source_nav_state_timestamp, status.source_nav_state, status.mode_id, status.registration_id)) {
-        if (status.state == status.STATE_RELEASED && status.nav_state == px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_AUTO_LOITER
-                && status.nav_state_timestamp > context.acquired_epoch && !status.rescue_active) outcome = "hold_confirmed";
-        else if (status.state == status.STATE_CANCELLED || status.state == status.STATE_REJECTED
-                || status.state == status.STATE_EXPIRED || status.state == status.STATE_SUPERSEDED) outcome = "owner_already_released";
-    }
-    return {{"acquisition", context.wire(runtime)}, {"outcome", outcome},
-        {"observed_nav_state", status.nav_state}, {"observed_nav_state_timestamp", status.nav_state_timestamp}};
+    return _ownership_context->releaseReceipt(runtime, _ownership_status.nav_state, _ownership_status.nav_state_timestamp);
 }
 
 void ExternalMode::requestOwnership(bool release) {
@@ -358,6 +354,7 @@ void ExternalMode::disconnect() {
 
 void ExternalMode::drainNeutral() {
     _neutral_drain_active = false;
+    if (_ownership_context && _ownership_context->terminal_release) return;
     if (!_ownership_context || !neutralDrainPermitted(*_ownership_context, activationEvidence())) {
         _neutral_drain_failure = "native_release_owner_unconfirmed";
         return;
@@ -389,7 +386,8 @@ void ExternalMode::drainNeutral() {
 void ExternalMode::updateSetpoint(float /*dt_s*/) {
     _neutral_drain_active = false;
     endPursuitOnPhaseExit();
-    if (releasePending()) {
+    if (_ownership_context && _ownership_context->pursuit_ended) {
+        if (_ownership_context->terminal_release) return;
         // If stale ownership evidence prevented the first release dispatch,
         // try only that original release when it becomes qualified. Once sent,
         // stopOwnedMode preserves the same request and finite deadline.

@@ -109,6 +109,18 @@ height rate. Transition publication additionally requires matching accepted and
 native-helper direction, with a qualified native FW frame. Missing observations
 stop neutral publication without blocking the conditional release request.
 
+The pursuit-ended fence is permanent for that acquisition. Release-pending is
+only a diagnostic: the first fresh terminal receipt matching the original
+token, source, registration and activation resolves it and revokes the lease,
+regardless of SDK callback ordering. Terminal proof requires an inactive owner;
+confirmed Hold additionally requires a real activation after the original
+source epoch. Pre-acquisition cancellation, rejection, expiry and supersession
+may retain a zero activation epoch. That receipt remains historical proof
+through later stale status, disarm or source retirement; it never authorizes
+commands or adopts a replacement owner. Native Hold without the correlated
+receipt does not resolve release. A new Start still requires all fresh phase,
+registration, aircraft and source checks and creates a new acquisition.
+
 Startup waiting/holding remains separate: it expires at the original engagement
 deadline and ends with the first pursuit intent. Callback ordering may leave
 correlation pending within that same window; no startup command is published

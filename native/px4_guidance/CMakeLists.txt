@@ -56,4 +56,7 @@ if(BUILD_TESTING)
     target_compile_definitions(owned_mode_contract_test PRIVATE
         PIXEAGLE_OWNERSHIP_PROTOCOL_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures/ownership-protocol.json")
     gtest_discover_tests(owned_mode_contract_test)
+    add_executable(terminal_release_test test/terminal_release_test.cpp)
+    target_link_libraries(terminal_release_test PRIVATE command_lease nlohmann_json::nlohmann_json GTest::gtest_main)
+    gtest_discover_tests(terminal_release_test)
 endif()

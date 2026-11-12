@@ -324,3 +324,17 @@ policy determine the verdict. There is no forced disarm, old receipt adoption,
 authority-lease refresh or production restart service. Actual process recovery
 and full combined post-merge renewal remain the next gates; the failed first
 candidate and negative transition evidence stay intact.
+
+The clean `d47835ee6` renewal passes 6,348 unit, 196 integration and 155 Phase 0
+checks, with eleven optional GStreamer skips. A fresh standard-VTOL transition
+meets its command, 36 ms publication-gap and 1.987 m altitude subchecks but remains
+provisional: the archive guard exposes an adapter release-pending flag that
+never resolves despite a genuine original Hold receipt. The repair retains one
+exact terminal proof in the existing ownership context while permanently fencing
+old pursuit. Its 75 native, 75 sanitizer, 35 packaging and 326 root compatibility
+checks pass; actual middleware scheduling and archive acceptance still need a
+new capture after independent review and full renewal. Report-only restart
+preparation also exposed startup/unavailable-data
+assumptions and a fixture/producer mismatch, all before actual crash testing.
+Failed and provisional captures remain unchanged. No hardware, profile, QGC or
+remote publication action occurred; S7 and the tailsitter altitude gate stay open.

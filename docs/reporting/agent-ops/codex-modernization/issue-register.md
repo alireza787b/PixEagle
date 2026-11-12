@@ -384,3 +384,12 @@ remain open. Integration work is unpublished.
   in its decimated capture. The read-only replay orientation defect is repaired
   separately. VTOL admission remains closed; details, negative evidence and next
   gates are in the same consolidation checkpoint.
+
+- **2026-11-12 — S7 native terminal-release state (open):** an actual standard-
+  VTOL capture meets its command/publication/altitude subchecks but archive
+  admission refuses a permanently latched `release_pending` despite the original
+  correlated Hold receipt. Separate permanent pursuit termination from unresolved
+  release using the existing acquisition context; retain exact historical proof,
+  not replacement-owner state. A matching rebuilt adapter and new actual capture
+  are required. Report-helper startup and healthy-producer fixture defects are
+  tracked separately; no preparation failure is an aircraft-recovery pass.

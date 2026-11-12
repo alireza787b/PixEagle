@@ -46,7 +46,7 @@ public:
     std::uint64_t publications() const { return _publications; }
     using NeutralProvider = std::function<std::optional<NativeNeutralInput>()>;
     void setNeutralProvider(NeutralProvider provider) { _neutral_provider = std::move(provider); }
-    bool releasePending() const { return _ownership_context && _ownership_context->release_pending; }
+    bool releasePending() const { return _ownership_context && _ownership_context->releasePending(); }
     bool neutralDrainActive() const { return _neutral_drain_active; }
     const std::string& neutralDrainFailure() const { return _neutral_drain_failure; }
 
