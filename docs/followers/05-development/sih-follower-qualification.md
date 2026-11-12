@@ -148,6 +148,38 @@ This reads `scenario.yaml` and its profile from the capture, including native
 image profiles. An optional `--follower` must agree. Raw results, manifests,
 configuration, scenarios and traces remain unchanged; derived reports are refreshed.
 
+### Native ownership checks
+
+`tools/run_native_ownership_sih.py` separately tests acquisition and cleanup on
+an already airborne, stable, isolated SIH airplane. It reuses the production
+binding and publisher with phase-confirmation baselines and absent target
+evidence. It does not qualify tracking, camera geometry, VTOL or hardware, and
+never arms, takes off or transitions. The exact source-built firmware manifest,
+running executable, container isolation and aircraft UID must agree.
+
+```bash
+PYTHONPATH=src .venv/bin/python tools/run_native_ownership_sih.py \
+  --container <isolated-container> --instance 0 \
+  --socket <private-guidance.sock> \
+  --sih-build-manifest <build>/sih-build-manifest.json \
+  --case same_mode_reselection --output reports/sitl/<new-run>
+```
+
+This is read-only preflight until `--execute` is added. Cases are `normal_stop`,
+`confirmed_owner_eof`, `same_mode_reselection` and
+`stale_cleanup_new_acquisition`. Reselection uses the first external-mode CLI
+fixture only when the actual registered ID matches the verified source
+constant; it refuses other slots. The replacement case deliberately reuses
+semantic session IDs with a different acquisition token. Lost engagement ACK
+and registration-slot replacement are separate, unqualified cases.
+
+Keep raw requests/replies, source publications, original ACK context, pose,
+parameters and the pre-cleanup verdict. Independent simulator-operator cleanup
+is labeled separately from backend Hold. Final confirmation waits within the
+existing status freshness allowance for coherent owner-false Hold, then checks
+that publication remains stopped; read-only polling never renews that allowance.
+An eventual cleanup cannot turn a failed fault witness into a pass.
+
 Native source-change scenarios use `airspeed_loss` with `at_s` and `duration_s`.
 Only one fault family is allowed per run. The harness requires an attested isolated
 source build and already-enabled `SYS_FAILURE_EN=1`; it never changes parameters

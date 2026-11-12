@@ -1,0 +1,27 @@
+
+TOPIC: owned_mode_status
+ owned_mode_status
+    timestamp: 7268000 (0.056000 seconds ago)
+    autopilot_uid: 5283920058631409231
+    incarnation: [5401483822302979772, 18262832678495589789]
+    source_clock_us: 7268000
+    intention_revision: 1
+    registration_ids: [16677322099941580292, 0, 0, 0, 0, 0, 0, 0]
+    token: [0, 0]
+    source_revision: 0
+    source_nav_state_timestamp: 0
+    registration_id: 0
+    acquired_nav_state_timestamp: 0
+    nav_state_timestamp: 32000
+    system_id: 1
+    contract_version: 1
+    available: True
+    component_id: 1
+    state: 0
+    source_nav_state: 0
+    mode_id: 0
+    owner_active: False
+    nav_state: 4
+    armed: False
+    rescue_active: False
+

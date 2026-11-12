@@ -210,3 +210,18 @@ mounts and calibrated image-FW response: 870 successful component submissions,
 confirmed native Hold, no subsequent publication, and three browser-checked
 interactive reports. Causal ownership fault scenarios and neutral release
 draining remain next; this does not reopen VTOL admission or qualify hardware.
+
+Four S7 native ownership baseline cases now pass independent raw-evidence review:
+Stop, confirmed socket EOF, same-ID pilot reselection and delayed cleanup after a
+new acquisition. The new harness retains original receipts and distinguishes
+fault verdicts from independent simulator cleanup. Two parser/coherence failures
+remain archived with regressions. The selected EOF run's absolute clock origin
+was not retained, so its exact deadline inequality is instrumented rather than
+independently recomputable; new captures explicitly include that origin.
+
+The long-running simulator's default logger auto-deleted its earlier 1 GiB ULog
+during rotation. Actual per-case pose/status/wire/configuration evidence survives,
+but no ULog corroboration is claimed. The checkpoint records this retention gap
+and requires shorter runs with log archival. Registration-slot replacement,
+terminal neutral draining, process restart and transition preservation remain
+unqualified. Hardware and saved public/private configuration are untouched.

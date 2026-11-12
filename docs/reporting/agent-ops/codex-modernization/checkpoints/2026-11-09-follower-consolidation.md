@@ -989,3 +989,43 @@ This renews component acquisition/normal release, not takeover/disconnect,
 transition preservation, altitude-enabled response or full-application startup.
 Those scopes retain their separate gates; the new causal-ownership fault harness
 and terminal neutral draining are next. No hardware or installed service changed.
+
+### S7 baseline ownership fault checks
+
+Four isolated airplane cases now pass on the committed `3233d0faa` foundation:
+normal Stop, confirmed-owner socket EOF, pilot reselection of the same external
+mode, and delayed original cleanup after a newer acquisition. These use the
+production binding/publisher with absent target evidence and phase-confirmation
+baselines. They qualify causal ownership and cleanup, not tracking, mounting,
+VTOL, lost engagement acknowledgements or aircraft operation.
+
+The independent file-only audit is
+`software-gates-s7-ownership-tool-r1/independent-raw-audit-r1.{json,md}` under the
+consolidation run root. It verifies exact original ACK/source context, successful
+submissions, actual pose, same-epoch intention retirement, read-only reconciliation,
+and publication stopping after correlated release. Delayed cleanup cannot write
+the original token into the newer acquisition or close its socket. Pilot
+reselection produces an already-released result rather than a backend Hold claim;
+independent simulator cleanup is recorded after that verdict.
+
+Two earlier harness failures remain unchanged: the EOF parser treated an actual
+socket lifecycle marker as an RPC, and the first post-cleanup read combined a
+new ownership receipt with the preceding VehicleStatus. Regressions retain exact
+raw subsets. Coherence waiting uses only the original status's remaining freshness
+allowance; polling does not renew it. The selected EOF run proves its timing check
+in the archived tool, but lacks the absolute monotonic origin needed to recompute
+that inequality independently. Subsequent captures archive that origin explicitly.
+
+**ULog retention gap:** the default PX4 logger rotated at 1 GiB and automatically
+deleted its earlier file under the host free-space cleanup policy. The runtime
+was stopped during the next file's creation; no ULog survives for this batch.
+`s7-native-ownership-runtime-r1/px4.log` and `stopped-and-log-hashes.json` retain
+the deletion and empty ULog inventory. Per-case PX4 pose/status, wire traces,
+configuration, parameters and verdicts remain. Do not claim ULog corroboration
+or full qualification from this batch. Later runs must flush/archive logs before
+rotation and stop simulators while long software reviews are pending.
+
+Registration replacement, continuous neutral release publication, adapter-process
+restart and end-on-transition remain open. Their reviewed implementation and
+fresh bounded SIH runs follow; no hardware, gains, saved configuration or QGC
+files changed in these ownership checks.
