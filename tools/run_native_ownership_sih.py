@@ -395,21 +395,35 @@ async def reconcile(session, log):
     return result
 
 
-def coherent_hold(packet, acquisition, hold_mode):
+def coherent_hold(packet, acquisition, hold_mode, *, retired_receipt=None):
     payload = packet.get('release_receipt')
     if payload is None:
         return False
     receipt = NativeReleaseReceipt.from_payload(payload).require_match(
         acquisition.identity, acquisition.runtime_id, acquisition.token, acquisition, mode_id=acquisition.mode_id)
     epoch = packet.get('nav_state_timestamp')
+    release_confirmed = (receipt.released and receipt.observed_nav_state == hold_mode
+                         and receipt.observed_nav_state_timestamp == epoch)
+    if retired_receipt is not None:
+        # The original retirement receipt cannot credit a later independent pilot Hold.
+        retired_receipt.require_match(acquisition.identity, acquisition.runtime_id, acquisition.token,
+                                      acquisition, mode_id=acquisition.mode_id)
+        state = packet.get('aircraft_state')
+        release_confirmed = (retired_receipt.outcome == 'owner_already_released'
+            and retired_receipt.observed_nav_state == acquisition.mode_id
+            and retired_receipt.observed_nav_state_timestamp == acquisition.activation_timestamp
+            and receipt == retired_receipt and packet.get('runtime_id') == acquisition.runtime_id
+            and isinstance(state, dict) and state.get('binding') == asdict(acquisition.identity.binding)
+            and packet.get('phase_status_fresh') is True and packet.get('release_pending') is False
+            and packet.get('neutral_drain_active') is False and packet.get('neutral_drain_failure') == '')
     return (packet.get('fresh') is True and packet.get('owner_confirmed') is False
             and packet.get('rescue_active') is False and packet.get('nav_state') == hold_mode
             and type(epoch) is int and acquisition.activation_timestamp < epoch < 2**64
-            and receipt.released and receipt.observed_nav_state == hold_mode
-            and receipt.observed_nav_state_timestamp == epoch)
+            and release_confirmed)
 
 
-async def wait_for_coherent_hold(client, acquisition, hold_mode, log, *, clock=time.monotonic, pause=asyncio.sleep):
+async def wait_for_coherent_hold(client, acquisition, hold_mode, log, *, retired_receipt=None,
+                                 clock=time.monotonic, pause=asyncio.sleep):
     """Spend only the first VehicleStatus sample's remaining freshness allowance."""
     started = clock()
     packet = await client.observe()
@@ -428,7 +442,7 @@ async def wait_for_coherent_hold(client, acquisition, hold_mode, log, *, clock=t
                 log('hold-coherence-observations.jsonl', packet)
                 if clock() >= deadline:
                     raise TimeoutError
-                if coherent_hold(packet, acquisition, hold_mode):
+                if coherent_hold(packet, acquisition, hold_mode, retired_receipt=retired_receipt):
                     converged = True
                     return packet, counts
                 remaining = deadline - clock()
@@ -763,6 +777,7 @@ async def run(args, isolation, contract):
     recorder = None
     socket_directory = None
     progress = {'original_cleanup_read_only': False}
+    retired_receipt = None
     try:
         (output / 'px4/parameters-before.txt').write_text(await asyncio.to_thread(native_parameters, args.socket, isolation))
         socket_directory = tempfile.TemporaryDirectory(prefix='pe-own-')
@@ -814,6 +829,7 @@ async def run(args, isolation, contract):
             receipt = await reconcile(active, log)
             checks['original_owner_retired'] = receipt.outcome == 'owner_already_released'
             if args.case == 'same_mode_reselection':
+                retired_receipt = receipt
                 outcome = await active.binding.stop('ownership_fixture_takeover_cleanup')
                 checks['no_backend_hold_claim'] = not outcome['executed'] and outcome['reason'] == 'native_owner_already_released'
                 checks['retired_cleanup_read_only'] = all(request['operation'] in ('hello', 'bind', 'observe')
@@ -857,12 +873,13 @@ async def run(args, isolation, contract):
             result['cleanup'] = await active.binding.stop('ownership_fixture_final_cleanup')
         await client.connect()
         await client.bind(aircraft)
-        _, counts = await wait_for_coherent_hold(client, active.acquisition, contract['hold'], log)
+        _, counts = await wait_for_coherent_hold(client, active.acquisition, contract['hold'], log,
+                                                retired_receipt=retired_receipt)
         final_hold = True
         for _ in range(5):
             packet = await client.observe()
             counts.append(packet['publications'])
-            final_hold &= coherent_hold(packet, active.acquisition, contract['hold'])
+            final_hold &= coherent_hold(packet, active.acquisition, contract['hold'], retired_receipt=retired_receipt)
             log('post-stop-observations.jsonl', packet)
             await asyncio.sleep(.1)
         result['response_checks']['no_publication_after_cleanup'] = (

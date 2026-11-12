@@ -1,6 +1,7 @@
 """Ownership qualification tooling; synthetic packets never count as SIH evidence."""
 import asyncio
 import json
+from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -529,6 +530,143 @@ async def test_hold_wait_requires_a_valid_existing_status_budget(budget, age):
     with pytest.raises(ValueError):
         await tool.wait_for_coherent_hold(client, context, CONTRACT['hold'], lambda *args: None)
     assert client.observe.await_count == 1
+
+
+def retired_hold_packets():
+    path = Path(__file__).parent / 'fixtures/native/same-mode-retired-independent-hold-ten-packets.json'
+    fixture = json.loads(path.read_text())
+    receipt = tool.NativeReleaseReceipt.from_payload(fixture['original_receipt'])
+    packets = [packet | {'release_receipt': deepcopy(fixture['original_receipt'])} for packet in fixture['packets']]
+    return receipt.acquisition, receipt, packets
+
+
+class HoldObservationReplay:
+    def __init__(self, packets):
+        self.packets, self.index, self.now = packets, 0, 0.
+
+    async def observe(self):
+        packet = self.packets[self.index]
+        self.index += 1
+        self.now = max(self.now, packet['timestamp'] - self.packets[0]['timestamp'])
+        return packet
+
+    async def pause(self, delay):
+        self.now += delay
+
+    def clock(self):
+        return self.now
+
+
+async def test_actual_retirement_packets_reproduce_strict_correlated_hold_timeout():
+    context, receipt, packets = retired_hold_packets()
+    replay, logs = HoldObservationReplay(packets), []
+    assert all(packet['release_receipt'] == receipt.wire_payload() for packet in packets)
+    assert all(not tool.coherent_hold(packet, context, CONTRACT['hold']) for packet in packets)
+    with pytest.raises(ValueError, match='hold_coherence_timeout'):
+        await tool.wait_for_coherent_hold(replay, context, CONTRACT['hold'],
+            lambda name, value: logs.append((name, value)), clock=replay.clock, pause=replay.pause)
+    window = next(value for name, value in logs if name == 'hold-coherence-window.jsonl')
+    assert replay.index == 10 and window['converged'] is False
+    assert window['maximum_wait_s'] == pytest.approx(1. - packets[0]['phase_source_health']['vehicle_status_age_s'])
+    assert window['elapsed_s'] == pytest.approx(window['maximum_wait_s'])
+
+
+async def test_actual_retirement_then_independent_hold_uses_original_receipt_and_budget():
+    context, receipt, packets = retired_hold_packets()
+    replay, logs = HoldObservationReplay(packets), []
+    observed, counts = await tool.wait_for_coherent_hold(replay, context, CONTRACT['hold'],
+        lambda name, value: logs.append((name, value)), retired_receipt=receipt,
+        clock=replay.clock, pause=replay.pause)
+    assert observed is packets[1] and replay.index == 2 and counts == [94, 94]
+    assert receipt.outcome == 'owner_already_released' and receipt.observed_nav_state == context.mode_id
+    assert receipt.observed_nav_state_timestamp == context.activation_timestamp
+    for _ in range(5):
+        packet = await replay.observe()
+        assert tool.coherent_hold(packet, context, CONTRACT['hold'], retired_receipt=receipt)
+        counts.append(packet['publications'])
+    assert counts == [94] * 7
+    window = next(value for name, value in logs if name == 'hold-coherence-window.jsonl')
+    assert window['maximum_wait_s'] == pytest.approx(1. - packets[0]['phase_source_health']['vehicle_status_age_s'])
+    assert window['elapsed_s'] < window['maximum_wait_s'] and window['converged'] is True
+
+
+@pytest.mark.parametrize('location', ['packet', 'retired_receipt'])
+@pytest.mark.parametrize('field,value', [('token', 'f' * 32), ('runtime_id', 'other-runtime'),
+                                        ('activation_timestamp', 42320001)])
+def test_independent_hold_rejects_replaced_original_context(location, field, value):
+    context, receipt, packets = retired_hold_packets()
+    packet = packets[1]
+    changed = deepcopy(packet['release_receipt'])
+    changed['acquisition'][field] = value
+    if location == 'packet':
+        packet['release_receipt'] = changed
+    else:
+        receipt = tool.NativeReleaseReceipt.from_payload(changed)
+    with pytest.raises(tool.NativeGuidanceError, match='acquisition_context_changed'):
+        tool.coherent_hold(packet, context, CONTRACT['hold'], retired_receipt=receipt)
+
+
+@pytest.mark.parametrize('field,value', [
+    ('runtime_id', 'replacement-runtime'), ('fresh', False), ('phase_status_fresh', False),
+    ('owner_confirmed', True), ('rescue_active', True), ('release_pending', True),
+    ('neutral_drain_active', True), ('neutral_drain_failure', 'failed'), ('aircraft_state', None),
+    ('nav_state', 23), ('nav_state_timestamp', 42320000), ('nav_state_timestamp', 42319999),
+])
+def test_independent_hold_requires_fresh_newer_live_state_without_control_owner(field, value):
+    context, receipt, packets = retired_hold_packets()
+    packet = packets[1] | {field: value}
+    assert not tool.coherent_hold(packet, context, CONTRACT['hold'], retired_receipt=receipt)
+
+
+@pytest.mark.parametrize('field,value', [
+    ('aircraft_uid', 'other-aircraft'), ('connection_generation', 'other-connection'),
+    ('telemetry_generation', 2),
+])
+def test_independent_hold_requires_the_full_original_live_binding(field, value):
+    context, receipt, packets = retired_hold_packets()
+    packet = packets[1]
+    packet['aircraft_state']['binding'][field] = value
+    assert not tool.coherent_hold(packet, context, CONTRACT['hold'], retired_receipt=receipt)
+    packet['aircraft_state']['binding'] = {'aircraft_uid': context.identity.binding.aircraft_uid}
+    assert not tool.coherent_hold(packet, context, CONTRACT['hold'], retired_receipt=receipt)
+
+
+def test_independent_pilot_hold_cannot_rewrite_the_original_terminal_receipt():
+    context, receipt, packets = retired_hold_packets()
+    packet = packets[1]
+    packet['release_receipt'].update(outcome='hold_confirmed', observed_nav_state=CONTRACT['hold'],
+                                    observed_nav_state_timestamp=packet['nav_state_timestamp'])
+    assert not tool.coherent_hold(packet, context, CONTRACT['hold'], retired_receipt=receipt)
+    assert receipt.observed_nav_state == context.mode_id
+    assert receipt.observed_nav_state_timestamp == context.activation_timestamp
+
+
+async def test_independent_hold_keeps_first_incoherent_publication_count_for_failure():
+    context, receipt, packets = retired_hold_packets()
+    for packet in packets[1:]:
+        packet['publications'] = 95
+    replay = HoldObservationReplay(packets)
+    _, counts = await tool.wait_for_coherent_hold(replay, context, CONTRACT['hold'], lambda *args: None,
+        retired_receipt=receipt, clock=replay.clock, pause=replay.pause)
+    for _ in range(5):
+        counts.append((await replay.observe())['publications'])
+    assert counts == [94] + [95] * 6
+    assert len(set(counts)) == 2
+
+
+async def test_independent_hold_never_renews_deadline_from_later_status_packets():
+    context, receipt, packets = retired_hold_packets()
+    for packet in packets[1:]:
+        packet['nav_state'] = context.mode_id
+        packet['phase_source_health'].update(vehicle_status_timeout_s=1000., vehicle_status_age_s=0.)
+    replay, logs = HoldObservationReplay(packets), []
+    with pytest.raises(ValueError, match='hold_coherence_timeout'):
+        await tool.wait_for_coherent_hold(replay, context, CONTRACT['hold'],
+            lambda name, value: logs.append((name, value)), retired_receipt=receipt,
+            clock=replay.clock, pause=replay.pause)
+    window = next(value for name, value in logs if name == 'hold-coherence-window.jsonl')
+    assert window['maximum_wait_s'] < 1. and window['elapsed_s'] == pytest.approx(window['maximum_wait_s'])
+    assert replay.index == 10 and window['converged'] is False
 
 
 @pytest.mark.parametrize('phase,vtol,accepted', [

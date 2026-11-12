@@ -251,6 +251,10 @@ is labeled separately from backend Hold. Final confirmation waits within the
 existing status freshness allowance for coherent owner-false Hold, then checks
 that publication remains stopped; read-only polling never renews that allowance.
 An eventual cleanup cannot turn a failed fault witness into a pass.
+For same-mode reselection, the original terminal receipt stays immutable.
+The later independent pilot Hold requires fresh matching aircraft/runtime state,
+a newer live mode epoch, no active owner/drain, and stopped publication. Other
+cases still require their original acquisition's correlated Hold receipt.
 
 Native source-change scenarios use `airspeed_loss` with `at_s` and `duration_s`.
 Only one fault family is allowed per run. The harness requires an attested isolated
