@@ -1080,3 +1080,31 @@ tests on actual Python 3.10 and 118 on 3.12, plus 243 affected 3.12 checks. Comp
 fatal lint and diff checks pass; the existing fourteen full-Ruff diagnostics are
 unchanged. Original runtime and test-fixture failures remain archived. This
 renewal covers transport/cleanup compatibility, not new aircraft behavior.
+
+### S7 renewed release and registration response
+
+On `05d38b175` with the matching reviewed SDK/adapter, normal Stop and confirmed
+backend EOF pass on a fresh stable SIH airplane: 61 acknowledged baseline intents
+each, original-context native Hold and stable post-release publication counts.
+The retained ULog corroborates actual modes, pose and native setpoints; maximum
+active setpoint gap is 36 ms. The newly retained host clock origin independently
+proves EOF occurred with 0.254638 s remaining on the last intent. Evidence is
+`software-gates-s7-integration-r1/actual-release-proof-r1.json`; the checked visual
+summary is `actual-release-summary-r2.png`. Fast Hold did not exercise sustained
+neutral draining, so that remains a separate test. The earlier summary rendering's
+unsigned-time error is retained as superseded derived output, not selected proof.
+
+The first actual registry-reuse case also passes: PX4 garbage-collects stopped
+adapter A while disarmed; B reuses mode 23 and health slot 0 with a distinct SDK
+request ID. Resumed A exits with `native_registration_lost`. Fourteen retained
+fresh B snapshots and a flushed reliable monitor show B's registration/preflight
+preserved and zero observed weak unregister messages; B then reaches seven
+stable airborne samples near 30 m. `s7-registration-runtime-r1/overall-result.json`
+records the stopped runtime and retained ULog. This is bounded registry/baseline
+evidence, not a following, target, transition or zero-stale-health-reply claim.
+
+Both new runtimes are stopped. Their flushed ULogs are retained and hashed
+(55,293,264 and 8,184,499 bytes); neither logs ownership-status messages, so raw
+CLI/wire/registration replies remain the causal ownership witnesses. Backend
+end-on-transition migration and private-protocol retirement are still under
+review. Hardware, installed services, saved profiles and QGC are unchanged.

@@ -242,3 +242,13 @@ dispatch fences and immediate captured-socket retirement without a new package.
 Actual 3.10/3.12 native-client gates pass 118 tests each; 243 affected 3.12 checks
 also pass. Source/test hashes, baseline lint comparison and original failures
 remain in the S7 Python-compatibility evidence. No hardware behavior is claimed.
+
+New bounded S7 captures on `05d38b175` pass normal Stop/EOF release and genuine
+registration-slot reuse. Original-context Hold is observed; the stopped old
+adapter retires after its slot is reused without an observed weak unregister,
+and the replacement remains healthy through native takeoff. Both simulators are
+stopped and their ULogs are flushed/hashed. The checkpoint links raw proofs and
+the corrected visual summary and distinguishes these checks from sustained
+neutral draining, target tracking and VTOL qualification. Backend phase migration
+and private-protocol cleanup remain in review; hardware and saved settings are
+unchanged.
