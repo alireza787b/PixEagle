@@ -48,6 +48,9 @@ units and ranges; gaps remain unknown. Playback uses recorded timestamp spacing.
 HTML is self-contained and works offline; CSV and PNG preserve the same command
 semantics. This format support is not evidence that native FW/VTOL qualification
 has passed.
+The replay stacks panels on narrow screens and wraps long diagnostic values.
+Regenerated presentations must preserve the original samples and verdict;
+retain historical reports separately rather than rewriting their evidence.
 Imported target truth retains its own `target_timestamp_s` in JSON/CSV. Target
 speed is differentiated at those source times, not at interleaved publication
 times. A gap in an imported truth trace stays unknown; it is not replaced by
