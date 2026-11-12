@@ -549,55 +549,76 @@ async def wait_transition_terminal(binding, commander, *, expected_reason, timeo
         await asyncio.sleep(min(.01, remaining))
 
 
+def record_released_observation(packet, acquisition, *, captured_at, follow_start, log,
+                                scenario, response=None, previous_pose_timestamp_us=None,
+                                release_observed_at=None, previous_publications=None, world_clock=None):
+    """Project this actual packet; return state and source/release/counter cursors."""
+    if (packet.get("owner_confirmed") is not False or packet.get("runtime_id") != acquisition.runtime_id
+            or packet.get("rescue_active") is not False):
+        raise ValueError("native_component_post_transition_owner_or_rescue")
+    receipt = NativeReleaseReceipt.from_payload(packet.get("release_receipt"))
+    receipt.require_match(acquisition.identity, acquisition.runtime_id, acquisition.token, acquisition)
+    if not receipt.released:
+        raise ValueError("native_component_post_transition_release_unconfirmed")
+    publications = packet.get("publications")
+    if type(publications) is not int or publications < 0:
+        raise ValueError("native_component_publication_count_invalid")
+    if previous_publications is not None and publications != previous_publications:
+        raise ValueError("native_component_publication_after_release")
+    unchanged = (None, previous_pose_timestamp_us, release_observed_at, publications)
+    if packet.get("fresh") is not True or not packet.get("aircraft_state") or not packet.get("vehicle_pose"):
+        return unchanged
+    captured_at = finite_number(captured_at, "native_component_capture_receipt")
+    state = AircraftState.from_payload(packet["aircraft_state"])
+    if state.binding != acquisition.identity.binding:
+        raise ValueError("native_component_post_transition_aircraft_changed")
+    pose_received = finite_number(packet["vehicle_pose"].get("observed_at_monotonic_s"),
+                                  "native_component_pose_receipt")
+    if pose_received < 0. or pose_received > captured_at:
+        raise ValueError("native_component_pose_receipt_invalid")
+    if not state.fresh(captured_at, .75) or captured_at-pose_received > .75:
+        return unchanged
+    pose = observed_pose_record(packet, follow_start=follow_start, previous_timestamp_us=previous_pose_timestamp_us)
+    elapsed = captured_at-follow_start
+    target = (world_clock.target_at_host(captured_at) if world_clock is not None else scenario.target_at(elapsed))
+    if target is None:
+        raise ValueError("native_component_post_transition_target_truth_missing")
+    if response is not None:
+        response.append(dict(timestamp=elapsed, phase=state.phase.value,
+            range_m=math.dist(packet["vehicle_pose"]["vehicle_ned"], target), altitude_m=state.relative_altitude_m))
+    log("trace/target_truth.jsonl", dict(timestamp=elapsed, target_ned=target))
+    if pose is not None:
+        log("px4/pose_trace.jsonl", pose)
+        previous_pose_timestamp_us = pose["px4_timestamp_us"]
+    held = packet.get("nav_state") == 4
+    if held and release_observed_at is None:
+        release_observed_at = elapsed
+    log("trace/follower_state.jsonl", dict(timestamp=elapsed, state="INACTIVE", phase_state="ended",
+        authority_state="INACTIVE", command_expected=False, observed_hold=held,
+        publisher_running=False, publisher_task_active=False,
+        command_owner_released_at=release_observed_at, aircraft_phase=state.phase.value,
+        aircraft_observed_at_monotonic_s=state.observed_at_monotonic_s,
+        pose_observed_at_monotonic_s=pose_received, pose_timestamp_us=packet["vehicle_pose"]["px4_timestamp_us"],
+        captured_at_monotonic_s=captured_at,
+        limiting_reason="session_cleanup_after_phase_evidence", events=["post_session_native_transition"]))
+    return state, previous_pose_timestamp_us, release_observed_at, publications
+
+
 async def capture_post_transition(client, event, acquisition, *, log, started, follow_start, timeout_s,
-                                  scenario, response, previous_pose_timestamp_us=None, world_clock=None, clock=time.monotonic):
+                                  scenario, response, previous_pose_timestamp_us=None, world_clock=None,
+                                  release_observed_at=None, previous_publications=None, clock=time.monotonic):
     """Read only after publisher join/release; observed motion remains PX4 truth."""
     deadline = clock() + timeout_s
-    window, samples, publications, previous_pose = [], [], None, previous_pose_timestamp_us
-    release_observed_at = None
+    window, samples, publications, previous_pose = [], [], previous_publications, previous_pose_timestamp_us
     while clock() < deadline:
         packet = await client.observe()
-        elapsed = clock() - follow_start
-        log("post-transition-observations.jsonl", dict(timestamp=clock()-started, value=packet))
-        if (packet.get("owner_confirmed") is not False or packet.get("runtime_id") != acquisition.runtime_id
-                or packet.get("rescue_active") is not False):
-            raise ValueError("native_component_post_transition_owner_or_rescue")
-        receipt = NativeReleaseReceipt.from_payload(packet.get("release_receipt"))
-        receipt.require_match(acquisition.identity, acquisition.runtime_id, acquisition.token, acquisition)
-        if not receipt.released:
-            raise ValueError("native_component_post_transition_release_unconfirmed")
-        if publications is not None and packet.get("publications") != publications:
-            raise ValueError("native_component_publication_after_release")
-        publications = packet.get("publications")
-        if type(publications) is not int or publications < 0:
-            raise ValueError("native_component_publication_count_invalid")
-        if packet.get("fresh") is True and packet.get("aircraft_state") and packet.get("vehicle_pose"):
-            state = AircraftState.from_payload(packet["aircraft_state"])
-            if state.binding != acquisition.identity.binding:
-                raise ValueError("native_component_post_transition_aircraft_changed")
-            if not state.fresh(clock(), .75):
-                window = []
-                await asyncio.sleep(.05)
-                continue
-            target = (world_clock.target_at_host(follow_start+elapsed) if world_clock is not None
-                      else scenario.target_at(elapsed))
-            if target is None:
-                raise ValueError("native_component_post_transition_target_truth_missing")
-            response.append(dict(timestamp=elapsed, phase=state.phase.value,
-                range_m=math.dist(packet["vehicle_pose"]["vehicle_ned"], target), altitude_m=state.relative_altitude_m))
-            log("trace/target_truth.jsonl", dict(timestamp=elapsed, target_ned=target))
-            pose = observed_pose_record(packet, follow_start=follow_start, previous_timestamp_us=previous_pose)
-            if pose is not None:
-                log("px4/pose_trace.jsonl", pose)
-                previous_pose = pose["px4_timestamp_us"]
-            held = packet.get("nav_state") == 4
-            if held and release_observed_at is None:
-                release_observed_at = elapsed
-            log("trace/follower_state.jsonl", dict(timestamp=elapsed, state="INACTIVE", phase_state="ended",
-                authority_state="INACTIVE", command_expected=False, observed_hold=held,
-                publisher_running=False, publisher_task_active=False,
-                command_owner_released_at=release_observed_at, aircraft_phase=state.phase.value,
-                limiting_reason="session_cleanup_after_phase_evidence", events=["post_session_native_transition"]))
+        captured_at = clock()
+        log("post-transition-observations.jsonl", dict(timestamp=captured_at-started, value=packet))
+        state, previous_pose, release_observed_at, publications = record_released_observation(
+            packet, acquisition, captured_at=captured_at, follow_start=follow_start, log=log,
+            scenario=scenario, response=response, previous_pose_timestamp_us=previous_pose,
+            release_observed_at=release_observed_at, previous_publications=publications, world_clock=world_clock)
+        if state is not None:
             samples.append(state)
             if state.phase is event.requested_phase and packet.get("nav_state") == 4:
                 if (not window or state.sequence > window[-1].sequence
@@ -711,13 +732,18 @@ def airspeed_fault_response_checks(response, events) -> dict[str, bool]:
     return checks
 
 
+async def stop_component_publisher(commander):
+    """A failed existing join cannot authorize an inactive capture marker."""
+    if await commander.stop(publish_final=False) is False:
+        raise RuntimeError("native_component_publisher_not_quiesced")
+
+
 async def cleanup_component_run(commander, binding, fault_injection, result):
     """Quiesce/release control before waiting for test-sensor CLI cleanup."""
     try:
         try:
             if commander is not None and commander.running:
-                if await commander.stop(publish_final=False) is False:
-                    raise RuntimeError("native_component_publisher_not_quiesced")
+                await stop_component_publisher(commander)
         except Exception as error:
             result["passed"] = False
             result["publisher_cleanup_error"] = str(error)
@@ -1276,7 +1302,7 @@ async def run(args, isolation):
                 handoff_reason, handoff_time = decision.reason_code, elapsed
                 break
             await asyncio.sleep(.05)
-        await commander.stop(publish_final=False)
+        await stop_component_publisher(commander)
         native_publications = binding.transport.observed_publications
         handoff = await binding.stop(handoff_reason or "isolated_sih_complete")
         supervisor.record_handoff_result(success=handoff["executed"], detail=handoff["reason"])
@@ -1285,19 +1311,33 @@ async def run(args, isolation):
         await client.connect()
         await client.bind(aircraft)
         packet = await client.observe()
+        captured_at = time.monotonic()
         log("final-observation.jsonl", packet)
+        release_observed_at = released_publications = None
+        if pilot_fault is not None:
+            _, previous_pose_timestamp, release_observed_at, released_publications = record_released_observation(
+                packet, client.acquisition_context, captured_at=captured_at, follow_start=follow_start, log=log,
+                scenario=scenario, previous_pose_timestamp_us=previous_pose_timestamp, world_clock=world_clock)
         after_stop = []
         for _ in range(5):
             await asyncio.sleep(.1)
             stopped_packet = await client.observe()
+            captured_at = time.monotonic()
             after_stop.append(stopped_packet["publications"])
             log("post-stop-observations.jsonl", stopped_packet)
+            if pilot_fault is not None:
+                _, previous_pose_timestamp, release_observed_at, released_publications = record_released_observation(
+                    stopped_packet, client.acquisition_context, captured_at=captured_at, follow_start=follow_start,
+                    log=log, scenario=scenario, previous_pose_timestamp_us=previous_pose_timestamp,
+                    release_observed_at=release_observed_at, previous_publications=released_publications,
+                    world_clock=world_clock)
         post_transition = None
         if pilot_fault is not None:
             await pilot_fault.close()
             post_transition = await capture_post_transition(client, transition, client.acquisition_context,
                 log=log, started=started, follow_start=follow_start, timeout_s=args.stable_timeout,
                 scenario=scenario, response=response, previous_pose_timestamp_us=previous_pose_timestamp,
+                release_observed_at=release_observed_at, previous_publications=released_publications,
                 world_clock=world_clock)
             packet = post_transition["last_packet"]
             (output / "post-transition-settled.json").write_text(json.dumps(post_transition, indent=2))

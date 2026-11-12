@@ -1487,3 +1487,29 @@ R7's missing clock data and failed verdict remain unchanged.
 S7 stays open for both airframes' altitude failures and the remaining ownership,
 transition, rescue/takeover and application checks. Hardware and VTOL admission
 remain unchanged.
+
+### S7 terminal recording repair — prospective captures
+
+One shared recorder now projects the same final and five post-stop confirmation
+packets before phase-settling capture resumes. It replaces the previous later
+projection block, retaining original pose sample IDs/receipts, release and
+publication cursors, independent target clock and grading window. Missing,
+stale or duplicate pose does not become new movement evidence. Only a successful
+publisher join and the original validated receipt permit inactive/no-command
+markers; the existing Stop result is checked before normal release projection.
+A cancellation-retaining real Commander task regression covers the false-join
+case. No extra query, observer, publisher, timer or flight-control path is added.
+
+A compact checked-in fixture preserves the six actual packets and relative
+source provenance, so tests do not require local ignored reports. The old gap is
+reproduced from those packets and disappears when future captures record them
+through the shared path. Invalid proof, changed counters and missing/stale pose
+remain refused or unknown. Older R3/R4 traces are not backfilled, their verdicts
+are unchanged and complete-replay validation is not relaxed.
+
+The reviewed candidate passes 283 focused and 74 Phase 0 checks, critical lint,
+schema and Python 3.10 syntax. Root's combined clock/ownership/recording/viewer
+renewal passes 430 checks, plus the four test-hygiene checks. These are overlapping
+software scopes; an actual fresh capture remains required after the next full
+coherent gate. Exact source, fixture, independent review and logs are in
+`software-gates-s7-poststop-projection-r1/`.

@@ -86,6 +86,15 @@ the requested settled phase require observed evidence. Read-only post-session
 polling retains actual pose/target truth and cannot restart following. A fresh Start
 requires a new session/acquisition; missing backend termination remains failed even
 if native PX4 release succeeded.
+
+For future captures, the existing final and five post-stop confirmation packets
+also feed that same read-only projection before phase-settling polling resumes.
+Only successful publisher join and the original validated release receipt permit
+a no-command marker; pose rows retain their actual source sample ID and receipt, while duplicate, missing
+or stale pose cannot refresh movement evidence. Independent target truth uses
+the existing scenario/world clock; no tracker output or aircraft path is invented.
+This recording repair does not backfill older reports or relax replay validation.
+
 Mixed-phase traces retain the actual contract for each publication.
 An optional `--scenario PATH` supplies the independent world-target trajectory
 through the same version-2 YAML contract. Mount, altitude mode and actual

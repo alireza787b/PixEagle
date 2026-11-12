@@ -362,3 +362,12 @@ unresolved old-session barrier. The baseline regression fails before the repair;
 147 source/143 helper checks and root's 373-check combination pass. R7's actual
 unknown clock remains failed. Actual recovery is still pending a fresh capture;
 this diagnostic change introduces no production recovery or flight-control layer.
+
+Future terminal captures now project their already-recorded final/post-stop
+packets through the same pose/state recorder as later settling. Original source
+timestamps, sample IDs and receipt/publication cursors are preserved; old evidence
+is not backfilled. A false publisher join cannot authorize an inactive marker.
+The portable real-packet fixture reproduces the earlier gap and validates the
+new recording path. Independent review, 283/74 scoped checks and root's combined
+430-check renewal pass; actual fresh capture and full combined renewal remain
+the next gates. No controller, schema, default, budget or hardware changed.

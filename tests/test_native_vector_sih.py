@@ -324,7 +324,11 @@ async def test_declared_pilot_request_is_not_retried_or_reversed(monkeypatch, re
 
 def transition_packet(state, context, **changes):
     return dict(runtime_id=context.runtime_id, fresh=True, owner_confirmed=False, rescue_active=False,
-        aircraft_state=asdict(state), vehicle_pose={'vehicle_ned': [0., 0., -50.]}, publications=12,
+        aircraft_state=asdict(state), vehicle_pose={'vehicle_ned': [0., 0., -50.],
+            'px4_timestamp_us': int(state.observed_at_monotonic_s*1_000_000),
+            'observed_at_monotonic_s': state.observed_at_monotonic_s,
+            'quaternion_wxyz': list(asdict(state.attitude_body_to_ned).values()), 'source': 'px4_dds_observed'},
+        publications=12,
         nav_state=4, release_receipt=release_receipt(context).wire_payload()) | changes
 
 
@@ -1444,3 +1448,219 @@ def test_vtol_component_group_requires_settled_strategies_without_transition_pur
     selected = component_profile("gm_velocity_vector")
     assert set(selected.profile.phase_command_contracts) == {"multicopter", "fixed_wing"}
     assert selected.command_contract(is_vtol=True) == "vtol_external"
+
+
+def retained_post_release_fixture():
+    from pathlib import Path
+    return json.loads((Path(__file__).parent/'fixtures/native_post_release_observations.json').read_text())
+
+
+def write_projection_evidence(root, evidence):
+    paths = {'pose': 'px4/pose_trace.jsonl', 'target': 'trace/target_truth.jsonl',
+             'state': 'trace/follower_state.jsonl', 'published': 'trace/offboard_publish_trace.jsonl',
+             'tracker': 'trace/tracker_command_trace.jsonl'}
+    for key, name in paths.items():
+        path = root/name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(''.join(json.dumps(row)+'\n' for row in evidence.get(key, [])))
+
+
+def test_actual_post_stop_packets_close_the_retained_replay_gap_without_invented_commands(tmp_path):
+    from classes.native_guidance import NativeAcquisitionContext
+    from classes.sih_visualization import VisualizationScenario, analyze_timeline, build_timeline, load_evidence
+    fixture = retained_post_release_fixture()
+    scenario_path = tmp_path/'scenario.yaml'
+    scenario_path.write_text(yaml.safe_dump(fixture['scenario']))
+    scenario = VisualizationScenario.from_yaml(scenario_path)
+    old = {key: fixture['prefix_evidence'][key]+fixture['suffix_evidence'][key]
+           for key in fixture['prefix_evidence']}
+    write_projection_evidence(tmp_path, old)
+    old_summary = analyze_timeline(scenario, build_timeline(scenario, load_evidence(tmp_path)))
+    assert old_summary['stale_after_fresh_samples'] == 1
+    assert old_summary['max_timestamp_gap_s'] == pytest.approx(.6175315040018177)
+    assert any(row['type'] == 'command_or_pose_gap' for row in old_summary['flags'])
+    current = deepcopy(fixture['prefix_evidence'])
+    names = {'px4/pose_trace.jsonl': 'pose', 'trace/target_truth.jsonl': 'target',
+             'trace/follower_state.jsonl': 'state'}
+    logged = []
+    def log(name, row):
+        logged.append(name)
+        current[names[name]].append(row)
+    context = NativeAcquisitionContext.from_payload(fixture['acquisition'])
+    previous_pose, released_at, count = current['pose'][-1]['px4_timestamp_us'], None, None
+    packets_before = deepcopy(fixture['observations'])
+    for observation in fixture['observations']:
+        packet = observation['packet']
+        _, previous_pose, released_at, count = tool.record_released_observation(
+            packet, context, captured_at=observation['captured_at_monotonic_s'],
+            follow_start=fixture['follow_start_monotonic_s'], log=log, scenario=scenario,
+            previous_pose_timestamp_us=previous_pose, release_observed_at=released_at, previous_publications=count)
+        assert current['pose'][-1]['observed_at_monotonic_s'] == packet['vehicle_pose']['observed_at_monotonic_s']
+        assert current['state'][-1]['aircraft_observed_at_monotonic_s'] == packet['aircraft_state']['observed_at_monotonic_s']
+        assert current['state'][-1]['captured_at_monotonic_s'] == observation['captured_at_monotonic_s']
+    # The final confirmation already contains the first later capture's retained pose sample.
+    assert current['pose'][-1]['px4_timestamp_us'] == fixture['suffix_evidence']['pose'][0]['px4_timestamp_us']
+    write_projection_evidence(tmp_path, current)
+    samples = build_timeline(scenario, load_evidence(tmp_path))
+    summary = analyze_timeline(scenario, samples)
+    assert summary['stale_after_fresh_samples'] == 0
+    assert not any(row['type'] in {'command_or_pose_gap', 'publication_after_authority_release'}
+                   for row in summary['flags'])
+    assert all(not row.published and not row.command for row in samples if row.timestamp >= released_at)
+    assert fixture['observations'] == packets_before
+    assert set(logged) == set(names) and current['tracker'] == []
+    assert len({row['px4_timestamp_us'] for row in current['pose']}) == len(current['pose'])
+
+
+@pytest.mark.parametrize('bad', ['missing_pose', 'stale_pose', 'stale_state', 'not_fresh'])
+def test_missing_or_stale_actual_post_stop_sample_keeps_the_replay_unknown(tmp_path, bad):
+    from classes.native_guidance import NativeAcquisitionContext
+    from classes.sih_visualization import VisualizationScenario, analyze_timeline, build_timeline, load_evidence
+    fixture = retained_post_release_fixture()
+    context = NativeAcquisitionContext.from_payload(fixture['acquisition'])
+    logged = []
+    original_pose = fixture['prefix_evidence']['pose'][-1]['px4_timestamp_us']
+    target = Mock(side_effect=AssertionError('No target projection can legitimize unavailable observed pose'))
+    for observation in fixture['observations']:
+        packet = deepcopy(observation['packet'])
+        if bad == 'missing_pose':
+            packet['vehicle_pose'] = None
+        elif bad == 'stale_pose':
+            packet['vehicle_pose']['observed_at_monotonic_s'] -= 10.
+        elif bad == 'stale_state':
+            packet['aircraft_state']['observed_at_monotonic_s'] -= 10.
+        else:
+            packet['fresh'] = False
+        state, previous, _, count = tool.record_released_observation(
+            packet, context, captured_at=observation['captured_at_monotonic_s'],
+            follow_start=fixture['follow_start_monotonic_s'], log=lambda *row: logged.append(row),
+            scenario=SimpleNamespace(target_at=target), previous_pose_timestamp_us=original_pose)
+        assert state is None and previous == original_pose and count == 251
+    assert not logged
+    target.assert_not_called()
+    path = tmp_path/'scenario.yaml'
+    path.write_text(yaml.safe_dump(fixture['scenario']))
+    evidence = {key: fixture['prefix_evidence'][key]+fixture['suffix_evidence'][key]
+                for key in fixture['prefix_evidence']}
+    write_projection_evidence(tmp_path, evidence)
+    scenario = VisualizationScenario.from_yaml(path)
+    assert analyze_timeline(scenario, build_timeline(scenario, load_evidence(tmp_path)))['stale_after_fresh_samples'] == 1
+
+
+def test_duplicate_actual_pose_identity_never_refreshes_movement_evidence():
+    from classes.native_guidance import NativeAcquisitionContext
+    fixture = retained_post_release_fixture()
+    context = NativeAcquisitionContext.from_payload(fixture['acquisition'])
+    logged = []
+    original_pose = fixture['prefix_evidence']['pose'][-1]['px4_timestamp_us']
+    for observation in fixture['observations']:
+        packet = deepcopy(observation['packet'])
+        packet['vehicle_pose']['px4_timestamp_us'] = original_pose
+        _, stamp, _, _ = tool.record_released_observation(packet, context,
+            captured_at=observation['captured_at_monotonic_s'], follow_start=fixture['follow_start_monotonic_s'],
+            scenario=SimpleNamespace(target_at=lambda _: (180., 35., -30.)),
+            log=lambda *row: logged.append(row), previous_pose_timestamp_us=original_pose)
+        assert stamp == original_pose
+    assert not any(name == 'px4/pose_trace.jsonl' for name, _ in logged)
+    assert all(row['command_expected'] is False for name, row in logged if name == 'trace/follower_state.jsonl')
+
+
+@pytest.mark.parametrize('bad', ['owner', 'runtime', 'token', 'unconfirmed', 'binding', 'publication'])
+def test_post_stop_projection_needs_original_release_proof_before_any_inactive_record(bad):
+    from classes.native_guidance import NativeAcquisitionContext
+    fixture = retained_post_release_fixture()
+    sample = deepcopy(fixture['observations'][0])
+    packet = sample['packet']
+    context = NativeAcquisitionContext.from_payload(fixture['acquisition'])
+    if bad == 'owner':
+        packet['owner_confirmed'] = True
+    elif bad == 'runtime':
+        packet['runtime_id'] = 'replacement-runtime'
+    elif bad == 'token':
+        packet['release_receipt']['acquisition']['token'] = 'a'*32
+    elif bad == 'unconfirmed':
+        packet['release_receipt']['outcome'] = 'unconfirmed'
+    elif bad == 'binding':
+        packet['aircraft_state']['binding']['aircraft_uid'] = 'replacement-aircraft'
+    else:
+        packet['publications'] += 1
+    log = Mock()
+    with pytest.raises((ValueError, RuntimeError)):
+        tool.record_released_observation(packet, context, captured_at=sample['captured_at_monotonic_s'],
+            follow_start=fixture['follow_start_monotonic_s'], log=log,
+            scenario=SimpleNamespace(target_at=lambda _: (180., 35., -30.)), previous_publications=251)
+    log.assert_not_called()
+
+
+async def test_later_readonly_capture_preserves_post_stop_publication_cursor():
+    from classes.native_guidance import NativeAcquisitionContext
+    fixture = retained_post_release_fixture()
+    sample = deepcopy(fixture['observations'][-1])
+    context = NativeAcquisitionContext.from_payload(fixture['acquisition'])
+    sample['packet']['publications'] += 1
+    client = SimpleNamespace(observe=AsyncMock(return_value=sample['packet']))
+    logs = []
+    with pytest.raises(ValueError, match='publication_after_release'):
+        await tool.capture_post_transition(client, tool.PilotTransitionEvent(8., AirframePhase.FIXED_WING), context,
+            log=lambda *row: logs.append(row), started=fixture['follow_start_monotonic_s'],
+            follow_start=fixture['follow_start_monotonic_s'], timeout_s=1.,
+            scenario=SimpleNamespace(target_at=lambda _: (180., 35., -30.)), response=[],
+            previous_publications=251, previous_pose_timestamp_us=sample['packet']['vehicle_pose']['px4_timestamp_us'],
+            release_observed_at=8.6, clock=lambda: sample['captured_at_monotonic_s'])
+    assert [name for name, _ in logs] == ['post-transition-observations.jsonl']
+    assert logs[0][1]['value'] is sample['packet']  # Raw original packet is retained before projection validation.
+
+
+async def test_later_readonly_capture_does_not_reemit_the_final_confirmation_pose(monkeypatch):
+    from classes.native_guidance import NativeAcquisitionContext
+    fixture = retained_post_release_fixture()
+    sample = fixture['observations'][-1]
+    context = NativeAcquisitionContext.from_payload(fixture['acquisition'])
+    client = SimpleNamespace(observe=AsyncMock(return_value=sample['packet']))
+    logs, now = [], [sample['captured_at_monotonic_s']]
+    async def advance(_):
+        now[0] += .2
+    monkeypatch.setattr(tool.asyncio, 'sleep', advance)
+    with pytest.raises(TimeoutError, match='settle_timeout'):
+        await tool.capture_post_transition(client, tool.PilotTransitionEvent(8., AirframePhase.FIXED_WING), context,
+            log=lambda *row: logs.append(row), started=fixture['follow_start_monotonic_s'],
+            follow_start=fixture['follow_start_monotonic_s'], timeout_s=.1,
+            scenario=SimpleNamespace(target_at=lambda _: (180., 35., -30.)), response=[],
+            previous_publications=251, previous_pose_timestamp_us=sample['packet']['vehicle_pose']['px4_timestamp_us'],
+            release_observed_at=8.6, clock=lambda: now[0])
+    assert client.observe.await_count == 1
+    assert not any(name == 'px4/pose_trace.jsonl' for name, _ in logs)
+    states = [row for name, row in logs if name == 'trace/follower_state.jsonl']
+    assert states[0]['command_owner_released_at'] == 8.6
+    assert states[0]['pose_timestamp_us'] == sample['packet']['vehicle_pose']['px4_timestamp_us']
+
+
+async def test_failed_existing_commander_join_cannot_claim_inactive_projection(monkeypatch):
+    from classes.offboard_commander import OffboardCommander
+    release, entered = asyncio.Event(), asyncio.Event()
+    async def retained_task():
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            await release.wait()
+    task = asyncio.create_task(retained_task())
+    await entered.wait()
+    original_wait = asyncio.wait
+    async def elapsed_existing_budget(tasks, *, timeout):
+        return await original_wait(tasks, timeout=0.)
+    monkeypatch.setattr(asyncio, 'wait', elapsed_existing_budget)
+    commander = OffboardCommander(SimpleNamespace(), SimpleNamespace(profile_name='unit'), command_rate_hz=20.,
+                                  command_ttl_s=.5, publish_timeout_s=.25)
+    commander.running, commander._task = True, task
+    project = Mock(side_effect=AssertionError('Failed join cannot produce an inactive/result projection'))
+    try:
+        with pytest.raises(RuntimeError, match='publisher_not_quiesced'):
+            await tool.stop_component_publisher(commander)
+            project()
+        assert commander._task is task and not task.done()
+        assert 'ignored cancellation' in commander.last_error
+        project.assert_not_called()
+    finally:
+        release.set()
+        await asyncio.gather(task, return_exceptions=True)
