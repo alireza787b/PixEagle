@@ -515,3 +515,9 @@ additional storage. The existing VTOL gate still blocks positive App/HTTP
 qualification. Independent S9 commit `e813d7b86` repairs Dashboard selection
 drafts, with 550 tests/build/lint and 74 API checks passing. Public/private
 settings, hardware, QGC and remote publication remain unchanged.
+
+The operator's 2026-11-13 clarification selects a separate experimental private
+steep-descent envelope. S8 now records that scope in the canonical plan and FW
+guide, including finite native bounds, early pull-out margin, existing recovery
+and ownership semantics, and visible source-based degradation. No runtime key,
+capability, numerical aircraft setting or public/private configuration changed.

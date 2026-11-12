@@ -1828,6 +1828,12 @@ only matching backend configuration. All 550 Dashboard tests, production build,
 lint and 74 API/reload checks pass; root renews 30 focused operator-flow tests.
 This does not enable VTOL or complete the remaining S9 catalog/QGC work.
 
+On 2026-11-13 the operator chose a separate private steep-descent envelope for
+S8. It is planned, not enabled: finite native envelope/pull-out bounds, the
+existing altitude authority, source qualification and owner-bound restoration
+must be verified. The ordinary no-upper-speed option does not implicitly remove
+vertical limits. Public defaults and the tested private MC profile stay unchanged.
+
 Continue the sparse-axis native regression and separate tailsitter performance investigation, then remaining ownership,
 abort/rescue/takeover, fault, mount and full-application matrix. Do not tune a
 follower to conceal a native-only failure or relax the 2 m/100 ms gates.

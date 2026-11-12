@@ -310,6 +310,15 @@ handling before removing nested retired keys. Never reset a whole section to
 defaults to remove one child. Persist one canonical result, remove converted
 runtime readers, and retain a compact versioned migration ledger.
 
+**Private descent decision, 2026-11-13:** plan a separate experimental steep-
+descent envelope, rather than interpreting `no_upper_speed_bound` as permission
+to ignore vertical limits. It belongs to the same native FW policy/owner, not a
+new follower or companion energy controller. Its finite descent-path, pitch,
+sink and recovery bounds require airframe-specific qualification; no values are
+adopted from the Duo simulator or invented for hardware. See the
+[shared FW policy](../04-configuration/fixed-wing-guidance-policy.md#planned-private-steep-descent-envelope).
+This is planned S8 work, not an available setting or capability.
+
 ## 7. Dashboard and QGC
 
 Both clients consume the same profile catalog, eligibility and start readiness:
@@ -350,7 +359,7 @@ completion and flight qualification are different statuses.
 | S5: public FW | Calibrated image observation -> native FW pursuit; shared EAS/envelope/altitude policy; explicit rate-profile disposition | Actual stable-flight airplane SIH, both altitude modes, sensor changes, bounded turn/path, loss/Stop; no fake measured airspeed |
 | S6: external Vector | Timestamp/frame-aware provider boundary and preserved PID/Vector algorithms; measured mount presets | Independent geometry/timing fixtures, horizontal/vertical mounts, ordinary MC/FW SIH, no synthetic image-coordinate substitution |
 | S7: VTOL composition | First qualify transition-preserving authority release; select MC Vector/FW native strategy at Start; end on transition; later image pair only if qualified | Actual tailsitter and standard VTOL, both directions, fresh Start after each transition, abort/rescue/takeover/loss overlap, no late Hold or obsolete commands |
-| S8: experimental FW | Owner-bound upper-speed/path-priority/minimum-throttle extension, restore and adoption policy | Native normal-behavior regression, finite requests, underspeed/restore/expiry tests and actual SIH; capability remains false until verified |
+| S8: experimental FW | Owner-bound upper-speed/path-priority/minimum-throttle extension and separately qualified private steep-descent envelope; restore and adoption policy | Native normal-behavior regression, finite envelope requests, load-dependent underspeed, pull-out/altitude margin, source degradation, loss/retarget and restore/expiry tests with actual SIH; capabilities remain false until verified |
 | S9: clients | Same backend contract in Dashboard/QGC; basic/advanced choices, phase controls and migration messaging | Backend/schema/API and Dashboard gates; QGC build/lint and Unit/Integration with standard exclusions; old-client tests |
 | S10: evidence/cleanup | One evidence selector, concise reference figures, generated status matrix and extension guide; remove replaced branches | Links/animations load; trace values present; raw PX4 truth retained; no duplicate runtime catalogs or stale active guidance |
 | S11: packaging/bench | Pinned Linux x86-64/ARM64 adapter/setup, service/restart/update/rollback; Windows-first QGC then Linux/Android artifacts | Clean-install/update tests and checksums; cooled Pi/camera bench, then separate disarmed Pixhawk/installation acceptance |

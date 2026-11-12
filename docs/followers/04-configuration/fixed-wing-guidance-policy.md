@@ -60,6 +60,42 @@ commands. They cannot restore an older, higher request. PX4's current native
 minimum still takes precedence; an acknowledged request below a rising
 load-dependent minimum is reported separately from the effective reference.
 
+## Planned private steep-descent envelope
+
+The operator selected this separate experimental scope on 2026-11-13. It is
+**not implemented or enabled**. `no_upper_speed_bound` alone continues to retain
+the normal vertical envelope described above; it must not silently acquire
+steep-descent semantics.
+
+A named private envelope will extend the descent objective only through the
+same owner-bound native FW policy. It needs finite, qualified flight-path,
+sink/pitch and recovery bounds consistent with the aircraft's load, rate and
+actuator authority. PX4 still owns energy and attitude control. No parallel
+companion controller, client-side limit resolver or global parameter rewrite is
+introduced. Climb remains subject to the normal native performance envelope.
+There is no arbitrary-angle or guaranteed-speed promise.
+
+Retain load-dependent minimum-speed handling and altitude authority. The 5 m
+relative-altitude floor is a boundary, not the point at which pull-out begins:
+the native response and stopping-height margin must constrain descent earlier.
+Numerical bounds require simulated evidence and later installation acceptance;
+none is selected for hardware by this planning decision.
+
+Lost target evidence must command a bounded exit toward level flight while
+retaining feasible course and airspeed. Reuse the existing FW recovery deadline;
+retargets cannot extend it. Source degradation must resolve through the same
+policy availability contract: a qualified PX4 estimate may support the envelope,
+but groundspeed or a trim reference cannot establish stall margin. Unsupported
+conditions downgrade the effective policy visibly; they do not manufacture
+airspeed or silently claim steep-descent support.
+
+Stop, takeover, rescue, disarm, phase change and lease expiry revoke the original
+policy. Native controller restoration must avoid a released integral/reference
+step without extending following authority or replaying a dive. Public defaults
+remain normal; Dashboard/QGC display the backend's requested/effective envelope
+and limitations without separate guidance logic. This section adds no runtime
+configuration key or currently advertised capability.
+
 ## Airspeed sensor recovery
 
 Native guidance follows PX4's selected, validated airspeed source. Restored raw
