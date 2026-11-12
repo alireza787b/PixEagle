@@ -211,6 +211,69 @@ def test_vtol_report_changes_contract_only_from_current_intent(tmp_path):
     assert build_timeline(scenario, evidence)[0].command_contract is None
 
 
+def test_vtol_report_uses_canonical_settled_phase_group_without_a_transition_strategy(tmp_path, monkeypatch):
+    from classes import sih_visualization as model
+
+    info = dict(model._profile_contracts()["gm_velocity_vector"])
+    assert info["native_phase_contracts"] == {
+        "multicopter": "velocity_body_offboard", "fixed_wing": "fixed_wing_external"}
+    monkeypatch.setattr(model, "_profile_contracts", lambda: {"future_external_profile": info})
+    raw = yaml.safe_load(NATIVE_SCENARIO.read_text())
+    raw["airframe"] = "vtol"
+    raw["follower"].update(profile="future_external_profile", command_contract="vtol_external")
+    path = tmp_path / "future-vtol.yaml"
+    path.write_text(yaml.safe_dump(raw))
+    assert VisualizationScenario.from_yaml(path).command_contract == "vtol_external"
+
+
+@pytest.mark.parametrize("phase_group", [
+    {"multicopter": "velocity_body_offboard"},
+    {"multicopter": "velocity_body_offboard", "vtol_transition": "vtol_transition_external"},
+    {"multicopter": "attitude_rate", "fixed_wing": "fixed_wing_external"},
+])
+def test_vtol_report_refuses_an_incompatible_canonical_phase_group(tmp_path, monkeypatch, phase_group):
+    from classes import sih_visualization as model
+
+    info = dict(model._profile_contracts()["gm_velocity_vector"], native_phase_contracts=phase_group,
+                live_qualified_phases=[])
+    monkeypatch.setattr(model, "_profile_contracts", lambda: {"gm_velocity_vector": info})
+    raw = yaml.safe_load(NATIVE_SCENARIO.read_text())
+    raw["airframe"] = "vtol"
+    raw["follower"]["command_contract"] = "vtol_external"
+    path = tmp_path / "incompatible-vtol.yaml"
+    path.write_text(yaml.safe_dump(raw))
+    with pytest.raises(VisualizationValidationError, match="contract must be"):
+        VisualizationScenario.from_yaml(path)
+
+
+def test_fixed_wing_only_profile_can_be_reported_on_vtol_without_claiming_mc(tmp_path):
+    raw = yaml.safe_load((ROOT / "tools/sih_visualization_scenarios/fw-navigation-native-image.yaml").read_text())
+    raw["airframe"] = "vtol"
+    path = tmp_path / "vtol-fw-only.yaml"
+    path.write_text(yaml.safe_dump(raw))
+    assert VisualizationScenario.from_yaml(path).command_contract == "fixed_wing_external"
+    for override in ({"command_contract": "velocity_body_offboard"}, {"command_contract": "vtol_external"},
+                     {"input_contract": "gimbal_angles"}):
+        changed = {**raw, "follower": raw["follower"] | override}
+        path.write_text(yaml.safe_dump(changed))
+        with pytest.raises(VisualizationValidationError, match="contract must be"):
+            VisualizationScenario.from_yaml(path)
+
+
+@pytest.mark.parametrize("override", [
+    {"input_contract": "image_position_2d"},
+    {"command_contract": "vtol_transition_external"},
+])
+def test_vtol_report_cannot_declare_wrong_input_or_new_transition_pursuit(tmp_path, override):
+    raw = yaml.safe_load(NATIVE_SCENARIO.read_text())
+    raw["airframe"] = "vtol"
+    raw["follower"].update({"command_contract": "vtol_external"} | override)
+    path = tmp_path / "invalid-vtol.yaml"
+    path.write_text(yaml.safe_dump(raw))
+    with pytest.raises(VisualizationValidationError):
+        VisualizationScenario.from_yaml(path)
+
+
 def test_native_report_does_not_mask_pose_or_command_gaps():
     scenario = VisualizationScenario.from_yaml(NATIVE_SCENARIO)
     evidence = native_evidence()

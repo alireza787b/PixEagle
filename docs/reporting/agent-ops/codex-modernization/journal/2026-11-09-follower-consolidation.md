@@ -271,3 +271,13 @@ dynamic-config setup dependency. A source-backed 22-test review confirms the
 existing pre-SDK MAVSDK Stop fence, with no new production layer or claim that
 in-flight SDK/gRPC commands can be recalled. Full combined renewal and actual
 VTOL/restart tests are next; no hardware or remote publication occurred.
+
+The frozen combined renewal exposes a stale viewer transition-contract predicate
+and two test-hygiene callbacks: 6,308 unit and 196 integration checks pass, but
+the complete gate remains failed. The read-only viewer now uses the settled
+catalog and the unchanged hygiene rule passes after explicit fake callbacks.
+Shared wire evidence and a single declared simulator transition/post-release
+capture are added to the existing native runner. The 383-check tool gate and
+321-check root renewal pass; actual transitions, global target-clock slicing
+and first-observation lifecycle repair remain pending. Prior failures stay
+archived and no hardware or installed configuration changes occur.

@@ -263,7 +263,11 @@ def component_follower(app, monkeypatch, profile):
     app.target_continuity = TargetContinuitySupervisor(ContinuityPolicy.resolve(Parameters.TargetContinuity, profile), clock=time.monotonic)
     app.target_continuity.reset_session(session_epoch=7, reason='pure_component_fault_test')
     submitted = []
-    app.offboard_commander = SimpleNamespace(submit_intent=lambda intent, **_: submitted.append(intent) or True,
+    def submit_intent(intent, **_):
+        submitted.append(intent)
+        return True
+
+    app.offboard_commander = SimpleNamespace(submit_intent=submit_intent,
         get_status=lambda: {'failsafe_defaults_active': False})
     context = ContinuityContext(execution_mode='PX4', airframe_phase=AirframePhase.MULTICOPTER,
         control_type='velocity_body_offboard', vehicle_state_fresh=True, offboard_active=True,

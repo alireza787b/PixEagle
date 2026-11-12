@@ -1172,3 +1172,26 @@ S7 still needs actual VTOL transition, failure and restart evidence on this
 candidate. Restart remains fail-closed: a new runtime cannot confirm an old
 receipt, disarm alone does not clear the App barrier, and no automatic Start is
 permitted. Hardware, publication and release gates remain separate.
+
+### S7 combined renewal and transition evidence tools
+
+The frozen `cc5ebce07` renewal passes 6,308 unit checks with 11 optional
+GStreamer skips, but fails one report-loader test. Integration passes 196;
+Phase 0 passes 154 and fails its fixture-hygiene check. These retained failures
+are in `software-gates-s7-final-r1/`; they are not a full green gate.
+
+The report now derives settled VTOL contracts from the canonical follower
+catalog, including FW-only composition, without requiring retired transition
+pursuit. The two terse fake callbacks are explicit functions; the hygiene rule
+is unchanged. A shared transparent wire recorder archives exact helper bytes
+and one host clock origin. The native SIH runner adds one explicitly declared
+pilot transition and read-only post-release settling. It requires real backend
+termination, the original receipt and constant post-release publication counts;
+an independent ULog gap audit remains mandatory. It cannot resume following.
+
+The frozen tool/viewer gate passes 383 checks; root's combined renewal passes
+321. `software-gates-s7-vtol-tool-r1/` retains exact sources and manifest. Root
+removes one extra final newline from the new recorder file. Global target-clock
+slicing and the production lifecycle-observation fix remain under review before
+the next full renewal and actual VTOL execution. No runtime or hardware action
+is claimed by these tool tests.

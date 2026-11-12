@@ -70,8 +70,19 @@ transitions; those remain separate gates. The normal read-only visualizer can
 render its `scenario.yaml` and trace directory directly.
 The runner also accepts stable native VTOL MC hover without demanding FW
 airspeed. `--mc-request` is an explicit simulated operator speed adjustment;
-it is not written to the saved configuration. The runner still never requests
-VTOL transitions: an independently controlled simulator/pilot must initiate them.
+it is not written to the saved configuration. A simulator-pilot transition requires
+an explicit version-2 fault
+`{kind: pilot_transition, at_s: 8, requested_phase: fixed_wing}` and
+`--expect-handoff aircraft_transition_observed`. The runner verifies the source-built
+isolated SIH and actual opposite settled phase before invoking its transition CLI
+once. It never retries or reverses that request. This altitude-off checkpoint keeps
+the 2 m altitude gate and requires a separate ULog audit of the 100 ms native active
+setpoint-gap ceiling. A successful CLI exit is not transition or ownership proof.
+Backend termination, the original-token release receipt, stopped publication and
+the requested settled phase require observed evidence. Read-only post-session
+polling retains actual pose/target truth and cannot restart following. A fresh Start
+requires a new session/acquisition; missing backend termination remains failed even
+if native PX4 release succeeded.
 Mixed-phase traces retain the actual contract for each publication.
 An optional `--scenario PATH` supplies the independent world-target trajectory
 through the same version-2 YAML contract. Mount, altitude mode and actual
@@ -82,6 +93,10 @@ policy come from the loaded configuration and appear in the retained scenario
 and per-phase state trace. Target coordinates are never reanchored to the drone.
 Each run retains exact configuration/schema copies and SHA-256 identities, plus
 read-only PX4 parameter snapshots before engagement and after cleanup.
+Native captures also archive the exact runner/shared transparent recorder source
+and hashes, with one host monotonic origin. `follow-clock.json` binds the offset
+of follow-relative traces. The relay records actual requests, replies and refusals
+on the existing single connection and creates no command or reply.
 Phase spans report actual range/altitude changes without replacing the overall
 response checks. In particular, a 6 m/s target can outrun the public 0.25 m/s²
 MC startup ramp in a short transition test. Successful ownership transitions
@@ -91,7 +106,8 @@ Native component scenarios support `target_loss` stimuli using the existing
 fault shape: `{kind: target_loss, at_s: 4, duration_s: 2}`. Target truth continues
 independently while the tracker supplies no angle or usable measurement.
 Fresh reacquisition returns through the production continuity supervisor.
-Other fault kinds remain explicitly unsupported by this runner.
+Other fault kinds beyond the separately described pilot-transition and airspeed
+cases remain unsupported by this runner.
 For an expiry test, pass `--expect-handoff maximum_coast_time_reached`; a missing
 or different handoff fails the test. Without that option, every early handoff
 fails. The result still requires observed aircraft response, publication,

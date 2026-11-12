@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Exercise production native guidance components on an already airborne SIH.
 
-Dry-run by default. This tool never arms, takes off, transitions or flashes.
+Dry-run by default. This tool never arms, takes off or flashes. An explicitly
+declared pilot_transition stimulus toggles only the verified isolated SIH.
 It verifies an isolated Docker SIH process before acquiring native authority.
 The HTTP/App startup path is outside this component-level qualification.
 """
@@ -18,6 +19,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import tempfile
 import time
 from types import SimpleNamespace
 from typing import Literal
@@ -29,12 +31,12 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
 from classes.aircraft_state import AircraftBinding, AircraftState, AircraftStateOwner, AirframePhase, GuidanceSessionIdentity, Quaternion, finite_number  # noqa: E402
-from classes.follower_catalog import FollowerProfile, get_follower_profile  # noqa: E402
+from classes.follower_catalog import FollowerProfile, NATIVE_PHASE_CONTRACTS, get_follower_profile  # noqa: E402
 from classes.following_readiness import evaluate_follower_guidance_input  # noqa: E402
 from classes.fixed_wing_guidance_policy import FixedWingGuidancePolicy  # noqa: E402
 from classes.follower import FollowerFactory  # noqa: E402
 from classes.native_follow_binding import NativeFollowBinding  # noqa: E402
-from classes.native_guidance import NativeGuidanceClient  # noqa: E402
+from classes.native_guidance import NativeGuidanceClient, NativeReleaseReceipt  # noqa: E402
 from classes.offboard_commander import OffboardCommander  # noqa: E402
 from classes.parameters import Parameters  # noqa: E402
 from classes.guidance_observation import PinholeCalibration  # noqa: E402
@@ -46,6 +48,7 @@ from classes.tracker_output import TrackerDataType, TrackerOutput  # noqa: E402
 from tools.fixed_camera_bearing_fixture import FixedCameraBearingFixture  # noqa: E402
 from tools.gimbal_bearing_fixture import GimbalBearingFixture  # noqa: E402
 from tools.fixed_camera_world_target import FixedCamera  # noqa: E402
+from tools.native_sih_wire import WireRecorder, archive_wire_helper  # noqa: E402
 
 
 @dataclass(frozen=True)
@@ -57,9 +60,7 @@ class ComponentProfile:
 
     def command_contract(self, *, is_vtol: bool) -> str:
         native = self.profile.phase_command_contracts
-        if is_vtol:
-            if not {"multicopter", "fixed_wing"}.issubset(native):
-                raise ValueError("native_component_vtol_contract_unavailable")
+        if is_vtol and all(native.get(phase) == contract for phase, contract in NATIVE_PHASE_CONTRACTS.items()):
             return "vtol_external"
         return native["fixed_wing"]
 
@@ -69,6 +70,12 @@ class ComponentFaultWindow:
     kind: Literal["target_loss", "airspeed_loss"]
     start_s: float
     end_s: float
+
+
+@dataclass(frozen=True)
+class PilotTransitionEvent:
+    at_s: float
+    requested_phase: AirframePhase
 
 
 def component_profile(name: str) -> ComponentProfile:
@@ -86,6 +93,11 @@ def component_profile(name: str) -> ComponentProfile:
         raise ValueError("native_component_input_unsupported")
     tracker_type, contract, template = selected
     return ComponentProfile(profile, tracker_type, contract, ROOT / "tools/sih_visualization_scenarios" / template)
+
+
+def require_component_phase(selected: ComponentProfile, state: AircraftState):
+    if state.phase.value not in selected.profile.phase_command_contracts:
+        raise ValueError("native_component_profile_phase_unavailable")
 
 
 def image_optics(raw: dict, *, source_id: str) -> tuple[FixedCamera, PinholeCalibration]:
@@ -281,6 +293,210 @@ def native_airspeed_failure(socket: Path, isolation: dict, blocked: bool) -> dic
                     started_at_monotonic_s=started, finished_at_monotonic_s=time.monotonic())
 
 
+def pilot_transition_event(faults, duration) -> PilotTransitionEvent | None:
+    events = [fault for fault in faults if fault.get("kind") == "pilot_transition"]
+    if not events:
+        return None
+    if len(events) != 1 or len(faults) != 1:
+        raise ValueError("native_component_transition_event_mixed_or_repeated")
+    event = events[0]
+    if set(event) != {"kind", "at_s", "requested_phase"}:
+        raise ValueError("native_component_transition_event_invalid")
+    at = finite_number(event["at_s"], "transition_event_time")
+    if not 0. < at < duration:
+        raise ValueError("native_component_transition_event_invalid")
+    try:
+        phase = AirframePhase(event["requested_phase"])
+    except (ValueError, TypeError) as error:
+        raise ValueError("native_component_transition_phase_invalid") from error
+    if phase not in (AirframePhase.MULTICOPTER, AirframePhase.FIXED_WING):
+        raise ValueError("native_component_transition_phase_invalid")
+    return PilotTransitionEvent(at, phase)
+
+
+def transition_source_contract(isolation):
+    """Read CLI phase constants from the exact source-built firmware, once."""
+    from tools.build_native_guidance import verify_extension
+    from tools.sih_baseline import verify_source
+
+    build = isolation.get("firmware_build")
+    if not build:
+        raise ValueError("native_component_transition_requires_verified_source_build")
+    source = Path(build["manifest"]).resolve().parent / "context/source"
+    verify_source(source, ROOT, verify_extension)
+    message = source / "msg/versioned/VehicleStatus.msg"
+    fields = {}
+    for phase, name in (("multicopter", "VEHICLE_TYPE_ROTARY_WING"), ("fixed_wing", "VEHICLE_TYPE_FIXED_WING")):
+        values = re.findall(rf"(?m)^uint8 {name}\s*=\s*(\d+)\s*(?:#[^\n]*)?$", message.read_text())
+        if len(values) != 1:
+            raise ValueError("native_component_transition_constants_missing")
+        fields[phase] = int(values[0])
+    return dict(vehicle_types=fields, source=str(message), sha256=hashlib.sha256(message.read_bytes()).hexdigest())
+
+
+def native_pilot_transition(socket, isolation, event, initial_phase, contract):
+    """One opposite-phase simulator CLI request; a zero exit is not phase proof."""
+    checked = verify_simulator(isolation["container_id"], isolation["instance"], socket,
+        sih_build_manifest=Path(isolation["firmware_build"]["manifest"]))
+    if any(checked[key] != isolation[key] for key in ("container_id", "image_id", "aircraft_uid")):
+        raise ValueError("native_component_transition_simulator_changed")
+    executable = Path(isolation["process"]["args"][0])
+    prefix = ("docker", "exec", "--user", str(socket.stat().st_uid), isolation["container_id"])
+    status = command(*prefix, str(executable.with_name("px4-listener")), "--instance", str(isolation["instance"]),
+                     "vehicle_status", "-n", "1")
+    def field(name):
+        values = re.findall(rf"(?mi)^\s*{name}:\s*(\S+)\s*$", status)
+        return values[0].lower() if len(values) == 1 else None
+    age = re.search(r"timestamp:\s*\d+\s*\(([0-9.]+) seconds ago\)", status)
+    if (not age or float(age.group(1)) > .75 or field("is_vtol") != "true"
+            or field("in_transition_mode") != "false"
+            or field("vehicle_type") != str(contract["vehicle_types"][initial_phase.value])
+            or event.requested_phase is initial_phase):
+        raise ValueError("native_component_transition_precondition_changed")
+    argv = (*prefix, str(executable.with_name("px4-commander")), "--instance", str(isolation["instance"]), "transition")
+    started = time.monotonic()
+    try:
+        result = subprocess.run(argv, text=True, capture_output=True, timeout=15, check=False)
+        return dict(argv=list(argv), returncode=result.returncode, stdout=result.stdout, stderr=result.stderr,
+                    before_vehicle_status=status, started_at_monotonic_s=started, finished_at_monotonic_s=time.monotonic())
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return dict(argv=list(argv), returncode=None, error=f"{type(error).__name__}:{error}",
+                    before_vehicle_status=status, started_at_monotonic_s=started, finished_at_monotonic_s=time.monotonic())
+
+
+class PilotTransitionInjection:
+    """One declared test action; never retry, reverse, restore or acquire a mode."""
+    def __init__(self, socket, isolation, event, initial_phase, contract, *, log, started, clock=time.monotonic):
+        self.socket, self.isolation, self.event = socket, isolation, event
+        self.initial_phase, self.contract = initial_phase, contract
+        self.log, self.started, self.clock = log, started, clock
+        self.events = []
+        self.requested = False
+        self._task = None
+
+    async def _apply(self):
+        command_result = await asyncio.to_thread(native_pilot_transition, self.socket, self.isolation,
+                                                self.event, self.initial_phase, self.contract)
+        record = dict(kind="pilot_transition", timestamp=self.clock()-self.started,
+            requested_phase=self.event.requested_phase.value, from_phase=self.initial_phase.value,
+            command=command_result)
+        self.events.append(record)
+        self.log("fault-events.jsonl", record)
+        if command_result.get("returncode") != 0:
+            raise RuntimeError("native_component_transition_command_unconfirmed")
+
+    async def tick(self, elapsed, state, owner_confirmed):
+        if self._task is not None and self._task.done():
+            task, self._task = self._task, None
+            await task
+        if self.requested or elapsed < self.event.at_s:
+            return
+        if (not state or not state.fresh(self.clock(), .75) or not state.is_vtol
+                or state.rescue_active or state.phase is not self.initial_phase or owner_confirmed is not True):
+            raise ValueError("native_component_transition_pursuit_not_current")
+        self.requested = True
+        self._task = asyncio.create_task(self._apply(), name="native-sih-pilot-transition")
+
+    async def close(self):
+        if self._task is not None:
+            task, self._task = self._task, None
+            await task
+
+
+def transition_witness(wire, *, event, acquisition, not_before_s, host_origin_s):
+    for row in wire:
+        if row.get("direction") != "actual_backend_reply" or row.get("timestamp", -1.) < not_before_s:
+            continue
+        packet = row.get("value", {}).get("payload", {})
+        if (packet.get("fresh") is not True or packet.get("runtime_id") != acquisition.runtime_id
+                or not packet.get("aircraft_state")):
+            continue
+        state = AircraftState.from_payload(packet["aircraft_state"])
+        if (not state.fresh(host_origin_s+row["timestamp"], .75)
+                or state.binding != acquisition.identity.binding or not state.is_vtol or state.rescue_active
+                or state.phase is not AirframePhase.VTOL_TRANSITION):
+            continue
+        receipt = packet.get("release_receipt")
+        if receipt is not None:
+            NativeReleaseReceipt.from_payload(receipt).require_match(acquisition.identity, acquisition.runtime_id,
+                                                                    acquisition.token, acquisition)
+        return row
+    return None
+
+
+def pilot_transition_checks(injection, witness, terminal_reason, expected_reason, post):
+    return dict(
+        pilot_transition_command_succeeded=bool(injection.events and injection.events[-1]["command"].get("returncode") == 0),
+        pilot_transition_observed=witness is not None,
+        backend_transition_ended=terminal_reason == expected_reason == "aircraft_transition_observed",
+        requested_phase_settled=post is not None and post["settled"] is True,
+    )
+
+
+async def capture_post_transition(client, event, acquisition, *, log, started, follow_start, timeout_s,
+                                  scenario, response, previous_pose_timestamp_us=None, clock=time.monotonic):
+    """Read only after publisher join/release; observed motion remains PX4 truth."""
+    deadline = clock() + timeout_s
+    window, samples, publications, previous_pose = [], [], None, previous_pose_timestamp_us
+    release_observed_at = None
+    while clock() < deadline:
+        packet = await client.observe()
+        elapsed = clock() - follow_start
+        log("post-transition-observations.jsonl", dict(timestamp=clock()-started, value=packet))
+        if (packet.get("owner_confirmed") is not False or packet.get("runtime_id") != acquisition.runtime_id
+                or packet.get("rescue_active") is not False):
+            raise ValueError("native_component_post_transition_owner_or_rescue")
+        receipt = NativeReleaseReceipt.from_payload(packet.get("release_receipt"))
+        receipt.require_match(acquisition.identity, acquisition.runtime_id, acquisition.token, acquisition)
+        if not receipt.released:
+            raise ValueError("native_component_post_transition_release_unconfirmed")
+        if publications is not None and packet.get("publications") != publications:
+            raise ValueError("native_component_publication_after_release")
+        publications = packet.get("publications")
+        if type(publications) is not int or publications < 0:
+            raise ValueError("native_component_publication_count_invalid")
+        if packet.get("fresh") is True and packet.get("aircraft_state") and packet.get("vehicle_pose"):
+            state = AircraftState.from_payload(packet["aircraft_state"])
+            if state.binding != acquisition.identity.binding:
+                raise ValueError("native_component_post_transition_aircraft_changed")
+            if not state.fresh(clock(), .75):
+                window = []
+                await asyncio.sleep(.05)
+                continue
+            target = scenario.target_at(elapsed)
+            if target is None:
+                raise ValueError("native_component_post_transition_target_truth_missing")
+            response.append(dict(timestamp=elapsed, phase=state.phase.value,
+                range_m=math.dist(packet["vehicle_pose"]["vehicle_ned"], target), altitude_m=state.relative_altitude_m))
+            log("trace/target_truth.jsonl", dict(timestamp=elapsed, target_ned=target))
+            pose = observed_pose_record(packet, follow_start=follow_start, previous_timestamp_us=previous_pose)
+            if pose is not None:
+                log("px4/pose_trace.jsonl", pose)
+                previous_pose = pose["px4_timestamp_us"]
+            held = packet.get("nav_state") == 4
+            if held and release_observed_at is None:
+                release_observed_at = elapsed
+            log("trace/follower_state.jsonl", dict(timestamp=elapsed, state="INACTIVE", phase_state="ended",
+                authority_state="INACTIVE", command_expected=False, observed_hold=held,
+                publisher_running=False, publisher_task_active=False,
+                command_owner_released_at=release_observed_at, aircraft_phase=state.phase.value,
+                limiting_reason="session_cleanup_after_phase_evidence", events=["post_session_native_transition"]))
+            samples.append(state)
+            if state.phase is event.requested_phase and packet.get("nav_state") == 4:
+                if (not window or state.sequence > window[-1].sequence
+                        and state.observed_at_monotonic_s - window[-1].observed_at_monotonic_s >= .49):
+                    window = (window + [state])[-7:]
+                if stable_window(window):
+                    return dict(settled=True, states=[asdict(item) for item in window], publications=publications,
+                                last_packet=packet, samples=len(samples))
+            else:
+                window = []
+        else:
+            window = []
+        await asyncio.sleep(.05)
+    raise TimeoutError("native_component_post_transition_settle_timeout")
+
+
 class AirspeedLossInjection:
     """One test-only CLI task; target guidance and publication keep running."""
 
@@ -391,7 +607,7 @@ async def cleanup_component_run(commander, binding, fault_injection, result):
     finally:
         try:
             try:
-                if binding is not None and binding.owner_confirmed:
+                if binding is not None and (binding.owner_confirmed or getattr(binding, "acquire_dispatched", False)):
                     result["cleanup"] = await binding.stop("isolated_sih_cleanup")
             except Exception as error:
                 result["passed"] = False
@@ -516,7 +732,7 @@ def attach_component_observer(binding, connection, log, *, started: float, clock
     original_observer = binding.on_observation
 
     async def observation(state, packet, intent):
-        coherent = connection.retain_packet(state, packet)
+        coherent = state is not None and connection.retain_packet(state, packet)
         log("observations.jsonl", dict(timestamp=clock()-started, value=packet,
                                       retained_for_projection=coherent))
         return await original_observer(state, packet, intent)
@@ -575,6 +791,9 @@ def component_fault_windows(faults, duration) -> tuple[ComponentFaultWindow, ...
     kinds = {fault.get("kind") for fault in faults}
     if not kinds:
         return ()
+    if "pilot_transition" in kinds:
+        pilot_transition_event(faults, duration)
+        return ()
     if not kinds.issubset({"target_loss", "airspeed_loss"}):
         raise ValueError("native_component_fault_injection_not_implemented")
     if len(kinds) != 1:
@@ -628,6 +847,9 @@ async def run(args, isolation):
     source = command("git", "-C", str(ROOT), "rev-parse", "HEAD").strip()
     patch = command("git", "-C", str(ROOT), "diff", "HEAD")
     (output / "source.patch").write_text(patch)
+    started = time.monotonic()
+    tool_bytes = Path(__file__).read_bytes()
+    (output / "run_native_vector_sih.py").write_bytes(tool_bytes)
     (output / "manifest.json").write_text(json.dumps(dict(
         evidence_kind="px4_observed_sih", qualification="native_guidance_component",
         application_startup_qualified=False, revision=source, worktree_dirty=bool(patch),
@@ -638,22 +860,36 @@ async def run(args, isolation):
         configuration=configuration,
         parameter_snapshots={"before": "px4/parameters-before.txt", "after": "px4/parameters-after.txt"},
         expected_handoff_reason=args.expect_handoff,
+        host_clock={"basis": "time.monotonic", "origin_s": started,
+                    "wire_timestamp_semantics": "seconds_since_origin",
+                    "trace_timestamp_semantics": "seconds_since_follow_start; follow-clock.json binds its offset"},
+        tool_source_sha256=hashlib.sha256(tool_bytes).hexdigest(),
+        tool_helpers={"wire_recorder": archive_wire_helper(output)},
+        transition_acceptance={"maximum_altitude_error_m": 2., "maximum_native_active_gap_s": .100,
+                               "independent_ulog_audit_required": True},
     ), indent=2))
     logs = {}
+    wire = []
 
     def log(name, value):
+        if name == "wire.jsonl":
+            value = {"timestamp": time.monotonic() - started, **value}
+            wire.append(value)
         if name not in logs:
             logs[name] = (output / name).open("x")
         logs[name].write(json.dumps(value, allow_nan=False) + "\n")
         logs[name].flush()
 
-    client = NativeGuidanceClient(args.socket)
-    commander = binding = fault_injection = None
+    client = recorder = socket_directory = None
+    commander = binding = fault_injection = pilot_fault = None
     failure_injection_enabled = None
     response = []
     result = dict(passed=False, reason="not_started")
-    started = time.monotonic()
     try:
+        socket_directory = tempfile.TemporaryDirectory(prefix="pe-vec-")
+        recorder = WireRecorder(Path(socket_directory.name) / "record.sock", args.socket, log)
+        await recorder.__aenter__()
+        client = NativeGuidanceClient(recorder.frontend)
         parameters_before = native_parameters(args.socket, isolation)
         (output / "px4/parameters-before.txt").write_text(parameters_before)
         capabilities = await client.connect()
@@ -686,6 +922,7 @@ async def run(args, isolation):
         else:
             raise ValueError("stable_airborne_window_not_reached")
         log("stable-flight.jsonl", dict(timestamp=time.monotonic() - started, states=[asdict(s) for s in window]))
+        require_component_phase(selected, state)
         follower = FollowerFactory.create_follower(selected.profile.mode, connection, (.5, .5))
         continuity_config = config["TargetContinuity"]
         supervisor = TargetContinuitySupervisor(ContinuityPolicy.resolve(
@@ -724,6 +961,17 @@ async def run(args, isolation):
         scenario_path.write_text(yaml.safe_dump(scenario_raw, sort_keys=False))
         scenario = VisualizationScenario.from_yaml(scenario_path)
         fault_windows = component_fault_windows(scenario.faults, args.duration)
+        transition = pilot_transition_event(scenario.faults, args.duration)
+        transition_contract = None
+        if transition:
+            if (not state.is_vtol or transition.requested_phase is state.phase
+                    or args.expect_handoff != "aircraft_transition_observed"
+                    or args.altitude or args.altitude_tolerance != 2.):
+                raise ValueError("native_component_transition_scenario_contract_mismatch")
+            if scenario.target_at(args.duration + args.stable_timeout) is None:
+                raise ValueError("native_component_post_transition_target_truth_missing")
+            transition_contract = transition_source_contract(isolation)
+            (output / "transition-source-contract.json").write_text(json.dumps(transition_contract, indent=2))
         loss_windows = [(window.start_s, window.end_s) for window in fault_windows if window.kind == "target_loss"]
         airspeed_windows = tuple(window for window in fault_windows if window.kind == "airspeed_loss")
         if airspeed_windows:
@@ -766,6 +1014,7 @@ async def run(args, isolation):
             log("trace/offboard_publish_trace.jsonl", dict(
                 record_type="offboard_publish", timestamp=time.monotonic() - follow_start,
                 publish_success=event["publish_status"]["last_publish_success"],
+                publish_status=event["publish_status"],
                 command_intent=None if intent is None else asdict(intent)))
 
         commander = OffboardCommander(connection, follower.setpoint_handler, command_rate_hz=20.,
@@ -774,8 +1023,13 @@ async def run(args, isolation):
         if not commander.submit_intent(baseline):
             raise ValueError(commander.last_error)
         follow_start = time.monotonic()
+        (output / "follow-clock.json").write_text(json.dumps(dict(
+            host_origin_s=started, follow_offset_s=follow_start-started), indent=2))
         if airspeed_windows:
             fault_injection = AirspeedLossInjection(args.socket, isolation, airspeed_windows, log=log, started=follow_start)
+        if transition:
+            pilot_fault = PilotTransitionInjection(args.socket, isolation, transition, state.phase,
+                transition_contract, log=log, started=follow_start)
         if not await commander.start():
             raise ValueError(commander.last_error)
         initial_altitude = state.relative_altitude_m
@@ -783,14 +1037,30 @@ async def run(args, isolation):
         mc_request_applied = False
         handoff_reason = None
         handoff_time = None
+        phase_witness = None
+        terminal_before_cleanup = None
         previous_pose_timestamp = None
         while (elapsed := time.monotonic() - follow_start) < args.duration:
             if fault_injection is not None:
                 await fault_injection.tick(elapsed)
             packet = connection.last_packet
             state = connection.get_aircraft_state()
+            if pilot_fault is not None:
+                if pilot_fault.requested:
+                    phase_witness = transition_witness(wire, event=transition, acquisition=client.acquisition_context,
+                        not_before_s=follow_start-started+transition.at_s, host_origin_s=started)
+                    if phase_witness is not None:
+                        terminal_before_cleanup = binding.terminal_reason
+                        handoff_reason, handoff_time = terminal_before_cleanup, elapsed
+                        result["backend_terminal_reason_before_cleanup"] = terminal_before_cleanup
+                        log("transition-terminal-proof.jsonl", dict(timestamp=elapsed,
+                            backend_terminal_reason=terminal_before_cleanup, witness=phase_witness,
+                            commander_status=commander.get_status()))
+                        break
             if state is None or not commander.running or commander.failed_publishes:
                 raise ValueError("native_publication_or_state_unhealthy")
+            if pilot_fault is not None:
+                await pilot_fault.tick(elapsed, state, binding.owner_confirmed)
             if (args.mc_request is not None and not mc_request_applied and not binding.pursuit_paused
                     and state.phase is AirframePhase.MULTICOPTER):
                 control = guidance.controls.current_control
@@ -877,6 +1147,14 @@ async def run(args, isolation):
             stopped_packet = await client.observe()
             after_stop.append(stopped_packet["publications"])
             log("post-stop-observations.jsonl", stopped_packet)
+        post_transition = None
+        if pilot_fault is not None:
+            await pilot_fault.close()
+            post_transition = await capture_post_transition(client, transition, client.acquisition_context,
+                log=log, started=started, follow_start=follow_start, timeout_s=args.stable_timeout,
+                scenario=scenario, response=response, previous_pose_timestamp_us=previous_pose_timestamp)
+            packet = post_transition["last_packet"]
+            (output / "post-transition-settled.json").write_text(json.dumps(post_transition, indent=2))
         altitude_error = max(abs(row["altitude_m"] - initial_altitude) for row in response)
         checks = dict(range_decreased=response[-1]["range_m"] < response[0]["range_m"],
                       altitude_floor=min(row["altitude_m"] for row in response) >= follower.altitude_limits.min_altitude,
@@ -889,6 +1167,9 @@ async def run(args, isolation):
             checks["altitude_guidance_response"] = response[-1]["altitude_m"] < initial_altitude - .5
         else:
             checks["altitude_hold"] = altitude_error <= args.altitude_tolerance
+        if pilot_fault is not None:
+            checks.update(pilot_transition_checks(pilot_fault, phase_witness, terminal_before_cleanup,
+                                                  args.expect_handoff, post_transition))
         result = dict(passed=all(checks.values()), reason="component_scenario_complete", response_checks=checks,
                       scope="native_guidance_component_only", follower=selected.profile.mode,
                       input_contract=selected.input_contract, handoff=handoff,
@@ -904,10 +1185,17 @@ async def run(args, isolation):
                       handoff_reason=handoff_reason, handoff_time_s=handoff_time,
                       expected_handoff_reason=args.expect_handoff,
                       application_startup_qualified=False)
+        if pilot_fault is not None:
+            result.update(backend_terminal_reason_before_cleanup=terminal_before_cleanup,
+                transition_event=asdict(transition), fault_events=pilot_fault.events,
+                independent_native_active_gap_audit={"required_maximum_s": .100, "verified": False},
+                transition_qualified=False)
     except Exception as error:
-        result = dict(passed=False, reason=f"{type(error).__name__}:{error}")
+        result.update(passed=False, reason=f"{type(error).__name__}:{error}")
         raise
     finally:
+        if pilot_fault is not None and binding is not None:
+            result.setdefault("backend_terminal_reason_before_cleanup", binding.terminal_reason)
         await cleanup_component_run(commander, binding, fault_injection, result)
         if fault_injection is not None:
             fault_checks = airspeed_fault_response_checks(response, fault_injection.events)
@@ -919,7 +1207,18 @@ async def run(args, isolation):
                 result["fault_response_failures"] = [key for key, value in fault_checks.items() if not value]
         if failure_injection_enabled is not None:
             result["failure_injection_enabled"] = failure_injection_enabled
-        await client.close()
+        if pilot_fault is not None:
+            try:
+                await pilot_fault.close()
+            except Exception as error:
+                result.update(passed=False, pilot_transition_task_error=str(error))
+            result["pilot_transition_events"] = pilot_fault.events
+        if client is not None:
+            await client.close()
+        if recorder is not None:
+            await recorder.__aexit__()
+        if socket_directory is not None:
+            socket_directory.cleanup()
         try:
             (output / "px4/parameters-after.txt").write_text(native_parameters(
                 args.socket, isolation))

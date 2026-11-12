@@ -15,11 +15,23 @@ from tests.unit.drone_interface import test_native_guidance as native_protocol_c
 from tests.unit.drone_interface.test_native_guidance import identity
 from tests.unit.followers import test_fw_navigation_chase_follower as native_image_cases
 from tools import run_native_ownership_sih as tool
+from tools.native_sih_wire import WireRecorder, archive_wire_helper
 
 FIXTURE = Path(__file__).parent / 'fixtures/native/owned-mode-status-before-arm.txt'
 CONTRACT = {'external1': 23, 'hold': 4, 'states': {'acquired': 2, 'superseded': 8}}
 native_server = native_protocol_cases.native_server
 native_follower_environment = native_image_cases.environment
+
+
+def test_shared_recorder_preserves_public_tool_alias_and_archives_exact_source(tmp_path):
+    import hashlib
+    import inspect
+
+    assert tool.WireRecorder is WireRecorder
+    artifact = archive_wire_helper(tmp_path)
+    source = Path(inspect.getfile(WireRecorder)).read_bytes()
+    assert (tmp_path / artifact['path']).read_bytes() == source
+    assert artifact['sha256'] == hashlib.sha256(source).hexdigest()
 
 
 def source_sample():
@@ -188,7 +200,11 @@ async def test_quiesce_joins_stimulus_before_stopping_the_only_publisher():
     from unittest.mock import AsyncMock
     task = asyncio.create_task(producer())
     await asyncio.sleep(0)
-    commander = SimpleNamespace(stop=AsyncMock(side_effect=lambda **_: order.append('publisher_stopped') or True))
+    def publisher_stopped(**_):
+        order.append('publisher_stopped')
+        return True
+
+    commander = SimpleNamespace(stop=AsyncMock(side_effect=publisher_stopped))
     await tool.quiesce(SimpleNamespace(baseline_producer=task, commander=commander))
     assert order == ['producer_joined', 'publisher_stopped']
     commander.stop.assert_awaited_once_with(publish_final=False)

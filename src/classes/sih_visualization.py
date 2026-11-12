@@ -17,6 +17,7 @@ from typing import Any, Iterable, Mapping, Optional
 
 import yaml
 from classes.aircraft_state import Quaternion, Vector3, finite_number, heading_frame_to_ned
+from classes.follower_catalog import FollowerProfile, NATIVE_PHASE_CONTRACTS
 
 
 class VisualizationValidationError(ValueError):
@@ -37,9 +38,18 @@ def _expected_contract(profile: str, airframe: str):
     control = info["control_type"]
     input_type = "gimbal_angles" if angular else (
         "attitude_rate_image_position" if control == "attitude_rate" else "image_position_2d")
+    try:
+        declared = FollowerProfile.from_info(profile, info).phase_command_contracts
+    except ValueError as error:
+        raise VisualizationValidationError("Follower catalog contract is invalid") from error
     native = info.get("native_phase_contracts", {})
-    if airframe == "vtol" and {"multicopter", "fixed_wing", "vtol_transition"}.issubset(native):
-        return airframe, input_type, "vtol_external"
+    if airframe == "vtol":
+        if all(declared.get(phase) == contract for phase, contract in NATIVE_PHASE_CONTRACTS.items()):
+            return airframe, input_type, "vtol_external"
+        settled = {phase: contract for phase, contract in declared.items() if phase in {"multicopter", "fixed_wing"}}
+        if len(settled) == 1:
+            phase, contract = next(iter(settled.items()))
+            return airframe, input_type, "gimbal_velocity_body" if angular and phase == "multicopter" else contract
     if airframe == "fixed_wing" and "fixed_wing" in native:
         return airframe, input_type, "fixed_wing_external"
     return info["airframe_phase"], input_type, "gimbal_velocity_body" if angular else control

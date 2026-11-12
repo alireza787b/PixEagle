@@ -38,9 +38,265 @@ from tools.run_native_vector_sih import (
     prepare_component_intent, project_component_input, stable_window,
     verify_simulator,
 )
+from tools import run_native_vector_sih as tool
+from tests.fixtures.native_ownership import acquisition, release_receipt
 
 
 native_follower_environment = native_image_cases.environment
+
+
+def test_fw_only_component_supports_vtol_fw_scenario_but_refuses_actual_mc_start(tmp_path):
+    selected = component_profile('fw_navigation_chase')
+    assert selected.command_contract(is_vtol=True) == 'fixed_wing_external'
+    tool.require_component_phase(selected, aircraft_state(phase=AirframePhase.FIXED_WING, is_vtol=True))
+    with pytest.raises(ValueError, match='profile_phase_unavailable'):
+        tool.require_component_phase(selected, aircraft_state(phase=AirframePhase.MULTICOPTER, is_vtol=True))
+    raw = yaml.safe_load(selected.template.read_text())
+    raw['airframe'] = 'vtol'
+    path = tmp_path / 'fw-only.yaml'
+    path.write_text(yaml.safe_dump(raw))
+    assert load_component_scenario(path, mount='HORIZONTAL', altitude=False, duration=15., is_vtol=True,
+                                   follower=selected.profile.mode)['follower']['command_contract'] == 'fixed_wing_external'
+
+
+async def test_unavailable_observation_logs_the_real_reply_and_delegates_none_without_projection():
+    original = AsyncMock(return_value=None)
+    binding = SimpleNamespace(on_observation=original, transport=SimpleNamespace(on_observation=None))
+    connection = SimpleNamespace(retain_packet=Mock(side_effect=AssertionError('No pose may be minted')))
+    log = Mock()
+    attach_component_observer(binding, connection, log, started=90., clock=lambda: 100.)
+    packet = {'fresh': False, 'aircraft_state': None, 'owner_confirmed': False}
+    assert await binding.transport.on_observation(None, packet, None) is None
+    original.assert_awaited_once_with(None, packet, None)
+    log.assert_called_once_with('observations.jsonl', dict(timestamp=10., value=packet, retained_for_projection=False))
+
+
+def transition_event(**changes):
+    return {'kind': 'pilot_transition', 'at_s': 4., 'requested_phase': 'fixed_wing'} | changes
+
+
+def test_pilot_transition_is_one_explicit_nonwindow_event():
+    event = tool.pilot_transition_event([transition_event()], 15.)
+    assert event == tool.PilotTransitionEvent(4., AirframePhase.FIXED_WING)
+    assert component_fault_windows([transition_event()], 15.) == ()
+    assert tool.pilot_transition_event([], 15.) is None
+
+
+@pytest.mark.parametrize('changes', [{'at_s': value} for value in (True, None, -1., 0., 15., float('nan'))]
+                         + [{'requested_phase': value} for value in ('vtol_transition', 'unknown', '', None)]
+                         + [{'duration_s': 2.}])
+def test_invalid_transition_event_cannot_enter_the_control_path(changes):
+    with pytest.raises(ValueError):
+        tool.pilot_transition_event([transition_event(**changes)], 15.)
+
+
+@pytest.mark.parametrize('extra', [transition_event(at_s=6.), {'kind': 'target_loss', 'at_s': 1., 'duration_s': 2.}])
+def test_repeated_or_mixed_pilot_events_refuse(extra):
+    with pytest.raises(ValueError, match='mixed_or_repeated'):
+        component_fault_windows([transition_event(), extra], 15.)
+
+
+def test_pilot_source_contract_reads_attested_constants_not_numeric_guesses(tmp_path, monkeypatch):
+    message = tmp_path / 'context/source/msg/versioned/VehicleStatus.msg'
+    message.parent.mkdir(parents=True)
+    message.write_text('uint8 VEHICLE_TYPE_ROTARY_WING = 21\nuint8 VEHICLE_TYPE_FIXED_WING = 22\n')
+    verify = Mock()
+    monkeypatch.setattr('tools.sih_baseline.verify_source', verify)
+    contract = tool.transition_source_contract({'firmware_build': {'manifest': str(tmp_path/'sih-build-manifest.json')}})
+    assert contract['vehicle_types'] == {'multicopter': 21, 'fixed_wing': 22}
+    verify.assert_called_once()
+    assert len(contract['sha256']) == 64
+    with pytest.raises(ValueError, match='verified_source_build'):
+        tool.transition_source_contract({})
+
+
+def cli_transition_context(tmp_path):
+    path = tmp_path / 'guidance.sock'
+    path.touch()
+    isolation = dict(container_id='verified-container', image_id='pinned-image', aircraft_uid='aircraft-a', instance=7,
+        process={'args': ['/firmware/bin/px4']}, firmware_build={'manifest': str(tmp_path/'sih-build-manifest.json')})
+    contract = {'vehicle_types': {'multicopter': 21, 'fixed_wing': 22}}
+    status = '    timestamp: 4000000 (0.100 seconds ago)\n    vehicle_type: 21\n    is_vtol: True\n    in_transition_mode: False\n'
+    return path, isolation, contract, status
+
+
+def test_pilot_cli_rechecks_exact_runtime_and_opposite_actual_phase_once(tmp_path, monkeypatch):
+    path, isolation, contract, status = cli_transition_context(tmp_path)
+    verifier = Mock(return_value=isolation)
+    monkeypatch.setattr(tool, 'verify_simulator', verifier)
+    monkeypatch.setattr(tool, 'command', Mock(return_value=status))
+    cli = Mock(return_value=subprocess.CompletedProcess([], 0, 'requested', ''))
+    monkeypatch.setattr(tool.subprocess, 'run', cli)
+    event = tool.PilotTransitionEvent(4., AirframePhase.FIXED_WING)
+    result = tool.native_pilot_transition(path, isolation, event, AirframePhase.MULTICOPTER, contract)
+    verifier.assert_called_once_with('verified-container', 7, path,
+        sih_build_manifest=tmp_path/'sih-build-manifest.json')
+    assert cli.call_args.args[0] == ('docker', 'exec', '--user', str(path.stat().st_uid), 'verified-container',
+        '/firmware/bin/px4-commander', '--instance', '7', 'transition')
+    assert cli.call_count == 1 and result['before_vehicle_status'] == status
+
+
+@pytest.mark.parametrize('change', ['stale', 'already_transitioning', 'wrong_phase', 'not_vtol', 'wrong_aircraft'])
+def test_changed_pilot_cli_precondition_does_not_issue_transition(tmp_path, monkeypatch, change):
+    path, isolation, contract, status = cli_transition_context(tmp_path)
+    checked = dict(isolation)
+    if change == 'stale':
+        status = status.replace('0.100', '9.000')
+    elif change == 'already_transitioning':
+        status = status.replace('in_transition_mode: False', 'in_transition_mode: True')
+    elif change == 'wrong_phase':
+        status = status.replace('vehicle_type: 21', 'vehicle_type: 22')
+    elif change == 'not_vtol':
+        status = status.replace('is_vtol: True', 'is_vtol: False')
+    else:
+        checked['aircraft_uid'] = 'replacement'
+    monkeypatch.setattr(tool, 'verify_simulator', Mock(return_value=checked))
+    monkeypatch.setattr(tool, 'command', Mock(return_value=status))
+    cli = Mock(side_effect=AssertionError('No CLI action after changed precondition'))
+    monkeypatch.setattr(tool.subprocess, 'run', cli)
+    with pytest.raises(ValueError, match='changed'):
+        tool.native_pilot_transition(path, isolation, tool.PilotTransitionEvent(4., AirframePhase.FIXED_WING),
+                                     AirframePhase.MULTICOPTER, contract)
+    cli.assert_not_called()
+
+
+@pytest.mark.parametrize('returncode', [0, None, 1])
+async def test_declared_pilot_request_is_not_retried_or_reversed(monkeypatch, returncode):
+    cli = Mock(return_value={'returncode': returncode})
+    monkeypatch.setattr(tool, 'native_pilot_transition', cli)
+    event = tool.PilotTransitionEvent(4., AirframePhase.FIXED_WING)
+    injection = tool.PilotTransitionInjection(None, {}, event, AirframePhase.MULTICOPTER, {},
+        log=Mock(), started=96., clock=lambda: 100.)
+    state = aircraft_state(phase=AirframePhase.MULTICOPTER, is_vtol=True)
+    await injection.tick(3., state, True)
+    cli.assert_not_called()
+    await injection.tick(4., state, True)
+    if returncode == 0:
+        await injection.close()
+    else:
+        with pytest.raises(RuntimeError, match='command_unconfirmed'):
+            await injection.close()
+    await injection.tick(6., state, True)
+    await injection.close()
+    assert cli.call_count == 1 and injection.requested
+
+
+def transition_packet(state, context, **changes):
+    return dict(runtime_id=context.runtime_id, fresh=True, owner_confirmed=False, rescue_active=False,
+        aircraft_state=asdict(state), vehicle_pose={'vehicle_ned': [0., 0., -50.]}, publications=12,
+        nav_state=4, release_receipt=release_receipt(context).wire_payload()) | changes
+
+
+def test_terminal_proof_requires_real_fresh_paired_transition_not_a_cli_exit_or_new_owner():
+    state = aircraft_state(phase=AirframePhase.VTOL_TRANSITION, is_vtol=True)
+    context = acquisition(GuidanceSessionIdentity('case', state.binding, 1))
+    packet = transition_packet(state, context)
+    row = {'timestamp': 4.1, 'direction': 'actual_backend_reply', 'value': {'payload': packet}}
+    event = tool.PilotTransitionEvent(4., AirframePhase.FIXED_WING)
+    assert tool.transition_witness([row], event=event, acquisition=context, not_before_s=4., host_origin_s=96.) is row
+    for changed in ({'fresh': False}, {'runtime_id': 'other'}, {'aircraft_state': None}):
+        invalid = row | {'value': {'payload': packet | changed}}
+        assert tool.transition_witness([invalid], event=event, acquisition=context, not_before_s=4., host_origin_s=96.) is None
+    stale = row | {'value': {'payload': packet | {'aircraft_state': asdict(replace(state, observed_at_monotonic_s=90.))}}}
+    assert tool.transition_witness([stale], event=event, acquisition=context, not_before_s=4., host_origin_s=96.) is None
+    assert tool.transition_witness([row], event=event, acquisition=context, not_before_s=5., host_origin_s=96.) is None
+    changed = row | {'value': {'payload': packet | {'release_receipt': release_receipt(replace(context, token='c'*32)).wire_payload()}}}
+    with pytest.raises(RuntimeError, match='context'):
+        tool.transition_witness([changed], event=event, acquisition=context, not_before_s=4., host_origin_s=96.)
+
+
+def test_absent_or_generic_backend_terminal_cannot_pass_a_correct_native_transition():
+    injection = SimpleNamespace(events=[{'command': {'returncode': 0}}])
+    for reason in (None, 'native_command_owner_unavailable', 'control_owner_lost'):
+        checks = tool.pilot_transition_checks(injection, {}, reason, 'aircraft_transition_observed', {'settled': True})
+        assert checks['pilot_transition_command_succeeded']
+        assert checks['pilot_transition_observed']
+        assert not checks['backend_transition_ended']
+
+
+@pytest.mark.parametrize('bad', ['owner', 'rescue', 'unconfirmed_receipt', 'wrong_token', 'publication'])
+async def test_readonly_post_transition_rejects_reacquisition_and_unconfirmed_release(monkeypatch, bad):
+    state = aircraft_state(phase=AirframePhase.FIXED_WING, is_vtol=True)
+    context = acquisition(GuidanceSessionIdentity('case', state.binding, 1))
+    packet = transition_packet(state, context)
+    if bad == 'owner':
+        packet['owner_confirmed'] = True
+    elif bad == 'rescue':
+        packet['rescue_active'] = True
+    elif bad == 'unconfirmed_receipt':
+        packet['release_receipt'] = release_receipt(context, outcome='unconfirmed').wire_payload()
+    elif bad == 'wrong_token':
+        packet['release_receipt'] = release_receipt(replace(context, token='c'*32)).wire_payload()
+    client = SimpleNamespace(observe=AsyncMock(side_effect=[packet, packet | {'publications': 13}]))
+    monkeypatch.setattr(tool, 'observed_pose_record', Mock(return_value=None))
+    sleep = AsyncMock()
+    monkeypatch.setattr(tool.asyncio, 'sleep', sleep)
+    with pytest.raises((ValueError, RuntimeError)):
+        await tool.capture_post_transition(client, tool.PilotTransitionEvent(4., AirframePhase.FIXED_WING), context,
+            log=Mock(), started=90., follow_start=95., timeout_s=5., clock=lambda: 100.,
+            scenario=SimpleNamespace(target_at=lambda _: (20., 0., -50.)), response=[])
+    assert not hasattr(client, 'engage') and not hasattr(client, 'submit')
+
+
+async def test_readonly_post_capture_settles_from_actual_progress_and_keeps_world_target(monkeypatch):
+    state = aircraft_state(phase=AirframePhase.FIXED_WING, is_vtol=True)
+    context = acquisition(GuidanceSessionIdentity('case', state.binding, 1))
+    packets = [transition_packet(replace(state, sequence=i, observed_at_monotonic_s=100.+(i-1)*.5), context)
+               for i in range(1, 8)]
+    client = SimpleNamespace(observe=AsyncMock(side_effect=packets))
+    monkeypatch.setattr(tool, 'observed_pose_record', Mock(return_value=None))
+    clock = [100.]
+
+    async def advance(_delay):
+        clock[0] += .5
+
+    monkeypatch.setattr(tool.asyncio, 'sleep', advance)
+    world_target = Mock(return_value=(20., 0., -50.))
+    response, logs = [], []
+    settled = await tool.capture_post_transition(client, tool.PilotTransitionEvent(4., AirframePhase.FIXED_WING), context,
+        log=lambda name, row: logs.append((name, row)), started=90., follow_start=95., timeout_s=5., clock=lambda: clock[0],
+        scenario=SimpleNamespace(target_at=world_target), response=response)
+    assert settled['settled'] and settled['publications'] == 12 and len(settled['states']) == 7
+    assert client.observe.await_count == 7
+    assert all(row['range_m'] == 20. for row in response)
+    world_target.assert_called_with(8.)
+    assert all(row['target_ned'] == (20., 0., -50.) for name, row in logs if name == 'trace/target_truth.jsonl')
+
+
+async def test_stale_pose_cannot_complete_readonly_settling_or_refresh_world_evidence(monkeypatch):
+    state = aircraft_state(phase=AirframePhase.FIXED_WING, is_vtol=True, observed_at_monotonic_s=90.)
+    context = acquisition(GuidanceSessionIdentity('case', state.binding, 1))
+    client = SimpleNamespace(observe=AsyncMock(return_value=transition_packet(state, context)))
+    clock, response = [100.], []
+
+    async def advance(delay):
+        clock[0] += delay
+
+    monkeypatch.setattr(tool.asyncio, 'sleep', advance)
+    target = Mock(side_effect=AssertionError('Stale pose must not mint target/pose response'))
+    pose = Mock(side_effect=AssertionError('Stale pose must not be presented as a new sample'))
+    monkeypatch.setattr(tool, 'observed_pose_record', pose)
+    with pytest.raises(TimeoutError, match='settle_timeout'):
+        await tool.capture_post_transition(client, tool.PilotTransitionEvent(4., AirframePhase.FIXED_WING), context,
+            log=Mock(), started=90., follow_start=95., timeout_s=.2, clock=lambda: clock[0],
+            scenario=SimpleNamespace(target_at=target), response=response)
+    assert response == []
+    target.assert_not_called()
+    pose.assert_not_called()
+
+
+async def test_pilot_stale_or_lost_owner_cannot_launch_the_declared_cli(monkeypatch):
+    cli = Mock(side_effect=AssertionError('No transition after source/owner loss'))
+    monkeypatch.setattr(tool, 'native_pilot_transition', cli)
+    for state, owned in ((aircraft_state(phase=AirframePhase.MULTICOPTER, is_vtol=True,
+                                       observed_at_monotonic_s=90.), True),
+                         (aircraft_state(phase=AirframePhase.MULTICOPTER, is_vtol=True), False)):
+        injection = tool.PilotTransitionInjection(None, {}, tool.PilotTransitionEvent(4., AirframePhase.FIXED_WING),
+            AirframePhase.MULTICOPTER, {}, log=Mock(), started=96., clock=lambda: 100.)
+        with pytest.raises(ValueError, match='pursuit_not_current'):
+            await injection.tick(4., state, owned)
+        await injection.close()
+    cli.assert_not_called()
 
 
 def test_run_archive_preserves_exact_configuration_and_schema_bytes(monkeypatch, tmp_path):
@@ -331,6 +587,16 @@ async def test_cleanup_quiesces_and_releases_owner_before_fault_cli_even_when_an
     fault.close.assert_awaited_once()
 
 
+async def test_terminal_binding_still_reconciles_original_dispatched_acquisition_during_cleanup():
+    original = SimpleNamespace(owner_confirmed=False, acquire_dispatched=True, stop=AsyncMock(return_value={
+        'executed': False, 'release_receipt': {'outcome': 'owner_already_released'}}))
+    commander = SimpleNamespace(running=False)
+    result = {'passed': False}
+    await cleanup_component_run(commander, original, None, result)
+    original.stop.assert_awaited_once_with('isolated_sih_cleanup')
+    assert result['passed'] is False
+
+
 @pytest.mark.asyncio
 async def test_cleanup_restores_fault_if_publisher_quiescence_is_cancelled():
     order = []
@@ -594,8 +860,9 @@ def test_component_adapter_is_not_keyed_by_follower_identifier(monkeypatch):
     selected = component_profile(renamed.mode)
     assert selected.profile is renamed
     assert selected.tracker_type is TrackerDataType.POSITION_2D
-    with pytest.raises(ValueError, match="vtol_contract_unavailable"):
-        selected.command_contract(is_vtol=True)
+    assert selected.command_contract(is_vtol=True) == "fixed_wing_external"
+    with pytest.raises(ValueError, match="profile_phase_unavailable"):
+        tool.require_component_phase(selected, aircraft_state(phase=AirframePhase.MULTICOPTER, is_vtol=True))
 
 
 @pytest.mark.parametrize("profile", ["mc_velocity_chase", "fw_attitude_rate", "gm_velocity_chase"])
