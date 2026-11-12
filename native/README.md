@@ -82,6 +82,15 @@ transition preservation remain separate SIH gates. Hardware/deployment
 admission remains closed. Original ownership receipts are not redefined by
 registration retirement; process exit can still make them unavailable.
 
+A native phase exit can occur between observation and intent submission. A
+correlated `native_pursuit_ended` refusal still retires that socket immediately.
+The existing read-only reconciliation checks the original acquisition and fresh
+aircraft state within the refused request's remaining deadline and the existing
+publisher timeout. The same lifecycle callback then classifies confirmed phase
+exit; there is no retry, reacquisition or replay. Diagnostics retain the attempted
+and refused RPC separately from PX4 command admission. An unconfirmed, stale or
+different owner's response remains a failure, never a successful publication.
+
 The latest S7 standard-VTOL captures verify original terminal proof through a
 fresh explicit session and strict archive shutdown. Both transition directions
 retain altitude failures. The declared MC process-loss component now has both

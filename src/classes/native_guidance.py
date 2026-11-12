@@ -10,6 +10,7 @@ import asyncio
 from dataclasses import asdict, dataclass
 import json
 from pathlib import Path
+import re
 import secrets
 import time
 from typing import Callable
@@ -26,6 +27,22 @@ DEFAULT_SOCKET_PATH = Path("/run/pixeagle/guidance.sock")
 
 class NativeGuidanceError(RuntimeError):
     pass
+
+
+class NativeBackendRefusal(NativeGuidanceError):
+    """A well-formed refusal correlated to one dispatched protocol request."""
+
+    def __init__(self, operation: str, request_id: int, generation: int, code: str, deadline: float):
+        super().__init__(code)
+        self.operation = operation
+        self.request_id = request_id
+        self.generation = generation
+        self.code = code
+        self.deadline = deadline
+
+    def admission_details(self) -> dict:
+        return dict(operation=self.operation, request_id=self.request_id, generation=self.generation, code=self.code,
+                    native_request_attempted=True, native_request_refused=True, native_publication_admitted=False)
 
 
 def validate_ownership_token(value: str) -> str:
@@ -137,6 +154,16 @@ class NativeReleaseReceipt:
 
     def wire_payload(self) -> dict:
         return asdict(self)
+
+
+@dataclass(frozen=True)
+class NativeReleaseEvidence:
+    receipt: NativeReleaseReceipt
+    observation_json: str
+
+    def observation(self) -> dict:
+        """Return a separate payload; callers cannot mutate the retained proof."""
+        return json.loads(self.observation_json)
 
 
 @dataclass(frozen=True)
@@ -285,6 +312,15 @@ class NativeGuidanceClient:
     async def observe_after_release(self, identity: GuidanceSessionIdentity, *, runtime_id: str,
                                     ownership_token: str, mode_id: int, acquisition: NativeAcquisitionContext | None = None
                                     ) -> NativeReleaseReceipt:
+        evidence = await self.observe_release_evidence(identity, runtime_id=runtime_id,
+            ownership_token=ownership_token, mode_id=mode_id, acquisition=acquisition)
+        return evidence.receipt
+
+    async def observe_release_evidence(self, identity: GuidanceSessionIdentity, *, runtime_id: str,
+                                       ownership_token: str, mode_id: int,
+                                       acquisition: NativeAcquisitionContext | None = None,
+                                       deadline: float | None = None, expected_generation: int | None = None
+                                       ) -> NativeReleaseEvidence:
         """Reconcile only the original acquisition, using a separate read-only socket."""
         if self.session_identity is not None:
             raise NativeGuidanceError("native_session_already_owned")
@@ -302,9 +338,17 @@ class NativeGuidanceClient:
         def unchanged():
             current = (self._acquisition_identity, self._acquisition_runtime_id, self._ownership_token,
                        self._acquisition_mode_id, self._acquisition)
-            if self._generation != generation or self.session_identity is not None or current != original:
+            if (self._generation != generation or self.session_identity is not None or current != original
+                    or expected_generation is not None and generation != expected_generation):
                 raise NativeGuidanceError("native_release_context_replaced")
 
+        unchanged()
+        loop = asyncio.get_running_loop()
+        if deadline is None:
+            deadline = loop.time() + self.request_timeout_s
+        remaining = finite_number(deadline, "native_release_deadline") - loop.time()
+        if remaining <= 0:
+            raise NativeGuidanceError("native_release_unconfirmed")
         observer = NativeGuidanceClient(self.socket_path, request_timeout_s=self.request_timeout_s, clock=self._clock)
 
         async def reconcile():
@@ -325,11 +369,11 @@ class NativeGuidanceClient:
                     if receipt.released:
                         if self._ownership_token == token and self._acquisition_identity == identity:
                             self._acquisition_pending = False
-                        return receipt
+                        return NativeReleaseEvidence(receipt, json.dumps(result, allow_nan=False))
                 await asyncio.sleep(.01)
 
         try:
-            return await asyncio.wait_for(reconcile(), timeout=self.request_timeout_s)
+            return await asyncio.wait_for(reconcile(), timeout=remaining)
         except asyncio.TimeoutError as error:
             raise NativeGuidanceError("native_release_unconfirmed") from error
         finally:
@@ -562,7 +606,12 @@ class NativeGuidanceClient:
                     or type(reply.get("generation")) is not int or reply["generation"] != generation):
                 raise NativeGuidanceError("native_reply_context_mismatch")
             if reply.get("success") is not True:
-                raise NativeGuidanceError(str(reply.get("error_code", "native_request_refused")))
+                code = reply.get("error_code")
+                if (reply.get("success") is not False or not isinstance(code, str)
+                        or re.fullmatch(r"[a-z][a-z0-9_]{0,127}", code) is None
+                        or set(reply) != {"protocol_version", "request_id", "generation", "success", "error_code"}):
+                    raise NativeGuidanceError("native_reply_refusal_invalid")
+                raise NativeBackendRefusal(operation, request_id, generation, code, deadline)
             if not isinstance(reply.get("payload"), dict):
                 raise NativeGuidanceError("native_reply_payload_invalid")
             return reply["payload"]

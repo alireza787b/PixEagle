@@ -1,5 +1,5 @@
 import asyncio
-from dataclasses import asdict, replace
+from dataclasses import FrozenInstanceError, asdict, replace
 import json
 from pathlib import Path
 import tempfile
@@ -141,6 +141,24 @@ async def test_post_abort_reconciles_exact_receipt_without_mode_commands(native_
     assert result.acquisition == context
     assert client.session_identity is None
     assert [row["operation"] for row in requests] == ["hello", "engage", "hello", "bind", "observe"]
+
+
+async def test_release_evidence_retains_one_immutable_receipt_and_observation(native_server):
+    path, _, behavior = native_server
+    client = NativeGuidanceClient(path, request_timeout_s=.1, clock=lambda: 100.)
+    await client.connect()
+    await client.engage(identity(), circuit_breaker_active=False, ownership_token=TOKEN)
+    context = client.acquisition_context
+    client.abort()
+    behavior.update(owner_confirmed=False, release_receipt=release_receipt(context).wire_payload())
+    proof = await client.observe_release_evidence(identity(), runtime_id=context.runtime_id,
+        mode_id=context.mode_id, ownership_token=TOKEN, acquisition=context)
+    payload = proof.observation()
+    payload['aircraft_state']['phase'] = 'unknown'
+    assert proof.observation()['aircraft_state']['phase'] == 'fixed_wing'
+    assert proof.receipt.acquisition == context
+    with pytest.raises(FrozenInstanceError):
+        proof.observation_json = '{}'
 
 
 @pytest.mark.parametrize("change,reason", [

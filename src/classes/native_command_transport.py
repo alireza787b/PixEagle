@@ -12,8 +12,11 @@ from typing import Awaitable, Callable
 
 from classes.aircraft_state import AircraftState, AirframePhase, Vector3, heading_frame_to_ned
 from classes.command_intent import CommandIntent
+from classes.command_dispatch_guard import DispatchRefused, DispatchRefusalKind
 from classes.fixed_wing_vector_guidance import FixedWingCommand
-from classes.native_guidance import ExternalModeIntent, NativeAcquisitionContext, NativeMulticopterCommand, NativeReleaseReceipt
+from classes.native_guidance import (
+    ExternalModeIntent, NativeAcquisitionContext, NativeBackendRefusal, NativeMulticopterCommand, NativeReleaseReceipt,
+)
 
 
 class NativeCommandTransport:
@@ -32,6 +35,7 @@ class NativeCommandTransport:
         self.last_feedback = None
         self.last_handoff = None
         self.last_published_intent = None
+        self.last_backend_refusal = None
         self._publication_origin = None
         self._last_publications = None
         self._publication_counter_invalid = False
@@ -164,9 +168,45 @@ class NativeCommandTransport:
         expires = intent.created_at_monotonic_s + ttl_s
         command = self._command(intent, state)
         external = ExternalModeIntent(self.identity, self._sequence, now, expires, command)
-        await self.client.submit(external, circuit_breaker_active=self.circuit_breaker(),
-                                 ownership_token=acquisition.token, acquisition=acquisition,
-                                 before_dispatch=before_dispatch)
+        try:
+            await self.client.submit(external, circuit_breaker_active=self.circuit_breaker(),
+                                     ownership_token=acquisition.token, acquisition=acquisition,
+                                     before_dispatch=before_dispatch)
+        except NativeBackendRefusal as refusal:
+            self.last_backend_refusal = refusal
+            if (refusal.operation != "intent" or refusal.code != "native_pursuit_ended"
+                    or self.on_observation is None
+                    or not self.client.matches_acquisition(
+                        acquisition.identity, acquisition.runtime_id, acquisition.token, acquisition)):
+                raise
+            evidence = await self.client.observe_release_evidence(
+                acquisition.identity, runtime_id=acquisition.runtime_id, ownership_token=acquisition.token,
+                mode_id=acquisition.mode_id, acquisition=acquisition,
+                deadline=refusal.deadline, expected_generation=refusal.generation + 1)
+            observation = evidence.observation()
+            payload = observation.get("aircraft_state")
+            incoming = None if payload is None else AircraftState.from_payload(payload)
+            if (observation.get("runtime_id") != acquisition.runtime_id or observation.get("fresh") is not True
+                    or observation.get("owner_confirmed") is not False
+                    or observation.get("rescue_active") is not False or observation.get("phase_status_fresh") is not True
+                    or incoming is None or incoming.binding != acquisition.identity.binding
+                    or not self.client.matches_acquisition(
+                        acquisition.identity, acquisition.runtime_id, acquisition.token, acquisition)):
+                raise refusal
+            self.connection.commit_aircraft_state(incoming)
+            state = self.connection.get_aircraft_state()
+            if state is None or state != incoming:
+                raise refusal
+            # Reconciliation has finished its generation proof before the
+            # existing callback may abort the original client/phase owner.
+            try:
+                await self.on_observation(state, observation, intent)
+            except DispatchRefused as terminal:
+                if terminal.kind is DispatchRefusalKind.TERMINAL:
+                    raise DispatchRefused(terminal.reason_code, terminal.kind,
+                                          details=refusal.admission_details()) from refusal
+                raise refusal from terminal
+            raise refusal
         self._sequence += 1
         self.last_published_intent = replace(intent, fields=dict(intent.fields))
         self.last_feedback = observation.get("native_guidance_feedback")

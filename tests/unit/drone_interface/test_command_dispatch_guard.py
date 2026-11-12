@@ -68,3 +68,19 @@ def test_guard_failure_is_terminal_but_cancellation_propagates():
 def test_refusal_has_typed_sanitized_reason(reason, kind):
     with pytest.raises(ValueError, match="dispatch_refusal_contract_invalid"):
         DispatchRefused(reason, kind)
+
+
+def test_optional_admission_details_are_copy_safe_and_legacy_shape_is_unchanged():
+    original = {'native_request_attempted': True, 'request': {'id': 337}}
+    refusal = DispatchRefused('aircraft_transition_observed', DispatchRefusalKind.TERMINAL, details=original)
+    original['request']['id'] = 0
+    returned = refusal.details
+    returned['request']['id'] = 1
+    assert refusal.details['request']['id'] == 337
+    assert DispatchRefused('target_replaced', DispatchRefusalKind.SUPERSEDED).details is None
+
+
+@pytest.mark.parametrize('details', [[], object(), {'value': float('nan')}])
+def test_invalid_admission_evidence_is_refused(details):
+    with pytest.raises(ValueError, match='dispatch_refusal_details_invalid'):
+        DispatchRefused('aircraft_transition_observed', DispatchRefusalKind.TERMINAL, details=details)

@@ -1,6 +1,7 @@
 """Async owner of PixEagle's application-level MAVSDK setpoint refresh."""
 
 import asyncio
+from copy import deepcopy
 import logging
 import math
 import time
@@ -625,6 +626,8 @@ class OffboardCommander:
                     publication_attempted = False
                     submitted_fields = None
                     self.last_dispatch_refusal = {"kind": exc.kind.value, "reason_code": exc.reason_code}
+                    if exc.details is not None:
+                        self.last_dispatch_refusal["details"] = exc.details
                     if exc.kind is DispatchRefusalKind.TERMINAL:
                         self.last_error = exc.reason_code
                     success = False
@@ -841,7 +844,7 @@ class OffboardCommander:
             "last_publish_reason": self.last_publish_reason,
             "last_publish_monotonic_s": self.last_publish_monotonic_s,
             "last_error": self.last_error,
-            "last_dispatch_refusal": self.last_dispatch_refusal,
+            "last_dispatch_refusal": deepcopy(self.last_dispatch_refusal),
             "failure_policy_triggered": self.failure_policy_triggered,
             "failure_policy_reason": self.failure_policy_reason,
             "failure_policy_triggered_at_monotonic_s": self.failure_policy_triggered_at_monotonic_s,
