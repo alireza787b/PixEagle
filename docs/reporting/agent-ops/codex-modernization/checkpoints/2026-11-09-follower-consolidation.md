@@ -8,8 +8,8 @@ Current position (November 12): **S0–S6 component/software checkpoints complet
 S7 implementation in progress.** The S6 closeout below records 32 selected
 actual-PX4 component passes and retained failed history. Native causal ownership,
 transition-preserving release, clients, packaging and hardware remain open.
-The coherent baseline gate passes on `582d3a89d`; the separate, unmerged native
-Transition candidate also passes its software gate on `a44dc2a32`.
+The repaired `e4b366d5e` baseline and separate, unmerged `fd57059a6` native
+Transition candidate each pass the renewed 6,391/196/155 software gate.
 Protocol-3 airplane renewal passes three component cases. The declared MC
 process-loss component now retains both flight logs, while VTOL altitude,
 remaining ownership cases and full application qualification stay open.
@@ -1651,80 +1651,88 @@ QGC change or service has been deployed or published.
 
 ### S7 current diagnostics and native response
 
-The unmerged Transition acceleration candidate builds reproducibly and passes
-its separate coherent `a44dc2a32`/R7 gate: 6,348 unit, 196 integration and 155
-Phase 0 checks, inventory/schema/critical lint, plus 17 build-tool checks.
-Eleven optional GStreamer checks remain skipped. The adapter and SDK are
-unchanged; the candidate firmware and combined ROS runtime have distinct,
-recorded identities. This is a simulator candidate, not an adopted firmware fix.
+The repaired baseline `e4b366d5e`/R8 and unmerged Transition candidate
+`fd57059a6`/R9 each pass all six clean-source gates: **6,391 unit, 196 integration,
+155 Phase 0**, inventory, schema and critical lint. Eleven optional GStreamer
+checks are skipped. The adapter's 24 compiled inputs and SDK are unchanged and
+hash-correlated with their retained native build. Python repairs did not require
+another adapter build. No firmware candidate is adopted.
 
-| Actual isolated check | Observed result | Qualification scope |
+| Actual isolated ownership check | Observed result | Scope |
 | --- | --- | --- |
-| MC owner EOF | Original lease-bound release, 36 ms active gap, 0.761 m altitude error | Declared ownership component passes; native log retained |
-| MC stale cleanup/new acquisition | Distinct token/activation; late cleanup cannot affect replacement; both active gaps 36 ms, altitude error 0.767 m | Component checks supported; original outer archive failure preserved |
-| MC same-mode reselection | Original owner retires and cleanup is read-only; final Hold check incorrectly expects the immutable old receipt to change | Failed capture retained; reviewed diagnostic repair committed, fresh capture pending |
-| Standard VTOL candidate MC→FW | 2.109 m altitude error against 2 m; 36 ms native active gap | Failed; forward exit is FW, not the reverse Transition→Auto boundary |
-| Tailsitter duration-10/open-loop-12 native Hold | Reaches FW, then descends 7.257 m despite unchanged approximately 30 m objective | Failed; no external command owner or follower, no tuning adopted |
+| MC owner EOF | Own release; 36 ms active gap; 0.761 m altitude error | Declared component supported on its earlier frozen source |
+| MC late cleanup/new acquisition | Old token cannot cancel replacement; both gaps 36 ms | Component supported; original outer archive failure retained |
+| MC same-mode reselection R4 | 63 ACKs, zero refusals; 95 native publications; 36 ms gap; 0.785 m altitude error | Renewed component supported; old receipt remains immutable |
+| Observe-to-intent phase exit | Both renewed forward cases retain the typed refused RPC and reconcile the original owner | Actual MC→FW race repair exercised; reverse-race fixture coverage remains separate |
 
-The candidate's forward error differs from baseline by only 15 mm in one
-nonidentical capture per firmware; this does not establish improvement. Reverse
-reference tests alone cannot establish aircraft response. A separate, explicitly
-approved paired reverse diagnostic must retain forward preparation's failed
-verdict and the unchanged response gates.
+The same-mode diagnostic repair `5fa1f35d9` does not rewrite the failed R3 run.
+It verifies an independently newer pilot Hold without changing the old terminal
+receipt or its deadline. The production repair `526775f60` retains socket
+retirement and spends only the refused request's remaining deadline on fresh,
+original-acquisition read-only evidence through the existing lifecycle. It does
+not retry, reacquire, replay a command or infer phase from an error string.
+Structured diagnostics distinguish an attempted/refused RPC from admission to
+PX4. The 608 focused checks and independent 54-case review pass; both actual
+forward runs report zero failed publications after their correlated refusal.
+Reverse runs use the ordinary observed-phase path.
 
-The R5 baseline then passes its sampled forward check at 1.967 m, but the new
-reverse Start exposes a separate production race. A fresh FW observation is
-followed by native phase exit before the next intent. Native refuses that
-request with `native_pursuit_ended` and performs its correct original-owner
-handoff; Python retires the socket and incorrectly counts the refusal as a
-publication failure. The capture ends before Transition→Auto, so it supplies no
-reverse altitude verdict or acceleration-candidate response. Commit `526775f60`
-repairs typed refusal and original-owner read-only reconciliation before both
-source variants are renewed. Raw R5, its single refused request and closed ULog remain
-unchanged in `s7-standard-vtol-transition-reverse-diagnostic-r5/`; the causal
-audit is in `software-gates-s7-transition-reverse-paired-actual-audit-r1/`.
+The renewed R6 pair retains each original target clock across two separately
+started sessions, own release receipts, five post-stop plateaus, no later
+control RPC or publication, intact ULogs and stopped original containers.
+Full-rate native altitude and both edges of the active-publication interval are
+independently checked:
 
-Two diagnostic repairs are source-backed rather than flight-policy changes.
-First, PX4 can acknowledge a parameter write before Navigator consumes it;
-the shared preparation barrier proves two later native loop publications inside
-the original deadline before arming. Nineteen offline checks and retained native
-30 m takeoff evidence verify the correction. Second, the archive reader now
-reuses the existing ANSI policy on a derived parsing view; raw logs remain
-unchanged. Forty-six guards pass and the stopped stale-acquisition log verifies
-without repeating its flight or rewriting its failed outer result.
+| Variant / direction | Altitude error | Maximum active gap | Recorded result |
+| --- | --- | --- | --- |
+| Baseline MC→FW | 1.968262 m | 36 ms | Component passed |
+| Baseline FW→MC | 0.910950 m | 40 ms | Component passed |
+| Candidate MC→FW | 2.001404 m | 40 ms | **Failed** against unchanged 2 m |
+| Candidate FW→MC | 0.695313 m | 36 ms | Component passed |
 
-Commit `5fa1f35d9` separately repairs the same-mode diagnostic: the original
-receipt remains immutable, while independently observed newer pilot Hold and
-publication plateaus prove final cleanup. Its portable ten-packet regression,
-155 ownership checks, root's overlapping 250-check combination and independent
-review pass. This does not rewrite the failed actual run or change native
-ownership, flight actions or deadlines.
+The baseline reverse again seeds Auto from measured acceleration when the prior
+requested value is absent: −3.048471 m/s². The candidate supplies Transition's
+existing two-second filter derivative, and Auto inherits −0.039057 m/s² despite
+measured −3.673956 m/s². The first-four-second reference excursions are 1.043674 m
+and 0.107954 m. This confirms the reference mechanism, **not causal aircraft
+improvement**: entry pose/velocity, target age and two recorded native parameters
+differ. The original failed reverse had a stronger measured seed of −4.753821
+m/s² and 4.493286 m actual error; that stress was not reproduced by this pair.
+All 262 raw inputs and the candidate's failed verdict remain unchanged.
 
-The production race repair retains socket retirement and classifies terminal
-state only from fresh original-acquisition evidence through the existing
-lifecycle. It spends the refused request's remaining deadline inside the
-unchanged publish timeout, without retry, reacquisition or another recovery
-timer. Structured diagnostics distinguish attempted/refused RPC from command
-admission to PX4; neither publication counter is incremented for a confirmed
-admission refusal. Root's combined 608 checks, 74 Phase 0 checks, schema/critical
-lint and independent 54-case review pass. Exact protocol fixtures cover the
-actual race plus stale/replaced contexts, deadline exhaustion, cancellation and
-copy-safe evidence. Full coherent and actual runtime renewal remain required.
+A separate native-only standard-VTOL hover→FW run also **fails**: full-rate
+upward error **2.154724 m**, peaking 1.760 s after FW entry. All 5,920 poses through
+log end are valid, ground truth confirms a 2.163208 m climb, and the native Hold
+objective remains unchanged. There is no follower, external owner or external
+publication; the external 100 ms gate is **unexercised**. Its hover entry differs
+from preceding pursuit and cannot isolate the release's causal contribution.
+The full source/parameter/closure audit verifies all 81 raw files unchanged.
+The tailsitter native-only duration/open-loop contrast remains failed at
+7.257324 m descent; its parameters are not adopted.
 
-The acceleration candidate's eight native tests remain report-owned, not
-portable CI acceptance. Before adoption, move them into PX4's functional-test
-build with a separately pinned test patch and add high-vertical-speed,
-PositionControl saturation and recovery coverage. Do not infer an immediate
-planner acceleration clamp or a physical response guarantee from arithmetic
-tests alone.
+Next, test the demonstrated native transition/trim hypothesis with one separately
+reviewed simulator-only contrast, then continue the remaining FW ownership,
+abort/rescue/takeover, fault, mount and full-application matrix. Do not tune a
+follower to conceal a native-only failure or relax the 2 m/100 ms gates.
+The acceleration candidate's eight original tests are report-owned. Portable
+PX4 functional tests with high-speed handover, real PositionControl saturation
+and recovery are being prepared; no CI acceptance or physical response is
+claimed from arithmetic tests. VTOL admission stays closed.
 
-Evidence is retained under `reports/sitl/follower-consolidation-20261111/`:
-`software-gates-s7-final-r7/`, `software-gates-s7-ownership-matrix-r2/`,
-`software-gates-s7-ownership-matrix-r3/`,
-`s7-standard-vtol-transition-accel-runtime-r3/actual-forward-audit-r1/`, and
-`software-gates-s7-xvert-duration10-openloop12-actual-audit-r1/`.
-The shared replay template separately fixes narrow-screen overflow; 108 viewer/
-hygiene and 74 Phase 0 checks pass, with browser checks from 320 to 1440 pixels.
-A new presentation preserves all 744 original samples and the failed verdict;
-historical reports are untouched. No public/private defaults, hardware, QGC,
-installed service or remote publication has changed in this renewal.
+The read-only entry point is
+`reports/sitl/follower-consolidation-20261111/s7-review-r6/index.html`.
+All four new 3D replays pass browser checks at 320, 400, 800 and 1440 pixels:
+actual pose/target and command values, playback/scrub/reset, draggable 3D, correct
+original verdicts, no overflow, page errors or external requests. The review's
+18 links and four images also load. Raw reports are not modified.
+
+Exact evidence under that run root:
+
+- `software-gates-s7-final-r8/` and `software-gates-s7-final-r9/`;
+- `software-gates-s7-ownership-matrix-r4/actual-r4-same-mode-audit-r1/`;
+- `software-gates-s7-transition-reverse-paired-actual-audit-r2/`;
+- `software-gates-s7-standard-vtol-native-only-hover-actual-audit-r1/`;
+- `software-gates-s7-replay-browser-r1/`.
+
+Earlier failures, source-barrier and ANSI archive repairs retain their original
+scope in the preceding history. No saved public/private defaults, hardware,
+QGC, installed services or remote publication changed in this renewal.

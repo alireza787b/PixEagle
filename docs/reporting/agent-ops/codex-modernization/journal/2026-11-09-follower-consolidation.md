@@ -437,3 +437,17 @@ lifecycle under unchanged deadlines. Root's 608 focused checks and independent
 rejected RPC stays visible and is never counted as an admitted PX4 command.
 The separate same-mode diagnostic fix is committed as `5fa1f35d9`. Neither fix
 changes saved limits, firmware policy or historical failed verdicts.
+
+The repaired `e4b366d5e` baseline and unmerged `fd57059a6` candidate each renew
+all six software gates (6,391/196/155 plus inventory/schema/critical lint).
+The actual MC same-mode component passes with its immutable original receipt;
+both new forward transitions exercise the phase-refusal repair without a false
+publication failure. Full native audit supports three paired component passes
+but preserves the candidate's 2.001404 m forward failure. Reverse reference
+inheritance is demonstrated, while unequal starting states prevent a causal
+flight-improvement claim. A native-only standard-VTOL hover transition also
+fails at 2.154724 m with valid source/ground-truth evidence and no external
+owner. Public/private settings stay unchanged and VTOL admission stays closed.
+The checkpoint and one browser-checked review page link the actual plots and
+four working 3D replays. Portable native tests and the targeted airframe
+investigation continue before the remaining S7 fault/application matrix.
