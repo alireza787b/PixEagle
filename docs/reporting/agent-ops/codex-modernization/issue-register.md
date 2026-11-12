@@ -385,11 +385,16 @@ remain open. Integration work is unpublished.
   separately. VTOL admission remains closed; details, negative evidence and next
   gates are in the same consolidation checkpoint.
 
-- **2026-11-12 — S7 native terminal-release state (open):** an actual standard-
+- **2026-11-12 — S7 native terminal-release state (component repaired):** an actual standard-
   VTOL capture meets its command/publication/altitude subchecks but archive
   admission refuses a permanently latched `release_pending` despite the original
   correlated Hold receipt. Separate permanent pursuit termination from unresolved
   release using the existing acquisition context; retain exact historical proof,
-  not replacement-owner state. A matching rebuilt adapter and new actual capture
-  are required. Report-helper startup and healthy-producer fixture defects are
-  tracked separately; no preparation failure is an aircraft-recovery pass.
+  not replacement-owner state. Commit `c2e053dac` and new standard-VTOL captures
+  resolve release without reviving old pursuit or adopting a new owner's proof.
+  Full software, native/sanitizer and actual source-backed checks pass at their
+  recorded scope. The reverse transition still fails altitude, and a recording
+  gap around release prevents complete-replay acceptance. Report-helper clock
+  qualification also fails after actual SIGKILL; missing original offsets remain
+  unknown. These distinct open gates are recorded in the same checkpoint; VTOL
+  stays unavailable.

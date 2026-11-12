@@ -1404,3 +1404,67 @@ corrected against retained real replies, using the canonical client and recorder
 none of these preparation failures qualifies an actual adapter crash/restart.
 No missing historical reply is reconstructed. The separate tailsitter altitude
 failure, public/private settings and closed VTOL admission remain unchanged.
+
+### S7 terminal-receipt renewal — actual standard VTOL
+
+Local commit `c2e053dac` separates permanent pursuit termination from pending
+release and retains exact original terminal proof. Its clean frozen renewal
+passes 6,348 unit, 196 integration and 155 Phase 0 checks, schema, API inventory
+and critical lint. Eleven optional GStreamer tests are skipped. The matching
+adapter passes 75 native and 75 sanitizer checks; 35 packaging checks pass.
+Sources, commands and hashes are in `software-gates-s7-final-r4/` and
+`software-gates-s7-release-receipt-r2/`. No gains, firmware or saved profiles change.
+
+Two explicit sessions then run on the same actual standard-VTOL simulator,
+adapter and original independent world-target clock:
+
+| Vertical mount, altitude guidance off | Original intent ACKs | Active native gap, including edges | Independent maximum altitude error | Component outcome |
+| --- | ---: | ---: | ---: | --- |
+| MC → FW | 161 | 52 ms | 1.890 m | control/response checks pass |
+| Fresh FW Start → MC | 162 | 36 ms | 4.493 m | altitude failed, original 2 m gate retained |
+
+Both sessions end on the first observed transition, confirm their own original
+Hold receipt and publish no later pursuit. The second uses a different session,
+connection and token; the first receipt cannot complete its release. One neutral
+transition setpoint coincides with the second Hold epoch; its within-tick order
+is not inferred. The second altitude excursion follows release, after its FW
+pursuit altitude stays between 29.795 and 30.278 m. This observation does not
+identify the cause or waive transition acceptance.
+
+Fresh native Hold now reports `release_pending=false`, no active drain and an
+empty drain-failure string. Strict archive admission, logger flush and exact-CID
+stop succeed. Independent ULog review matches all 282/366 captured pose points,
+verifies both timing bounds and finds no dropouts. The first capture also has a
+0.618 s recording gap around release: its stricter complete-replay validator refuses
+acceptance. Its 3D view therefore remains **Replay only**, with the independently
+passed control checks reported separately; the gap stays visibly unknown. The
+reverse view retains **Scenario failed**. Raw data and earlier derived views are
+unchanged; this is not whole-VTOL or hardware acceptance.
+
+Evidence: `s7-protocol3-standard-vtol-runtime-r4/`, its two
+`visualization-reviewed-r2/` directories, and
+`software-gates-s7-standard-vtol-actual-audit-r2/` (audit, comparison plot and CSV).
+The former R3 capture remains provisional with its original archive refusal.
+
+### S7 process-failure clock witness — open
+
+The corrected report preparation now reaches stable airborne MC with actual
+canonical replies. The R7 case verifies original A ownership and executes its
+guarded SIGKILL, then refuses `ownership_restart_signal_clock_unqualified`.
+The test incorrectly equates namespace-inode equality with clock-domain equality.
+Container and host namespace IDs differ, but the original container offset and
+boot identity were not captured; no retrospective time/lease proof is claimed.
+Replacement registration, landing and the fresh backend session were not run.
+The dead owner's release remains unresolved. Exact-CID cleanup flushes logging
+and stops this simulator without inventing a receipt or sending a mode command.
+
+The failed capture and 76,075,548-byte ULog remain in
+`s7-process-restart-runtime-r7/`; the hash ledger is
+`software-gates-s7-final-r4/process-restart-failed-runtime-retention-r1.json`.
+The next fixture revision must prove the host/helper/original process monotonic
+domain before the signal and retain it at the signal. Unknown or unequal domains
+must refuse, with original timestamps and expiry unchanged. This is diagnostic
+test infrastructure, not another flight-control deadline or recovery mechanism.
+S7 stays open for both airframes' altitude failures and the remaining ownership,
+transition, rescue/takeover and application checks. Hardware and VTOL admission
+remain unchanged.

@@ -82,6 +82,12 @@ transition preservation remain separate SIH gates. Hardware/deployment
 admission remains closed. Original ownership receipts are not redefined by
 registration retirement; process exit can still make them unavailable.
 
+The latest S7 standard-VTOL captures verify original terminal proof through a
+fresh explicit session and strict archive shutdown. The reverse transition still
+fails its altitude gate, and actual process-restart qualification remains open.
+See the consolidation checkpoint for separate control, recording and airframe
+verdicts; these captures do not enable VTOL admission.
+
 Commander retains one bounded receipt and cancellation revision. Native-clock
 requests expire within 500 ms, with a real 100 ms source-clock heartbeat in its
 existing loop. The separate host RPC timeout defaults to 500 ms and remains

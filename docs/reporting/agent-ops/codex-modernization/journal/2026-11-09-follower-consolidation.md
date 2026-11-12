@@ -338,3 +338,19 @@ preparation also exposed startup/unavailable-data
 assumptions and a fixture/producer mismatch, all before actual crash testing.
 Failed and provisional captures remain unchanged. No hardware, profile, QGC or
 remote publication action occurred; S7 and the tailsitter altitude gate stay open.
+
+Commit `c2e053dac` passes the complete 6,348/196/155 backend renewal and matching
+75 native/75 sanitizer/35 packaging gates. Actual standard-VTOL sessions now
+resolve their original release receipts cleanly, including a separate fresh FW
+Start with no old-token adoption. MC→FW passes control/response checks at 1.890 m
+altitude error and 52 ms active publication gap. The reverse case fails altitude
+at an independently measured 4.493 m, with a 36 ms publication gap. Its failed
+verdict stays intact. Strict archive/flush/stop succeeds with no pending release
+or drain error. The first sparse replay has a visible gap around release and keeps
+Replay-only status despite its separate component pass; no trace is filled in.
+The source-qualified adapter crash case then fails its namespace-inode clock
+witness after actual SIGKILL. It stops before replacement recovery, retains an
+unresolved original context and is flushed/stopped. The next clock proof must
+precede the signal, not infer missing offsets afterward. S7 remains open;
+hardware, QGC, gains and saved configuration are unchanged. Nothing was deployed
+or published remotely.
