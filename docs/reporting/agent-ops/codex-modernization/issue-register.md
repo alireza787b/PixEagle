@@ -423,3 +423,13 @@ remain open. Integration work is unpublished.
   reverse uses ordinary phase observation. Native altitude remains a separate
   failed gate, including a 2.154724 m native-only standard-VTOL excursion. The
   earlier failed ULogs remain unchanged. See the consolidation checkpoint.
+
+- **2026-11-12 — S7 native reference and airframe diagnostics:** all four latest
+  standard-VTOL directional component gates pass under the declared −2° SIH
+  trim profile. The candidate's reverse physical altitude error is larger;
+  no aircraft improvement or trim adoption is claimed. Fresh portable native
+  tests give the exact six-failure baseline and ten-pass candidate, including
+  PositionControl handover/recovery. Normal build/CI integration remains pending.
+  Tailsitter threshold 10 removes initial underspeed but still fails the 2 m
+  altitude gate at 7.303 m. Existing bank/attitude/actuator traces require review;
+  no further tuning, saved default or hardware change is justified yet.

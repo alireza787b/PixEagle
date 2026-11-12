@@ -1672,32 +1672,38 @@ retirement and spends only the refused request's remaining deadline on fresh,
 original-acquisition read-only evidence through the existing lifecycle. It does
 not retry, reacquire, replay a command or infer phase from an error string.
 Structured diagnostics distinguish an attempted/refused RPC from admission to
-PX4. The 608 focused checks and independent 54-case review pass; both actual
+PX4. The 608 focused checks and independent 54-case review pass; both R6
 forward runs report zero failed publications after their correlated refusal.
-Reverse runs use the ordinary observed-phase path.
+All four later R7 cases use ordinary observed-phase handling; they do not
+re-exercise that refused-RPC path.
 
-The renewed R6 pair retains each original target clock across two separately
-started sessions, own release receipts, five post-stop plateaus, no later
-control RPC or publication, intact ULogs and stopped original containers.
+The renewed R7 pair uses the explicitly declared standard-SIH pitch-offset
+profile (`FW_PSP_OFF=-2°`). It retains each original target clock across two
+separately started sessions, own release receipts, five post-stop plateaus, no
+later control RPC/publication, intact ULogs and stopped original containers.
 Full-rate native altitude and both edges of the active-publication interval are
 independently checked:
 
 | Variant / direction | Altitude error | Maximum active gap | Recorded result |
 | --- | --- | --- | --- |
-| Baseline MC→FW | 1.968262 m | 36 ms | Component passed |
-| Baseline FW→MC | 0.910950 m | 40 ms | Component passed |
-| Candidate MC→FW | 2.001404 m | 40 ms | **Failed** against unchanged 2 m |
-| Candidate FW→MC | 0.695313 m | 36 ms | Component passed |
+| Baseline MC→FW | 1.920837 m | 36 ms | Component passed |
+| Baseline FW→MC | 0.458923 m | 48 ms | Component passed |
+| Candidate MC→FW | 1.724426 m | 36 ms | Component passed |
+| Candidate FW→MC | 0.602600 m | 36 ms | Component passed |
 
 The baseline reverse again seeds Auto from measured acceleration when the prior
-requested value is absent: −3.048471 m/s². The candidate supplies Transition's
-existing two-second filter derivative, and Auto inherits −0.039057 m/s² despite
-measured −3.673956 m/s². The first-four-second reference excursions are 1.043674 m
-and 0.107954 m. This confirms the reference mechanism, **not causal aircraft
-improvement**: entry pose/velocity, target age and two recorded native parameters
-differ. The original failed reverse had a stronger measured seed of −4.753821
-m/s² and 4.493286 m actual error; that stress was not reproduced by this pair.
-All 262 raw inputs and the candidate's failed verdict remain unchanged.
+requested value is absent: −1.966405 m/s². The candidate supplies Transition's
+existing two-second filter derivative, and Auto inherits −0.009780 m/s² despite
+measured −1.126868 m/s². First-four-second reference excursions are 0.270454 m
+and 0.084297 m. Native effective parameter dictionaries are identical across
+the pair, and closed-log outputs prove both consumed the declared −2° offset.
+Entry pose/velocity still differ. The candidate's physical reverse altitude
+error is **larger** in this pair, so reference consistency is demonstrated,
+not overall aircraft improvement or firmware adoption. This is one vertical-
+mount, target-altitude-off diagnostic pair, not repeatability or hardware proof.
+All 269 original files remain unchanged. The earlier R6 candidate forward
+failure at 2.001404 m remains failed in its separate retained audit; the original
+R4 reverse's stronger stress and 4.493286 m error were not reproduced.
 
 A separate native-only standard-VTOL hover→FW run also **fails**: full-rate
 upward error **2.154724 m**, peaking 1.760 s after FW entry. All 5,920 poses through
@@ -1706,32 +1712,54 @@ objective remains unchanged. There is no follower, external owner or external
 publication; the external 100 ms gate is **unexercised**. Its hover entry differs
 from preceding pursuit and cannot isolate the release's causal contribution.
 The full source/parameter/closure audit verifies all 81 raw files unchanged.
-The tailsitter native-only duration/open-loop contrast remains failed at
-7.257324 m descent; its parameters are not adopted.
+One native-only standard-SIH −2° pitch-offset contrast then passes at 1.745911 m
+full-rate error, with 1.744629 m ground-truth change from its independently
+stamped entry. The only effective native parameter difference is pitch offset;
+actual transition/TECS outputs independently prove its consumption. This
+supports the targeted trim hypothesis, not calibrated trim or an installation
+recommendation. The original failure remains. The tailsitter's distinct
+zero-lift geometry must not inherit this offset; its native duration/open-loop
+control remains failed at 7.257324 m descent. A separate threshold-10 contrast
+proves native admission at 10.321 m/s and removes initial TECS underspeed, but
+still fails at 7.303467 m descent. Ground truth independently confirms 7.262268 m.
+The later nadir remains associated with roughly 52° bank. Neither threshold,
+timing nor trim is adopted for the tailsitter. Review existing lateral,
+attitude/rate and actuator evidence before another tuning trial.
 
-Next, test the demonstrated native transition/trim hypothesis with one separately
-reviewed simulator-only contrast, then continue the remaining FW ownership,
+Portable native functional builds now execute ten tests from fresh pinned
+sources. The baseline compiles and links, then fails exactly six semantic
+checks while four compatibility checks pass. The candidate passes all ten,
+including high-speed handover through real PositionControl and saturation/
+recovery. Both retain 15,086 unchanged source inputs, identical Ninja/compile
+graphs and exactly 28 known generated files. Earlier configuration/link failures
+remain separate failed attempts; they are not negative-control test evidence.
+These are native component results, not flight-envelope or normal-CI acceptance.
+The firmware candidate remains unmerged and unadopted.
+
+Next, integrate the portable tests through the existing native build workflow
+and continue the separate tailsitter performance investigation, then FW ownership,
 abort/rescue/takeover, fault, mount and full-application matrix. Do not tune a
 follower to conceal a native-only failure or relax the 2 m/100 ms gates.
-The acceleration candidate's eight original tests are report-owned. Portable
-PX4 functional tests with high-speed handover, real PositionControl saturation
-and recovery are being prepared; no CI acceptance or physical response is
-claimed from arithmetic tests. VTOL admission stays closed.
+The original eight-test replay and new ten-test portable fixture remain
+report-owned pending canonical integration. VTOL admission stays closed.
 
 The read-only entry point is
 `reports/sitl/follower-consolidation-20261111/s7-review-r6/index.html`.
 All four new 3D replays pass browser checks at 320, 400, 800 and 1440 pixels:
 actual pose/target and command values, playback/scrub/reset, draggable 3D, correct
 original verdicts, no overflow, page errors or external requests. The review's
-18 links and four images also load. Raw reports are not modified.
+23 links and six images also load. Raw reports are not modified.
 
 Exact evidence under that run root:
 
 - `software-gates-s7-final-r8/` and `software-gates-s7-final-r9/`;
 - `software-gates-s7-ownership-matrix-r4/actual-r4-same-mode-audit-r1/`;
-- `software-gates-s7-transition-reverse-paired-actual-audit-r2/`;
+- `software-gates-s7-transition-reverse-paired-actual-audit-r3/`;
 - `software-gates-s7-standard-vtol-native-only-hover-actual-audit-r1/`;
-- `software-gates-s7-replay-browser-r1/`.
+- `software-gates-s7-standard-vtol-pitch-trim-actual-audit-r1/`;
+- `software-gates-s7-xvert-threshold10-actual-audit-r1/`;
+- `../../native-guidance/transition-portable-native-20261112-r5/`;
+- `software-gates-s7-replay-browser-r2/`.
 
 Earlier failures, source-barrier and ANSI archive repairs retain their original
 scope in the preceding history. No saved public/private defaults, hardware,

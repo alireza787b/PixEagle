@@ -451,3 +451,20 @@ owner. Public/private settings stay unchanged and VTOL admission stays closed.
 The checkpoint and one browser-checked review page link the actual plots and
 four working 3D replays. Portable native tests and the targeted airframe
 investigation continue before the remaining S7 fault/application matrix.
+
+The declared standard-SIH −2° trim pair now passes all four directional
+component gates, with full-rate altitude errors 1.921/0.459 m for baseline and
+1.724/0.603 m for candidate. All four use ordinary phase observation; actual
+refused-RPC evidence remains in R6. Different entry states and the candidate's
+larger reverse altitude error preclude an aircraft-improvement claim. The
+separate tailsitter threshold-10 diagnostic removes initial underspeed but
+still loses 7.303 m; no parameter is adopted. Existing lateral/attitude/actuator
+traces are the next causal check.
+
+Fresh portable native builds execute all ten functional tests: baseline has
+the exact six expected semantic failures and four compatibility passes;
+candidate passes ten. Source/dependency integrity checks pass and earlier
+build failures remain intact. Canonical test integration is still pending;
+these results do not qualify flight response or open VTOL admission. The
+checkpoint links the frozen XML, build receipts, actual plots and four working
+3D replays. Public/private configurations and hardware remain unchanged.
