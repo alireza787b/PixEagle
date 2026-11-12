@@ -403,3 +403,14 @@ becomes another test contract without changing production admission. Independent
 review, 19 focused contracts and four hygiene checks pass; coherent root renewal
 and actual cases remain separate gates. No follower algorithm or saved setting
 changes.
+
+The resumed `582d3a89d` renewal passes all six coherent backend gates
+(6,348/196/155 checks plus inventory/schema/critical lint). R11 separately
+qualifies the declared process-loss component on its reviewed `952ff8950`
+source, preserving both native flight logs before rearm. Independent review
+confirms no old-owner revival, passive replacement registration and a fresh
+session's own Hold. Its 1.344 s post-crash native silence remains explicit,
+not a normal publication-timing pass. The native Transition→Auto candidate
+passes eight component tests but still requires a new firmware build and actual
+response comparison. Current scope, plots and exact evidence are recorded in
+the consolidation checkpoint; VTOL admission and hardware remain closed.

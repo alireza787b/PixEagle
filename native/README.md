@@ -83,8 +83,11 @@ admission remains closed. Original ownership receipts are not redefined by
 registration retirement; process exit can still make them unavailable.
 
 The latest S7 standard-VTOL captures verify original terminal proof through a
-fresh explicit session and strict archive shutdown. The reverse transition still
-fails its altitude gate, and actual process-restart qualification remains open.
+fresh explicit session and strict archive shutdown. Both transition directions
+retain altitude failures. The declared MC process-loss component now has both
+flight logs and independent native corroboration; its post-crash silence is
+reported separately from normal publication timing. Full process/application
+and transition qualification remain open.
 See the consolidation checkpoint for separate control, recording and airframe
 verdicts; these captures do not enable VTOL admission.
 

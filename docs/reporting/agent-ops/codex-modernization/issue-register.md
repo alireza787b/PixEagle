@@ -403,3 +403,10 @@ remain open. Integration work is unpublished.
   missing clock offsets stay unknown.
   These distinct open gates are recorded in the same checkpoint; VTOL stays
   unavailable. No gains, saved profile or firmware behavior is changed to pass.
+
+- **2026-11-12 — S7 process-loss evidence renewed:** R11 preserves both flight
+  logs and passes the declared MC ownership component with independent native
+  corroboration. Post-crash silence is reported separately from normal active
+  publication timing. Policy 0, full application and transition acceptance remain
+  open. The native vertical-reference handover has an eight-test component
+  candidate, not an adopted flight fix; see the consolidation checkpoint.

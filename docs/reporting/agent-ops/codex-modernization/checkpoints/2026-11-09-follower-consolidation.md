@@ -1599,3 +1599,52 @@ Candidate, red/green evidence and review are in
 `software-gates-s7-ownership-airframe-repair-r2/`. Full coherent renewal and actual
 cases remain required; this is diagnostic-tool support, not a follower,
 firmware, default or production-admission change.
+
+### S7 resumed renewal — complete process-loss evidence
+
+Clean frozen `582d3a89d` passes all six coherent gates: 6,348 unit, 196
+integration and 155 Phase 0 checks, API inventory, schema and critical lint.
+Eleven optional GStreamer checks remain skipped. The native adapter's 24
+compiled inputs, three pins and 6,559 runtime entries still match the reviewed
+bundle. Results and correspondence are in `software-gates-s7-final-r6/`.
+
+The R11 process-loss capture passes its declared zero-command MC ownership
+checks with both flight ULogs retained. Its reviewed, 224-check report helper
+seals the original closed log outside PX4's managed directory before the next
+arm; native cleanup, flight parameters and the original landing deadline are
+unchanged. R11 deliberately uses the clean `952ff8950`/R5 source bound by its
+review, not the later ownership-matrix repair. Raw R10 evidence and its missing
+first log remain unchanged.
+
+Independent native-log review confirms 87 acknowledged original intents, a
+positive 0.276 s original command lease at SIGKILL, passive B registration with
+no acquisition/publication, normal landing and automatic disarm, then 61
+acknowledged intents from a distinct fresh backend session. That session's own
+Hold receipt ends publication at 93, with five fresh inactive plateaus and a
+36 ms maximum active gap. The original owner remains unresolved and cannot
+adopt the new token. Both ULogs are readable with no dropouts or corruption;
+the disarmed logging interval is shown as a gap, never interpolated.
+
+After the intentional crash, native publication is silent for 1.344 s until
+observed failsafe RTL removes the original owner. This is **not** a 100 ms
+publication pass across the crash, a verified failsafe deadline, or evidence for
+the separate camera Stop/lease timing gates. Only observed registration policy 1
+and automatic disarm were exercised. Full application, tracking, transition,
+policy-0 and hardware qualification remain separate. The stopped raw run is
+`s7-process-restart-runtime-r11/`; hashes, independent audit and the actual-pose
+plot are in `software-gates-s7-process-restart-r11/`.
+
+The real native Transition→Auto replay separately reproduces all 199 retained
+vertical reference updates. It isolates measured-acceleration initialization
+when the prior requested acceleration is absent. A report-owned candidate
+supplies the derivative of Transition's existing two-second velocity filter;
+eight native component tests pass, while the unchanged baseline fails five
+new-behavior checks. Other characterized outputs remain unchanged. This is
+reference/component evidence, not an aircraft-response fix: a separately pinned
+firmware build and actual comparisons under the original altitude/publication
+gates remain required. The replay and candidate are in
+`software-gates-s7-transition-handover-replay-r1/` and
+`software-gates-s7-transition-acceleration-candidate-r1/`.
+
+S7 and VTOL admission stay open. No candidate firmware, gain, saved profile,
+QGC change or service has been deployed or published.
