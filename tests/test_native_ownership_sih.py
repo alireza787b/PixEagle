@@ -131,7 +131,7 @@ async def test_dry_run_never_opens_owner_or_creates_output(tmp_path, monkeypatch
     acquire.assert_not_called()
 
 
-@pytest.mark.parametrize('case', tool.CASES)
+@pytest.mark.parametrize('case', [case for case in tool.CASES if case != 'adapter_process_restart'])
 def test_execute_is_required_for_every_case(case, tmp_path, monkeypatch):
     monkeypatch.setattr(tool, 'verify_simulator', Mock(return_value={'verified': True}))
     monkeypatch.setattr(tool, 'source_contract', Mock(return_value=CONTRACT))
@@ -210,7 +210,8 @@ async def test_quiesce_joins_stimulus_before_stopping_the_only_publisher():
     commander.stop.assert_awaited_once_with(publish_final=False)
 
 
-async def test_baseline_uses_production_binding_and_only_publisher_without_a_target(monkeypatch, native_follower_environment):
+@pytest.mark.parametrize('airframe', tool.AIRFRAMES)
+async def test_baseline_uses_production_binding_and_only_publisher_without_a_target(monkeypatch, native_follower_environment, airframe):
     import time
     from dataclasses import asdict
     from unittest.mock import AsyncMock
@@ -222,7 +223,8 @@ async def test_baseline_uses_production_binding_and_only_publisher_without_a_tar
     from tests.fixtures.native_ownership import release_receipt
     from tests.unit.drone_interface.test_aircraft_state import aircraft_state
 
-    capabilities = NativeCapabilities('test-adapter', 'synthetic-fixture', 2, True, False, False, True, 23)
+    mc = airframe == 'settled_vtol_mc'
+    capabilities = NativeCapabilities('test-adapter', 'synthetic-fixture', 2, True, mc, False, True, 23)
     aircraft = identity().binding
     client = SimpleNamespace(session_identity=None, acquisition_context=None, acquisition_token=None)
     sequence = [0]
@@ -240,6 +242,7 @@ async def test_baseline_uses_production_binding_and_only_publisher_without_a_tar
         now = time.monotonic()
         sequence[0] += 1
         state = aircraft_state(binding=aircraft, sequence=sequence[0], observed_at_monotonic_s=now,
+                               is_vtol=mc, phase=tool.AirframePhase.MULTICOPTER if mc else tool.AirframePhase.FIXED_WING,
                                airspeed=replace(aircraft_state().airspeed, observed_at_monotonic_s=now))
         return {'owner_confirmed': True, 'fresh': True, 'rescue_active': False, 'aircraft_state': asdict(state),
                 'publications': sequence[0], 'vehicle_pose': {'px4_timestamp_us': sequence[0],
@@ -261,7 +264,7 @@ async def test_baseline_uses_production_binding_and_only_publisher_without_a_tar
     log = Mock()
     session = tool.create_session(client, connection, capabilities, identity(), config,
                                  tool.component_profile('gm_velocity_vector').profile, log,
-                                 run_started=time.monotonic())
+                                 run_started=time.monotonic(), airframe=airframe)
     assert session.binding._target_evidence().state is TargetEvidenceState.ABSENT
     try:
         await tool.activate_session(session, log)
@@ -525,3 +528,329 @@ async def test_hold_wait_requires_a_valid_existing_status_budget(budget, age):
     with pytest.raises(ValueError):
         await tool.wait_for_coherent_hold(client, context, CONTRACT['hold'], lambda *args: None)
     assert client.observe.await_count == 1
+
+
+@pytest.mark.parametrize('phase,vtol,accepted', [
+    ('multicopter', True, True), ('multicopter', False, False), ('fixed_wing', True, False),
+    ('fixed_wing', False, False), ('vtol_transition', True, False),
+])
+def test_mc_path_requires_actual_settled_vtol_before_construction(phase, vtol, accepted):
+    from tests.unit.drone_interface.test_aircraft_state import aircraft_state
+    state = aircraft_state(phase=tool.AirframePhase(phase), is_vtol=vtol)
+    if accepted:
+        tool.require_airframe(state, 'settled_vtol_mc')
+    else:
+        with pytest.raises(ValueError, match='requires_settled_vtol_mc'):
+            tool.require_airframe(state, 'settled_vtol_mc')
+
+
+def restart_arguments(tmp_path):
+    import hashlib
+    helper = tmp_path / 'helper.py'
+    helper.write_text('raise RuntimeError("must never execute during dry-run")\n')
+    socket = tmp_path / 'native.sock'
+    value = {'schema_version': 1, 'scope': 'isolated_sih_adapter_restart', 'container_id': 'owned-container',
+             'socket': str(socket), 'runtime_directory': str(tmp_path),
+             'helper': {'path': str(helper), 'sha256': hashlib.sha256(helper.read_bytes()).hexdigest()}}
+    plan = tmp_path / 'plan.json'
+    plan.write_text(json.dumps(value))
+    return SimpleNamespace(restart_plan=plan, socket=socket), value
+
+
+def test_restart_dry_run_pins_helper_but_never_creates_a_backend(tmp_path, monkeypatch, capsys):
+    args, _ = restart_arguments(tmp_path)
+    monkeypatch.setattr(tool, 'verify_simulator', Mock(return_value={'container_id': 'owned-container'}))
+    monkeypatch.setattr(tool, 'source_contract', Mock(return_value=CONTRACT))
+    forbidden = Mock(side_effect=AssertionError('no restart, backend or helper in dry-run'))
+    monkeypatch.setattr(tool, 'run', forbidden)
+    output = tmp_path / 'capture'
+    assert tool.main(['--case', 'adapter_process_restart', '--airframe', 'settled_vtol_mc',
+        '--restart-plan', str(args.restart_plan), '--socket', str(args.socket), '--container', 'owned-container',
+        '--instance', '0', '--sih-build-manifest', str(tmp_path / 'build.json'), '--output', str(output)]) == 0
+    assert json.loads(capsys.readouterr().out)['execute'] is False
+    forbidden.assert_not_called()
+    assert not output.exists()
+
+
+@pytest.mark.parametrize('change', ['container', 'socket', 'helper', 'extra'])
+def test_restart_helper_never_adopts_another_plan_or_modified_source(tmp_path, change):
+    args, value = restart_arguments(tmp_path)
+    if change == 'container':
+        value['container_id'] = 'other'
+    elif change == 'socket':
+        value['socket'] = str(tmp_path / 'other.sock')
+    elif change == 'helper':
+        Path(value['helper']['path']).write_text('different')
+    else:
+        value['allow_force'] = True
+    args.restart_plan.write_text(json.dumps(value))
+    with pytest.raises(ValueError, match='restart_(plan_mismatch|helper_changed)'):
+        tool.restart_plan(args, {'container_id': 'owned-container'})
+
+
+def old_intent_wire(context):
+    return [{'timestamp': .1, 'direction': 'request_forward_attempt', 'value': {'operation': 'intent', 'payload': {
+        'identity': tool.asdict(context.identity), 'token': context.token, 'phase': 'multicopter', 'sequence': 7,
+        'created_at_monotonic_s': 10., 'expires_at_monotonic_s': 10.3,
+        'command': {'velocity_north_m_s': 0., 'velocity_east_m_s': 0., 'velocity_down_m_s': 0., 'yaw_rate_rad_s': 0.}}}}]
+
+
+def captured_owned(context):
+    return {'token': [int(context.token[:16], 16), int(context.token[16:], 16)],
+            'incarnation': [int(context.firmware_incarnation[:16], 16), int(context.firmware_incarnation[16:], 16)],
+            'autopilot_uid': int(context.identity.binding.aircraft_uid), 'source_revision': context.source_revision,
+            'source_nav_state': context.source_nav_state, 'source_nav_state_timestamp': context.source_nav_state_timestamp,
+            'mode_id': context.mode_id, 'acquired_nav_state_timestamp': context.activation_timestamp,
+            'owner_active': True, 'state': CONTRACT['states']['acquired']}
+
+
+def test_retained_negative_intent_uses_actual_old_wire_without_refresh():
+    context = acquisition(identity())
+    retained = tool.retained_mc_intent(old_intent_wire(context), context)
+    assert retained.created_at_monotonic_s == 10.
+    assert retained.expires_at_monotonic_s == 10.3
+    assert retained.sequence == 7
+    with pytest.raises(ValueError, match='original_intent_mismatch'):
+        tool.retained_mc_intent(old_intent_wire(context), replace(context, token='f' * 32))
+
+
+async def test_original_probes_use_real_client_runtime_fence_then_local_identity_not_expiry(native_server):
+    backend, requests, behavior = native_server
+    client = NativeGuidanceClient(backend, clock=lambda: 100.)
+    await client.connect()
+    await client.engage(identity(), circuit_breaker_active=False, ownership_token=TOKEN)
+    actual = client.acquisition_context
+    client.abort()
+    behavior['capabilities'] = native_protocol_cases.CAPABILITIES | {'runtime_id': 'new-adapter'}
+    session = SimpleNamespace(client=client, acquisition=actual)
+    boundary = len(requests)
+    result = await tool.stale_original_probes(session, tool.retained_mc_intent(old_intent_wire(actual), actual), Mock())
+    assert result == {'reconciliation': 'native_release_runtime_changed',
+                      'intent': 'native_session_stale', 'handoff': 'native_session_stale'}
+    assert [row['operation'] for row in requests[boundary:]] == ['hello']
+    assert client.session_identity is None
+    assert client.acquisition_context is actual
+    await client.close()
+
+
+async def test_kill_boundary_failure_does_not_run_unconditional_old_hold(tmp_path, monkeypatch):
+    from unittest.mock import AsyncMock
+    context = source_sample()[0]
+    session = SimpleNamespace(acquisition=context)
+    monkeypatch.setattr(tool, 'quiesce', AsyncMock())
+    calls = []
+    async def step(args, isolation, log, operation):
+        calls.append(operation)
+        if operation == 'kill_a':
+            raise ValueError('death_or_socket_proof_failed')
+        return {'owned': captured_owned(context)}
+    monkeypatch.setattr(tool, 'restart_step', step)
+    progress = {'original_cleanup_read_only': False}
+    with pytest.raises(ValueError, match='death_or_socket_proof_failed'):
+        await tool.process_restart(None, None, session, old_intent_wire(context), lambda *args: 1., progress,
+                                   contract=CONTRACT)
+    assert progress['original_cleanup_read_only'] is True
+    assert calls == ['capture', 'kill_a']
+
+
+async def test_original_source_mismatch_refuses_before_signal_or_publisher_changes(monkeypatch):
+    from unittest.mock import AsyncMock
+    context = source_sample()[0]
+    captured = captured_owned(replace(context, token='f' * 32))
+    step = AsyncMock(return_value={'owned': captured})
+    monkeypatch.setattr(tool, 'restart_step', step)
+    quiesce = AsyncMock(side_effect=AssertionError('source refusal must precede process actions'))
+    monkeypatch.setattr(tool, 'quiesce', quiesce)
+    progress = {'original_cleanup_read_only': False}
+    with pytest.raises(ValueError, match='original_source_mismatch'):
+        await tool.process_restart(None, None, SimpleNamespace(acquisition=context), old_intent_wire(context),
+                                   Mock(), progress, contract=CONTRACT)
+    assert step.await_count == 1 and step.call_args.args[-1] == 'capture'
+    quiesce.assert_not_awaited()
+    assert progress['original_cleanup_read_only'] is False
+
+
+@pytest.mark.parametrize('correlated_cleanup', [True, False])
+async def test_restart_separates_unknown_a_from_clean_backend_c_without_an_extra_old_handoff(
+        tmp_path, monkeypatch, correlated_cleanup):
+    from unittest.mock import AsyncMock
+
+    from tests.fixtures.native_ownership import release_receipt
+    original = source_sample()[0]
+    replacement = replace(original, runtime_id='new-runtime', token='c' * 32,
+        identity=replace(original.identity, binding=replace(original.identity.binding, connection_generation='clean-c')))
+    client = SimpleNamespace(acquisition_context=original, close=AsyncMock())
+    binding = SimpleNamespace(abort=Mock(), stop=AsyncMock(side_effect=tool.NativeGuidanceError('native_connection_unavailable')))
+    session = SimpleNamespace(acquisition=original, client=client, binding=binding, run_started=10.)
+    quiesced, order = [False], []
+    async def quiesce(_):
+        quiesced[0] = True
+        order.append('quiesced')
+    async def step(args, isolation, log, operation):
+        order.append(operation)
+        if operation == 'kill_a':
+            assert quiesced[0] is False  # Keep the actual lease alive until the adapter crash.
+        return {'owned': captured_owned(original), 'runtime_id': replacement.runtime_id, 'policy_matched': True,
+                'signal_at_monotonic_s': 10.2, 'signal_begin_at_monotonic_s': 10.2,
+                'monotonic_time_namespace_inode': Path('/proc/self/ns/time').stat().st_ino}
+    def child(argv, **kwargs):
+        assert quiesced[0] is True
+        assert order.index('recovery_ready') < order.index('prepare_c')
+        output = Path(argv[argv.index('--output') + 1])
+        output.mkdir()
+        result = {'passed': True, 'final_release': {'local_sender_quiesced': True,
+            'release_receipt': release_receipt(replacement).wire_payload()}} if correlated_cleanup else {'passed': True}
+        (output / 'result.json').write_text(json.dumps(result))
+        (output / 'acquisitions.jsonl').write_text(json.dumps({'acquisition': tool.asdict(replacement)}) + '\n')
+        return SimpleNamespace(returncode=0, stdout='retained child result', stderr='')
+    monkeypatch.setattr(tool, 'quiesce', quiesce)
+    monkeypatch.setattr(tool, 'restart_step', step)
+    monkeypatch.setattr(tool, 'stale_original_probes', AsyncMock())
+    monkeypatch.setattr(tool.subprocess, 'run', child)
+    args = SimpleNamespace(output=tmp_path, container='owned', instance=0, socket=tmp_path / 'native.sock',
+        sih_build_manifest=tmp_path / 'build.json', config=tmp_path / 'config.yaml', follower='gm_velocity_vector',
+        duration=3., test_altitude=30., stable_timeout=90., case='adapter_process_restart')
+    progress = {'original_cleanup_read_only': False}
+    call = tool.process_restart(args, {}, session, accepted_wire(original), lambda *args: 1., progress,
+                                contract=CONTRACT)
+    if correlated_cleanup:
+        result = await call
+        assert result['passed'] is True
+        assert result['original_a']['released'] is False
+        assert result['fresh_c']['final_release']['release_receipt']['acquisition']['runtime_id'] == 'new-runtime'
+        assert order[-1] == 'final_identity'
+    else:
+        with pytest.raises(ValueError, match='fresh_cleanup_unconfirmed'):
+            await call
+    binding.stop.assert_awaited_once_with('ownership_restart_original_cleanup')
+    assert client.acquisition_context is original
+    assert progress['original_cleanup_read_only'] is True
+
+
+def accepted_wire(context):
+    engage = {'operation': 'engage', 'protocol_version': tool.PROTOCOL_VERSION, 'generation': 2, 'request_id': 3,
+              'payload': {'identity': tool.asdict(context.identity), 'token': context.token}}
+    intent = old_intent_wire(context)[0]['value'] | {'protocol_version': tool.PROTOCOL_VERSION,
+                                                   'generation': 2, 'request_id': 4}
+    def row(timestamp, direction, value):
+        return {'timestamp': timestamp, 'connection': 1, 'direction': direction, 'value': value}
+    return [row(.01, 'request_forward_attempt', engage),
+        row(.02, 'actual_backend_reply', {'protocol_version': tool.PROTOCOL_VERSION, 'generation': 2, 'request_id': 3,
+            'success': True, 'payload': {'owner_confirmed': True, 'runtime_id': context.runtime_id,
+                                        'acquisition': context.wire_payload()}}),
+        row(.1, 'request_forward_attempt', intent),
+        row(.12, 'actual_backend_reply', {'protocol_version': tool.PROTOCOL_VERSION, 'generation': 2, 'request_id': 4,
+            'success': True, 'payload': {'owner_confirmed': True, 'accepted_sequence': 7}})]
+
+
+def lease_proof(events, context, **changes):
+    values = {'signal_at_monotonic_s': 10.2, 'signal_begin_at_monotonic_s': 10.2, 'run_started': 10.,
+              'time_namespace_inode': 1, 'expected_time_namespace_inode': 1} | changes
+    return tool.accepted_intent_at_signal(events, context, **values)
+
+
+def test_live_signal_proof_uses_actual_original_ack_and_archived_host_origin_without_restamp():
+    context = source_sample()[0]
+    proof = lease_proof(accepted_wire(context), context)
+    assert proof['request_key'] == (1, 2, 4) and proof['engage_key'] == (1, 2, 3)
+    assert proof['ack_at_monotonic_s'] == pytest.approx(10.12)
+    assert proof['intent_created_at_monotonic_s'] == 10.
+    assert proof['intent_expires_at_monotonic_s'] == 10.3
+    assert proof['remaining_original_lease_s'] == pytest.approx(.1)
+
+
+@pytest.mark.parametrize('change', ['missing_ack', 'after_signal', 'connection', 'generation', 'request_id',
+    'sequence', 'bool_sequence', 'owner_false', 'success_false', 'identity', 'token', 'phase',
+    'engage_context', 'engage_runtime', 'protocol', 'repeated_request'])
+def test_live_signal_proof_refuses_unpaired_or_other_context_ack(change):
+    context = source_sample()[0]
+    rows = accepted_wire(context)
+    reply = rows[-1]
+    if change == 'missing_ack':
+        rows.pop()
+    elif change == 'after_signal':
+        reply['timestamp'] = .21
+    elif change == 'connection':
+        reply['connection'] = 2
+    elif change in ('generation', 'request_id'):
+        reply['value'][change] += 1
+    elif change == 'sequence':
+        reply['value']['payload']['accepted_sequence'] = 8
+    elif change == 'bool_sequence':
+        reply['value']['payload']['accepted_sequence'] = True
+    elif change == 'owner_false':
+        reply['value']['payload']['owner_confirmed'] = False
+    elif change == 'success_false':
+        reply['value']['success'] = False
+    elif change in ('identity', 'token', 'phase'):
+        rows[-2]['value']['payload'][change] = {'identity': {}, 'token': 'f' * 32, 'phase': 'fixed_wing'}[change]
+    elif change == 'engage_context':
+        rows[1]['value']['payload']['acquisition']['source_revision'] += 1
+    elif change == 'engage_runtime':
+        rows[1]['value']['payload']['runtime_id'] = 'replacement'
+    elif change == 'protocol':
+        reply['value']['protocol_version'] -= 1
+    else:
+        rows.insert(3, rows[2])
+    with pytest.raises(ValueError):
+        lease_proof(rows, context)
+
+
+@pytest.mark.parametrize('expiry', [10.15, 10.2])
+def test_latest_accepted_intent_expired_at_signal_fails_even_with_newer_unacked_request(expiry):
+    from copy import deepcopy
+    context = source_sample()[0]
+    rows = accepted_wire(context)
+    rows[2]['value']['payload']['expires_at_monotonic_s'] = expiry
+    newer = deepcopy(rows[2])
+    newer['timestamp'] = .16
+    newer['value']['request_id'] = 5
+    newer['value']['payload'].update(sequence=8, created_at_monotonic_s=10.16, expires_at_monotonic_s=11.)
+    rows.append(newer)
+    with pytest.raises(ValueError, match='accepted_intent_expired_before_signal'):
+        lease_proof(rows, context)
+
+
+def test_latest_actual_accepted_deadline_wins_over_an_older_longer_deadline():
+    from copy import deepcopy
+    context = source_sample()[0]
+    rows = accepted_wire(context)
+    newer = deepcopy(rows[2:])
+    newer[0]['timestamp'], newer[1]['timestamp'] = .14, .16
+    for row in newer:
+        row['value']['request_id'] = 5
+    newer[0]['value']['payload'].update(sequence=8, created_at_monotonic_s=10.14, expires_at_monotonic_s=10.19)
+    newer[1]['value']['payload']['accepted_sequence'] = 8
+    with pytest.raises(ValueError, match='accepted_intent_expired_before_signal'):
+        lease_proof(rows + newer, context)
+
+
+def test_signal_proof_refuses_unknown_host_container_clock_relationship():
+    context = source_sample()[0]
+    with pytest.raises(ValueError, match='signal_clock_unqualified'):
+        tool.accepted_intent_at_signal(accepted_wire(context), context, signal_at_monotonic_s=10.2,
+            run_started=10., signal_begin_at_monotonic_s=10.2, time_namespace_inode=2, expected_time_namespace_inode=1)
+
+
+def test_ack_during_signal_syscall_bracket_cannot_be_claimed_pre_signal():
+    context = source_sample()[0]
+    with pytest.raises(ValueError, match='accepted_intent_not_observed_before_signal'):
+        lease_proof(accepted_wire(context), context, signal_begin_at_monotonic_s=10.11)
+
+
+def test_syscall_scheduling_delay_past_original_expiry_cannot_qualify_live_crash():
+    context = source_sample()[0]
+    with pytest.raises(ValueError, match='accepted_intent_expired_before_signal'):
+        lease_proof(accepted_wire(context), context, signal_at_monotonic_s=10.31)
+
+
+async def test_releasing_neutral_drain_source_cannot_qualify_crash_before_signal(monkeypatch):
+    from unittest.mock import AsyncMock
+    context = source_sample()[0]
+    source = captured_owned(context) | {'state': CONTRACT['states']['acquired'] + 1}
+    step = AsyncMock(return_value={'owned': source})
+    monkeypatch.setattr(tool, 'restart_step', step)
+    with pytest.raises(ValueError, match='original_source_mismatch'):
+        await tool.process_restart(None, None, SimpleNamespace(acquisition=context), accepted_wire(context),
+            Mock(), {'original_cleanup_read_only': False}, contract=CONTRACT)
+    assert step.await_count == 1

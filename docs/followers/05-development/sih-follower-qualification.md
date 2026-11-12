@@ -115,6 +115,18 @@ After a transition reply appears on the wire, the runner submits no new intent
 and waits within the existing publish budget for that attempt's real lifecycle
 completion. Missing or wrong terminal completion fails; the recorder cannot
 manufacture completion or authorize another phase.
+The separate `tools/run_native_ownership_sih.py` tests causal ownership with
+phase-safe baseline commands, not a tracker or moving target. Its default remains
+pure FW. The explicit `--airframe settled_vtol_mc` option permits settled native
+VTOL MC component tests. `--case adapter_process_restart` additionally requires
+a reviewed, hash-bound `--restart-plan`; it is not an installation restart command.
+The plan identifies one isolated simulator, one owned adapter process and its
+private endpoint. A live accepted intent must extend across the verified crash
+signal. The original owner remains unresolved; a replacement cannot supply its
+receipt. Only a separate explicit Start in a clean backend may acquire a new
+session after observed landing/disarm and native registration recovery. Never
+force disarm, alter armed-registration policy or reuse an old intent timestamp
+to make this case pass. Keep actual-policy and full-App qualification separate.
 Phase spans report actual range/altitude changes without replacing the overall
 response checks. In particular, a 6 m/s target can outrun the public 0.25 m/s²
 MC startup ramp in a short transition test. Successful ownership transitions

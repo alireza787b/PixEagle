@@ -314,3 +314,13 @@ is validated separately from active external publication. All simulators are
 stopped; actual restart/fault/transition qualification remains open in S7, with
 no hardware, profile, QGC or publication change. See the checkpoint for the table,
 interactive replay entry point and exact gate/audit paths.
+
+The reviewed S7 restart harness now preserves the dead owner's unresolved context
+while testing a separate explicit fresh backend session. Independent review
+repaired three evidence/cleanup gaps before execution; the corrected candidate
+passes 151 focused tests and static/schema/offline-plan checks. Source cadence,
+positive accepted-ACK identity, syscall timing and actual native registration
+policy determine the verdict. There is no forced disarm, old receipt adoption,
+authority-lease refresh or production restart service. Actual process recovery
+and full combined post-merge renewal remain the next gates; the failed first
+candidate and negative transition evidence stay intact.

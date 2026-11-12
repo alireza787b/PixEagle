@@ -1321,3 +1321,36 @@ full-rate active MC publication, both transition directions/mounts, standard VTO
 abort/rescue/takeover and fresh explicit Starts still require evidence. VTOL live
 admission stays closed. No QGC build, Pi deployment, push, tag or release follows
 from this partial renewal.
+
+### S7 adapter-process recovery harness
+
+The ownership runner now has an explicit settled-VTOL-MC component contract and
+one hash-bound `adapter_process_restart` case. It reuses the production binding,
+commander, original-context reconciliation and normal-Stop path. It publishes
+phase-safe baselines only; no tracker, target, automatic Start or production
+restart service is introduced. Original A remains unresolved after its verified
+process death. Read-only replacement registration cannot satisfy A's receipt;
+old intent/handoff probes must refuse locally. A separate clean backend requires
+an explicit new Start and its own original-token Hold receipt.
+
+The report-owned launcher keeps PX4/Agent alive when A dies. It verifies exact
+PID/start time, UID, binary, socket inode and Linux time namespace. Actual
+source-derived Acquired state and a matching positive wire ACK must precede the
+kill syscall; the unchanged intent expiry must extend past syscall return.
+Already queued bytes remain nonretractable. Landing requires three distinct
+progressing landed and pose publications within the existing 120 s deadline,
+using the pinned detector's 1 s cadence plus 50 ms backup schedule. No force
+disarm or `COM_MODE_ARM_CHK` write is permitted. Its actual value determines
+whether armed replacement registration succeeds or is refused; one branch does
+not qualify the other. Failed preparation stops only its independently verified
+container even when logger stop fails, preserving the original error.
+
+The first frozen tool candidate was not executed: independent review found
+landing-cadence, preparation-cleanup and live-lease witness gaps. The corrected
+`software-gates-s7-process-restart-r2/review-manifest-r2.json` passes 151 focused
+checks, schema, Ruff, Python 3.10 syntax, shell and offline-plan checks. Python
+syntax is not a 3.10 runtime claim for the diagnostic runner. Independent review
+binds the final hashes and all three fixes. Actual crash/recovery, native ULog
+timing and full application admission remain unqualified until the isolated run;
+the coherent post-merge backend gate is next. No firmware, guidance, configuration,
+hardware or live VTOL admission change accompanies these tools.

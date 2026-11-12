@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Explicit, isolated PX4 native-ownership qualification; never arm or take off.
+"""Explicit, isolated PX4 native-ownership qualification; actions require --execute.
 
 The production binding/commander publish phase-safe level-flight baselines only.
-This is not target-tracking, application startup, VTOL or physical qualification.
+Existing FW cases require airborne preparation. The restart case delegates only
+reviewed simulator process, Land/disarm and normal MC preparation to its pinned helper.
+This is not target-tracking, application startup, transition or physical qualification.
 """
 from __future__ import annotations
 
@@ -29,15 +31,19 @@ from classes.aircraft_state import (
     AircraftState,
     AirframePhase,
     GuidanceSessionIdentity,
+    Vector3,
     finite_number,
 )
 from classes.fixed_wing_guidance_policy import FixedWingGuidancePolicy
 from classes.follower import FollowerFactory
 from classes.native_follow_binding import NativeFollowBinding
 from classes.native_guidance import (
+    PROTOCOL_VERSION,
+    ExternalModeIntent,
     NativeAcquisitionContext,
     NativeGuidanceClient,
     NativeGuidanceError,
+    NativeMulticopterCommand,
     NativeReleaseReceipt,
 )
 from classes.offboard_commander import OffboardCommander
@@ -51,6 +57,7 @@ from classes.target_continuity import (
     TargetEvidenceState,
 )
 from tools.build_native_guidance import verify_extension
+from tools.native_sih_wire import WireRecorder, archive_wire_helper
 from tools.run_native_vector_sih import (
     ObservationConnection,
     archive_configuration,
@@ -62,9 +69,50 @@ from tools.run_native_vector_sih import (
     verify_simulator,
 )
 from tools.sih_baseline import verify_source
-from tools.native_sih_wire import WireRecorder, archive_wire_helper
 
-CASES = ('normal_stop', 'confirmed_owner_eof', 'same_mode_reselection', 'stale_cleanup_new_acquisition')
+CASES = ('normal_stop', 'confirmed_owner_eof', 'same_mode_reselection', 'stale_cleanup_new_acquisition',
+         'adapter_process_restart')
+AIRFRAMES = ('pure_fixed_wing', 'settled_vtol_mc')
+
+
+def require_airframe(state, airframe='pure_fixed_wing'):
+    if airframe not in AIRFRAMES:
+        raise ValueError('ownership_fixture_airframe_invalid')
+    if not isinstance(state, AircraftState) or not (
+            state.is_vtol and state.phase is AirframePhase.MULTICOPTER if airframe == 'settled_vtol_mc'
+            else not state.is_vtol and state.phase is AirframePhase.FIXED_WING):
+        raise ValueError('ownership_fixture_requires_' + airframe)
+
+
+def restart_plan(args, isolation):
+    """Only an explicitly pinned, report-owned simulator helper may manage processes."""
+    value = json.loads(args.restart_plan.read_text())
+    if (set(value) != {'schema_version', 'scope', 'container_id', 'socket', 'runtime_directory', 'helper'}
+            or value['schema_version'] != 1 or value['scope'] != 'isolated_sih_adapter_restart'
+            or value['container_id'] != isolation['container_id']
+            or Path(value['socket']).resolve() != args.socket.resolve()
+            or not isinstance(value['helper'], dict) or set(value['helper']) != {'path', 'sha256'}):
+        raise ValueError('ownership_restart_plan_mismatch')
+    helper = Path(value['helper']['path'])
+    if not helper.is_absolute() or hashlib.sha256(helper.read_bytes()).hexdigest() != value['helper']['sha256']:
+        raise ValueError('ownership_restart_helper_changed')
+    return value
+
+
+async def restart_step(args, isolation, log, operation):
+    plan = restart_plan(args, isolation)
+    argv = [sys.executable, plan['helper']['path'], '--plan', str(args.restart_plan.resolve()),
+            '--operation', operation, '--execute']
+    response = await asyncio.to_thread(subprocess.run, argv, text=True, capture_output=True,
+                                      timeout=135, check=False)
+    log('restart-commands.jsonl', {'argv': argv, 'returncode': response.returncode,
+                                  'stdout': response.stdout, 'stderr': response.stderr})
+    if response.returncode:
+        raise ValueError('ownership_restart_step_failed:' + operation)
+    value = json.loads(response.stdout)
+    if value.get('operation') != operation or value.get('verified') is not True:
+        raise ValueError('ownership_restart_witness_missing:' + operation)
+    return value
 
 
 def source_contract(manifest_path: Path) -> dict:
@@ -201,7 +249,7 @@ class Session:
     baseline_producer: asyncio.Task | None = None
 
 
-async def stable_aircraft(client, connection, *, timeout, altitude, hold_mode, log):
+async def stable_aircraft(client, connection, *, timeout, altitude, hold_mode, log, airframe='pure_fixed_wing'):
     deadline = time.monotonic() + timeout
     window = []
     while time.monotonic() < deadline:
@@ -210,8 +258,7 @@ async def stable_aircraft(client, connection, *, timeout, altitude, hold_mode, l
         if (packet['fresh'] and not packet['rescue_active'] and packet.get('vehicle_pose')
                 and packet.get('nav_state') == hold_mode):
             state = AircraftState.from_payload(packet['aircraft_state'])
-            if state.is_vtol or state.phase is not AirframePhase.FIXED_WING:
-                raise ValueError('ownership_fixture_requires_pure_fixed_wing')
+            require_airframe(state, airframe)
             connection.commit_aircraft_state(state)
             if connection.retain_packet(state, packet):
                 if not window or state.sequence > window[-1].sequence:
@@ -225,13 +272,13 @@ async def stable_aircraft(client, connection, *, timeout, altitude, hold_mode, l
     raise ValueError('stable_airborne_window_not_reached')
 
 
-def create_session(client, connection, capabilities, identity, config, profile, log, *, run_started) -> Session:
+def create_session(client, connection, capabilities, identity, config, profile, log, *, run_started,
+                   airframe='pure_fixed_wing') -> Session:
     state = connection.get_aircraft_state()
-    if not isinstance(state, AircraftState) or state.is_vtol or state.phase is not AirframePhase.FIXED_WING:
-        raise ValueError('ownership_fixture_requires_pure_fixed_wing')
+    require_airframe(state, airframe)
     follower = FollowerFactory.create_follower(profile.mode, connection, (.5, .5))
     supervisor = TargetContinuitySupervisor(ContinuityPolicy.resolve(config['TargetContinuity'], profile.mode,
-                                                                   AirframePhase.FIXED_WING))
+                                                                   state.phase))
     supervisor.reset_session(session_epoch=1, reason='ownership_component_baseline')
     guidance = follower.create_airframe_session(identity, capabilities,
         confirmation_s=config['Follower']['AIRFRAME_PHASE_CONFIRMATION_S'], observation_timeout_s=.75,
@@ -241,7 +288,7 @@ def create_session(client, connection, capabilities, identity, config, profile, 
     def no_target():
         return TargetEvidenceSnapshot(TargetEvidenceState.ABSENT, time.monotonic(), 1, None,
                                       IdentityVerdict.UNCONFIRMED, 'ownership_qualification_no_target')
-    base = ContinuityContext('PX4_NATIVE', AirframePhase.FIXED_WING, 'fixed_wing_external', True, False, True)
+    base = ContinuityContext('PX4_NATIVE', state.phase, guidance.control_type, True, False, True)
     binding = NativeFollowBinding(guidance, connection, client, supervisor, profile_name=profile.mode,
         continuity_config=config['TargetContinuity'], target_evidence=no_target, context=lambda: base,
         circuit_breaker=lambda: False)
@@ -420,6 +467,200 @@ async def retired_owner(args, isolation, session, contract, log):
             await watcher
 
 
+def retained_mc_intent(events, acquisition):
+    """Reconstruct only the actual old wire value; never refresh its timestamps."""
+    requests = [row for row in wire_requests(events, after=0.) if row['operation'] == 'intent']
+    if not requests:
+        raise ValueError('ownership_restart_original_intent_missing')
+    value = requests[-1]['payload']
+    if (value.get('identity') != asdict(acquisition.identity) or value.get('token') != acquisition.token
+            or value.get('phase') != AirframePhase.MULTICOPTER.value):
+        raise ValueError('ownership_restart_original_intent_mismatch')
+    command = value['command']
+    if set(command) != {'velocity_north_m_s', 'velocity_east_m_s', 'velocity_down_m_s', 'yaw_rate_rad_s'}:
+        raise ValueError('ownership_restart_original_intent_mismatch')
+    return ExternalModeIntent(acquisition.identity, value['sequence'], value['created_at_monotonic_s'],
+        value['expires_at_monotonic_s'], NativeMulticopterCommand(Vector3(command['velocity_north_m_s'],
+        command['velocity_east_m_s'], command['velocity_down_m_s']), command['yaw_rate_rad_s']))
+
+
+def accepted_intent_at_signal(events, acquisition, *, signal_at_monotonic_s, run_started,
+                              signal_begin_at_monotonic_s, time_namespace_inode, expected_time_namespace_inode=None):
+    """A real original-context ACK must precede the signal and retain its original deadline."""
+    if expected_time_namespace_inode is None:
+        expected_time_namespace_inode = Path('/proc/self/ns/time').stat().st_ino
+    if (type(time_namespace_inode) is not int or time_namespace_inode <= 0
+            or time_namespace_inode != expected_time_namespace_inode):
+        raise ValueError('ownership_restart_signal_clock_unqualified')
+    signal = finite_number(signal_at_monotonic_s, 'ownership_signal_time')
+    signal_begin = finite_number(signal_begin_at_monotonic_s, 'ownership_signal_begin')
+    origin = finite_number(run_started, 'ownership_wire_origin')
+    if not origin <= signal_begin <= signal:
+        raise ValueError('ownership_restart_signal_clock_order_invalid')
+    requests, pins, candidates = {}, {}, []
+    for event in events:
+        direction, value = event.get('direction'), event.get('value')
+        if direction not in ('request_forward_attempt', 'actual_backend_reply') or not isinstance(value, dict):
+            continue
+        if (type(event.get('connection')) is not int or event['connection'] <= 0
+                or type(value.get('generation')) is not int or value['generation'] < 0
+                or type(value.get('request_id')) is not int or value['request_id'] <= 0
+                or type(value.get('protocol_version')) is not int or value['protocol_version'] != PROTOCOL_VERSION):
+            raise ValueError('ownership_restart_wire_header_invalid')
+        at = origin + finite_number(event.get('timestamp'), 'ownership_wire_timestamp')
+        if at >= signal_begin:
+            continue
+        key = (event['connection'], value['generation'], value['request_id'])
+        if direction == 'request_forward_attempt':
+            if key in requests:
+                raise ValueError('ownership_restart_wire_request_repeated')
+            requests[key] = (event, at)
+            continue
+        if key not in requests or value.get('success') is not True or not isinstance(value.get('payload'), dict):
+            continue
+        request_event, sent = requests[key]
+        request, reply = request_event['value'], value['payload']
+        payload = request.get('payload')
+        if (not isinstance(payload, dict) or sent > at or payload.get('identity') != asdict(acquisition.identity)
+                or payload.get('token') != acquisition.token):
+            continue
+        if request.get('operation') == 'engage':
+            if (reply.get('owner_confirmed') is True and reply.get('runtime_id') == acquisition.runtime_id
+                    and reply.get('acquisition') == acquisition.wire_payload()):
+                pins[key[:2]] = {'key': key, 'ack_at': at}
+        elif request.get('operation') == 'intent' and key[:2] in pins:
+            if (reply.get('owner_confirmed') is not True or type(reply.get('accepted_sequence')) is not int
+                    or reply['accepted_sequence'] != payload.get('sequence') or pins[key[:2]]['ack_at'] > sent):
+                continue
+            intent = retained_mc_intent([request_event], acquisition)
+            if not intent.created_at_monotonic_s <= sent <= at:
+                raise ValueError('ownership_restart_wire_clock_order_invalid')
+            candidates.append({'request_key': key, 'engage_key': pins[key[:2]]['key'], 'request': request,
+                'reply': value, 'request_at_monotonic_s': sent, 'ack_at_monotonic_s': at,
+                'intent_created_at_monotonic_s': intent.created_at_monotonic_s,
+                'intent_expires_at_monotonic_s': intent.expires_at_monotonic_s})
+    if not candidates:
+        raise ValueError('ownership_restart_accepted_intent_not_observed_before_signal')
+    latest = max(candidates, key=lambda row: row['ack_at_monotonic_s'])
+    if signal >= latest['intent_expires_at_monotonic_s']:
+        raise ValueError('ownership_restart_accepted_intent_expired_before_signal')
+    return latest | {'signal_at_monotonic_s': signal, 'wire_host_clock_origin_s': origin,
+                     'signal_begin_at_monotonic_s': signal_begin,
+                     'monotonic_time_namespace_inode': time_namespace_inode,
+                     'remaining_original_lease_s': latest['intent_expires_at_monotonic_s'] - signal}
+
+
+async def stale_original_probes(session, intent, log):
+    """No active C peer: original reconciliation must fail before bind/write."""
+    outcomes = {}
+    for name, call, expected in (
+        ('reconciliation', lambda: reconcile(session, log), 'native_release_runtime_changed'),
+        ('intent', lambda: session.client.submit(intent, circuit_breaker_active=False,
+            ownership_token=session.acquisition.token, acquisition=session.acquisition), 'native_session_stale'),
+        ('handoff', lambda: session.client.handoff(session.acquisition.identity, reason='stale_original_probe',
+            ownership_token=session.acquisition.token, acquisition=session.acquisition), 'native_session_stale'),
+    ):
+        try:
+            await call()
+        except NativeGuidanceError as error:
+            outcomes[name] = str(error)
+            if str(error) != expected:
+                raise ValueError('ownership_restart_wrong_refusal:' + name) from error
+        else:
+            raise ValueError('ownership_restart_stale_operation_accepted:' + name)
+    log('original-probes.jsonl', {'outcomes': outcomes, 'acquisition': asdict(session.acquisition),
+                                'original_created_at_monotonic_s': intent.created_at_monotonic_s,
+                                'original_expires_at_monotonic_s': intent.expires_at_monotonic_s})
+    return outcomes
+
+
+async def process_restart(args, isolation, session, wire, log, progress, *, contract):
+    """Sequential component experiment; lifecycle actions belong to the pinned report helper."""
+    capture = await restart_step(args, isolation, log, 'capture')
+    source = dict(capture['owned'])
+    for field in ('token', 'incarnation'):
+        words = source.get(field)
+        if (not isinstance(words, list) or len(words) != 2
+                or any(type(word) is not int or not 0 <= word < 2**64 for word in words)):
+            raise ValueError('ownership_restart_original_source_invalid')
+        source[field] = ''.join(f'{word:016x}' for word in words)
+    if (type(source.get('autopilot_uid')) is not int or source['autopilot_uid'] <= 0
+            or not matches_receipt(source, session.acquisition) or source.get('owner_active') is not True
+            or type(source.get('state')) is not int or source['state'] != contract['states']['acquired']):
+        raise ValueError('ownership_restart_original_source_mismatch')
+    intent = retained_mc_intent(wire, session.acquisition)
+    log('cleanup-boundaries.jsonl', {'event': 'adapter_a_kill_begin',
+                                    'acquisition': asdict(session.acquisition)})
+    # Once a kill is attempted, cleanup must never issue an unconditional old handoff.
+    progress['original_cleanup_read_only'] = True
+    killed = await restart_step(args, isolation, log, 'kill_a')
+    await quiesce(session)
+    session.binding.abort('ownership_restart_adapter_dead')
+    boundary = log('cleanup-boundaries.jsonl', {'event': 'original_sender_quiesced',
+        'in_flight_bytes_retractable': False, 'no_publication_or_mode_write_allowed_after_this_boundary': True})
+    proof = accepted_intent_at_signal(wire, session.acquisition,
+        signal_at_monotonic_s=killed.get('signal_at_monotonic_s'), run_started=session.run_started,
+        signal_begin_at_monotonic_s=killed.get('signal_begin_at_monotonic_s'),
+        time_namespace_inode=killed.get('monotonic_time_namespace_inode'))
+    log('live-command-at-signal.jsonl', proof)
+    try:
+        await session.binding.stop('ownership_restart_original_cleanup')
+    except NativeGuidanceError as error:
+        original = {'released': False, 'error': str(error), 'acquisition': asdict(session.acquisition)}
+        log('original-outcome.jsonl', original)
+    else:
+        raise ValueError('ownership_restart_unexpected_original_release')
+    armed = await restart_step(args, isolation, log, 'armed_registration')
+    await restart_step(args, isolation, log, 'land_disarm')
+    replacement = await restart_step(args, isolation, log, 'recovery_ready')
+    if replacement.get('runtime_id') == session.acquisition.runtime_id:
+        raise ValueError('ownership_restart_runtime_not_changed')
+    await stale_original_probes(session, intent, log)
+    checks = {'original_release_unresolved': original['released'] is False,
+              'old_context_preserved': session.client.acquisition_context == session.acquisition,
+              'armed_policy_witness': armed.get('policy_matched') is True,
+              'no_old_write_after_quiescence': all(row['operation'] in ('hello', 'bind', 'observe')
+                  for row in wire_requests(wire, after=boundary))}
+    if not all(checks.values()):
+        raise ValueError('ownership_restart_original_boundary_failed')
+    await session.client.close()
+    # A clean backend process owns C; the original binding/barrier is never cleared or adopted.
+    await restart_step(args, isolation, log, 'prepare_c')
+    child_output = args.output.resolve() / 'fresh-backend-c'
+    argv = [sys.executable, str(Path(__file__).resolve()), '--execute', '--case', 'normal_stop',
+            '--airframe', 'settled_vtol_mc', '--container', args.container, '--instance', str(args.instance),
+            '--socket', str(args.socket), '--sih-build-manifest', str(args.sih_build_manifest),
+            '--output', str(child_output), '--config', str(args.config), '--follower', args.follower,
+            '--duration', str(args.duration), '--test-altitude', str(args.test_altitude),
+            '--stable-timeout', str(args.stable_timeout)]
+    child = await asyncio.to_thread(subprocess.run, argv, text=True, capture_output=True, timeout=160, check=False)
+    log('fresh-backend.jsonl', {'argv': argv, 'returncode': child.returncode,
+                              'stdout': child.stdout, 'stderr': child.stderr})
+    child_result = json.loads((child_output / 'result.json').read_text())
+    child_acquisition = NativeAcquisitionContext.from_payload(json.loads(
+        (child_output / 'acquisitions.jsonl').read_text().splitlines()[0])['acquisition'])
+    cleanup = child_result.get('final_release')
+    if not isinstance(cleanup, dict) or cleanup.get('local_sender_quiesced') is not True:
+        raise ValueError('ownership_restart_fresh_cleanup_unconfirmed')
+    receipt = NativeReleaseReceipt.from_payload(cleanup.get('release_receipt')).require_match(
+        child_acquisition.identity, child_acquisition.runtime_id, child_acquisition.token, child_acquisition,
+        mode_id=child_acquisition.mode_id)
+    if not receipt.released:
+        raise ValueError('ownership_restart_fresh_cleanup_unconfirmed')
+    await restart_step(args, isolation, log, 'final_identity')
+    checks.update(fresh_backend_passed=child.returncode == 0 and child_result.get('passed') is True,
+        distinct_runtime=child_acquisition.runtime_id != session.acquisition.runtime_id,
+        distinct_token=child_acquisition.token != session.acquisition.token,
+        distinct_backend=child_acquisition.identity.binding.connection_generation != session.acquisition.identity.binding.connection_generation,
+        same_aircraft=child_acquisition.identity.binding.aircraft_uid == session.acquisition.identity.binding.aircraft_uid,
+        same_firmware_incarnation=child_acquisition.firmware_incarnation == session.acquisition.firmware_incarnation)
+    return {'passed': all(checks.values()), 'reason': 'ownership_restart_case_complete', 'case': args.case,
+            'response_checks': checks, 'original_a': original, 'armed_registration': armed,
+            'recovery_adapter': replacement, 'fresh_c': child_result,
+            'lost_engagement_ack_tested': False, 'application_startup_qualified': False,
+            'transition_qualified': False}
+
+
 async def run(args, isolation, contract):
     output = args.output.resolve()
     output.mkdir(mode=0o700, parents=True, exist_ok=False)
@@ -452,7 +693,8 @@ async def run(args, isolation, contract):
         'case': args.case, 'isolation': isolation, 'source_contract': contract, 'configuration': configuration,
         'host_clock': {'basis': 'time.monotonic', 'origin_s': started,
                        'wire_timestamp_semantics': 'seconds_since_origin'},
-        'profile': selected.profile.mode, 'baseline_only': True, 'target_tracking_qualified': False,
+        'profile': selected.profile.mode, 'airframe': getattr(args, 'airframe', 'pure_fixed_wing'),
+        'baseline_only': True, 'target_tracking_qualified': False,
         'application_startup_qualified': False, 'vtol_qualified': False, 'hardware_qualified': False,
         'lost_engagement_ack_tested': False, 'argv': sys.argv,
         'tool_source_sha256': hashlib.sha256(tool_source).hexdigest(),
@@ -463,6 +705,14 @@ async def run(args, isolation, contract):
             'src/classes/vector_guidance_session.py', 'tools/run_native_vector_sih.py')},
         'revision': (await asyncio.to_thread(subprocess.check_output,
             ['git', '-C', str(ROOT), 'rev-parse', 'HEAD'], text=True)).strip()}
+    if args.case == 'adapter_process_restart':
+        plan = restart_plan(args, isolation)
+        (output / 'restart-plan.json').write_bytes(args.restart_plan.read_bytes())
+        helper = Path(plan['helper']['path'])
+        (output / 'restart-control-source.py').write_bytes(helper.read_bytes())
+        manifest['restart_plan'] = {'path': 'restart-plan.json',
+            'sha256': hashlib.sha256(args.restart_plan.read_bytes()).hexdigest(), 'helper': plan['helper'],
+            'same_endpoint': True, 'force_disarm_allowed': False, 'original_release_may_remain_unresolved': True}
     (output / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
     (output / 'source.patch').write_text(await asyncio.to_thread(subprocess.check_output,
         ['git', '-C', str(ROOT), 'diff', 'HEAD'], text=True))
@@ -471,6 +721,7 @@ async def run(args, isolation, contract):
     client = None
     recorder = None
     socket_directory = None
+    progress = {'original_cleanup_read_only': False}
     try:
         (output / 'px4/parameters-before.txt').write_text(await asyncio.to_thread(native_parameters, args.socket, isolation))
         socket_directory = tempfile.TemporaryDirectory(prefix='pe-own-')
@@ -488,12 +739,17 @@ async def run(args, isolation, contract):
         await client.bind(aircraft)
         connection = ObservationConnection(aircraft)
         await stable_aircraft(client, connection, timeout=args.stable_timeout, altitude=args.test_altitude,
-                              hold_mode=contract['hold'], log=log)
+                              hold_mode=contract['hold'], log=log, airframe=getattr(args, 'airframe', 'pure_fixed_wing'))
         identity = GuidanceSessionIdentity(output.name, aircraft, 1)
-        active = create_session(client, connection, capabilities, identity, config, selected.profile, log, run_started=started)
+        active = create_session(client, connection, capabilities, identity, config, selected.profile, log, run_started=started,
+                                airframe=getattr(args, 'airframe', 'pure_fixed_wing'))
         await activate_session(active, log)
         await drive(active, args.duration, log)
         await confirmed_source(args, isolation, active, contract, log)
+        if args.case == 'adapter_process_restart':
+            result = await process_restart(args, isolation, active, wire, log, progress, contract=contract)
+            (output / 'pre-cleanup-result.json').write_text(json.dumps(result, indent=2) + '\n')
+            return result
         checks = {'confirmed_acquisition': True, 'successful_publications': active.commander.successful_publishes > 0}
         if args.case == 'normal_stop':
             await quiesce(active)
@@ -579,7 +835,12 @@ async def run(args, isolation, contract):
         if active is not None:
             try:
                 await quiesce(active)
-                result['final_release'] = await active.binding.stop('ownership_fixture_finally')
+                if progress['original_cleanup_read_only']:
+                    active.binding.abort('ownership_restart_finally_original_unresolved')
+                    result['original_cleanup'] = {'released': False, 'acquisition': asdict(active.acquisition),
+                                                  'reason': 'kill_boundary_no_original_receipt_fabricated'}
+                else:
+                    result['final_release'] = await active.binding.stop('ownership_fixture_finally')
             except Exception as error:  # noqa: BLE001 - failed cleanup remains explicit in the qualification result.
                 result.update(passed=False, cleanup_error=str(error))
         if client is not None:
@@ -612,16 +873,27 @@ def main(argv=None):
     parser.add_argument('--duration', type=float, default=3.)
     parser.add_argument('--test-altitude', type=float, default=30.)
     parser.add_argument('--stable-timeout', type=float, default=90.)
+    parser.add_argument('--airframe', choices=AIRFRAMES, default='pure_fixed_wing')
+    parser.add_argument('--restart-plan', type=Path)
     args = parser.parse_args(argv)
     if not (1. <= args.duration <= 10. and 15. <= args.test_altitude <= 120. and 1. <= args.stable_timeout <= 180.):
         parser.error('Invalid bounded ownership fixture timing/altitude')
     component_profile(args.follower)
+    if args.case == 'adapter_process_restart' and (args.airframe != 'settled_vtol_mc' or args.restart_plan is None):
+        parser.error('adapter_process_restart requires --airframe settled_vtol_mc and --restart-plan')
     isolation = verify_simulator(args.container, args.instance, args.socket, sih_build_manifest=args.sih_build_manifest)
     contract = source_contract(args.sih_build_manifest)
+    if args.case == 'adapter_process_restart':
+        restart_plan(args, isolation)
     if not args.execute:
         print(json.dumps({'execute': False, 'case': args.case, 'isolation': isolation, 'source_contract': contract}, indent=2))
         return 0
-    result = asyncio.run(run(args, isolation, contract))
+    async def bounded_run():
+        if args.case == 'adapter_process_restart':
+            async with asyncio.timeout(600.):
+                return await run(args, isolation, contract)
+        return await run(args, isolation, contract)
+    result = asyncio.run(bounded_run())
     print(json.dumps(result, indent=2))
     return 0 if result['passed'] else 1
 
