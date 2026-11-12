@@ -1222,3 +1222,24 @@ does not invent a phase on communication failure. Full combined renewal and
 actual protocol-3 transition evidence remain next. The FW guide now presents
 only the current session behavior and labels earlier phase-retaining figures
 historical.
+
+The independent source/hash review found no concrete blocker in that frozen
+lifecycle candidate or the earlier viewer correction; it did not run flight
+tests or certify the subsequent target-clock change.
+
+### S7 shared target clock for explicit Starts
+
+The native component runner can now read one immutable target-clock artifact
+binding the original scenario bytes, target ID, NED frame, host boot and
+monotonic origin. Two separately invoked Starts sample that same world trajectory
+at their actual observation receipts. Each report exports a self-contained slice
+without moving the target relative to the aircraft or resetting its clock.
+Changed artifacts/boot or missing trajectory coverage refuse acquisition.
+
+A wire transition witness can precede its in-flight lifecycle callback. The
+runner now waits, without submitting another intent, for that existing attempt's
+terminal completion within its publication timeout plus one period. Missing or
+wrong completion still fails. The three-file delta passes 291 focused checks;
+root's combined tool/native renewal passes 307. Exact artifacts are in
+`software-gates-s7-vtol-tool-r2/`. No cycle auto-start or runtime action is added;
+the original 2 m altitude and independent 100 ms native-gap gates remain.

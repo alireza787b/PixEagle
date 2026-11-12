@@ -23,6 +23,7 @@ import tempfile
 import time
 from types import SimpleNamespace
 from typing import Literal
+import uuid
 
 import yaml
 
@@ -76,6 +77,98 @@ class ComponentFaultWindow:
 class PilotTransitionEvent:
     at_s: float
     requested_phase: AirframePhase
+
+
+def host_boot_id():
+    return str(uuid.UUID(Path("/proc/sys/kernel/random/boot_id").read_text().strip()))
+
+
+@dataclass(frozen=True)
+class WorldTargetClock:
+    """Immutable test truth and a host clock; never aircraft/control state."""
+    path: Path
+    artifact_bytes: bytes
+    scenario_path: Path
+    scenario_bytes: bytes
+    target_id: str
+    origin_s: float
+    boot_id: str
+    scenario: VisualizationScenario
+
+    @classmethod
+    def from_file(cls, path: Path, *, now=None):
+        path = path.resolve()
+        data = path.read_bytes()
+        raw = json.loads(data)
+        fields = {"schema_version", "target_id", "frame", "host_monotonic_origin_s", "host_boot_id",
+                  "scenario_yaml", "scenario_sha256"}
+        if (not isinstance(raw, dict) or set(raw) != fields or type(raw["schema_version"]) is not int
+                or raw["schema_version"] != 1 or raw["frame"] != "local_ned"
+                or not isinstance(raw["target_id"], str) or not raw["target_id"].strip()
+                or not isinstance(raw["scenario_yaml"], str) or not raw["scenario_yaml"]
+                or not isinstance(raw["scenario_sha256"], str)
+                or re.fullmatch("[0-9a-f]{64}", raw["scenario_sha256"]) is None):
+            raise ValueError("native_component_target_clock_invalid")
+        origin = finite_number(raw["host_monotonic_origin_s"], "target_clock_origin")
+        if origin < 0. or raw["host_boot_id"] != host_boot_id():
+            raise ValueError("native_component_target_clock_boot_or_origin_invalid")
+        source = Path(raw["scenario_yaml"])
+        source = source if source.is_absolute() else path.parent/source
+        source = source.resolve()
+        source_bytes = source.read_bytes()
+        if hashlib.sha256(source_bytes).hexdigest() != raw["scenario_sha256"]:
+            raise ValueError("native_component_target_clock_scenario_changed")
+        result = cls(path, data, source, source_bytes, raw["target_id"], origin, raw["host_boot_id"],
+                     VisualizationScenario.from_yaml(source))
+        result.require_current(now=time.monotonic() if now is None else now)
+        return result
+
+    def require_current(self, *, now):
+        try:
+            unchanged = (self.path.read_bytes() == self.artifact_bytes
+                         and self.scenario_path.read_bytes() == self.scenario_bytes and self.boot_id == host_boot_id())
+        except OSError as error:
+            raise ValueError("native_component_target_clock_changed") from error
+        if not unchanged:
+            raise ValueError("native_component_target_clock_changed")
+        if finite_number(now, "target_clock_now") < self.origin_s:
+            raise ValueError("native_component_target_clock_future_origin")
+
+    def require_coverage(self, host_start_s, duration_s):
+        if finite_number(duration_s, "target_clock_duration") <= 0.:
+            raise ValueError("native_component_target_clock_duration_invalid")
+        self.target_at_host(host_start_s)
+        self.target_at_host(host_start_s + duration_s)
+
+    def target_at_host(self, receipt_s):
+        value = self.scenario.target_at(finite_number(receipt_s, "target_clock_receipt") - self.origin_s)
+        if value is None:
+            raise ValueError("native_component_target_clock_coverage_missing")
+        return value
+
+    def require_matching_target(self, raw):
+        original = yaml.safe_load(self.scenario_bytes)["target"]
+        if json.dumps(raw.get("target"), sort_keys=True, allow_nan=False) != json.dumps(original, sort_keys=True, allow_nan=False):
+            raise ValueError("native_component_target_clock_target_changed")
+
+    def slice_raw(self, raw, *, host_start_s, duration_s):
+        self.require_coverage(host_start_s, duration_s)
+        offset = host_start_s-self.origin_s
+        points = [dict(time_s=0., position_ned=self.target_at_host(host_start_s))]
+        points.extend(dict(time_s=point.time_s-offset, position_ned=point.position_ned)
+                      for point in self.scenario.target_waypoints if offset < point.time_s < offset+duration_s)
+        points.append(dict(time_s=duration_s, position_ned=self.target_at_host(host_start_s+duration_s)))
+        result = dict(raw)
+        result["target"] = {**yaml.safe_load(self.scenario_bytes)["target"], "waypoints": points}
+        return result
+
+    def archive(self, output):
+        (output/"target-clock.json").write_bytes(self.artifact_bytes)
+        (output/"original-target-scenario.yaml").write_bytes(self.scenario_bytes)
+        return dict(target_id=self.target_id, frame="local_ned", host_monotonic_origin_s=self.origin_s,
+            host_boot_id=self.boot_id, clock_path="target-clock.json",
+            clock_sha256=hashlib.sha256(self.artifact_bytes).hexdigest(),
+            scenario_path="original-target-scenario.yaml", scenario_sha256=hashlib.sha256(self.scenario_bytes).hexdigest())
 
 
 def component_profile(name: str) -> ComponentProfile:
@@ -433,8 +526,31 @@ def pilot_transition_checks(injection, witness, terminal_reason, expected_reason
     )
 
 
+async def wait_transition_terminal(binding, commander, *, expected_reason, timeout_s, clock=time.monotonic):
+    """Wait for the already-running attempt; create no intent or completion."""
+    if finite_number(timeout_s, "transition_terminal_wait") <= 0.:
+        raise ValueError("native_component_transition_terminal_wait_invalid")
+    deadline = clock()+timeout_s
+    while True:
+        reason = binding.terminal_reason
+        status = commander.get_status()
+        if reason is not None and reason != expected_reason:
+            raise ValueError("native_component_transition_terminal_reason_mismatch:"+reason)
+        if status["failed_publishes"] != 0:
+            raise ValueError("native_component_transition_publication_failed")
+        if status["terminal_failure"] and status["terminal_failure_reason"] != expected_reason:
+            raise ValueError("native_component_transition_commander_reason_mismatch")
+        if (reason == expected_reason and status["terminal_failure"] is True
+                and status["running"] is False and status["task_active"] is False):
+            return status
+        remaining = deadline-clock()
+        if remaining <= 0.:
+            raise TimeoutError("native_component_transition_terminal_completion_missing")
+        await asyncio.sleep(min(.01, remaining))
+
+
 async def capture_post_transition(client, event, acquisition, *, log, started, follow_start, timeout_s,
-                                  scenario, response, previous_pose_timestamp_us=None, clock=time.monotonic):
+                                  scenario, response, previous_pose_timestamp_us=None, world_clock=None, clock=time.monotonic):
     """Read only after publisher join/release; observed motion remains PX4 truth."""
     deadline = clock() + timeout_s
     window, samples, publications, previous_pose = [], [], None, previous_pose_timestamp_us
@@ -463,7 +579,8 @@ async def capture_post_transition(client, event, acquisition, *, log, started, f
                 window = []
                 await asyncio.sleep(.05)
                 continue
-            target = scenario.target_at(elapsed)
+            target = (world_clock.target_at_host(follow_start+elapsed) if world_clock is not None
+                      else scenario.target_at(elapsed))
             if target is None:
                 raise ValueError("native_component_post_transition_target_truth_missing")
             response.append(dict(timestamp=elapsed, phase=state.phase.value,
@@ -833,6 +950,9 @@ async def run(args, isolation):
     output.mkdir(parents=True, exist_ok=False, mode=0o700)
     for directory in ("trace", "px4"):
         (output / directory).mkdir()
+    world_clock = (WorldTargetClock.from_file(args.target_clock) if getattr(args, "target_clock", None) else None)
+    if world_clock is not None and args.scenario is None:
+        raise ValueError("native_component_target_clock_requires_scenario")
     config = yaml.safe_load(args.config.read_text())
     if selected.tracker_type is TrackerDataType.GIMBAL_ANGLES:
         config["GimbalTracker"]["MOUNT_TYPE"] = args.mount
@@ -865,6 +985,7 @@ async def run(args, isolation):
                     "trace_timestamp_semantics": "seconds_since_follow_start; follow-clock.json binds its offset"},
         tool_source_sha256=hashlib.sha256(tool_bytes).hexdigest(),
         tool_helpers={"wire_recorder": archive_wire_helper(output)},
+        world_target=None if world_clock is None else world_clock.archive(output),
         transition_acceptance={"maximum_altitude_error_m": 2., "maximum_native_active_gap_s": .100,
                                "independent_ulog_audit_required": True},
     ), indent=2))
@@ -941,6 +1062,8 @@ async def run(args, isolation):
                                                 duration=args.duration, is_vtol=state.is_vtol,
                                                 follower=selected.profile.mode)
                         if args.scenario else yaml.safe_load(selected.template.read_text()))
+        if world_clock is not None:
+            world_clock.require_matching_target(scenario_raw)
         if (selected.tracker_type is TrackerDataType.POSITION_2D
                 and scenario_raw.get("mount_type") != args.mount):
             raise ValueError("native_component_fixed_camera_mount_mismatch")
@@ -1002,11 +1125,20 @@ async def run(args, isolation):
             circuit_breaker=lambda: False,
         )
         attach_component_observer(binding, connection, log, started=started)
-        target_output[0] = tracker_input(connection.last_packet, state, scenario.target_at(0.))
+        initial_target = (world_clock.target_at_host(connection.last_packet["vehicle_pose"]["observed_at_monotonic_s"])
+                          if world_clock is not None else scenario.target_at(0.))
+        target_output[0] = tracker_input(connection.last_packet, state, initial_target)
         initial_evidence = target_evidence()
         if initial_evidence.state is not TargetEvidenceState.CONFIRMED:
             raise ValueError(initial_evidence.reason_code)
-        baseline = await binding.engage()
+        def target_clock_current():
+            if world_clock is not None:
+                now = time.monotonic()
+                world_clock.require_current(now=now)
+                world_clock.require_coverage(now, args.duration+(args.stable_timeout if transition else 0.))
+
+        target_clock_current()
+        baseline = await binding.engage(before_dispatch=target_clock_current if world_clock is not None else None)
         follower.bind_airframe_session(guidance)
 
         async def published(event):
@@ -1023,8 +1155,14 @@ async def run(args, isolation):
         if not commander.submit_intent(baseline):
             raise ValueError(commander.last_error)
         follow_start = time.monotonic()
+        if world_clock is not None:
+            scenario_raw = world_clock.slice_raw(scenario_raw, host_start_s=follow_start,
+                duration_s=args.duration+(args.stable_timeout if transition else 0.))
+            scenario_path.write_text(yaml.safe_dump(scenario_raw, sort_keys=False))
+            scenario = VisualizationScenario.from_yaml(scenario_path)
         (output / "follow-clock.json").write_text(json.dumps(dict(
-            host_origin_s=started, follow_offset_s=follow_start-started), indent=2))
+            host_origin_s=started, follow_offset_s=follow_start-started,
+            target_time_offset_s=None if world_clock is None else follow_start-world_clock.origin_s), indent=2))
         if airspeed_windows:
             fault_injection = AirspeedLossInjection(args.socket, isolation, airspeed_windows, log=log, started=follow_start)
         if transition:
@@ -1050,12 +1188,17 @@ async def run(args, isolation):
                     phase_witness = transition_witness(wire, event=transition, acquisition=client.acquisition_context,
                         not_before_s=follow_start-started+transition.at_s, host_origin_s=started)
                     if phase_witness is not None:
+                        # The relay can forward this reply before its existing
+                        # transport observer has finished processing it.
+                        completed = await wait_transition_terminal(binding, commander,
+                            expected_reason=args.expect_handoff,
+                            timeout_s=commander.publish_timeout_s+commander.command_period_s)
                         terminal_before_cleanup = binding.terminal_reason
                         handoff_reason, handoff_time = terminal_before_cleanup, elapsed
                         result["backend_terminal_reason_before_cleanup"] = terminal_before_cleanup
                         log("transition-terminal-proof.jsonl", dict(timestamp=elapsed,
                             backend_terminal_reason=terminal_before_cleanup, witness=phase_witness,
-                            commander_status=commander.get_status()))
+                            commander_status=completed))
                         break
             if state is None or not commander.running or commander.failed_publishes:
                 raise ValueError("native_publication_or_state_unhealthy")
@@ -1068,9 +1211,11 @@ async def run(args, isolation):
                 mc_request_applied = True
                 log("session-control-updates.jsonl", dict(timestamp=elapsed, control="requested_speed",
                     value=args.mc_request, guidance_identity=asdict(guidance.identity)))
-            target = scenario.target_at(elapsed)
+            target = (world_clock.target_at_host(follow_start+elapsed) if world_clock is not None
+                      else scenario.target_at(elapsed))
             pose_time = max(0., packet["vehicle_pose"]["observed_at_monotonic_s"] - follow_start)
-            measurement_target = scenario.target_at(pose_time)
+            measurement_target = (world_clock.target_at_host(packet["vehicle_pose"]["observed_at_monotonic_s"])
+                                  if world_clock is not None else scenario.target_at(pose_time))
             loss_active = any(start <= elapsed < end for start, end in loss_windows)
             target_output[0] = (loss_tracker_output(selected.tracker_type) if loss_active
                                 else tracker_input(packet, state, measurement_target))
@@ -1152,9 +1297,14 @@ async def run(args, isolation):
             await pilot_fault.close()
             post_transition = await capture_post_transition(client, transition, client.acquisition_context,
                 log=log, started=started, follow_start=follow_start, timeout_s=args.stable_timeout,
-                scenario=scenario, response=response, previous_pose_timestamp_us=previous_pose_timestamp)
+                scenario=scenario, response=response, previous_pose_timestamp_us=previous_pose_timestamp,
+                world_clock=world_clock)
             packet = post_transition["last_packet"]
             (output / "post-transition-settled.json").write_text(json.dumps(post_transition, indent=2))
+        if world_clock is not None:
+            scenario_raw = world_clock.slice_raw(scenario_raw, host_start_s=follow_start,
+                duration_s=max(args.duration, max(row["timestamp"] for row in response)))
+            scenario_path.write_text(yaml.safe_dump(scenario_raw, sort_keys=False))
         altitude_error = max(abs(row["altitude_m"] - initial_altitude) for row in response)
         checks = dict(range_decreased=response[-1]["range_m"] < response[0]["range_m"],
                       altitude_floor=min(row["altitude_m"] for row in response) >= follower.altitude_limits.min_altitude,
@@ -1190,6 +1340,10 @@ async def run(args, isolation):
                 transition_event=asdict(transition), fault_events=pilot_fault.events,
                 independent_native_active_gap_audit={"required_maximum_s": .100, "verified": False},
                 transition_qualified=False)
+        if world_clock is not None:
+            result["world_target"] = dict(target_id=world_clock.target_id,
+                session_offset_s=follow_start-world_clock.origin_s,
+                scenario_sha256=hashlib.sha256(world_clock.scenario_bytes).hexdigest())
     except Exception as error:
         result.update(passed=False, reason=f"{type(error).__name__}:{error}")
         raise
@@ -1242,6 +1396,7 @@ def main():
     parser.add_argument("--config", type=Path, default=ROOT / "configs/config_default.yaml")
     parser.add_argument("--sih-build-manifest", type=Path, help="Verify the running executable against a pinned source-built SIH bundle")
     parser.add_argument("--scenario", type=Path, help="Version-2 world-target YAML; must match mount, altitude and actual airframe")
+    parser.add_argument("--target-clock", type=Path, help="Immutable original YAML/target/host-clock artifact shared across explicit Starts")
     parser.add_argument("--expect-handoff", help="Expected production reason code; an absent or different handoff fails the test")
     parser.add_argument("--mount", choices=("HORIZONTAL", "VERTICAL"), required=True)
     parser.add_argument("--altitude", action="store_true")
@@ -1259,6 +1414,11 @@ def main():
         parser.error("MC request must be finite and nonnegative")
     try:
         component_profile(args.follower)
+        if args.target_clock is not None:
+            if args.scenario is None:
+                parser.error("--target-clock requires an explicit --scenario")
+            target_clock = WorldTargetClock.from_file(args.target_clock)
+            target_clock.require_matching_target(yaml.safe_load(args.scenario.read_text()))
     except ValueError as error:
         parser.error(str(error))
     isolation = verify_simulator(args.container, args.instance, args.socket, sih_build_manifest=args.sih_build_manifest)

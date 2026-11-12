@@ -45,6 +45,147 @@ from tests.fixtures.native_ownership import acquisition, release_receipt
 native_follower_environment = native_image_cases.environment
 
 
+def world_clock_fixture(tmp_path, monkeypatch, **changes):
+    import hashlib
+
+    boot = '11111111-1111-1111-1111-111111111111'
+    monkeypatch.setattr(tool, 'host_boot_id', lambda: boot)
+    raw = yaml.safe_load(component_profile('gm_velocity_vector').template.read_text())
+    raw['target']['waypoints'] = [
+        {'time_s': 0., 'position_ned': [10., 0., -30.]},
+        {'time_s': 20., 'position_ned': [30., 20., -40.]},
+        {'time_s': 120., 'position_ned': [130., 40., -30.]},
+    ]
+    source = tmp_path/'world.yaml'
+    source.write_text(yaml.safe_dump(raw))
+    artifact = dict(schema_version=1, target_id='same-moving-target', frame='local_ned',
+        host_monotonic_origin_s=90., host_boot_id=boot, scenario_yaml='world.yaml',
+        scenario_sha256=hashlib.sha256(source.read_bytes()).hexdigest()) | changes
+    path = tmp_path/'clock.json'
+    path.write_text(json.dumps(artifact))
+    return path, source, raw
+
+
+def test_two_session_slices_preserve_one_global_world_target_and_original_bytes(tmp_path, monkeypatch):
+    path, source, raw = world_clock_fixture(tmp_path, monkeypatch)
+    original_clock, original_yaml = path.read_bytes(), source.read_bytes()
+    first = tool.WorldTargetClock.from_file(path, now=100.)
+    second = tool.WorldTargetClock.from_file(path, now=115.)
+    first.require_matching_target(raw)
+    for session, start in ((first, 100.), (second, 115.)):
+        sliced = session.slice_raw(raw, host_start_s=start, duration_s=30.)
+        destination = tmp_path/('capture-'+str(start))
+        destination.mkdir()
+        metadata = session.archive(destination)
+        assert (destination/metadata['clock_path']).read_bytes() == original_clock
+        assert (destination/metadata['scenario_path']).read_bytes() == original_yaml
+        assert metadata['target_id'] == 'same-moving-target'
+        scenario_path = destination/'scenario.yaml'
+        scenario_path.write_text(yaml.safe_dump(sliced))
+        local = tool.VisualizationScenario.from_yaml(scenario_path)
+        for time_s in (0., 5., 10., 30.):
+            assert local.target_at(time_s) == pytest.approx(session.target_at_host(start+time_s))
+        assert sliced['target']['waypoints'][0]['position_ned'] == session.target_at_host(start)
+    assert first.target_at_host(100.) != second.target_at_host(115.)
+    assert first.target_at_host(99.5) == pytest.approx(first.scenario.target_at(9.5))
+
+
+@pytest.mark.parametrize('change', [
+    {'schema_version': True}, {'schema_version': 2}, {'frame': 'body'}, {'target_id': ''},
+    {'host_monotonic_origin_s': True}, {'host_monotonic_origin_s': float('inf')},
+    {'host_monotonic_origin_s': -1.}, {'host_monotonic_origin_s': 101.},
+    {'host_boot_id': '22222222-2222-2222-2222-222222222222'}, {'scenario_sha256': '0'*64},
+    {'extra': 'ambiguous'},
+])
+def test_target_clock_rejects_invalid_changed_boot_or_future_origin(tmp_path, monkeypatch, change):
+    path, _source, _raw = world_clock_fixture(tmp_path, monkeypatch, **change)
+    with pytest.raises(ValueError):
+        tool.WorldTargetClock.from_file(path, now=100.)
+
+
+@pytest.mark.parametrize('change', ['artifact', 'yaml', 'boot', 'missing'])
+def test_waited_start_cannot_reuse_changed_target_clock_or_source(tmp_path, monkeypatch, change):
+    path, source, _raw = world_clock_fixture(tmp_path, monkeypatch)
+    clock = tool.WorldTargetClock.from_file(path, now=100.)
+    if change == 'artifact':
+        path.write_bytes(path.read_bytes()+b'\n')
+    elif change == 'yaml':
+        source.write_bytes(source.read_bytes()+b'\n')
+    elif change == 'boot':
+        monkeypatch.setattr(tool, 'host_boot_id', lambda: '22222222-2222-2222-2222-222222222222')
+    else:
+        source.unlink()
+    with pytest.raises(ValueError, match='target_clock_changed'):
+        clock.require_current(now=101.)
+
+
+def test_missing_global_coverage_and_changed_target_are_not_clamped_or_reanchored(tmp_path, monkeypatch):
+    path, _source, raw = world_clock_fixture(tmp_path, monkeypatch)
+    clock = tool.WorldTargetClock.from_file(path, now=100.)
+    for receipt in (89.9, 210.1):
+        with pytest.raises(ValueError, match='coverage_missing'):
+            clock.target_at_host(receipt)
+    for duration in (0., -1., float('nan')):
+        with pytest.raises(ValueError):
+            clock.slice_raw(raw, host_start_s=100., duration_s=duration)
+    with pytest.raises(ValueError, match='coverage_missing'):
+        clock.slice_raw(raw, host_start_s=200., duration_s=20.)
+    changed = deepcopy(raw)
+    changed['target']['waypoints'][0]['position_ned'][0] += 1.
+    with pytest.raises(ValueError, match='target_changed'):
+        clock.require_matching_target(changed)
+
+
+async def test_transition_witness_waits_for_the_existing_attempt_without_submitting_or_completing_it():
+    observed = asyncio.Event()
+    binding = SimpleNamespace(terminal_reason=None)
+    status = dict(terminal_failure=False, terminal_failure_reason=None, failed_publishes=0, running=True, task_active=True)
+
+    def read_status():
+        observed.set()
+        return dict(status)
+
+    commander = SimpleNamespace(get_status=read_status,
+        submit_intent=Mock(side_effect=AssertionError('No intent after transition witness')),
+        stop=Mock(side_effect=AssertionError('No synthetic terminal completion')))
+    waiting = asyncio.create_task(tool.wait_transition_terminal(binding, commander,
+        expected_reason='aircraft_transition_observed', timeout_s=.5))
+    await observed.wait()
+    assert not waiting.done()
+    binding.terminal_reason = 'aircraft_transition_observed'
+    status.update(terminal_failure=True, terminal_failure_reason='aircraft_transition_observed', running=False)
+    await asyncio.sleep(0)
+    assert not waiting.done()  # The original publisher attempt still owns its task.
+    status['task_active'] = False
+    completed = await waiting
+    assert completed['terminal_failure_reason'] == 'aircraft_transition_observed'
+    commander.submit_intent.assert_not_called()
+    commander.stop.assert_not_called()
+
+
+@pytest.mark.parametrize('change', ['missing', 'wrong_binding_reason', 'wrong_commander_reason', 'pending_task', 'failed_publish'])
+async def test_missing_or_wrong_same_attempt_terminal_completion_fails(monkeypatch, change):
+    clock = [100.]
+    reason = None if change == 'missing' else 'aircraft_transition_observed'
+    status = dict(terminal_failure=change != 'missing', terminal_failure_reason=reason,
+        failed_publishes=0, running=False, task_active=change == 'pending_task')
+    if change == 'wrong_binding_reason':
+        reason = 'control_owner_lost'
+    elif change == 'wrong_commander_reason':
+        status['terminal_failure_reason'] = 'aircraft_state_stale'
+    elif change == 'failed_publish':
+        status['failed_publishes'] = 1
+
+    async def advance(delay):
+        clock[0] += delay
+
+    monkeypatch.setattr(tool.asyncio, 'sleep', advance)
+    with pytest.raises((ValueError, TimeoutError)):
+        await tool.wait_transition_terminal(SimpleNamespace(terminal_reason=reason),
+            SimpleNamespace(get_status=lambda: dict(status)), expected_reason='aircraft_transition_observed',
+            timeout_s=.1, clock=lambda: clock[0])
+
+
 def test_fw_only_component_supports_vtol_fw_scenario_but_refuses_actual_mc_start(tmp_path):
     selected = component_profile('fw_navigation_chase')
     assert selected.command_contract(is_vtol=True) == 'fixed_wing_external'

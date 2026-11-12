@@ -97,6 +97,21 @@ Native captures also archive the exact runner/shared transparent recorder source
 and hashes, with one host monotonic origin. `follow-clock.json` binds the offset
 of follow-relative traces. The relay records actual requests, replies and refusals
 on the existing single connection and creates no command or reply.
+For serial explicit Starts, `--target-clock FILE` binds one immutable original
+scenario YAML to a shared target ID, NED frame, host monotonic origin and boot ID.
+The JSON artifact requires exactly `schema_version: 1`, `target_id`,
+`frame: local_ned`, `host_monotonic_origin_s`, `host_boot_id`, `scenario_yaml`
+(relative to the artifact or absolute) and `scenario_sha256`. Create it once
+before the first Start; reuse its original bytes and original target YAML for
+later Starts. Each invocation still supplies its own `--scenario` with matching
+target data and the appropriate declared event. Missing coverage, changed bytes
+or a changed host boot refuses engagement. Measurement receipts select target
+truth on the original global clock. Each report retains the originals and a
+local timeline slice; targets are never reset or reanchored to the aircraft.
+After a transition reply appears on the wire, the runner submits no new intent
+and waits within the existing publish budget for that attempt's real lifecycle
+completion. Missing or wrong terminal completion fails; the recorder cannot
+manufacture completion or authorize another phase.
 Phase spans report actual range/altitude changes without replacing the overall
 response checks. In particular, a 6 m/s target can outrun the public 0.25 m/s²
 MC startup ramp in a short transition test. Successful ownership transitions

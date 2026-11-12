@@ -291,3 +291,11 @@ The phase reason is decided in the canonical phase owner. The scoped gate passes
 No-reply transport errors keep the existing generic policy. Current FW guidance
 documentation removes obsolete cross-transition resume instructions while
 retaining historical evidence with its original scope.
+
+The explicit-Start SIH tool now preserves one original world-target clock across
+sessions and exports local report slices. It also waits read-only for the
+existing terminal attempt after a transition witness, avoiding an evidence-relay
+race without manufacturing completion. Its 291-check gate and root's 307-check
+combination pass. The separately frozen lifecycle/viewer independent review finds
+no concrete blocker; actual VTOL remains unqualified pending the next full
+renewal and native ULog-backed scenarios.
