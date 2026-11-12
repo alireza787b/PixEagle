@@ -414,3 +414,26 @@ not a normal publication-timing pass. The native Transition→Auto candidate
 passes eight component tests but still requires a new firmware build and actual
 response comparison. Current scope, plots and exact evidence are recorded in
 the consolidation checkpoint; VTOL admission and hardware remain closed.
+
+The separately built Transition acceleration candidate passes the clean
+`a44dc2a32`/R7 backend gate, but its actual standard-VTOL forward response still
+fails at 2.109 m. That forward path does not exercise the demonstrated reverse
+Transition→Auto reference amplifier. The tailsitter duration/open-loop contrast
+reaches FW and then loses 7.257 m despite a level objective; it is rejected as a
+tuning solution. Actual MC EOF and stale-acquisition ownership checks are
+supported with retained native logs. A same-mode case exposes a diagnostic
+expectation error: an old terminal receipt is immutable even after a later
+independent pilot Hold. Its failed capture remains unchanged. Source-backed
+preparation/archive repairs and narrow-screen replay validation are recorded in
+the checkpoint; physical qualification, saved defaults and remote publication
+remain unchanged.
+
+The paired reverse diagnostic exposes a real observe/intent race before the
+candidate acceleration mechanism is reached: native pursuit ends correctly,
+but Python counts the refused intent as a failed publication. `526775f60`
+reuses original-acquisition read-only evidence and the existing terminal
+lifecycle under unchanged deadlines. Root's 608 focused checks and independent
+54-case review pass; full coherent and actual renewal remain required. The
+rejected RPC stays visible and is never counted as an admitted PX4 command.
+The separate same-mode diagnostic fix is committed as `5fa1f35d9`. Neither fix
+changes saved limits, firmware policy or historical failed verdicts.

@@ -410,3 +410,13 @@ remain open. Integration work is unpublished.
   publication timing. Policy 0, full application and transition acceptance remain
   open. The native vertical-reference handover has an eight-test component
   candidate, not an adopted flight fix; see the consolidation checkpoint.
+
+- **2026-11-12 — S7 observe/intent phase-exit race (software repaired; renewal open):** actual R5 reverse
+  Start receives `native_pursuit_ended` after a fresh FW observation. Native
+  original-owner release is correct, but Python counts the correlated refusal
+  as publication failure before observing the transition. Commit `526775f60`
+  reconciles fresh original-acquisition evidence through the existing lifecycle;
+  it never retries the command, counts it as published, or infers transition from
+  an error string. Root's 608 focused checks and independent review pass.
+  Both firmware/source comparisons require renewed gates and actual capture;
+  the earlier failed ULog remains unchanged. See the consolidation checkpoint.
