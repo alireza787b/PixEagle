@@ -35,7 +35,10 @@ altitude-safety and circuit-breaker defaults are preserved.
 authorized target-directed descent, crossing the normal upper speed bound
 alone must not redirect pitch away from the requested path. It does not request
 direct nose alignment, disable underspeed protection, or remove altitude,
-attitude and actuator constraints. It cannot guarantee deceleration in a dive.
+climb/sink, attitude and actuator constraints. It cannot guarantee deceleration
+in a dive or arbitrary dive angles. Steeper target bearings remain constrained
+flight-path objectives; removing an upper airspeed bound alone does not expand
+the aircraft's vertical envelope.
 
 `MIN_DIVE_THROTTLE` is an optional normalized floor during that descent: `0.10`
 means 10%; `null` keeps native behavior. Native actuator bounds remain
@@ -67,6 +70,18 @@ PixEagle does not change that aircraft parameter or substitute groundspeed.
 When PX4 supplies no qualified airspeed, the existing native sensorless behavior
 and explicit `unavailable` observation remain; actual stall margin is unknown.
 A request is still an EAS reference, not a measured or guaranteed aircraft speed.
+
+## Target loss and retargeting
+
+The effective FW continuity policy retains a feasible course and constrained
+airspeed request while easing the vertical objective toward level flight. It
+does not retain a dive, apply MC horizontal decay or command stationary yaw.
+The factory FW time/retarget budget is eight seconds; aircraft authority,
+telemetry and altitude restrictions can end recovery sooner. Repeated taps or
+tracking flaps cannot renew that deadline. Invalid selections preserve the
+current target. Confirmed reacquisition restores guidance smoothly; expiry
+requests and confirms native FW Hold/loiter, ends the session and requires a
+new explicit Start. Hold still involves forward flight.
 
 The isolated SIH comparison retained this default-latched result, then explicitly
 tested `ASPD_FS_T_START=2` as a simulator-only overlay. That case observed sensor
