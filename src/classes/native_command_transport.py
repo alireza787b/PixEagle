@@ -13,7 +13,7 @@ from typing import Awaitable, Callable
 from classes.aircraft_state import AircraftState, AirframePhase, Vector3, heading_frame_to_ned
 from classes.command_intent import CommandIntent
 from classes.fixed_wing_vector_guidance import FixedWingCommand
-from classes.native_guidance import ExternalModeIntent, NativeAcquisitionContext, NativeMulticopterCommand, NativeReleaseReceipt, NativeTransitionCommand
+from classes.native_guidance import ExternalModeIntent, NativeAcquisitionContext, NativeMulticopterCommand, NativeReleaseReceipt
 
 
 class NativeCommandTransport:
@@ -32,7 +32,6 @@ class NativeCommandTransport:
         self.last_feedback = None
         self.last_handoff = None
         self.last_published_intent = None
-        self._pending_identity = None
         self._publication_origin = None
         self._last_publications = None
         self._publication_counter_invalid = False
@@ -104,11 +103,6 @@ class NativeCommandTransport:
             velocity = heading_frame_to_ned(Vector3(fields["vel_body_fwd"], fields["vel_body_right"],
                                                      fields["vel_body_down"]), state.navigation_heading_rad)
             return NativeMulticopterCommand(velocity, math.radians(fields["yawspeed_deg_s"]))
-        if state.phase is AirframePhase.VTOL_TRANSITION and state.is_vtol:
-            if (intent.control_type != "vtol_transition_external"
-                    or set(intent.fields) != {"course_rad", "equivalent_airspeed_m_s"}):
-                raise ValueError("native_transition_command_contract_invalid")
-            return NativeTransitionCommand(**intent.fields)
         raise ValueError("native_phase_contract_unavailable")
 
     def accept_intent(self, intent: CommandIntent) -> CommandIntent:
@@ -119,27 +113,9 @@ class NativeCommandTransport:
         if (isinstance(created, bool) or not isinstance(created, (int, float)) or not math.isfinite(created)
                 or created > now or self._last_created is not None and created < self._last_created):
             raise ValueError("native_command_obsolete")
-        self._command(intent, state, identity=self._pending_identity or self.identity)
+        self._command(intent, state)
         self._last_created = created
         return replace(intent, fields=dict(intent.fields))
-
-    async def advance_generation(self, identity) -> None:
-        acquisition = self._acquisition
-        if acquisition is None:
-            raise ValueError("native_acquisition_context_missing")
-        if self._pending_identity is not None:
-            raise ValueError("native_phase_binding_in_progress")
-        self._pending_identity = identity
-        self._last_created = None
-        try:
-            await self.client.advance_generation(identity, ownership_token=acquisition.token, acquisition=acquisition)
-            self.identity = identity
-            self._sequence = 0
-        except BaseException:
-            self.abort()
-            raise
-        finally:
-            self._pending_identity = None
 
     async def publish(self, intent: CommandIntent | None, *, reason: str, ttl_s: float, before_dispatch=None) -> bool:
         self.last_published_intent = None
@@ -154,7 +130,8 @@ class NativeCommandTransport:
                 reason=reason, before_dispatch=before_dispatch)
             if not isinstance(self.last_handoff, NativeReleaseReceipt):
                 raise ValueError("native_release_receipt_invalid")
-            return self.last_handoff.outcome == "hold_confirmed"
+            self.last_handoff.require_match(self.identity, acquisition.runtime_id, acquisition.token, acquisition)
+            return self.last_handoff.released
         observation = await self.client.observe()
         if (observation.get("fresh") is not True or observation.get("owner_confirmed") is not True
                 or observation.get("rescue_active") is not False):

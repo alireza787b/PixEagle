@@ -2,8 +2,8 @@
 
 This object produces intent only. It owns no publisher, target-loss timer,
 camera transform or aircraft controller. MC math stays in the existing follower;
-FW objectives use native PX4 navigation control. The application binds each new
-generation to its publisher and existing continuity supervisor before submitting.
+FW objectives use native PX4 navigation control. The application binds one
+settled strategy to its publisher and existing continuity supervisor. A later phase change ends this session.
 """
 
 from dataclasses import replace
@@ -18,7 +18,7 @@ from classes.fixed_wing_vector_guidance import FixedWingCommand, FixedWingVector
 from classes.fixed_wing_guidance_policy import FixedWingGuidancePolicy, UpperSpeedPolicy
 from classes.gimbal_guidance import GimbalObservationLimits
 from classes.guidance_phase_session import GuidancePhaseSession, PhaseDecision, PhaseSessionState
-from classes.native_guidance import NativeCapabilities, NativeTransitionCommand
+from classes.native_guidance import NativeCapabilities
 from classes.safety_types import AltitudeLimits
 
 
@@ -27,22 +27,20 @@ class VectorGuidanceSession:
                  profile_name: str, controls: AirframeSessionControls,
                  supported_phases: frozenset[AirframePhase], geometry_policy: BearingGeometryPolicy,
                  altitude_control: bool, altitude_limits: AltitudeLimits, confirmation_s: float,
-                 observation_timeout_s: float, transition_timeout_s: float, clock=time.monotonic,
+                 observation_timeout_s: float, clock=time.monotonic,
                  fixed_wing_policy: FixedWingGuidancePolicy | None = None,
-                 expected_layout: AircraftLayout = AircraftLayout.AUTO):
+                 expected_layout: AircraftLayout = AircraftLayout.AUTO, initial_phase: AirframePhase | None = None):
         if not isinstance(controls, AirframeSessionControls) or controls.identity != identity:
             raise ValueError("session_controls_binding_invalid")
         if (not isinstance(supported_phases, frozenset) or not supported_phases
                 or any(not isinstance(phase, AirframePhase) for phase in supported_phases)
-                or not supported_phases.issubset({AirframePhase.MULTICOPTER, AirframePhase.FIXED_WING,
-                                                AirframePhase.VTOL_TRANSITION})):
+                or not supported_phases.issubset({AirframePhase.MULTICOPTER, AirframePhase.FIXED_WING})):
             raise ValueError("session_supported_phases_invalid")
         self.profile_name = profile_name
         self.supported_phases = supported_phases
         self.phase_owner = GuidancePhaseSession(
             identity, capabilities, confirmation_s=confirmation_s,
-            observation_timeout_s=observation_timeout_s, transition_timeout_s=transition_timeout_s,
-            expected_layout=expected_layout,
+            observation_timeout_s=observation_timeout_s, expected_layout=expected_layout, initial_phase=initial_phase,
         )
         self.controls = controls
         self.fixed_wing = FixedWingVectorGuidance(enable_altitude_control=altitude_control,
@@ -52,8 +50,6 @@ class VectorGuidanceSession:
         self.clock = clock
         self._state = None
         self._engagement_altitude_reference = None
-        self._last_fw_command = None
-        self._transition_reference = None
         self.last_guidance = None
 
     @property
@@ -67,8 +63,7 @@ class VectorGuidanceSession:
     @property
     def control_type(self) -> str:
         return {AirframePhase.MULTICOPTER: "velocity_body_offboard",
-                AirframePhase.FIXED_WING: "fixed_wing_external",
-                AirframePhase.VTOL_TRANSITION: "vtol_transition_external"}.get(self.phase, "unknown")
+                AirframePhase.FIXED_WING: "fixed_wing_external"}.get(self.phase, "unknown")
 
     def observe(self, state: AircraftState, *, owner_confirmed: bool, target_confirmed: bool):
         decision = self.phase_owner.observe(state, now=self.clock(), owner_confirmed=owner_confirmed,
@@ -83,26 +78,13 @@ class VectorGuidanceSession:
         try:
             if self._engagement_altitude_reference is None:
                 self._engagement_altitude_reference = state
-            if state.phase is AirframePhase.VTOL_TRANSITION and self._transition_reference is None:
-                previous = self._state
-                from_fw = previous is not None and previous.phase is AirframePhase.FIXED_WING
-                course = (self._last_fw_command.course_rad if from_fw and self._last_fw_command is not None
-                          else (previous or state).navigation_heading_rad)
-                control = self.controls.current_control
-                envelope = state.fixed_wing_envelope
-                if envelope is None:
-                    raise ValueError("fixed_wing_envelope_unavailable")
-                request = control.value if from_fw and control is not None else envelope.trim_eas_m_s
-                speed, _ = self.fixed_wing.resolve_speed(state, request)
-                self._transition_reference = NativeTransitionCommand(course, speed)
-            if self.controls.identity != self.identity:
+            if self._state is None:
                 self.controls.enter_phase(self.identity, state, now=self.clock(),
                                           timeout_s=self.phase_owner.observation_timeout_s,
                                           unrestricted_verified=(
                                               self.phase_owner.capabilities.unrestricted_speed_supported
                                               and self.fixed_wing.policy.upper_speed_policy is UpperSpeedPolicy.NO_UPPER_SPEED_BOUND))
                 if state.phase is AirframePhase.FIXED_WING:
-                    self._last_fw_command = None
                     self.fixed_wing.begin_phase(self.identity, state, now=self.clock(),
                                                timeout_s=self.phase_owner.observation_timeout_s,
                                                altitude_reference=self._engagement_altitude_reference)
@@ -113,10 +95,6 @@ class VectorGuidanceSession:
             self.end(str(error))
             raise
         self._state = state
-        if decision.pursuit_allowed:
-            self._transition_reference = None
-            if state.phase is AirframePhase.MULTICOPTER:
-                self._last_fw_command = None
         return decision
 
     def require_state(self) -> AircraftState:
@@ -140,17 +118,10 @@ class VectorGuidanceSession:
             )
             return replace(command.intent(self.identity, profile_name=self.profile_name, source=type(self).__name__),
                            reason="phase_confirmation_pending", created_at_monotonic_s=self.clock())
-        elif self.phase is AirframePhase.VTOL_TRANSITION:
-            reference = self._transition_reference
-            if reference is None:
-                raise ValueError("transition_reference_unavailable")
-            speed, _ = self.fixed_wing.resolve_speed(state, reference.equivalent_airspeed_m_s)
-            fields = replace(reference, equivalent_airspeed_m_s=speed).wire_payload()
         else:
             raise ValueError("aircraft_phase_unknown")
         return CommandIntent(self.profile_name, self.control_type, fields, type(self).__name__,
-                             reason="native_transition_in_progress" if state.phase is AirframePhase.VTOL_TRANSITION
-                             else "phase_confirmation_pending", created_at_monotonic_s=self.clock(),
+                             reason="phase_confirmation_pending", created_at_monotonic_s=self.clock(),
                              guidance_identity=self.identity)
 
     def calculate(self, physical_body_ray: Vector3, *, observation_limits: GimbalObservationLimits,
@@ -192,7 +163,6 @@ class VectorGuidanceSession:
 
     def _fixed_wing_intent(self, result) -> CommandIntent:
         self.last_guidance = result
-        self._last_fw_command = result.command
         return replace(result.command.intent(self.identity, profile_name=self.profile_name, source=type(self).__name__),
                        created_at_monotonic_s=self.clock())
 
@@ -207,17 +177,11 @@ class VectorGuidanceSession:
         self.controls.end()
         self._state = None
         self._engagement_altitude_reference = None
-        self._last_fw_command = None
-        self._transition_reference = None
         self.last_guidance = None
         return decision
 
     def guard_native_fields(self, fields: dict) -> dict:
         state = self.require_state()
-        if self.phase is AirframePhase.VTOL_TRANSITION:
-            command = NativeTransitionCommand(**fields)
-            speed, _ = self.fixed_wing.resolve_speed(state, command.equivalent_airspeed_m_s)
-            return replace(command, equivalent_airspeed_m_s=speed).wire_payload()
         intent = CommandIntent(self.profile_name, self.control_type, dict(fields), type(self).__name__,
                                guidance_identity=self.identity)
         command = FixedWingCommand.from_intent(intent)

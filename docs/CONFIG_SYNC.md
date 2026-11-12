@@ -271,13 +271,20 @@ promotion. Contract v2 is versioned even on this compatibility route. Admin
 `config:write` authorization remains required for plan/apply.
 
 `FixedWingGuidance`, `Follower.AIRFRAME_LAYOUT`,
-`Follower.AIRFRAME_PHASE_CONFIRMATION_S` and `Follower.VTOL_TRANSITION_TIMEOUT_S`
-are additive native-guidance
+`Follower.AIRFRAME_PHASE_CONFIRMATION_S` are additive native-guidance
 settings. Missing saved values retain normal PX4 limits, native throttle and
 automatic layout detection; adoption uses preview/apply while following is
 inactive. Their follower-restart tier does not restart an active pursuit.
 An experimental configuration never overrides the runtime's firmware-capability
 check. See [FW guidance policy](followers/04-configuration/fixed-wing-guidance-policy.md).
+
+Schema 1.9 retires `Follower.VTOL_TRANSITION_TIMEOUT_S`: the first fresh transition
+or unexpected settled phase ends following and requires a new Start. Saved
+values remain inert and unchanged until the existing Config Sync preview/apply
+explicitly removes this exact leaf. There is no replacement setting or mapping
+to target-loss budgets. `AIRFRAME_PHASE_CONFIRMATION_S` still controls startup
+confirmation under the original acquisition identity. Live VTOL admission remains
+closed until transition-preserving release is qualified.
 
 Native FW/VTOL engagement requires an explicit `bounded_flight` FW continuity
 policy. A saved legacy policy is not silently upgraded during engagement; use

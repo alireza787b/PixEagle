@@ -43,7 +43,7 @@ def environment(monkeypatch):
             now = [100.]
             owner = follower.create_airframe_session(GuidanceSessionIdentity('prepared-session', state.binding, 0),
                 NativeCapabilities('native', 'test', 2, True, True, False), confirmation_s=.3,
-                observation_timeout_s=.75, transition_timeout_s=10., clock=lambda: now[0])
+                observation_timeout_s=.75, clock=lambda: now[0])
         else:
             owner, now, state = session(altitude=altitude, state=state)
             state = settle(owner, now, state)

@@ -72,20 +72,12 @@ class AirframeSessionControls:
             raise ValueError("session_timeout_invalid")
         if (identity.follow_session_id != self.identity.follow_session_id
                 or identity.binding != self.identity.binding or state.binding != identity.binding
-                or identity.guidance_generation < self.identity.guidance_generation):
+                or identity != self.identity):
             raise ValueError("session_control_identity_stale")
         if not state.fresh(now, timeout_s) or state.rescue_active:
             raise ValueError("aircraft_state_unavailable")
-        if state.phase is self._phase and identity == self.identity:
+        if self._phase is not AirframePhase.UNKNOWN:
             raise ValueError("session_control_phase_already_bound")
-        if self._phase is not AirframePhase.UNKNOWN and identity.guidance_generation <= self.identity.guidance_generation:
-            raise ValueError("session_control_generation_not_advanced")
-        if state.phase is AirframePhase.VTOL_TRANSITION:
-            if self._mc_ceiling is None:
-                raise ValueError("session_control_phase_unavailable")
-            self.identity, self._phase = identity, state.phase
-            self._revision += 1
-            return
         retained = self._requests.get(state.phase)
         if state.phase is AirframePhase.MULTICOPTER:
             if retained is None or self._mc_ceiling is None:
@@ -98,7 +90,7 @@ class AirframeSessionControls:
                 raise ValueError("fixed_wing_envelope_unavailable")
             minimum, ceiling = envelope.minimum_eas_m_s, envelope.maximum_eas_m_s
             initial, _ = FixedWingVectorGuidance.startup_speed(state, now=now, timeout_s=timeout_s)
-            value, label = retained.value if retained is not None else initial, "Airspeed"
+            value, label = initial, "Airspeed"
         else:
             raise ValueError("aircraft_phase_unknown")
         self.identity, self._phase = identity, state.phase
@@ -106,13 +98,11 @@ class AirframeSessionControls:
         override_allowed = state.phase is AirframePhase.MULTICOPTER or unrestricted_verified
         override_active = override_allowed and retained is not None and retained.override_active
         acknowledged = max(minimum, value if override_active else min(value, ceiling))
-        if state.phase is AirframePhase.FIXED_WING and retained is not None:
-            acknowledged = value
-        self._requests[state.phase] = SessionControl(
+        self._requests = {state.phase: SessionControl(
             "requested_speed", label, "m/s", minimum, None if override_allowed else ceiling,
             self._step, acknowledged,
             self._revision, ceiling if override_allowed else None, override_active,
-        )
+        )}
         self._unrestricted_verified = unrestricted_verified
         self._envelope = state.fixed_wing_envelope if state.phase is AirframePhase.FIXED_WING else None
 

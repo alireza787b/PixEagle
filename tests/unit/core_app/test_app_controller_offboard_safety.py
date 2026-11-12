@@ -2654,7 +2654,7 @@ async def test_target_continuity_handoff_records_confirmed_px4_stop():
     ctrl.following_active = True
     ctrl._follower_state_lock = asyncio.Lock()
     ctrl._is_command_preview_session = MagicMock(return_value=False)
-    ctrl._disconnect_px4_internal = AsyncMock(
+    ctrl._disconnect_px4_teardown = AsyncMock(
         return_value={
             "steps": ["Offboard mode stopped on PX4"],
             "errors": [],
@@ -2667,12 +2667,12 @@ async def test_target_continuity_handoff_records_confirmed_px4_stop():
 
     await ctrl._execute_target_continuity_handoff("target_evidence_absent")
 
-    ctrl._disconnect_px4_internal.assert_awaited_once_with(
-        commander_publish_final=False,
-        attempt_offboard_stop=True,
-        reset_continuity=False,
-        reason_code="target_evidence_absent",
-    )
+    ctrl._disconnect_px4_teardown.assert_awaited_once()
+    options = ctrl._disconnect_px4_teardown.call_args.kwargs
+    assert options["commander_publish_final"] is False
+    assert options["attempt_offboard_stop"] is True
+    assert options["reset_continuity"] is False
+    assert options["teardown_context"]["reason_code"] == "target_evidence_absent"
     supervisor.record_handoff_result.assert_called_once_with(
         success=True,
         detail="px4_offboard_stop_confirmed",
@@ -2711,7 +2711,7 @@ async def test_target_continuity_handoff_does_not_overstate_unconfirmed_stop():
     ctrl.following_active = True
     ctrl._follower_state_lock = asyncio.Lock()
     ctrl._is_command_preview_session = MagicMock(return_value=False)
-    ctrl._disconnect_px4_internal = AsyncMock(
+    ctrl._disconnect_px4_teardown = AsyncMock(
         return_value={"steps": ["local cleanup complete"], "errors": []}
     )
     supervisor = MagicMock()

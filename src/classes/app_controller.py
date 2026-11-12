@@ -24,10 +24,10 @@ from classes.following_observation_source import (
     GimbalFollowingSource, ImageFollowingSource, ImageObservationOwner, ObservationSourceVerdict,
     compare_following_observation_source, project_following_observation_source,
 )
-from classes.aircraft_state import AircraftKind, AircraftLayout, GuidanceSessionIdentity
+from classes.aircraft_state import AircraftKind, AircraftLayout, AirframePhase, GuidanceSessionIdentity
 from classes.fixed_wing_guidance_policy import FixedWingGuidancePolicy
 from classes.native_follow_binding import NativeFollowBinding, requires_native_guidance
-from classes.native_guidance import DEFAULT_SOCKET_PATH
+from classes.native_guidance import DEFAULT_SOCKET_PATH, NativeGuidanceError, NativeReleaseReceipt
 from classes.command_preview import (
     COMMAND_PREVIEW_EXECUTION_MODE,
     CommandPreviewCommander,
@@ -3293,6 +3293,9 @@ class AppController:
         state = self.px4_interface.get_aircraft_state()
         if state is None:
             raise RuntimeError("native_aircraft_state_unavailable")
+        phases = self.follower.follower.setpoint_handler.profile_config.get("native_phase_contracts", {})
+        if state.phase not in {AirframePhase.MULTICOPTER, AirframePhase.FIXED_WING} or state.phase.value not in phases:
+            raise RuntimeError("follower_airframe_strategy_unavailable")
         if state.is_vtol and not capabilities.vtol_transition_supported:
             raise RuntimeError("native_vtol_contract_unavailable")
         layout = AircraftLayout(getattr(Parameters, "AIRFRAME_LAYOUT", "AUTO"))
@@ -3307,7 +3310,7 @@ class AppController:
             identity, capabilities,
             confirmation_s=getattr(Parameters, "AIRFRAME_PHASE_CONFIRMATION_S", .5),
             observation_timeout_s=self.px4_interface.get_telemetry_stale_timeout_s(),
-            transition_timeout_s=getattr(Parameters, "VTOL_TRANSITION_TIMEOUT_S", 30.),
+            initial_phase=state.phase,
             fixed_wing_policy=FixedWingGuidancePolicy.from_mapping(getattr(Parameters, "FixedWingGuidance", None)),
             expected_layout=layout,
         )
@@ -3325,12 +3328,9 @@ class AppController:
     async def _stop_native_follow_binding(self, result, *, reason, allow_handoff=True):
         binding = self._native_follow_binding
         try:
-            if allow_handoff:
-                outcome = await binding.stop(reason)
-            else:
+            if not allow_handoff:
                 binding.abort(reason)
-                outcome = {"executed": False, "local_sender_quiesced": True,
-                           "reason": reason, "errors": []}
+            outcome = await binding.stop(reason)
             result["offboard_stop_action"] = outcome
             if outcome.get("errors") or not outcome.get("local_sender_quiesced"):
                 raise RuntimeError("native_follow_release_not_confirmed")
@@ -4287,6 +4287,9 @@ class AppController:
     async def _complete_following_teardown(self, retained, **options) -> Dict[str, Any]:
         """Retain the teardown outcome even if all request waiters disconnect."""
         preview = retained["execution_mode"] == COMMAND_PREVIEW_EXECUTION_MODE
+        native_binding = getattr(self, "_native_follow_binding", None)
+        supervisor = self._get_target_continuity_supervisor() if not options["reset_continuity"] else None
+        session = retained["follow_session_id"]
         try:
             result = await self._disconnect_px4_teardown(
                 teardown_context=retained, **options
@@ -4300,13 +4303,11 @@ class AppController:
                 key: retained[key] for key in
                 ("follow_session_id", "aircraft_uid", "reason_code", "result", "execution_mode")
             }
-            if not options["reset_continuity"]:
-                self._get_target_continuity_supervisor().record_handoff_result(
-                    success=retained["result"] == "confirmed_hold" or preview and retained["result"] == "stopped",
-                    detail=("px4_offboard_stop_confirmed" if retained["result"] == "confirmed_hold"
-                            else "command_preview_stopped" if preview and retained["result"] == "stopped"
-                            else "; ".join(result.get("errors") or ["handoff_not_confirmed"])),
-                )
+            if (not options["reset_continuity"]
+                    and supervisor is getattr(self, "target_continuity", None)
+                    and getattr(self, "_following_session_id", None) in (None, session)):
+                success, detail = self._following_teardown_confirmation(result, preview, native_binding)
+                supervisor.record_handoff_result(success=success, detail=detail)
             if (not result.get("errors") and not self.following_active
                     and getattr(self, "offboard_commander", None) is None
                     and getattr(self, "setpoint_sender", None) is None
@@ -6205,10 +6206,32 @@ class AppController:
     def _stop_following_after_continuity_failure(self, reason: str):
         return self._continuity_cleanup(reason, require_active=False)
 
+    @staticmethod
+    def _following_teardown_confirmation(result, preview, native_binding):
+        """Confirm only this teardown's original native acquisition or MAVSDK outcome."""
+        outcome = result.get("offboard_stop_action") or {}
+        receipt = None
+        if isinstance(native_binding, NativeFollowBinding):
+            try:
+                receipt = native_binding.release_receipt
+            except NativeGuidanceError:
+                pass
+        if native_binding is not None:
+            success = (not result.get("errors") and outcome.get("local_sender_quiesced") is True
+                       and isinstance(receipt, NativeReleaseReceipt) and receipt.released)
+        else:
+            success = not result.get("errors") and (preview or outcome.get("executed") is True)
+        detail = ("command_preview_stopped" if preview and success
+                  else "native_owner_released" if success and receipt is not None
+                  else "px4_offboard_stop_confirmed" if success
+                  else "; ".join(result.get("errors") or ["handoff_not_confirmed"]))
+        return success, detail
+
     def _continuity_cleanup(self, reason: str, *, require_active: bool):
         session = getattr(self, "_following_session_id", None)
         supervisor = self._get_target_continuity_supervisor()
         preview = self._is_command_preview_session()
+        native_binding = getattr(self, "_native_follow_binding", None)
 
         async def cleanup():
             async with self._follower_state_lock:
@@ -6224,13 +6247,7 @@ class AppController:
             if (getattr(self, "_following_session_id", None) not in (None, session)
                     or supervisor is not getattr(self, "target_continuity", None)):
                 return
-            outcome = result.get("offboard_stop_action") or {}
-            success = not result.get("errors") and (preview or outcome.get("executed") is True)
-            detail = ("command_preview_stopped" if preview and success
-                      else "px4_offboard_stop_confirmed" if success
-                      else "; ".join(result.get("errors") or ["handoff_not_confirmed"]))
-            supervisor.record_handoff_result(success=success,
-                detail=detail if require_active else f"{reason}: {detail}")
+            success, detail = self._following_teardown_confirmation(result, preview, native_binding)
             if require_active:
                 log = logging.info if success else logging.error
                 log("Target continuity handoff (%s): %s", reason, detail)

@@ -58,7 +58,7 @@ class ComponentProfile:
     def command_contract(self, *, is_vtol: bool) -> str:
         native = self.profile.phase_command_contracts
         if is_vtol:
-            if not {"multicopter", "fixed_wing", "vtol_transition"}.issubset(native):
+            if not {"multicopter", "fixed_wing"}.issubset(native):
                 raise ValueError("native_component_vtol_contract_unavailable")
             return "vtol_external"
         return native["fixed_wing"]
@@ -739,7 +739,7 @@ async def run(args, isolation):
         guidance = follower.create_airframe_session(
             GuidanceSessionIdentity(output.name, aircraft, 1), capabilities,
             confirmation_s=config["Follower"]["AIRFRAME_PHASE_CONFIRMATION_S"],
-            observation_timeout_s=.75, transition_timeout_s=config["Follower"]["VTOL_TRANSITION_TIMEOUT_S"],
+            observation_timeout_s=.75, initial_phase=state.phase,
             fixed_wing_policy=FixedWingGuidancePolicy.from_mapping(config["FixedWingGuidance"]),
         )
         input_owner = SimpleNamespace(follower=SimpleNamespace(follower=follower), px4_interface=connection)

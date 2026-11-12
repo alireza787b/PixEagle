@@ -187,7 +187,6 @@ follower_profiles:
     native_phase_contracts:
       multicopter: velocity_body_offboard
       fixed_wing: fixed_wing_external
-      vtol_transition: vtol_transition_external
     required_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s"]
     ui_category: "gimbal"
     # Schema-driven tracker data requirements

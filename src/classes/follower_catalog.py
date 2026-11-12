@@ -15,7 +15,6 @@ from typing import Mapping
 NATIVE_PHASE_CONTRACTS = {
     "multicopter": "velocity_body_offboard",
     "fixed_wing": "fixed_wing_external",
-    "vtol_transition": "vtol_transition_external",
 }
 PROFILE_FAMILIES = frozenset({"multicopter", "fixed_wing", "external", "vtol"})
 PROFILE_VISIBILITIES = frozenset({"basic", "advanced", "experimental"})

@@ -53,7 +53,7 @@ and qualification are separate facts.
 | `fw_attitude_rate` | FW visual guidance, direct rates | Existing research implementation; current live gate remains until qualified |
 | `fw_navigation_chase` | Calibrated FW image pursuit | New native course/EAS/vertical contract; explicit calibration and timing association; live gate remains closed |
 | `gm_velocity_chase` | Gimbal PID pursuit | Provider observations; MC velocity guidance |
-| `gm_velocity_vector` | External/gimbal Vector pursuit | MC Vector and developing native FW/transition strategies; qualification is phase-specific |
+| `gm_velocity_vector` | External/gimbal Vector pursuit | MC Vector and native FW strategies selected at Start; transition ends following; qualification is phase-specific |
 
 **Public FW qualification remains open.** There is no general image-based FW
 body-velocity Chase today. The new navigation strategy commands course,
@@ -212,12 +212,13 @@ target checks. Tracking/video may remain active. Clear session overrides and
 experimental policy bindings; do not restore them in the new session. The new
 session has a new identity, control initialization and continuity budget.
 
-**Transition-preserving release is not implemented by today's ordinary Stop.**
-`ExternalMode::stopOwnedMode()` currently requests AUTO_LOITER when it still owns
-the mode, including socket disconnect; `NativeFollowBinding.stop()` expects Hold.
-Neither proves that an ongoing pilot-requested transition will be preserved.
-S7 must distinguish ordinary Stop-to-Hold from transition termination, verify
-actual authority release/native transition, and report its distinct result.
+**Transition-preserving release remains unqualified.** The original-bound native
+release conditionally requests AUTO_LOITER; its receipt proves release, not
+transition completion. Pinned PX4 source does not show Loiter aborting the
+transition request, so test that existing path before adding another interface.
+S7 must verify actual authority release and both transition directions, recording
+their separate outcomes. Backend sessions now end instead of resuming in another
+phase; live VTOL admission remains closed until those actual tests pass.
 Use fresh observed phase/ownership, not an arbitrary client-provided reason, to
 authorize this outcome. Test takeover before/after release, lost replies, EOF and
 late cleanup. Never cancel the transition with an obsolete Hold or simply drop

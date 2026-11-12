@@ -13,10 +13,14 @@ operator contract; see the [consolidation plan](../05-development/follower-conso
 | Setting | Factory value | Meaning |
 | --- | --- | --- |
 | `Follower.AIRFRAME_LAYOUT` | `AUTO` | Use fresh PX4 state; an explicit MC/FW/VTOL/tailsitter choice verifies the installation |
-| `Follower.AIRFRAME_PHASE_CONFIRMATION_S` | `0.5` | Fresh settled phase required before a new Start |
-| `Follower.VTOL_TRANSITION_TIMEOUT_S` | `30` | Historical transition-session timeout; not permission to follow through transition |
+| `Follower.AIRFRAME_PHASE_CONFIRMATION_S` | `0.5` | Fresh settled phase dwell during Start under the original acquisition identity |
 | `FixedWingGuidance.UPPER_SPEED_POLICY` | `px4_configured_max` | Respect the current native PX4 airspeed envelope |
 | `FixedWingGuidance.MIN_DIVE_THROTTLE` | `null` | Keep native throttle behavior |
+
+Schema 1.9 retires `Follower.VTOL_TRANSITION_TIMEOUT_S`. Its saved value remains
+inert until explicit Config Sync preview/apply removes that leaf; it has no
+replacement and cannot extend target recovery. The first fresh transition or
+unexpected phase ends following; returning telemetry cannot resume it.
 
 The Dashboard exposes these through the canonical configuration service. Apply
 changes while following is inactive; they use the existing follower-restart

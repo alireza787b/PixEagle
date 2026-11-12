@@ -23,20 +23,20 @@ from tools.sitl_gimbal_geometry_fixture import camera_angles_for_world_target
 OBSERVATION_LIMITS = GimbalObservationLimits()
 
 
-def session(*, altitude=True, state=None):
+def session(*, altitude=True, state=None, session_id="follow"):
     state = state or aircraft_state(is_vtol=True, is_tailsitter=True)
     now = [100.]
-    identity = GuidanceSessionIdentity("follow", state.binding, 1)
+    identity = GuidanceSessionIdentity(session_id, state.binding, 1)
     owner = VectorGuidanceSession(
         identity,
         NativeCapabilities("native", "test", 2, True, True, False, True, 23),
         profile_name="gm_velocity_vector",
         controls=AirframeSessionControls.from_multicopter_control(identity,
             SessionControl("requested_speed", "3D speed", "m/s", 0., None, .5, 0., configured_maximum=6.)),
-        supported_phases=frozenset({AirframePhase.MULTICOPTER, AirframePhase.FIXED_WING, AirframePhase.VTOL_TRANSITION}),
+        supported_phases=frozenset({AirframePhase.MULTICOPTER, AirframePhase.FIXED_WING}),
         geometry_policy=GimbalGuidancePolicy().geometry,
         altitude_control=altitude, altitude_limits=AltitudeLimits(5., 120., 2.), confirmation_s=.3,
-        observation_timeout_s=.75, transition_timeout_s=10., clock=lambda: now[0],
+        observation_timeout_s=.75, clock=lambda: now[0],
     )
     return owner, now, state
 
@@ -64,7 +64,7 @@ def fixed_wing_session(*, altitude=True):
         profile_name='fw_navigation_fixture', controls=AirframeSessionControls.for_fixed_wing(identity, step_m_s=.5),
         supported_phases=frozenset({AirframePhase.FIXED_WING}), geometry_policy=GimbalGuidancePolicy().geometry,
         altitude_control=altitude, altitude_limits=AltitudeLimits(5., 120., 2.), confirmation_s=.3,
-        observation_timeout_s=.75, transition_timeout_s=10., clock=lambda: now[0],
+        observation_timeout_s=.75, clock=lambda: now[0],
     )
     return owner, now, state
 
@@ -111,8 +111,8 @@ def test_fw_only_session_uses_native_startup_and_shared_world_ray_objective(alti
 
 
 @pytest.mark.parametrize('phase,reason', [
-    (AirframePhase.MULTICOPTER, 'phase_changed_without_observed_transition'),
-    (AirframePhase.VTOL_TRANSITION, 'unsupported_aircraft_phase'),
+    (AirframePhase.MULTICOPTER, 'aircraft_phase_changed'),
+    (AirframePhase.VTOL_TRANSITION, 'aircraft_transition_observed'),
 ])
 def test_fw_only_session_ends_when_phase_changes_and_never_resumes(phase, reason):
     owner, now, state = fixed_wing_session()
@@ -122,7 +122,6 @@ def test_fw_only_session_ends_when_phase_changes_and_never_resumes(phase, reason
     decision, state = observe(owner, now, state, phase=phase)
     assert not decision.pursuit_allowed
     assert decision.reason == reason
-    assert not decision.transition_setpoints_required
     assert owner.controls.snapshot(client_contract_version=2) is None
     now[0] += .1
     decision, state = observe(owner, now, state, phase=AirframePhase.FIXED_WING)
@@ -147,7 +146,7 @@ def test_supported_phase_declaration_is_explicit_and_typed(phases):
         VectorGuidanceSession(
             owner.identity, owner.phase_owner.capabilities, profile_name='fw_fixture', controls=owner.controls,
             supported_phases=phases, geometry_policy=GimbalGuidancePolicy().geometry, altitude_control=True,
-            altitude_limits=owner.altitude_limits, confirmation_s=.3, observation_timeout_s=.75, transition_timeout_s=10.,
+            altitude_limits=owner.altitude_limits, confirmation_s=.3, observation_timeout_s=.75,
         )
 
 
@@ -159,7 +158,7 @@ def test_controls_from_another_session_cannot_be_adopted():
             owner.identity, owner.phase_owner.capabilities, profile_name='fw_fixture', controls=foreign,
             supported_phases=frozenset({AirframePhase.FIXED_WING}), geometry_policy=GimbalGuidancePolicy().geometry,
             altitude_control=True, altitude_limits=owner.altitude_limits, confirmation_s=.3,
-            observation_timeout_s=.75, transition_timeout_s=10.,
+            observation_timeout_s=.75,
         )
 
 
@@ -180,133 +179,49 @@ def test_fw_uses_native_contract_and_never_calls_multicopter_math(altitude):
     callback.assert_not_called()
 
 
-def test_confirming_and_transition_use_phase_safe_contracts_without_pursuit():
-    owner, now, state = session(state=aircraft_state(phase=AirframePhase.MULTICOPTER,
-                                                   is_vtol=True, is_tailsitter=True))
+@pytest.mark.parametrize("initial", [AirframePhase.MULTICOPTER, AirframePhase.FIXED_WING])
+@pytest.mark.parametrize("altitude", [False, True])
+def test_startup_uses_original_identity_and_transition_ends_without_resume(initial, altitude):
+    owner, now, state = session(altitude=altitude, state=aircraft_state(
+        phase=initial, is_vtol=True, is_tailsitter=True))
+    original = owner.identity
     _, state = observe(owner, now, state)
-    callback = Mock(side_effect=AssertionError("pursuit called before confirmation"))
-    baseline = owner.calculate(Vector3(1., 0., 0.), observation_limits=OBSERVATION_LIMITS, multicopter_calculate=callback)
-    assert set(baseline.fields.values()) == {0.}
-    mc_generation = owner.identity.guidance_generation
+    baseline = owner.baseline()
+    assert baseline.guidance_identity == original
+    assert owner.controls.identity == original
+    if initial is AirframePhase.MULTICOPTER:
+        assert set(baseline.fields.values()) == {0.}
+    else:
+        assert baseline.fields.get("height_rate_m_s", 0.) == 0.
+    state = settle(owner, now, state)
     now[0] += .1
-    result, state = observe(owner, now, state, phase=AirframePhase.VTOL_TRANSITION)
-    assert result.transition_setpoints_required
-    intent = owner.calculate(Vector3(-1., 0., 0.), observation_limits=OBSERVATION_LIMITS, multicopter_calculate=callback)
-    assert intent.control_type == "vtol_transition_external"
-    assert intent.fields["equivalent_airspeed_m_s"] == 18.
-    assert intent.guidance_identity.guidance_generation > mc_generation
+    decision, state = observe(owner, now, state, phase=AirframePhase.VTOL_TRANSITION)
+    assert decision.reason == "aircraft_transition_observed"
+    assert decision.generation == original.guidance_generation + 1
     assert owner.controls.snapshot(client_contract_version=2) is None
-    callback.assert_not_called()
-
-
-def test_transition_course_is_latched_across_tailsitter_yaw_wrapping_and_phase_flaps():
-    owner, now, state = session(state=aircraft_state(phase=AirframePhase.MULTICOPTER,
-                                                   is_vtol=True, is_tailsitter=True,
-                                                   navigation_heading_rad=.7))
-    state = settle(owner, now, state)
-    for phase, heading in ((AirframePhase.VTOL_TRANSITION, 3.13),
-                            (AirframePhase.VTOL_TRANSITION, -3.13),
-                            (AirframePhase.FIXED_WING, 1.2),
-                            (AirframePhase.VTOL_TRANSITION, -2.)):
+    for phase in (AirframePhase.MULTICOPTER, AirframePhase.FIXED_WING):
         now[0] += .1
-        state = replace(state, navigation_heading_rad=heading)
-        _, state = observe(owner, now, state, phase=phase)
-        if phase is AirframePhase.VTOL_TRANSITION:
-            assert owner.baseline().fields["course_rad"] == .7
-            assert owner.baseline().fields["equivalent_airspeed_m_s"] == 18.
+        repeated, state = observe(owner, now, state, phase=phase)
+        assert repeated == decision
+        with pytest.raises(ValueError, match="guidance_session_ended"):
+            owner.baseline()
 
 
-def test_transition_retains_fw_request_with_current_native_bounds_and_no_deadline_reset():
-    owner, now, state = session()
-    state = settle(owner, now, state)
-    control = owner.controls.current_control
-    owner.controls.update(25., identity=owner.identity, expected_revision=control.revision)
-    command = owner.calculate(Vector3(1., 1., 0.), observation_limits=OBSERVATION_LIMITS, multicopter_calculate=Mock())
-    course = command.fields["course_rad"]
-    now[0] += .1
-    _, state = observe(owner, now, state, phase=AirframePhase.VTOL_TRANSITION)
-    assert owner.baseline().fields == {"course_rad": course, "equivalent_airspeed_m_s": 25.}
-    now[0] += .1
-    state = replace(state, navigation_heading_rad=-2.,
-                    fixed_wing_envelope=replace(state.fixed_wing_envelope, maximum_eas_m_s=22.))
-    _, state = observe(owner, now, state)
-    assert owner.baseline().fields == {"course_rad": course, "equivalent_airspeed_m_s": 22.}
-
-
-def test_return_to_mc_discards_old_fw_course_before_a_later_front_transition():
-    owner, now, state = session()
-    state = settle(owner, now, state)
-    old = owner.calculate(Vector3(1., 1., 0.), observation_limits=OBSERVATION_LIMITS, multicopter_calculate=Mock())
-    for phase in (AirframePhase.VTOL_TRANSITION, AirframePhase.MULTICOPTER):
-        now[0] += .1
-        _, state = observe(owner, now, state, phase=phase)
-    now[0] += .31
-    state = replace(state, navigation_heading_rad=-1.)
-    _, state = observe(owner, now, state)
-    now[0] += .1
-    state = replace(state, navigation_heading_rad=2.)
-    _, state = observe(owner, now, state, phase=AirframePhase.VTOL_TRANSITION)
-    assert owner.baseline().fields["course_rad"] == -1.
-    assert owner.baseline().fields["course_rad"] != old.fields["course_rad"]
-
-
-def test_phase_changes_preserve_separate_speed_requests_and_reject_old_editors():
-    owner, now, state = session(state=aircraft_state(phase=AirframePhase.MULTICOPTER,
-                                                   is_vtol=True, is_tailsitter=True))
-    state = settle(owner, now, state)
-    mc_identity = owner.identity
-    control = owner.controls.current_control
-    owner.controls.update(3., identity=mc_identity, expected_revision=control.revision)
-    now[0] += .1
-    _, state = observe(owner, now, state, phase=AirframePhase.VTOL_TRANSITION)
-    now[0] += .1
-    _, state = observe(owner, now, state, phase=AirframePhase.FIXED_WING)
-    now[0] += .31
-    _, state = observe(owner, now, state)
-    assert owner.controls.current_control.value == 20.
-    with pytest.raises(ValueError, match="identity_stale"):
-        owner.controls.update(4., identity=mc_identity, expected_revision=owner.controls.current_control.revision)
-    for phase in (AirframePhase.VTOL_TRANSITION, AirframePhase.MULTICOPTER):
-        now[0] += .1
-        _, state = observe(owner, now, state, phase=phase)
-    now[0] += .31
-    result, state = observe(owner, now, state)
-    assert result.pursuit_allowed
-    assert owner.controls.current_control.value == 3.
-
-
-def test_vtol_altitude_hold_keeps_session_engagement_reference_across_phase_cycles():
-    owner, now, state = session(altitude=False, state=aircraft_state(
+def test_new_start_selects_new_speed_and_height_instead_of_reviving_old_phase():
+    first, now, state = session(altitude=False, state=aircraft_state(
         phase=AirframePhase.MULTICOPTER, is_vtol=True, is_tailsitter=True))
-    state = settle(owner, now, state)
-    engagement_altitude = state.altitude_amsl_m
-    for phase, altitude in [(AirframePhase.VTOL_TRANSITION, 548.), (AirframePhase.FIXED_WING, 547.),
-                            (AirframePhase.VTOL_TRANSITION, 548.), (AirframePhase.MULTICOPTER, 548.),
-                            (AirframePhase.VTOL_TRANSITION, 546.), (AirframePhase.FIXED_WING, 545.)]:
-        now[0] += .1
-        state = replace(state, altitude_amsl_m=altitude)
-        _, state = observe(owner, now, state, phase=phase)
-        if phase is not AirframePhase.VTOL_TRANSITION:
-            now[0] += .31
-            _, state = observe(owner, now, state)
-        if phase is AirframePhase.FIXED_WING:
-            command = owner.calculate(Vector3(1., 0., .2), observation_limits=OBSERVATION_LIMITS,
-                                      multicopter_calculate=Mock())
-            assert command.fields["altitude_amsl_m"] == engagement_altitude
-
-
-def test_transition_cannot_recapture_a_changed_altitude_reference():
-    owner, now, state = session(altitude=False, state=aircraft_state(
-        phase=AirframePhase.MULTICOPTER, is_vtol=True, is_tailsitter=True))
-    state = settle(owner, now, state)
+    state = settle(first, now, state)
+    first.controls.update(3., identity=first.identity, expected_revision=first.controls.current_control.revision)
     now[0] += .1
-    _, state = observe(owner, now, state, phase=AirframePhase.VTOL_TRANSITION)
-    now[0] += .1
-    state = replace(state, altitude_reference_generation=state.altitude_reference_generation + 1)
-    with pytest.raises(ValueError, match="altitude_reference_changed"):
-        observe(owner, now, state, phase=AirframePhase.FIXED_WING)
-    with pytest.raises(ValueError, match="guidance_session_ended"):
-        owner.baseline()
+    observe(first, now, state, phase=AirframePhase.VTOL_TRANSITION)
+    second, next_now, next_state = session(altitude=False, session_id="new-start", state=aircraft_state(
+        phase=AirframePhase.FIXED_WING, altitude_amsl_m=560., is_vtol=True, is_tailsitter=True))
+    settle(second, next_now, next_state)
+    command = second.calculate_ned(Vector3(1., 0., .2).normalized(), frame="ned")
+    assert second.controls.current_control.value == 20.
+    assert command.fields["altitude_amsl_m"] == 560.
+    assert first.controls.current_control is None
+    assert second.identity.follow_session_id != first.identity.follow_session_id
 
 
 @pytest.mark.parametrize("reason", ["takeover", "rescue", "stale", "stop"])
@@ -523,44 +438,16 @@ def test_phase_change_retires_old_ray_and_command_contract(mount):
     control = owner.controls.current_control
     follower.update_session_control("requested_speed", 2., control.revision)
     calculate((40., 0., 0.))
+    original = owner.identity
     now[0] += .1
-    _, state = observe(owner, now, state, phase=AirframePhase.VTOL_TRANSITION)
+    decision, state = observe(owner, now, state, phase=AirframePhase.VTOL_TRANSITION)
+    assert decision.reason == "aircraft_transition_observed"
+    assert owner.identity.guidance_generation == original.guidance_generation + 1
+    assert follower.session_controls() == []
+    with pytest.raises(ValueError, match="guidance_session_ended"):
+        owner.baseline()
     now[0] += .1
-    state = replace(state, attitude_body_to_ned=Quaternion.from_euler(0., math.pi / 2, 0.),
-        attitude_timing=attitude_timing(publication_timestamp_us=1_500_000, sample_timestamp_us=1_490_000,
-            publication_received_at_monotonic_s=now[0], sample_received_at_monotonic_s=now[0]))
-    _, state = observe(owner, now, state, phase=AirframePhase.FIXED_WING)
-    now[0] += .31
-    _, state = observe(owner, now, state)
-    identity = owner.identity
-    speed = owner.controls.current_control.value
-    command = calculate((40., 20., 8.))
-    assert command.fields["course_rad"] == pytest.approx(math.atan2(20., 40.), abs=1e-9)
-    assert command.fields["height_rate_m_s"] < 0.
-    assert owner.identity == identity
-    assert owner.controls.current_control.value == speed
-    # Native FW uses the already associated world ray; MC body-ray filtering
-    # cannot rotate an older measurement with a newer attitude.
-    now[0] += .01
-    _, state = observe(owner, now, state)
-    second = calculate((40., 40., 8.))
-    assert command.fields["course_rad"] < second.fields["course_rad"] == pytest.approx(math.pi / 4)
-    follower.record_submitted_command(second.fields)
-    assert follower._session_velocity_envelope() is None
-    now[0] += .1
-    _, state = observe(owner, now, state, phase=AirframePhase.VTOL_TRANSITION)
-    now[0] += .1
-    state = replace(state, attitude_body_to_ned=Quaternion(1., 0., 0., 0.))
-    _, state = observe(owner, now, state, phase=AirframePhase.MULTICOPTER)
-    # A paused MC baseline must never read velocity keys from a FW course/EAS command.
-    baseline = follower.limit_session_control_command(owner.baseline().fields)
-    baseline = follower.limit_authorized_command(baseline)
-    assert all(value == 0. for value in baseline.values())
-    follower.record_submitted_command(baseline)
-    now[0] += .31
-    _, state = observe(owner, now, state)
-    assert owner.controls.current_control.value == 2.
-    resumed = calculate((40., 20., 0.))
-    bounded = follower.limit_authorized_command(follower.limit_session_control_command(resumed.fields))
-    assert all(math.isfinite(value) for value in bounded.values())
-    assert 0. < math.hypot(*(bounded[k] for k in ('vel_body_fwd', 'vel_body_right', 'vel_body_down'))) < 2.
+    decision, state = observe(owner, now, state, phase=AirframePhase.FIXED_WING)
+    assert decision.reason == "aircraft_transition_observed"
+    with pytest.raises(ValueError, match="guidance_session_ended"):
+        owner.calculate_ned(Vector3(1., 0., 0.), frame="ned")

@@ -3,6 +3,13 @@ registry_version: 1
 # Only exact paths listed here may be removed by config migration. Absence from
 # config_default.yaml or config_schema.yaml never makes an extension obsolete.
 retirements:
+  - id: end-following-on-vtol-transition-v1
+    path: [Follower, VTOL_TRANSITION_TIMEOUT_S]
+    action: remove
+    retired_in_schema_version: 1.9.0
+    reason: Following now ends on the first fresh transition or unexpected phase. This obsolete timeout cannot extend target recovery or authorize automatic resume.
+    replacement: null
+
   - id: split-gimbal-guidance-capabilities-v1
     path: [GimbalTracker, GUIDANCE, CAPABILITIES]
     action: remove

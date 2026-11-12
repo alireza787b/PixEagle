@@ -69,7 +69,11 @@ def test_layout_verifies_installation_without_forcing_a_phase(phase, vtol, tail,
     owner = session()
     owner.expected_layout = expected
     result = owner.observe(state, now=100., owner_confirmed=True, target_confirmed=True)
-    assert result.phase is phase
+    if phase is AirframePhase.VTOL_TRANSITION:
+        assert result.phase is AirframePhase.UNKNOWN
+        assert result.reason == "aircraft_transition_observed"
+    else:
+        assert result.phase is phase
     assert not result.pursuit_allowed
 
 
@@ -89,4 +93,4 @@ def test_layout_configuration_requires_an_explicit_known_enum():
     previous = session()
     with pytest.raises(ValueError, match='aircraft_layout_invalid'):
         GuidancePhaseSession(previous.identity, previous.capabilities, confirmation_s=.5,
-                             observation_timeout_s=.75, transition_timeout_s=10., expected_layout='FIXED_WING')
+                             observation_timeout_s=.75, expected_layout='FIXED_WING')

@@ -75,7 +75,7 @@ def environment(monkeypatch):
             identity = GuidanceSessionIdentity("follow-fixture", state.binding, 1)
             result.session = follower.create_airframe_session(
                 identity, NativeCapabilities(RUNTIME, "fixture", 2, True, False, False),
-                confirmation_s=.3, observation_timeout_s=.75, transition_timeout_s=10., clock=lambda: now[0],
+                confirmation_s=.3, observation_timeout_s=.75, clock=lambda: now[0],
             )
             if settle:
                 result.session.observe(state, owner_confirmed=True, target_confirmed=True)
@@ -156,7 +156,7 @@ def test_readiness_requires_preparation_but_can_validate_before_mode_engagement(
         env.follower.require_guidance_input(env.output, env.state)
     identity = GuidanceSessionIdentity("pending-follow", env.state.binding, 1)
     env.follower.create_airframe_session(identity, NativeCapabilities(RUNTIME, "fixture", 2, True, False, False),
-        confirmation_s=.3, observation_timeout_s=.75, transition_timeout_s=10., clock=lambda: env.now[0])
+        confirmation_s=.3, observation_timeout_s=.75, clock=lambda: env.now[0])
     assert env.follower.require_guidance_input(env.output, env.state) is None
     assert env.follower.setpoint_handler.get_last_command_intent() is None
     assert not env.follower.follow_target(env.output)
@@ -264,7 +264,7 @@ def test_changed_receipt_or_rewritten_state_cannot_become_controller_progress(en
     assert env.follower._last_guidance_intent == original
 
 
-def publication_environment(env, monkeypatch):
+async def publication_environment(env, monkeypatch):
     """Compose real ownership/continuity/publication classes with an in-memory adapter."""
     monkeypatch.setattr('classes.offboard_commander.time', SimpleNamespace(monotonic=lambda: env.now[0]))
     states = AircraftStateOwner(clock=lambda: env.now[0])
@@ -302,6 +302,7 @@ def publication_environment(env, monkeypatch):
         continuity_config=Parameters.TargetContinuity, target_evidence=lambda: app._target_evidence_snapshot(env.output),
         context=lambda: base, circuit_breaker=lambda: False, clock=lambda: env.now[0])
     binding.transport.bind_acquisition(client.acquisition_context)
+    await binding.on_observation(env.state, await client.observe(), None)
     commander = OffboardCommander(connection, env.follower.setpoint_handler,
                                   command_transport=binding.transport, command_ttl_s=.3)
 
@@ -327,7 +328,7 @@ def publication_environment(env, monkeypatch):
 @pytest.mark.asyncio
 async def test_progressing_state_keeps_publication_until_original_image_expiry_then_shared_recovery(environment, monkeypatch):
     env = environment(altitude=True, profile_name='fw_navigation_chase')
-    run = publication_environment(env, monkeypatch)
+    run = await publication_environment(env, monkeypatch)
     measured = env.output.image_measurement
     _, original = await run.dispatch()
     for elapsed in (.35, .2):
@@ -362,7 +363,7 @@ async def test_progressing_state_keeps_publication_until_original_image_expiry_t
 @pytest.mark.asyncio
 async def test_frozen_aircraft_state_and_duplicate_image_cannot_renew_publisher_ttl(environment, monkeypatch):
     env = environment(profile_name='fw_navigation_chase')
-    run = publication_environment(env, monkeypatch)
+    run = await publication_environment(env, monkeypatch)
     _, original = await run.dispatch()
     env.now[0] += .35
     evidence, duplicate = await run.dispatch()

@@ -110,24 +110,24 @@ def test_does_not_restore_commands_from_a_previous_phase_generation():
     assert decision.handoff_request.reason_code == "guidance_context_changed"
 
 
-def test_phase_rebind_never_restarts_an_existing_loss_deadline():
+def test_strategy_cannot_be_rebound_during_an_existing_loss_episode():
     owner = supervisor()
     owner.evaluate(evidence(False), context(), now_monotonic_s=1.)
-    next_context = context(guidance_identity=identity(2))
-    decision = owner.rebind_strategy(owner.policy, intent(generation=2), next_context, now_monotonic_s=4.)
-    assert decision.authorized_intent is None
-    decision = owner.evaluate(evidence(False), next_context, now_monotonic_s=8.9)
-    assert decision.authorized_intent.guidance_identity == identity(2)
-    decision = owner.evaluate(evidence(False), next_context, now_monotonic_s=9.)
+    with pytest.raises(ValueError, match="initial_strategy_already_bound"):
+        owner.bind_initial_strategy(owner.policy, intent(generation=2), context(guidance_identity=identity(2)),
+                                    now_monotonic_s=4.)
+    decision = owner.evaluate(evidence(False), context(), now_monotonic_s=9.)
     assert decision.handoff_request.reason_code == "maximum_coast_time_reached"
 
 
-def test_expired_recovery_cannot_be_revived_by_phase_rebind():
+
+def test_expired_recovery_cannot_be_revived_by_initial_binding():
     owner = supervisor()
     owner.evaluate(evidence(False), context(), now_monotonic_s=1.)
-    decision = owner.rebind_strategy(owner.policy, intent(generation=2), context(guidance_identity=identity(2)),
-                                     now_monotonic_s=9.)
-    assert decision.handoff_request.reason_code == "maximum_coast_time_reached"
+    with pytest.raises(ValueError, match="initial_strategy_already_bound"):
+        owner.bind_initial_strategy(owner.policy, intent(), context(), now_monotonic_s=9.)
+    assert owner.evaluate(evidence(False), context(), now_monotonic_s=9.).handoff_request.reason_code == "maximum_coast_time_reached"
+
 
 
 @pytest.mark.parametrize("execution_mode", ["PX4", "UNKNOWN"])

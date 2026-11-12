@@ -16,7 +16,6 @@ from classes.native_guidance import NativeCapabilities
 class PhaseSessionState(str, Enum):
     STARTING = "starting"
     PURSUIT = "pursuit"
-    TRANSITION = "transition"
     CONFIRMING = "confirming_phase"
     ENDED = "ended"
 
@@ -27,20 +26,20 @@ class PhaseDecision:
     phase: AirframePhase
     generation: int
     pursuit_allowed: bool
-    transition_setpoints_required: bool
     reason: str
 
 
 class GuidancePhaseSession:
     def __init__(self, identity: GuidanceSessionIdentity, capabilities: NativeCapabilities, *,
-                 confirmation_s: float, observation_timeout_s: float, transition_timeout_s: float,
-                 expected_layout: AircraftLayout = AircraftLayout.AUTO):
+                 confirmation_s: float, observation_timeout_s: float,
+                 expected_layout: AircraftLayout = AircraftLayout.AUTO, initial_phase: AirframePhase | None = None):
         if finite_number(confirmation_s, "phase_confirmation") < 0:
             raise ValueError("phase_confirmation_negative")
         if finite_number(observation_timeout_s, "observation_timeout") <= 0:
             raise ValueError("observation_timeout_not_positive")
-        if finite_number(transition_timeout_s, "transition_timeout") <= 0:
-            raise ValueError("transition_timeout_not_positive")
+        if initial_phase is not None and (not isinstance(initial_phase, AirframePhase)
+                                          or initial_phase not in {AirframePhase.MULTICOPTER, AirframePhase.FIXED_WING}):
+            raise ValueError("initial_aircraft_phase_unavailable")
         self.identity = identity
         if not isinstance(expected_layout, AircraftLayout):
             raise ValueError("aircraft_layout_invalid")
@@ -48,15 +47,13 @@ class GuidancePhaseSession:
         self.capabilities = capabilities
         self.confirmation_s = confirmation_s
         self.observation_timeout_s = observation_timeout_s
-        self.transition_timeout_s = transition_timeout_s
+        self.initial_phase = initial_phase
         self.state = PhaseSessionState.STARTING
         self.phase = AirframePhase.UNKNOWN
         self.generation = identity.guidance_generation
         self._sequence = -1
         self._last_observed_at = None
-        self._candidate_phase = None
         self._candidate_started = None
-        self._transition_started = None
         self._reason = "not_started"
 
     @property
@@ -98,39 +95,23 @@ class GuidancePhaseSession:
         self._sequence = observation.sequence
         self._last_observed_at = observation.observed_at_monotonic_s
 
-        if self._transition_started is not None and now - self._transition_started >= self.transition_timeout_s:
-            return self.end("vtol_transition_timeout")
-
         if observation.phase is AirframePhase.VTOL_TRANSITION:
-            if not observation.is_vtol or not self.capabilities.vtol_transition_supported:
-                return self.end("vtol_transition_unavailable")
-            if self.phase is not observation.phase:
-                self._advance_generation()
-            self.phase = observation.phase
-            if self._transition_started is None:
-                self._transition_started = now
-            self.state = PhaseSessionState.TRANSITION
-            self._candidate_phase = None
-            self._candidate_started = None
-            self._reason = "native_transition_in_progress"
-            return self._decision()
-
+            return self.end("aircraft_transition_observed")
+        selected = self.initial_phase or (observation.phase if self.phase is AirframePhase.UNKNOWN else self.phase)
+        if observation.phase is not selected:
+            return self.end("aircraft_phase_changed")
+        self.phase = selected
         if self.state is PhaseSessionState.PURSUIT:
-            if observation.phase is not self.phase:
-                return self.end("phase_changed_without_observed_transition")
             return self._decision()
 
         if observation.phase is AirframePhase.FIXED_WING and not self.capabilities.fixed_wing_supported:
             return self.end("native_fixed_wing_unavailable")
-        if self._candidate_phase is not observation.phase:
-            self._advance_generation()
-            self._candidate_phase = observation.phase
+        if self._candidate_started is None:
             self._candidate_started = now
         self.phase = observation.phase
         self.state = PhaseSessionState.CONFIRMING
         self._reason = "phase_confirmation_pending"
         if now - self._candidate_started >= self.confirmation_s:
-            self._transition_started = None
             if target_confirmed is True:
                 self.state = PhaseSessionState.PURSUIT
                 self._reason = "phase_and_target_confirmed"
@@ -145,4 +126,4 @@ class GuidancePhaseSession:
     def _decision(self) -> PhaseDecision:
         return PhaseDecision(self.state, self.phase, self.generation,
                              self.state is PhaseSessionState.PURSUIT,
-                             self.state is PhaseSessionState.TRANSITION, self._reason)
+                             self._reason)

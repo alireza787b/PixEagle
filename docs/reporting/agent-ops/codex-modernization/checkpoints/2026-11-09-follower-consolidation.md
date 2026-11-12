@@ -1108,3 +1108,35 @@ Both new runtimes are stopped. Their flushed ULogs are retained and hashed
 CLI/wire/registration replies remain the causal ownership witnesses. Backend
 end-on-transition migration and private-protocol retirement are still under
 review. Hardware, installed services, saved profiles and QGC are unchanged.
+
+### S7 end-on-transition backend migration
+
+Start now pins one supported settled phase and initializes its controls and
+continuity policy once under the original acquisition identity. A fresh transition
+or unexpected phase ends the session; settled telemetry cannot resume it. The
+backend's transition pursuit/rebind paths and transition timeout are removed.
+Schema 1.9 retires only `Follower.VTOL_TRANSITION_TIMEOUT_S` through Config Sync
+preview/apply; saved files are not silently rewritten. Startup phase confirmation,
+target-loss budgets, gains and ordinary public/private defaults remain intact.
+
+Native completion uses its already-validated original receipt. Already-released
+ownership is not a new Hold claim; the original supervisor records completion
+once. Review also reproduced a link-loss gap: aborting the socket could discard
+the binding before release proof. That path now aborts, then uses existing
+read-only reconciliation. Failed or mismatched proof retains the original binding
+and Start barrier; a replacement owner is untouched. No additional mode request
+or new recovery service is introduced.
+
+The frozen phase gate passes 708 targeted and 87 Phase 0 checks with schema/static
+verification. Its broad run retained four fixture-migration failures alongside
+4,265 passes; the final targeted renewal covers those corrections, rather than
+claiming a full broad pass. The small link-loss delta passes 487 checks, including
+nine real-client/Unix-protocol-server cases; preserved original code reproduces
+eight failures. Root's migrated ownership/native-vector callers pass 193 checks,
+and the final ownership/link-loss combination passes 67. Manifests are in
+`software-gates-s7-end-transition-r1/` and its `connection-loss-r2/` subdirectory.
+
+The private phase-advance API is retired next in a coordinated protocol cutover.
+Actual transition preservation, process-restart limits and the MAVSDK queued-Stop
+boundary remain S7 gates. These software changes do not reopen VTOL/hardware
+admission or change the installed Pi/QGC.

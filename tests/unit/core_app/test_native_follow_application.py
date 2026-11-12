@@ -349,3 +349,123 @@ async def test_correlated_pilot_release_clears_cleanup_barrier_without_claiming_
     assert fresh.client.engage.await_count == 1
     assert app.f.client.handoff.await_count == 1
     ctrl.px4_interface.stop_offboard_mode.assert_not_called()
+
+
+@pytest.mark.parametrize("outcome", ["hold_confirmed", "owner_already_released"])
+async def test_continuity_cleanup_confirms_identity_bound_release_even_without_hold(app, outcome):
+    ctrl = app.ctrl
+    assert not (await ctrl._connect_px4_on_flight_loop())["errors"]
+    supervisor = ctrl.target_continuity
+    supervisor.record_handoff_result = Mock()
+    app.f.client.handoff.return_value = release_receipt(
+        app.f.client.acquisition_context, outcome=outcome, nav_state=5 if outcome == "owner_already_released" else 4)
+    await ctrl._execute_target_continuity_handoff("aircraft_transition_observed")
+    supervisor.record_handoff_result.assert_called_once_with(success=True, detail="native_owner_released")
+    assert ctrl._native_follow_binding is None
+    assert app.f.binding.release_receipt.released
+    ctrl.px4_interface.stop_offboard_mode.assert_not_called()
+
+
+@pytest.mark.parametrize("invalid", ["bare_boolean", "unquiesced", "wrong_identity"])
+async def test_continuity_cleanup_does_not_trust_unbound_release_flags(app, invalid):
+    ctrl = app.ctrl
+    assert not (await ctrl._connect_px4_on_flight_loop())["errors"]
+    supervisor = ctrl.target_continuity
+    supervisor.record_handoff_result = Mock()
+    acquisition = app.f.client.acquisition_context
+    if invalid != "bare_boolean":
+        from dataclasses import replace
+        app.f.binding._release_receipt = release_receipt(
+            replace(acquisition, token="e" * 32) if invalid == "wrong_identity" else acquisition)
+    if invalid != "wrong_identity":
+        app.f.binding.stop = AsyncMock(return_value={"errors": [], "executed": False,
+            "local_sender_quiesced": invalid != "unquiesced", "released": True})
+    await ctrl._execute_target_continuity_handoff("aircraft_transition_observed")
+    assert supervisor.record_handoff_result.call_args.kwargs["success"] is False
+
+
+async def test_continuity_cleanup_captures_original_binding_before_await(app):
+    ctrl = app.ctrl
+    assert not (await ctrl._connect_px4_on_flight_loop())["errors"]
+    supervisor = ctrl.target_continuity
+    supervisor.record_handoff_result = Mock()
+    cleanup = ctrl._execute_target_continuity_handoff("aircraft_phase_changed")
+    # Teardown clears the App field; the original binding's validated receipt survives.
+    app.f.client.handoff.return_value = release_receipt(
+        app.f.client.acquisition_context, outcome="owner_already_released", nav_state=5)
+    await cleanup
+    assert ctrl._native_follow_binding is None
+    assert supervisor.record_handoff_result.call_args.kwargs["success"] is True
+
+
+async def test_smart_failed_selection_uses_the_same_native_release_completion(app):
+    import threading
+    ctrl = app.ctrl
+    assert not (await ctrl._connect_px4_on_flight_loop())["errors"]
+    ctrl.smart_mode_active = True
+    ctrl._tracker_model_state_lock = threading.RLock()
+    ctrl.smart_tracker = SimpleNamespace(get_selection_snapshot_status=lambda: {"available": True})
+    ctrl._prepare_following_target_transition = Mock(return_value={
+        "prepared": True, "bounded_transition_applied": True, "execution_mode": "PX4"})
+    ctrl._handle_smart_click_locked = Mock(return_value={"success": False, "reason": "no_target"})
+    supervisor = ctrl.target_continuity
+    supervisor.record_handoff_result = Mock()
+    app.f.client.handoff.return_value = release_receipt(
+        app.f.client.acquisition_context, outcome="owner_already_released", nav_state=5)
+    result = await ctrl._select_smart_target_on_flight_loop(1, 2)
+    assert not result["success"]
+    assert not result["following_stop"]["errors"]
+    supervisor.record_handoff_result.assert_called_once_with(success=True, detail="native_owner_released")
+
+
+@pytest.mark.parametrize("replacement", ["new_session", "new_supervisor"])
+async def test_delayed_teardown_does_not_record_into_a_replacement_owner(app, replacement):
+    ctrl = app.ctrl
+    assert not (await ctrl._connect_px4_on_flight_loop())["errors"]
+    original = ctrl.target_continuity
+    original.record_handoff_result = Mock()
+    entered, resume = asyncio.Event(), asyncio.Event()
+    teardown = ctrl._disconnect_px4_teardown
+
+    async def delayed(**kwargs):
+        entered.set()
+        await resume.wait()
+        result = await teardown(**kwargs)
+        if replacement == "new_session":
+            ctrl._following_session_id = "replacement-session"
+        return result
+
+    ctrl._disconnect_px4_teardown = delayed
+    task = asyncio.create_task(ctrl._execute_target_continuity_handoff("aircraft_phase_changed"))
+    await entered.wait()
+    if replacement == "new_session":
+        ctrl._following_session_id = "replacement-session"
+    else:
+        ctrl.target_continuity = Mock()
+    resume.set()
+    await task
+    original.record_handoff_result.assert_not_called()
+    if replacement == "new_supervisor":
+        ctrl.target_continuity.record_handoff_result.assert_not_called()
+
+
+async def test_repeated_continuity_stop_records_one_original_completion(app):
+    ctrl = app.ctrl
+    assert not (await ctrl._connect_px4_on_flight_loop())["errors"]
+    supervisor = ctrl.target_continuity
+    supervisor.record_handoff_result = Mock()
+    entered, resume = asyncio.Event(), asyncio.Event()
+
+    async def delayed_stop(**_):
+        entered.set()
+        await resume.wait()
+        return True
+
+    app.commander.stop.side_effect = delayed_stop
+    first = asyncio.create_task(ctrl._execute_target_continuity_handoff("aircraft_transition_observed"))
+    await entered.wait()
+    second = asyncio.create_task(ctrl._execute_target_continuity_handoff("aircraft_transition_observed"))
+    resume.set()
+    await asyncio.gather(first, second)
+    supervisor.record_handoff_result.assert_called_once_with(success=True, detail="native_owner_released")
+    app.f.client.handoff.assert_awaited_once()

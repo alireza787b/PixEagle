@@ -466,8 +466,6 @@ class Parameters(metaclass=_ParametersMeta):
             follower = normalized_config.get("Follower", {})
             if not 0. <= finite_number(follower.get("AIRFRAME_PHASE_CONFIRMATION_S", .5), "phase_confirmation") <= 5.:
                 raise ValueError("phase_confirmation_out_of_range")
-            if not 1. <= finite_number(follower.get("VTOL_TRANSITION_TIMEOUT_S", 30.), "transition_timeout") <= 120.:
-                raise ValueError("transition_timeout_out_of_range")
         except Exception as exc:
             failures.append(f"aircraft-guidance config validation failed: {exc}")
             logger.warning("Could not validate aircraft-guidance config: %s", exc)

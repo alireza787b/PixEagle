@@ -429,7 +429,7 @@ def test_real_native_gimbal_preengagement_qualifier_uses_the_explicit_fixture_re
             mount_type=mount, runtime_id='native-fixture', run_id='preengagement-test', clock=lambda: env.now[0])
         follower.create_airframe_session(GuidanceSessionIdentity('preengagement-test', env.state.binding, 1),
             NativeCapabilities('native-fixture', 'fixture', 2, True, False, False),
-            confirmation_s=0., observation_timeout_s=.75, transition_timeout_s=10., clock=lambda: env.now[0])
+            confirmation_s=0., observation_timeout_s=.75, clock=lambda: env.now[0])
         output = project_component_input(projected, env.packet, env.state, [100., 20., -40.], timestamp_s=1.)
         owner = SimpleNamespace(follower=SimpleNamespace(follower=follower), px4_interface=connection)
         evidence = component_target_evidence(output, input_owner=owner, session_epoch=1, now=lambda: env.now[0])
@@ -490,7 +490,7 @@ async def test_engagement_and_publication_share_accepted_image_observation_befor
     guidance = follower.create_airframe_session(
         GuidanceSessionIdentity("image-start", env.state.binding, 1),
         NativeCapabilities("native-fixture", "fixture", 2, True, False, False, True, 23),
-        confirmation_s=.3, observation_timeout_s=.75, transition_timeout_s=10., clock=lambda: env.now[0],
+        confirmation_s=.3, observation_timeout_s=.75, clock=lambda: env.now[0],
     )
     output = project_component_input(env.fixture, env.packet, env.state, [100., 20., -40.], timestamp_s=1.)
     input_owner = SimpleNamespace(follower=SimpleNamespace(follower=follower), px4_interface=connection)
@@ -1032,3 +1032,9 @@ def test_source_build_verifies_actual_process_bytes_without_a_checkout_path_conv
         else:
             with pytest.raises(ValueError, match='differs from the verified source build'):
                 verify_simulator('sim', 0, path, sih_build_manifest=tmp_path/'manifest.json')
+
+
+def test_vtol_component_group_requires_settled_strategies_without_transition_pursuit():
+    selected = component_profile("gm_velocity_vector")
+    assert set(selected.profile.phase_command_contracts) == {"multicopter", "fixed_wing"}
+    assert selected.command_contract(is_vtol=True) == "vtol_external"

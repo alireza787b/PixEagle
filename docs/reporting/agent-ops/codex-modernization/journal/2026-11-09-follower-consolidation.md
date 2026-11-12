@@ -252,3 +252,12 @@ the corrected visual summary and distinguishes these checks from sustained
 neutral draining, target tracking and VTOL qualification. Backend phase migration
 and private-protocol cleanup remain in review; hardware and saved settings are
 unchanged.
+
+S7 backend migration now pins a settled strategy at Start and ends on transition
+without automatic resume. It removes the obsolete timeout through schema 1.9 Config
+Sync retirement and records native release once from the original typed receipt.
+Review reproduced/fixed link-loss cleanup dropping ownership before confirmation;
+the same read-only reconciliation now retains unresolved context and the Start
+barrier. Phase gates pass 708/87 checks, the link-loss delta 487 and root integration 67;
+full combined renewal follows private-protocol retirement. Actual VTOL/MAVSDK
+release boundaries, deployment and hardware acceptance remain open.

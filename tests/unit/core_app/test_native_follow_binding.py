@@ -97,7 +97,7 @@ def fixture(*, phase=AirframePhase.FIXED_WING, is_vtol=True):
                                          (AircraftKind.FIXED_WING, True), (AircraftKind.VTOL, True)])
 def test_transport_choice_uses_capabilities_and_actual_aircraft_kind(kind, required):
     profile = {"native_phase_contracts": {"multicopter": "velocity_body_offboard",
-                                         "fixed_wing": "fixed_wing_external", "vtol_transition": "vtol_transition_external"}}
+                                         "fixed_wing": "fixed_wing_external"}}
     assert requires_native_guidance(profile, kind) is required
     assert requires_native_guidance({}, kind) is False
 
@@ -106,7 +106,7 @@ def test_unknown_aircraft_cannot_be_assumed_to_be_a_multicopter():
     with pytest.raises(ValueError, match="aircraft_kind_unavailable"):
         requires_native_guidance({"native_phase_contracts": {"fixed_wing": "fixed_wing_external"}}, AircraftKind.UNKNOWN)
     with pytest.raises(ValueError, match="strategy_unavailable"):
-        requires_native_guidance({"native_phase_contracts": {"fixed_wing": "fixed_wing_external"}}, AircraftKind.VTOL)
+        requires_native_guidance({"native_phase_contracts": {"vtol_transition": "vtol_transition_external"}}, AircraftKind.VTOL)
 
 
 def test_legacy_recovery_configuration_is_not_silently_changed_after_engagement():
@@ -126,7 +126,7 @@ def test_legacy_recovery_configuration_is_not_silently_changed_after_engagement(
 def test_wrong_explicit_layout_is_refused_before_any_command_owner_is_acquired(layout, kind):
     with pytest.raises(ValueError, match="aircraft_layout_mismatch"):
         requires_native_guidance({"native_phase_contracts": {"multicopter": "velocity_body_offboard",
-                                                             "fixed_wing": "fixed_wing_external", "vtol_transition": "vtol_transition_external"}},
+                                                             "fixed_wing": "fixed_wing_external"}},
                                  kind, expected_layout=layout)
 
 
@@ -134,7 +134,7 @@ async def test_engagement_binds_one_generation_and_starts_with_a_phase_safe_obje
     f = fixture()
     baseline = await f.binding.engage()
     assert f.client.engage.await_count == 1
-    assert f.client.advance_generation.await_count == 1
+    f.client.advance_generation.assert_not_called()
     assert baseline.guidance_identity == f.client.session_identity
     assert baseline.control_type == "fixed_wing_external"
     assert baseline.fields["height_rate_m_s"] == 0.
@@ -147,63 +147,53 @@ async def test_engagement_binds_one_generation_and_starts_with_a_phase_safe_obje
         await f.binding.engage()
 
 
-async def test_both_transition_directions_use_one_owner_and_phase_specific_contracts():
-    f = fixture(phase=AirframePhase.MULTICOPTER)
+@pytest.mark.parametrize("phase", [AirframePhase.MULTICOPTER, AirframePhase.FIXED_WING])
+async def test_transition_ends_one_owner_and_does_not_reacquire_or_rebind(phase):
+    f = fixture(phase=phase)
+    original = f.guidance.identity
     await f.binding.engage()
-    identities = [f.guidance.identity]
-    for phase, contract in ((AirframePhase.VTOL_TRANSITION, "vtol_transition_external"),
-                            (AirframePhase.FIXED_WING, "fixed_wing_external"),
-                            (AirframePhase.VTOL_TRANSITION, "vtol_transition_external"),
-                            (AirframePhase.MULTICOPTER, "velocity_body_offboard")):
-        baseline = await f.observation(phase)
-        assert baseline.control_type == contract
-        assert f.binding.context(f.base).pursuit_paused
-        identities.append(f.guidance.identity)
-    assert len(set(identities)) == 5
-    assert f.client.engage.await_count == 1
-    assert f.client.advance_generation.await_count == 5
-    assert f.guidance.controls.current_control.value == 0.
+    with pytest.raises(NativeGuidanceError, match="aircraft_transition_observed"):
+        await f.observation(AirframePhase.VTOL_TRANSITION)
+    assert f.binding.terminal_reason == "aircraft_transition_observed"
+    assert not f.binding.owner_confirmed
+    assert f.guidance.identity.guidance_generation == original.guidance_generation + 1
+    assert f.binding.transport.identity == original
+    f.client.engage.assert_awaited_once()
+    f.client.advance_generation.assert_not_called()
+    with pytest.raises(NativeGuidanceError, match="follow_stopping"):
+        await f.binding.on_observation(f.state, f.packet(), None)
+    result = await f.binding.stop("transition_cleanup")
+    assert result["local_sender_quiesced"]
+    f.client.handoff.assert_not_called()
+    assert f.binding.release_receipt.released
 
 
-async def test_phase_packet_before_next_pose_advances_binding_without_refreshing_old_pose():
+async def test_phase_packet_before_next_pose_ends_without_refreshing_old_pose():
     f = fixture(phase=AirframePhase.MULTICOPTER)
     await f.binding.engage()
     previous = f.connection.get_aircraft_state()
     f.clock[0] += .1
     changed = replace(previous, sequence=previous.sequence + 1, phase=AirframePhase.VTOL_TRANSITION)
     assert f.connection.commit_aircraft_state(changed)
-    intent = await f.binding.on_observation(changed, f.packet(), None)
-    assert intent.control_type == "vtol_transition_external"
-    assert intent.guidance_identity == f.client.session_identity
+    with pytest.raises(NativeGuidanceError, match="aircraft_transition_observed"):
+        await f.binding.on_observation(changed, f.packet(), None)
     assert f.connection.get_aircraft_state().observed_at_monotonic_s == previous.observed_at_monotonic_s
-    assert f.client.engage.await_count == 1
     f.clock[0] += .8
     assert f.connection.get_aircraft_state() is None
 
 
-async def test_transition_keeps_original_target_loss_deadline_and_frozen_configuration():
+async def test_retarget_loss_uses_frozen_configuration_without_phase_rebinding():
     f = fixture()
     baseline = await f.binding.engage()
     f.target[0] = evidence(False)
     f.continuity.evaluate(f.target[0], f.binding.context(f.base), baseline)
-    started = f.continuity.get_status()["loss_elapsed_s"]
-    assert started == 0.
-    f.clock[0] += .1
-    await f.observation(AirframePhase.VTOL_TRANSITION)
-    # Editing the source mapping does not alter an already frozen session.
     f.config["MAX_COAST_TIME_S"] = 50.
+    f.clock[0] += .1
+    await f.observation()
+    assert f.continuity.policy.max_coast_time_s == 8.
+    f.client.advance_generation.assert_not_called()
     f.continuity.evaluate(f.target[0], f.binding.context(f.base), f.guidance.baseline())
     assert f.continuity.get_status()["loss_elapsed_s"] == pytest.approx(.2)
-    for _ in range(77):
-        await f.observation()
-        result = f.continuity.evaluate(f.target[0], f.binding.context(f.base), f.guidance.baseline())
-        assert result.handoff_request is None
-    assert f.continuity.policy.max_coast_time_s == 8.
-    f.clock[0] += .1
-    with pytest.raises(NativeGuidanceError, match="maximum_coast_time_reached"):
-        await f.observation(AirframePhase.FIXED_WING)
-    f.client.abort.assert_called()
-    f.client.submit.assert_not_called()
 
 
 async def test_stop_revokes_controls_before_awaiting_handoff_and_never_reengages():
@@ -440,3 +430,38 @@ async def test_stop_while_acquisition_is_queued_refuses_write_before_dispatch():
     assert f.client.acquisition_context is None
     f.client.observe.assert_not_called()
     f.client.handoff.assert_not_called()
+
+
+@pytest.mark.parametrize("invalid", [False, "fixed_wing", "multicopter", 1, object()])
+def test_initial_phase_is_typed_before_start(invalid):
+    from classes.guidance_phase_session import GuidancePhaseSession
+    f = fixture()
+    with pytest.raises(ValueError, match="initial_aircraft_phase_unavailable"):
+        GuidancePhaseSession(f.guidance.identity, f.guidance.phase_owner.capabilities,
+            confirmation_s=.5, observation_timeout_s=.75, initial_phase=invalid)
+
+
+async def test_cached_release_property_rejects_wrong_binding_and_unreleased_receipt():
+    f = fixture()
+    await f.binding.engage()
+    f.binding._release_receipt = release_receipt(f.client.acquisition_context, outcome="unconfirmed")
+    with pytest.raises(NativeGuidanceError, match="release_unconfirmed"):
+        f.binding.release_receipt
+    f.binding._release_receipt = release_receipt(replace(f.client.acquisition_context, token="e" * 32))
+    with pytest.raises(NativeGuidanceError):
+        f.binding.release_receipt
+    with pytest.raises(NativeGuidanceError):
+        await f.binding.stop("cleanup")
+
+
+async def test_owner_loss_precedence_retains_observed_transition_without_claiming_pilot_cause():
+    f = fixture()
+    await f.binding.engage()
+    state = replace(f.state, sequence=f.state.sequence + 1, phase=AirframePhase.VTOL_TRANSITION)
+    assert f.connection.commit_aircraft_state(state)
+    packet = f.packet() | {"owner_confirmed": False}
+    with pytest.raises(NativeGuidanceError, match="control_owner_lost"):
+        await f.binding.on_observation(state, packet, None)
+    assert f.connection.get_aircraft_state().phase is AirframePhase.VTOL_TRANSITION
+    assert f.binding.terminal_reason == "control_owner_lost"
+    f.client.engage.assert_awaited_once()

@@ -280,7 +280,7 @@ class GMVelocityVectorFollower(BaseFollower):
         session = VectorGuidanceSession(
             identity, capabilities, profile_name=self.profile_name,
             controls=AirframeSessionControls.from_multicopter_control(identity, self._requested_speed_control()),
-            supported_phases=frozenset({AirframePhase.MULTICOPTER, AirframePhase.FIXED_WING, AirframePhase.VTOL_TRANSITION}),
+            supported_phases=frozenset({AirframePhase.MULTICOPTER, AirframePhase.FIXED_WING}),
             geometry_policy=self.guidance_policy.geometry, altitude_control=self.enable_altitude_control,
             altitude_limits=self.altitude_limits, **policy,
         )

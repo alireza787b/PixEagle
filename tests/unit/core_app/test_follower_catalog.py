@@ -34,7 +34,6 @@ def test_all_registered_implementations_have_explicit_operator_and_command_contr
     assert all(item.required_fields for item in catalog.values() if item.control_type != "fixed_wing_external")
     assert catalog["gm_velocity_vector"].phase_command_contracts == {
         "multicopter": "velocity_body_offboard", "fixed_wing": "fixed_wing_external",
-        "vtol_transition": "vtol_transition_external",
     }
     assert catalog["fw_attitude_rate"].phase_command_contracts == {"fixed_wing": "attitude_rate"}
     assert catalog["fw_attitude_rate"].live_eligibility.reason_code == "profile_not_live_qualified"

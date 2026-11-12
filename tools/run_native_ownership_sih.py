@@ -288,13 +288,16 @@ async def stable_aircraft(client, connection, *, timeout, altitude, hold_mode, l
 
 
 def create_session(client, connection, capabilities, identity, config, profile, log, *, run_started) -> Session:
+    state = connection.get_aircraft_state()
+    if not isinstance(state, AircraftState) or state.is_vtol or state.phase is not AirframePhase.FIXED_WING:
+        raise ValueError('ownership_fixture_requires_pure_fixed_wing')
     follower = FollowerFactory.create_follower(profile.mode, connection, (.5, .5))
     supervisor = TargetContinuitySupervisor(ContinuityPolicy.resolve(config['TargetContinuity'], profile.mode,
                                                                    AirframePhase.FIXED_WING))
     supervisor.reset_session(session_epoch=1, reason='ownership_component_baseline')
     guidance = follower.create_airframe_session(identity, capabilities,
         confirmation_s=config['Follower']['AIRFRAME_PHASE_CONFIRMATION_S'], observation_timeout_s=.75,
-        transition_timeout_s=config['Follower']['VTOL_TRANSITION_TIMEOUT_S'],
+        initial_phase=state.phase,
         fixed_wing_policy=FixedWingGuidancePolicy.from_mapping(config['FixedWingGuidance']))
     # No tracker or target is fabricated. The native phase-confirmation baseline is the test objective.
     def no_target():

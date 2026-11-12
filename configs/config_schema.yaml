@@ -1,4 +1,4 @@
-schema_version: 1.8.0
+schema_version: 1.9.0
 meta:
   project: PixEagle
   generated_from: configs/config_default.yaml
@@ -3676,8 +3676,8 @@ sections:
       AIRFRAME_PHASE_CONFIRMATION_S:
         type: float
         default: 0.5
-        description: Fresh settled phase observations required before native pursuit resumes; target confirmation and original
-          recovery deadlines still apply.
+        description: Fresh settled phase observations required before native pursuit starts. A later transition or phase change
+          ends following and requires a new Start.
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
@@ -3685,18 +3685,6 @@ sections:
         step: 0.1
         unit: s
         label: Aircraft phase confirmation
-      VTOL_TRANSITION_TIMEOUT_S:
-        type: float
-        default: 30.0
-        description: Maximum observed native transition/settlement duration. PixEagle does not request transitions or renew
-          target recovery during them.
-        reload_tier: follower_restart
-        reboot_required: false
-        min: 1.0
-        max: 120.0
-        step: 1.0
-        unit: s
-        label: VTOL transition timeout
       USE_MAVLINK2REST:
         type: boolean
         default: true

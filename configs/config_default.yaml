@@ -1000,8 +1000,7 @@ Follower:
   # AUTO follows fresh PX4 state. Explicit choices verify the installation;
   # they do not force a flight phase or change the camera mounting transform.
   AIRFRAME_LAYOUT: AUTO  # AUTO | MULTICOPTER | FIXED_WING | VTOL | VTOL_TAILSITTER
-  AIRFRAME_PHASE_CONFIRMATION_S: 0.5  # Fresh settled phase before resuming pursuit
-  VTOL_TRANSITION_TIMEOUT_S: 30.0     # Does not extend target-loss recovery
+  AIRFRAME_PHASE_CONFIRMATION_S: 0.5  # Fresh settled phase before native pursuit starts
   # === Interface Settings ===
   USE_MAVLINK2REST: true                    # Use REST API for MAVLink
   FOLLOWER_DATA_REFRESH_RATE: 5.0           # Telemetry refresh rate (Hz; runtime sleeps 1/rate)

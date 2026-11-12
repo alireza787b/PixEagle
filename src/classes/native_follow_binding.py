@@ -30,9 +30,8 @@ def requires_native_guidance(profile: dict, aircraft_kind: AircraftKind, *,
         raise ValueError("aircraft_layout_mismatch")
     if aircraft_kind is AircraftKind.MULTICOPTER:
         return False
-    required = ({"multicopter", "fixed_wing", "vtol_transition"} if aircraft_kind is AircraftKind.VTOL
-                else {"fixed_wing"})
-    if not required.issubset(phases):
+    supported = {"multicopter", "fixed_wing"} & set(phases)
+    if not supported or aircraft_kind is AircraftKind.FIXED_WING and "fixed_wing" not in supported:
         raise ValueError("follower_airframe_strategy_unavailable")
     return True
 
@@ -67,6 +66,7 @@ class NativeFollowBinding:
         self._ownership_token = None
         self._acquisition = None
         self._release_receipt = None
+        self._strategy_bound = False
         self._stop_lock = asyncio.Lock()
 
     @property
@@ -82,6 +82,18 @@ class NativeFollowBinding:
     def terminal_reason(self) -> str | None:
         owner = self.guidance.phase_owner
         return owner.reason if owner.state is PhaseSessionState.ENDED else None
+
+    @property
+    def release_receipt(self) -> NativeReleaseReceipt | None:
+        receipt = self._release_receipt
+        if receipt is None:
+            return None
+        if not isinstance(receipt, NativeReleaseReceipt):
+            raise NativeGuidanceError("native_release_receipt_invalid")
+        receipt.require_match(self._acquisition_identity, self._runtime_id, self._ownership_token, self._acquisition)
+        if not receipt.released:
+            raise NativeGuidanceError("native_release_unconfirmed")
+        return receipt
 
     def context(self, base):
         state = self.connection.get_aircraft_state()
@@ -148,22 +160,21 @@ class NativeFollowBinding:
         if decision.state is PhaseSessionState.ENDED:
             self.abort(decision.reason)
             raise NativeGuidanceError(decision.reason)
-        generation_changed = self.transport.identity != self.guidance.identity
-        if generation_changed:
+        if not self._strategy_bound:
             baseline = self.guidance.baseline()
             phase = self.guidance.phase
             policy = ContinuityPolicy.resolve(
                 self._continuity_config, self.profile_name,
-                phase if phase is not AirframePhase.VTOL_TRANSITION else None,
+                phase,
             )
-            result = self.continuity.rebind_strategy(
+            result = self.continuity.bind_initial_strategy(
                 policy, baseline, self.context(self._context()), now_monotonic_s=self.clock(),
             )
             if result.handoff_request is not None:
                 self.abort(result.reason_code)
                 raise NativeGuidanceError(result.reason_code)
-            await self.transport.advance_generation(self.guidance.identity)
-        if (intent is None or generation_changed or not decision.pursuit_allowed
+            self._strategy_bound = True
+        if (intent is None or not decision.pursuit_allowed
                 or intent.guidance_identity != self.guidance.identity):
             return self.guidance.baseline()
         return intent
@@ -188,7 +199,7 @@ class NativeFollowBinding:
             self._acquisition_identity, self._runtime_id, self._ownership_token, self._acquisition)
 
     def _release_result(self, reason):
-        receipt = self._release_receipt
+        receipt = self.release_receipt
         hold = receipt.outcome == "hold_confirmed"
         return {"executed": hold, "local_sender_quiesced": True,
                 "reason": reason if hold else "native_owner_already_released",

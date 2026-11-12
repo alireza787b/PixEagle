@@ -38,6 +38,20 @@ def source_sample():
     return owner, active, retired
 
 
+@pytest.mark.parametrize('phase,is_vtol', [(None, False), ('multicopter', False), ('fixed_wing', True)])
+def test_baseline_refuses_missing_or_other_airframe_before_creating_a_follower(monkeypatch, phase, is_vtol):
+    from classes.aircraft_state import AirframePhase
+    from tests.unit.drone_interface.test_aircraft_state import aircraft_state
+
+    state = None if phase is None else aircraft_state(phase=AirframePhase(phase), is_vtol=is_vtol)
+    connection = SimpleNamespace(get_aircraft_state=lambda: state)
+    factory = Mock(side_effect=AssertionError('wrong-airframe admission must precede follower creation'))
+    monkeypatch.setattr(tool.FollowerFactory, 'create_follower', factory)
+    with pytest.raises(ValueError, match='ownership_fixture_requires_pure_fixed_wing'):
+        tool.create_session(None, connection, None, None, {}, None, None, run_started=0.)
+    factory.assert_not_called()
+
+
 def test_real_saved_px4_listener_timestamp_age_suffix_is_not_freshness():
     packet = tool.parse_owned_samples(FIXTURE.read_text())[0]
     assert packet['timestamp'] == 7268000

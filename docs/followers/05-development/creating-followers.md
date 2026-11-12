@@ -47,8 +47,13 @@ does not grant it.
 `VectorGuidanceSession` accepts preconstructed phase controls and an explicit
 supported-phase set. Gimbal Vector supplies its existing MC declaration; a
 FW-only strategy uses `AirframeSessionControls.for_fixed_wing`, which waits for
-native measured EAS or trim without inventing an MC request or ceiling. An
-unsupported phase ends the session and cannot revive it. Associated world rays
+native measured EAS or trim without inventing an MC request or ceiling. Startup
+initializes controls and continuity once under the original acquisition identity.
+The first fresh transition or unexpected settled phase ends the session; returning
+telemetry cannot resume it or restore phase-specific requests. A new Start is
+required. Native cleanup accepts only the original binding's validated typed
+release receipt after local publication quiesces; already-released authority does
+not imply that PixEagle sent Hold. Associated world rays
 use `calculate_ned`; provider/body rays use the existing capability-checked path.
 These are calculation/lifecycle boundaries, not camera timing or VTOL release
 qualification.
