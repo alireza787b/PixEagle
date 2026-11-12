@@ -1782,6 +1782,14 @@ actual heading/altitude response remain separate gates. Later 50° bank is nativ
 orbit-capture feedback; neither the complete altitude loss nor its remedy is
 established by the initial-heading finding.
 
+The shared simulator verifier now accepts an explicit build-authority context
+for the controlled negative firmware comparison. The same context reaches source
+and pilot-event rechecks; canonical defaults and actual container/process/ELF
+checks are unchanged. No authority can bypass a missing manifest. Root verifies
+394 focused simulator/ownership/build tests, including real derived-manifest
+rejection and acceptance without global authority mutation. One renewed backend
+gate and the matched native-only response remain pending.
+
 Continue the native build verification and separate tailsitter performance investigation, then FW ownership,
 abort/rescue/takeover, fault, mount and full-application matrix. Do not tune a
 follower to conceal a native-only failure or relax the 2 m/100 ms gates.

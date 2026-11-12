@@ -407,7 +407,7 @@ def pilot_transition_event(faults, duration) -> PilotTransitionEvent | None:
     return PilotTransitionEvent(at, phase)
 
 
-def transition_source_contract(isolation):
+def transition_source_contract(isolation, *, build_repository: Path | None = None):
     """Read CLI phase constants from the exact source-built firmware, once."""
     from tools.build_native_guidance import verify_extension
     from tools.sih_baseline import verify_source
@@ -416,7 +416,7 @@ def transition_source_contract(isolation):
     if not build:
         raise ValueError("native_component_transition_requires_verified_source_build")
     source = Path(build["manifest"]).resolve().parent / "context/source"
-    verify_source(source, ROOT, verify_extension)
+    verify_source(source, ROOT if build_repository is None else build_repository, verify_extension)
     message = source / "msg/versioned/VehicleStatus.msg"
     fields = {}
     for phase, name in (("multicopter", "VEHICLE_TYPE_ROTARY_WING"), ("fixed_wing", "VEHICLE_TYPE_FIXED_WING")):
@@ -427,10 +427,13 @@ def transition_source_contract(isolation):
     return dict(vehicle_types=fields, source=str(message), sha256=hashlib.sha256(message.read_bytes()).hexdigest())
 
 
-def native_pilot_transition(socket, isolation, event, initial_phase, contract):
+def native_pilot_transition(socket, isolation, event, initial_phase, contract, *, build_repository: Path | None = None):
     """One opposite-phase simulator CLI request; a zero exit is not phase proof."""
+    if build_repository is not None and not (isolation.get("firmware_build") or {}).get("manifest"):
+        raise ValueError("An explicit SIH build repository requires a verified build manifest")
+    authority = {} if build_repository is None else {"build_repository": build_repository}
     checked = verify_simulator(isolation["container_id"], isolation["instance"], socket,
-        sih_build_manifest=Path(isolation["firmware_build"]["manifest"]))
+        sih_build_manifest=Path(isolation["firmware_build"]["manifest"]), **authority)
     if any(checked[key] != isolation[key] for key in ("container_id", "image_id", "aircraft_uid")):
         raise ValueError("native_component_transition_simulator_changed")
     executable = Path(isolation["process"]["args"][0])
@@ -765,7 +768,10 @@ async def cleanup_component_run(commander, binding, fault_injection, result):
                 result["fault_events"] = fault_injection.events
 
 
-def verify_simulator(container: str, instance: int, socket: Path, *, sih_build_manifest: Path | None = None) -> dict:
+def verify_simulator(container: str, instance: int, socket: Path, *, sih_build_manifest: Path | None = None,
+                     build_repository: Path | None = None) -> dict:
+    if build_repository is not None and sih_build_manifest is None:
+        raise ValueError("An explicit SIH build repository requires a verified build manifest")
     info = json.loads(command("docker", "inspect", container))[0]
     if (info["HostConfig"]["NetworkMode"] != "none" or info["HostConfig"]["Privileged"]
             or info["HostConfig"].get("Devices") or info["NetworkSettings"]["Ports"]):
@@ -774,7 +780,8 @@ def verify_simulator(container: str, instance: int, socket: Path, *, sih_build_m
     if sih_build_manifest is not None:
         from tools.sih_baseline import validate_build_manifest
 
-        baseline = validate_build_manifest(sih_build_manifest)
+        baseline = (validate_build_manifest(sih_build_manifest) if build_repository is None
+                    else validate_build_manifest(sih_build_manifest, repository=build_repository))
     # Inspect the real process and inherited model, not an operator-supplied label.
     script = """import hashlib, json, pathlib, sys
 out=[]

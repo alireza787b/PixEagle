@@ -289,6 +289,14 @@ heading source; each has exactly 28 known generated files. See the
 [independent audit](../reports/sitl/follower-consolidation-20261111/software-gates-s7-heading-functional-actual-audit-r1/REPORT.md).
 Aircraft-response qualification remains pending. No operator runtime setting is added.
 
+Controlled SIH comparisons may use the same builder's temporary negative-control
+authority. The existing simulator verifier, source-contract reader and pilot
+event recheck accept that explicit internal repository context. It requires the
+matching build manifest; the default remains canonical authority, and actual
+container, process, binary, source and event-precondition checks still apply.
+Keep the context alive through original-container archival. This is test tooling,
+with no new operator configuration or alternative runtime verification path.
+
 The acceleration patch supplies the derivative of Transition's existing
 two-second vertical-velocity filter. It does not add a second filter or change
 gains/limits. These tests cover reference handover and real controller

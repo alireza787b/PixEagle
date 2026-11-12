@@ -237,18 +237,21 @@ def test_repeated_or_mixed_pilot_events_refuse(extra):
         component_fault_windows([transition_event(), extra], 15.)
 
 
-def test_pilot_source_contract_reads_attested_constants_not_numeric_guesses(tmp_path, monkeypatch):
+@pytest.mark.parametrize('explicit_authority', [False, True])
+def test_pilot_source_contract_reads_attested_constants_not_numeric_guesses(tmp_path, monkeypatch, explicit_authority):
     message = tmp_path / 'context/source/msg/versioned/VehicleStatus.msg'
     message.parent.mkdir(parents=True)
     message.write_text('uint8 VEHICLE_TYPE_ROTARY_WING = 21\nuint8 VEHICLE_TYPE_FIXED_WING = 22\n')
     verify = Mock()
     monkeypatch.setattr('tools.sih_baseline.verify_source', verify)
-    contract = tool.transition_source_contract({'firmware_build': {'manifest': str(tmp_path/'sih-build-manifest.json')}})
+    authority = {'build_repository': tmp_path/'authority'} if explicit_authority else {}
+    contract = tool.transition_source_contract({'firmware_build': {'manifest': str(tmp_path/'sih-build-manifest.json')}}, **authority)
     assert contract['vehicle_types'] == {'multicopter': 21, 'fixed_wing': 22}
     verify.assert_called_once()
+    assert verify.call_args.args[:2] == (tmp_path/'context/source', authority.get('build_repository', ROOT))
     assert len(contract['sha256']) == 64
     with pytest.raises(ValueError, match='verified_source_build'):
-        tool.transition_source_contract({})
+        tool.transition_source_contract({}, **authority)
 
 
 def cli_transition_context(tmp_path):
@@ -261,7 +264,8 @@ def cli_transition_context(tmp_path):
     return path, isolation, contract, status
 
 
-def test_pilot_cli_rechecks_exact_runtime_and_opposite_actual_phase_once(tmp_path, monkeypatch):
+@pytest.mark.parametrize('explicit_authority', [False, True])
+def test_pilot_cli_rechecks_exact_runtime_and_opposite_actual_phase_once(tmp_path, monkeypatch, explicit_authority):
     path, isolation, contract, status = cli_transition_context(tmp_path)
     verifier = Mock(return_value=isolation)
     monkeypatch.setattr(tool, 'verify_simulator', verifier)
@@ -269,16 +273,18 @@ def test_pilot_cli_rechecks_exact_runtime_and_opposite_actual_phase_once(tmp_pat
     cli = Mock(return_value=subprocess.CompletedProcess([], 0, 'requested', ''))
     monkeypatch.setattr(tool.subprocess, 'run', cli)
     event = tool.PilotTransitionEvent(4., AirframePhase.FIXED_WING)
-    result = tool.native_pilot_transition(path, isolation, event, AirframePhase.MULTICOPTER, contract)
+    authority = {'build_repository': tmp_path/'authority'} if explicit_authority else {}
+    result = tool.native_pilot_transition(path, isolation, event, AirframePhase.MULTICOPTER, contract, **authority)
     verifier.assert_called_once_with('verified-container', 7, path,
-        sih_build_manifest=tmp_path/'sih-build-manifest.json')
+        sih_build_manifest=tmp_path/'sih-build-manifest.json', **authority)
     assert cli.call_args.args[0] == ('docker', 'exec', '--user', str(path.stat().st_uid), 'verified-container',
         '/firmware/bin/px4-commander', '--instance', '7', 'transition')
     assert cli.call_count == 1 and result['before_vehicle_status'] == status
 
 
 @pytest.mark.parametrize('change', ['stale', 'already_transitioning', 'wrong_phase', 'not_vtol', 'wrong_aircraft'])
-def test_changed_pilot_cli_precondition_does_not_issue_transition(tmp_path, monkeypatch, change):
+@pytest.mark.parametrize('explicit_authority', [False, True])
+def test_changed_pilot_cli_precondition_does_not_issue_transition(tmp_path, monkeypatch, change, explicit_authority):
     path, isolation, contract, status = cli_transition_context(tmp_path)
     checked = dict(isolation)
     if change == 'stale':
@@ -297,7 +303,8 @@ def test_changed_pilot_cli_precondition_does_not_issue_transition(tmp_path, monk
     monkeypatch.setattr(tool.subprocess, 'run', cli)
     with pytest.raises(ValueError, match='changed'):
         tool.native_pilot_transition(path, isolation, tool.PilotTransitionEvent(4., AirframePhase.FIXED_WING),
-                                     AirframePhase.MULTICOPTER, contract)
+                                     AirframePhase.MULTICOPTER, contract,
+                                     **({'build_repository': tmp_path/'authority'} if explicit_authority else {}))
     cli.assert_not_called()
 
 
@@ -1413,12 +1420,15 @@ def test_simulator_isolation_is_checked_before_control(monkeypatch, tmp_path, un
 
 
 @pytest.mark.parametrize('matching', [True, False])
-def test_source_build_verifies_actual_process_bytes_without_a_checkout_path_convention(monkeypatch, tmp_path, matching):
+@pytest.mark.parametrize('explicit_authority', [False, True])
+def test_source_build_verifies_actual_process_bytes_without_a_checkout_path_convention(monkeypatch, tmp_path, matching, explicit_authority):
     path = tmp_path / 'native.sock'
     with socket.socket(socket.AF_UNIX) as listener:
         listener.bind(str(path))
         baseline = {'binary_sha256': 'a'*64, 'kind': 'verified_source_build'}
-        monkeypatch.setattr('tools.sih_baseline.validate_build_manifest', lambda _: baseline)
+        validator = Mock(return_value=baseline)
+        monkeypatch.setattr('tools.sih_baseline.validate_build_manifest', validator)
+        authority = {'build_repository': tmp_path/'authority'} if explicit_authority else {}
 
         def read_command(*args):
             if args[1] == 'inspect':
@@ -1436,12 +1446,66 @@ def test_source_build_verifies_actual_process_bytes_without_a_checkout_path_conv
 
         monkeypatch.setattr('tools.run_native_vector_sih.command', read_command)
         if matching:
-            result = verify_simulator('sim', 0, path, sih_build_manifest=tmp_path/'manifest.json')
+            result = verify_simulator('sim', 0, path, sih_build_manifest=tmp_path/'manifest.json', **authority)
             assert result['firmware_build'] is baseline
             assert result['native_socket'] == '/runtime/native.sock'
         else:
             with pytest.raises(ValueError, match='differs from the verified source build'):
-                verify_simulator('sim', 0, path, sih_build_manifest=tmp_path/'manifest.json')
+                verify_simulator('sim', 0, path, sih_build_manifest=tmp_path/'manifest.json', **authority)
+        validator.assert_called_once_with(tmp_path/'manifest.json',
+            **({'repository': authority['build_repository']} if explicit_authority else {}))
+
+
+def test_explicit_build_authority_without_manifest_cannot_downgrade_to_legacy_inspection(tmp_path, monkeypatch):
+    command = Mock(side_effect=AssertionError('No container inspection without the manifest'))
+    monkeypatch.setattr(tool, 'command', command)
+    with pytest.raises(ValueError, match='requires a verified build manifest'):
+        verify_simulator('sim', 0, tmp_path/'native.sock', build_repository=tmp_path/'authority')
+    path, isolation, contract, _ = cli_transition_context(tmp_path)
+    isolation['firmware_build'] = None
+    with pytest.raises(ValueError, match='requires a verified build manifest'):
+        tool.native_pilot_transition(path, isolation, tool.PilotTransitionEvent(4., AirframePhase.FIXED_WING),
+                                    AirframePhase.MULTICOPTER, contract, build_repository=tmp_path/'authority')
+    command.assert_not_called()
+
+
+def test_real_derived_manifest_requires_explicit_context_without_changing_default_authority(tmp_path, monkeypatch):
+    from tests.unit.test_sih_baseline import build_manifest
+    from tools import sih_baseline
+    from tools.px4_functional import select_regression, source_authority
+
+    _, record = select_regression(ROOT, 'fw-mode-transition-heading')
+    original_root = tool.ROOT
+    with source_authority(ROOT, 'baseline', record) as authority:
+        manifest_path, manifest, image = build_manifest(authority, tmp_path/'derived-build')
+        monkeypatch.setattr(sih_baseline, 'command', lambda *args: json.dumps([image]))
+        path = tmp_path/'native.sock'
+        calls = []
+        def read_command(*args):
+            calls.append(args)
+            if args[1] == 'inspect':
+                return json.dumps([{'Id':'sim-id','Image':'combined-ros-runtime',
+                    'HostConfig':{'NetworkMode':'none','Privileged':False,'Devices':[]},
+                    'NetworkSettings':{'Ports':{}},
+                    'Mounts':[{'Source':str(tmp_path),'Destination':'/runtime'}]}])
+            if 'python3' in args:
+                return json.dumps([dict(args=['/firmware/bin/px4','-i','0'],model='sihsim_xvert',
+                    cwd='/runtime/rootfs',binary_sha256=manifest['artifacts']['binary_sha256'])])
+            return 'autopilot_uid: 123456789\n'
+        monkeypatch.setattr(tool, 'command', read_command)
+        with socket.socket(socket.AF_UNIX) as listener:
+            listener.bind(str(path))
+            for supplied in [{}, {'build_repository':ROOT}]:
+                with pytest.raises(ValueError, match='reviewed build recipe'):
+                    verify_simulator('sim',0,path,sih_build_manifest=manifest_path,**supplied)
+            assert not any('python3' in call for call in calls)
+            checked = verify_simulator('sim',0,path,sih_build_manifest=manifest_path,build_repository=authority)
+            assert checked['firmware_build']['firmware']['extension_sha256'] == manifest['firmware']['extension_sha256']
+            assert checked['image_id'] != checked['firmware_build']['image_id']
+            assert checked['process']['binary_sha256'] == manifest['artifacts']['binary_sha256']
+            assert tool.ROOT == original_root
+            with pytest.raises(ValueError, match='reviewed build recipe'):
+                verify_simulator('sim',0,path,sih_build_manifest=manifest_path)
 
 
 def test_vtol_component_group_requires_settled_strategies_without_transition_pursuit():
