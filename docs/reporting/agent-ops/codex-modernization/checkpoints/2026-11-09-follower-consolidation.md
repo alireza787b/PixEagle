@@ -1064,3 +1064,19 @@ AUTO_LOITER; its effect on a pilot-requested transition must be observed before
 claiming preservation. Backend end-on-transition migration and process-restart
 reconciliation remain open; VTOL admission stays closed. No controller tuning,
 saved profile, standard DDS message or hardware changes accompany this delta.
+
+### S7 Python 3.10 compatibility
+
+A real Python 3.10.20 check reproduced startup failure in the native client:
+`asyncio.timeout` is unavailable on the supported interpreter. The client now
+uses existing `wait_for` APIs with one absolute drain/reply deadline and one
+overall read-only reconciliation budget. Final dispatch guards and socket write
+remain inline; timeout/cancellation retires only the captured current socket
+without waiting through another close deadline. Explicit normal close remains
+bounded. No dependency or supported Python-floor change is introduced.
+
+`software-gates-s7-python310-r1/review-manifest-r1.json` freezes 118 native-client
+tests on actual Python 3.10 and 118 on 3.12, plus 243 affected 3.12 checks. Compile,
+fatal lint and diff checks pass; the existing fourteen full-Ruff diagnostics are
+unchanged. Original runtime and test-fixture failures remain archived. This
+renewal covers transport/cleanup compatibility, not new aircraft behavior.

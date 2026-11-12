@@ -322,31 +322,34 @@ class NativeGuidanceClient:
                 raise NativeGuidanceError("native_release_context_replaced")
 
         observer = NativeGuidanceClient(self.socket_path, request_timeout_s=self.request_timeout_s, clock=self._clock)
-        try:
-            async with asyncio.timeout(self.request_timeout_s):
-                capabilities = await observer.connect()
+
+        async def reconcile():
+            capabilities = await observer.connect()
+            unchanged()
+            if capabilities.runtime_id != runtime_id or capabilities.owned_mode_id != mode_id:
+                raise NativeGuidanceError("native_release_runtime_changed")
+            if not capabilities.owned_mode_supported:
+                raise NativeGuidanceError("native_ownership_contract_unavailable")
+            await observer.bind(identity.binding)
+            while True:
+                result = await observer.observe()
                 unchanged()
-                if capabilities.runtime_id != runtime_id or capabilities.owned_mode_id != mode_id:
-                    raise NativeGuidanceError("native_release_runtime_changed")
-                if not capabilities.owned_mode_supported:
-                    raise NativeGuidanceError("native_ownership_contract_unavailable")
-                await observer.bind(identity.binding)
-                while True:
-                    result = await observer.observe()
-                    unchanged()
-                    payload = result["release_receipt"]
-                    if payload is not None:
-                        receipt = NativeReleaseReceipt.from_payload(payload).require_match(
-                            identity, runtime_id, token, acquisition, mode_id=mode_id)
-                        if receipt.released:
-                            if self._ownership_token == token and self._acquisition_identity == identity:
-                                self._acquisition_pending = False
-                            return receipt
-                    await asyncio.sleep(.01)
-        except TimeoutError as error:
+                payload = result["release_receipt"]
+                if payload is not None:
+                    receipt = NativeReleaseReceipt.from_payload(payload).require_match(
+                        identity, runtime_id, token, acquisition, mode_id=mode_id)
+                    if receipt.released:
+                        if self._ownership_token == token and self._acquisition_identity == identity:
+                            self._acquisition_pending = False
+                        return receipt
+                await asyncio.sleep(.01)
+
+        try:
+            return await asyncio.wait_for(reconcile(), timeout=self.request_timeout_s)
+        except asyncio.TimeoutError as error:
             raise NativeGuidanceError("native_release_unconfirmed") from error
         finally:
-            await observer.close()
+            observer.abort()
 
     async def observe(self) -> dict:
         async with self._lock:
@@ -580,11 +583,12 @@ class NativeGuidanceClient:
         validate_before_dispatch(before_dispatch)
         validate_before_dispatch(on_dispatch)
         self._request_id = request_id
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self.request_timeout_s
         try:
-            async with asyncio.timeout(self.request_timeout_s):
-                writer.write(encoded)
-                await writer.drain()
-                raw = await reader.readline()
+            writer.write(encoded)
+            await asyncio.wait_for(writer.drain(), timeout=max(0., deadline - loop.time()))
+            raw = await asyncio.wait_for(reader.readline(), timeout=max(0., deadline - loop.time()))
             if generation != self._generation:
                 raise NativeGuidanceError("native_reply_context_mismatch")
             if not raw or len(raw) > MAX_MESSAGE_BYTES:
@@ -604,15 +608,15 @@ class NativeGuidanceClient:
             return reply["payload"]
         except asyncio.CancelledError:
             if generation == self._generation and writer is self._writer:
-                await self._disconnect()
+                self._retire_socket()
             raise
-        except TimeoutError as error:
+        except asyncio.TimeoutError as error:
             if generation == self._generation and writer is self._writer:
                 self._retire_socket()
             raise NativeGuidanceError("native_transport_failed") from error
         except (OSError, ValueError, NativeGuidanceError) as error:
             if generation == self._generation and writer is self._writer:
-                await self._disconnect()
+                self._retire_socket()
             if isinstance(error, NativeGuidanceError):
                 raise
             raise NativeGuidanceError("native_transport_failed") from error

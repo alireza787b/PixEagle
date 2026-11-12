@@ -1008,3 +1008,162 @@ async def test_drain_and_reply_share_one_rpc_budget_and_retire_socket_immediatel
     assert client.session_identity is None
     assert client.acquisition_context is context
     assert client._generation == 1
+
+
+@pytest.mark.parametrize('failure', ['cancel_drain', 'cancel_readline', 'reader_error', 'invalid_reply'])
+async def test_failed_exchange_retires_without_an_extra_close_wait(tmp_path, failure):
+    reached = asyncio.Event()
+    release = asyncio.Event()
+
+    class Writer:
+        closed = False
+
+        def write(self, data):
+            self.request = json.loads(data)
+
+        async def drain(self):
+            if failure == 'cancel_drain':
+                reached.set()
+                await release.wait()
+
+        def close(self):
+            self.closed = True
+
+        async def wait_closed(self):
+            raise AssertionError('failed RPC must retire synchronously without a second deadline')
+
+    class Reader:
+        async def readline(self):
+            if failure == 'cancel_readline':
+                reached.set()
+                await release.wait()
+            if failure == 'reader_error':
+                raise OSError('read failed')
+            return b'invalid JSON\n'
+
+    client = NativeGuidanceClient(tmp_path / 'control.sock', request_timeout_s=.1)
+    writer = Writer()
+    context = acquisition(identity())
+    client._writer, client._reader = writer, Reader()
+    client._identity, client._acquisition = identity(), context
+    task = asyncio.create_task(client._exchange('observe', {}))
+    if failure.startswith('cancel'):
+        await asyncio.wait_for(reached.wait(), .5)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    else:
+        with pytest.raises(NativeGuidanceError, match='transport_failed'):
+            await task
+    assert writer.closed
+    assert client._writer is None
+    assert client.session_identity is None
+    assert client.acquisition_context is context
+    assert client._generation == 1
+
+
+async def test_exchange_write_stays_inline_after_dispatch_guards(tmp_path):
+    allowed = [True]
+    events = []
+    release = asyncio.Event()
+
+    def guard():
+        assert allowed[0]
+        events.append('guard')
+        asyncio.get_running_loop().call_soon(lambda: allowed.__setitem__(0, False))
+
+    class Writer:
+        def write(self, data):
+            assert allowed[0], 'a scheduled write must not cross the final dispatch fence'
+            events.append('write')
+            self.request = json.loads(data)
+            release.set()
+
+        async def drain(self):
+            pass
+
+    class Reader:
+        async def readline(self):
+            return json.dumps({'protocol_version': 2, 'request_id': 1, 'generation': 0,
+                               'success': True, 'payload': CAPABILITIES}).encode() + b'\n'
+
+    client = NativeGuidanceClient(tmp_path / 'control.sock')
+    client._writer, client._reader = Writer(), Reader()
+    assert await client._exchange('hello', {}, before_dispatch=guard) == CAPABILITIES
+    assert events == ['guard', 'write']
+    assert release.is_set()
+    await asyncio.sleep(0)
+    assert allowed[0] is False
+
+
+@pytest.mark.parametrize('exit_kind', ['timeout', 'cancel', 'cancel_replacement'])
+async def test_release_reconciliation_deadline_and_cancellation_abort_only_observer(tmp_path, monkeypatch, exit_kind):
+    reached, cancelled = asyncio.Event(), asyncio.Event()
+    events = []
+    context = acquisition(identity())
+    client = NativeGuidanceClient(tmp_path / 'control.sock', request_timeout_s=.07)
+    client._acquisition = context
+    client._acquisition_identity = identity()
+    client._acquisition_runtime_id = context.runtime_id
+    client._ownership_token = TOKEN
+    client._acquisition_mode_id = context.mode_id
+    client._acquisition_pending = True
+
+    class Observer:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def connect(self):
+            events.append('hello')
+            await asyncio.sleep(.025)
+            return NativeCapabilities.from_payload(CAPABILITIES)
+
+        async def bind(self, binding):
+            assert binding == identity().binding
+            events.append('bind')
+            await asyncio.sleep(.025)
+
+        async def observe(self):
+            events.append('observe')
+            reached.set()
+            try:
+                await asyncio.sleep(1.)
+            finally:
+                cancelled.set()
+
+        def abort(self):
+            events.append('observer_aborted')
+
+        async def close(self):
+            raise AssertionError('reconciliation deadline must not add a close-wait budget')
+
+    monkeypatch.setattr('classes.native_guidance.NativeGuidanceClient', Observer)
+    started = time.monotonic()
+    task = asyncio.create_task(client.observe_after_release(identity(), runtime_id=context.runtime_id,
+        ownership_token=TOKEN, mode_id=context.mode_id, acquisition=context))
+    if exit_kind == 'timeout':
+        with pytest.raises(NativeGuidanceError, match='release_unconfirmed'):
+            await task
+        assert time.monotonic() - started < .15
+    else:
+        await asyncio.wait_for(reached.wait(), .5)
+        if exit_kind == 'cancel_replacement':
+            replacement = replace(context, token='c' * 32, activation_timestamp=201)
+            client._acquisition = replacement
+            client._ownership_token = replacement.token
+            client._identity = replace(identity(), follow_session_id='replacement')
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    assert cancelled.is_set()
+    assert events == ['hello', 'bind', 'observe', 'observer_aborted']
+    assert client._acquisition_pending is True
+    assert client._generation == 0
+    if exit_kind == 'cancel_replacement':
+        assert client.acquisition_context is replacement
+        assert client.acquisition_token == replacement.token
+        assert client.session_identity.follow_session_id == 'replacement'
+    else:
+        assert client.acquisition_context is context
+        assert client.acquisition_token == TOKEN
+        assert client.session_identity is None

@@ -235,3 +235,10 @@ activation. The old phase-hold helper is removed. Combined gates pass four SDK,
 63 native, 63 sanitizer and 35 packaging/baseline checks, with matching SDK and
 adapter compilation. Actual reuse/transition/process-restart tests remain open;
 software success does not reopen VTOL or hardware admission.
+
+An actual supported Python 3.10 interpreter reproduced the native client's use
+of a 3.11-only asyncio API. The replacement preserves one RPC deadline, inline
+dispatch fences and immediate captured-socket retirement without a new package.
+Actual 3.10/3.12 native-client gates pass 118 tests each; 243 affected 3.12 checks
+also pass. Source/test hashes, baseline lint comparison and original failures
+remain in the S7 Python-compatibility evidence. No hardware behavior is claimed.

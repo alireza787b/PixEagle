@@ -10,8 +10,9 @@ transition. The adapter publishes navigation objectives, not a second TECS or
 attitude controller. There must not be simultaneous MAVSDK and DDS command
 publishers. VTOL admission remains closed: the accepted
 [consolidation plan](../docs/followers/05-development/follower-consolidation-plan.md)
-ends following on transition and requires a fresh Start afterward. Historical phase-retaining cycle reports below do not qualify the terminal
-release path; actual transition-preserving authority release remains S7 work.
+ends following on transition and requires a fresh Start afterward. Historical
+phase-retaining cycle reports below do not qualify the terminal release path;
+actual transition-preserving authority release remains S7 work.
 
 | Boundary | Contract |
 | --- | --- |
@@ -43,6 +44,11 @@ intention. The adapter advertises its actual registered `owned_mode_id`.
 Intent, phase and release writes require that acquisition's token. Stop, EOF
 and lost-reply reconciliation retain the same context; a same-ID replacement,
 reused registration or firmware restart cannot become the old owner.
+
+The Python client supports Python 3.10 and newer without an extra async runtime
+dependency. Drain and reply share one monotonic RPC budget; read-only release
+reconciliation has one overall budget. Cancellation retires the affected socket
+immediately instead of adding another close-wait deadline.
 
 The ROS interface SDK uses the checksum-pinned overlay in `ros2_interface/`.
 Before acquisition, the adapter must prove that its own successful SDK request
@@ -101,8 +107,8 @@ deadline and ends with the first pursuit intent. Callback ordering may leave
 correlation pending within that same window; no startup command is published
 until the exact original acquisition is confirmed. Stop or positive takeover,
 rescue, phase exit or terminal receipt ends the wait. Contract tests and
-compilation do not qualify registered-mode draining or transition preservation; those require
-separate isolated SIH evidence. VTOL admission remains closed.
+compilation do not qualify registered-mode draining or transition preservation;
+those require separate isolated SIH evidence. VTOL admission remains closed.
 
 From the PixEagle root, with Docker available:
 
