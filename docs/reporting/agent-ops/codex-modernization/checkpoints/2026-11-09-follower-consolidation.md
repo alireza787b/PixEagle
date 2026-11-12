@@ -1029,3 +1029,38 @@ Registration replacement, continuous neutral release publication, adapter-proces
 restart and end-on-transition remain open. Their reviewed implementation and
 fresh bounded SIH runs follow; no hardware, gains, saved configuration or QGC
 files changed in these ownership checks.
+
+### S7 registered-owner and neutral-release software delta
+
+The reviewed SDK overlay exposes only its own successfully matched registration
+request ID and an opt-out from automatic weak unregister. The adapter pins that
+ID before acquisition and retires permanently after confirmed registration loss
+or aircraft/incarnation conflict. Other SDK clients retain normal defaults.
+Deferred native garbage collection can wait for disarm; rapid adapter-process
+restarts can still exhaust the eight slots. No prompt cleanup claim is made.
+
+Stop, socket EOF, command expiry and fresh phase exit now terminally revoke
+pursuit. While the original activation still needs conditional release, the
+existing callback can publish current-data-only neutral setpoints. It cannot
+reuse the previous target objective, restore an old speed request or renew a
+deadline. Exact original registration, token, activation, aircraft and fresh
+status remain required, including a matched Releasing receipt. Startup retains
+only its original bounded confirmation window and publishes nothing before
+causal acquisition is confirmed. The obsolete phase-hold helper is deleted.
+
+The combined source gate is frozen in
+`software-gates-s7-integration-r1/integration-review-manifest-r1.json`: fresh
+matching SDK build, four genuine SDK registration/lifecycle tests, 63 native
+contracts plus 63 ASan/UBSan checks, adapter/main compilation and 35 packaging/
+baseline tests pass. Root verifies all eighteen source hashes and two removals;
+the seventeen affected builder tests also pass after integration. The runtime
+bundle includes the matching SDK and generated-message libraries, with loading
+paths and hashes checked separately. The failed initial output-permission build
+is retained.
+
+Actual registration reuse, neutral draining and transition preservation remain
+unqualified by this software gate. Native release still uses conditional
+AUTO_LOITER; its effect on a pilot-requested transition must be observed before
+claiming preservation. Backend end-on-transition migration and process-restart
+reconciliation remain open; VTOL admission stays closed. No controller tuning,
+saved profile, standard DDS message or hardware changes accompany this delta.

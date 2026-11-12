@@ -14,6 +14,44 @@ using OwnershipToken = std::array<std::uint64_t, 2>;
 constexpr std::uint8_t ownership_contract_version = 1;
 constexpr std::uint64_t maximum_ownership_window_us = 500000;
 
+inline std::uint64_t requireOwnRegistration(std::uint64_t own, std::uint64_t current) {
+    if (own == 0 || own != current) throw std::invalid_argument("native_mode_registration_unavailable");
+    return own;
+}
+
+class RegistrationProof {
+public:
+    bool ready() const { return _confirmed && !_retired; }
+    bool retired() const { return _retired; }
+    bool matchesSource(std::uint64_t uid, std::uint8_t system, std::uint8_t component) const {
+        return _confirmed && uid == _uid && system == _system && component == _component;
+    }
+    void observe(std::uint64_t own, std::uint64_t current, OwnershipToken incarnation,
+                 std::uint64_t uid, std::uint8_t system, std::uint8_t component, bool progresses) {
+        if (_retired || (incarnation[0] == 0 && incarnation[1] == 0)) return;
+        if (_confirmed && (!matchesSource(uid, system, component) || incarnation != _incarnation)) {
+            _retired = true;
+            return;
+        }
+        if (!progresses) return;
+        if (_confirmed) {
+            if (own != _own || current != _own) _retired = true;
+        } else if (own != 0 && own == current) {
+            _own = own;
+            _incarnation = incarnation;
+            _uid = uid;
+            _system = system;
+            _component = component;
+            _confirmed = true;
+        }
+    }
+private:
+    OwnershipToken _incarnation{};
+    std::uint64_t _own{}, _uid{};
+    std::uint8_t _system{}, _component{};
+    bool _confirmed{}, _retired{};
+};
+
 inline std::string encodeOwnershipToken(const OwnershipToken& token) {
     std::ostringstream value;
     value << std::hex << std::setfill('0') << std::setw(16) << token[0] << std::setw(16) << token[1];
@@ -36,7 +74,13 @@ struct OwnershipContext {
     std::uint64_t source_revision{}, source_epoch{}, acquired_epoch{}, expires{};
     std::uint8_t source_mode{}, mode{};
     std::uint64_t registration_id{};
-    bool retired{};
+    bool retired{}, release_pending{};
+
+    void endPursuit(CommandLease& lease) { release_pending = true; lease.revoke(); }
+    void requirePursuit() const {
+        if (release_pending) throw std::invalid_argument("native_release_pending");
+    }
+
 
     void observeIncarnation(const OwnershipToken& received) {
         if ((received[0] != 0 || received[1] != 0) && received != incarnation) retired = true;
@@ -66,6 +110,65 @@ struct OwnershipContext {
             {"mode_id", mode}, {"activation_timestamp", acquired_epoch}};
     }
 };
+
+enum class OwnershipReceiptState { Pending, Acquired, Releasing, Other };
+
+struct NativeActivationEvidence {
+    OwnershipToken token{}, incarnation{};
+    std::uint64_t source_revision{}, source_epoch{}, acquired_epoch{}, actual_epoch{}, vehicle_epoch{};
+    std::uint64_t registration_id{}, current_registration_id{}, intention_revision{};
+    std::uint8_t source_mode{}, mode{}, actual_mode{}, vehicle_mode{};
+    bool fresh{}, aircraft_matches{}, armed{}, rescue{}, owner_active{};
+    bool ownership_fresh{}, vehicle_fresh{}, vehicle_armed{}, vehicle_rescue{};
+    OwnershipReceiptState state{OwnershipReceiptState::Other};
+};
+
+inline bool exactOriginalActivation(const OwnershipContext& context, const NativeActivationEvidence& evidence) {
+    return evidence.fresh && evidence.aircraft_matches && evidence.armed && !evidence.rescue
+        && context.acquired_epoch > 0 && evidence.acquired_epoch == context.acquired_epoch
+        && evidence.actual_mode == context.mode && evidence.vehicle_mode == context.mode
+        && evidence.actual_epoch == context.acquired_epoch && evidence.vehicle_epoch == context.acquired_epoch
+        && evidence.current_registration_id == context.registration_id
+        && context.matches(evidence.token, evidence.incarnation, evidence.source_revision, evidence.source_epoch,
+                           evidence.source_mode, evidence.mode, evidence.registration_id);
+}
+
+inline bool neutralDrainPermitted(const OwnershipContext& context, const NativeActivationEvidence& evidence) {
+    return context.release_pending && exactOriginalActivation(context, evidence)
+        && ((evidence.state == OwnershipReceiptState::Acquired && evidence.owner_active)
+            || evidence.state == OwnershipReceiptState::Releasing);
+}
+
+// Waiting is not authority: only exactOriginalActivation may authorize startup
+// publication. This uses the original engagement deadline, never another timer.
+inline bool startupActivationMayWait(const OwnershipContext& context, const NativeActivationEvidence& evidence,
+                                     double now, double original_deadline) {
+    if (context.retired || context.release_pending || !std::isfinite(now) || !std::isfinite(original_deadline)
+            || now >= original_deadline || evidence.vehicle_rescue
+            || (evidence.vehicle_fresh && (!evidence.vehicle_armed || !evidence.aircraft_matches))) return false;
+    if (evidence.vehicle_fresh) {
+        const bool source = evidence.vehicle_mode == context.source_mode && evidence.vehicle_epoch == context.source_epoch;
+        const bool activating = evidence.vehicle_mode == context.mode && evidence.vehicle_epoch > context.source_epoch
+            && (context.acquired_epoch == 0 || evidence.vehicle_epoch == context.acquired_epoch);
+        if (!source && !activating) return false;
+    }
+    if (evidence.ownership_fresh) {
+        if (evidence.incarnation != context.incarnation || evidence.current_registration_id != context.registration_id)
+            return false;
+        const bool matching = context.matches(evidence.token, evidence.incarnation, evidence.source_revision,
+            evidence.source_epoch, evidence.source_mode, evidence.mode, evidence.registration_id);
+        if (matching) {
+            if (!evidence.armed || evidence.rescue) return false;
+            if (evidence.state == OwnershipReceiptState::Acquired) {
+                if (evidence.acquired_epoch <= context.source_epoch || evidence.actual_mode != context.mode
+                        || evidence.actual_epoch != evidence.acquired_epoch
+                        || (context.acquired_epoch != 0 && evidence.acquired_epoch != context.acquired_epoch)) return false;
+            } else if (evidence.state != OwnershipReceiptState::Pending) return false;
+        } else if (evidence.intention_revision != context.source_revision
+                || evidence.actual_mode != context.source_mode || evidence.actual_epoch != context.source_epoch) return false;
+    }
+    return true;
+}
 
 inline bool ownershipPublicationProgresses(std::uint64_t previous_publication, OwnershipToken previous_incarnation,
                                          std::uint64_t previous_clock, std::uint64_t publication,

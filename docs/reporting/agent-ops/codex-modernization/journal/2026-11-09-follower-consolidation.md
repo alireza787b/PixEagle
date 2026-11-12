@@ -225,3 +225,13 @@ but no ULog corroboration is claimed. The checkpoint records this retention gap
 and requires shorter runs with log archival. Registration-slot replacement,
 terminal neutral draining, process restart and transition preservation remain
 unqualified. Hardware and saved public/private configuration are untouched.
+
+S7's registered-owner/neutral-release implementation is integrated after an
+independent merge review. A checksum-pinned SDK overlay exposes the original
+registration ID and suppresses this adapter's weak automatic unregister;
+registration loss retires the process without adopting a reused slot. Terminal
+release drains only neutral current-state commands under the exact original
+activation. The old phase-hold helper is removed. Combined gates pass four SDK,
+63 native, 63 sanitizer and 35 packaging/baseline checks, with matching SDK and
+adapter compilation. Actual reuse/transition/process-restart tests remain open;
+software success does not reopen VTOL or hardware admission.

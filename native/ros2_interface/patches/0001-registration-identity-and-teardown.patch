@@ -1,0 +1,242 @@
+--- a/px4_ros2_cpp/src/components/registration.hpp
++++ b/px4_ros2_cpp/src/components/registration.hpp
+@@ -35,6 +35,8 @@
+   virtual void doUnregister();
+ 
+   bool registered() const { return _registered; }
++  uint64_t requestId() const { return _registered ? _request_id : 0; }
++  void setAutomaticUnregister(bool enabled) { _automatic_unregister = enabled; }
+ 
+   int armingCheckId() const { return _unregister_ext_component.arming_check_id; }
+   px4_ros2::ModeBase::ModeID modeId() const { return _unregister_ext_component.mode_id; }
+@@ -58,6 +60,8 @@
+   rclcpp::Publisher<px4_msgs::msg::UnregisterExtComponent>::SharedPtr _unregister_ext_component_pub;
+ 
+   bool _registered{false};
++  bool _automatic_unregister{true};
++  uint64_t _request_id{0};
+   px4_msgs::msg::UnregisterExtComponent _unregister_ext_component{};
+   rclcpp::Node& _node;
+ #if HAS_RCLCPP_PRE_SHUTDOWN
+--- a/px4_ros2_cpp/src/components/registration.cpp
++++ b/px4_ros2_cpp/src/components/registration.cpp
+@@ -48,7 +48,11 @@
+   if (context) {
+ #if HAS_RCLCPP_PRE_SHUTDOWN
+     _shutdown_callback_handle =
+-        context->add_pre_shutdown_callback([this]() { this->doUnregister(); });
++        context->add_pre_shutdown_callback([this]() {
++          if (_automatic_unregister) {
++            this->doUnregister();
++          }
++        });
+     _shutdown_callback_registered = true;
+ #endif
+   }
+@@ -66,7 +70,7 @@
+ 
+   // If the context is still valid, publish the unregister message here as well
+   // so it works even when the destructor runs before rclcpp::shutdown().
+-  if (context && context->is_valid()) {
++  if (_automatic_unregister && context && context->is_valid()) {
+     doUnregister();
+   }
+ }
+@@ -164,6 +168,7 @@
+                 _unregister_ext_component.mode_executor_id = reply.mode_executor_id;
+                 strcpy(reinterpret_cast<char*>(_unregister_ext_component.name.data()),
+                        settings.name.c_str());
++                _request_id = request.request_id;
+                 _registered = true;
+               } else {
+                 RCLCPP_FATAL(_node.get_logger(),
+--- a/px4_ros2_cpp/include/px4_ros2/components/mode.hpp
++++ b/px4_ros2_cpp/include/px4_ros2/components/mode.hpp
+@@ -171,6 +171,12 @@
+   // Properties & state
+ 
+   ModeID id() const;
++
++  /** @return The successful registration request ID, or zero while unregistered. */
++  uint64_t registrationRequestId() const;
++
++  /** Disable only automatic destructor/shutdown unregister; explicit unregister is unchanged. */
++  void setAutomaticUnregister(bool enabled);
+ 
+   bool isArmed() const { return _is_armed; }
+ 
+--- a/px4_ros2_cpp/src/components/mode.cpp
++++ b/px4_ros2_cpp/src/components/mode.cpp
+@@ -71,6 +71,16 @@
+ ModeBase::ModeID ModeBase::id() const
+ {
+   return _registration->modeId();
++}
++
++uint64_t ModeBase::registrationRequestId() const
++{
++  return _registration->requestId();
++}
++
++void ModeBase::setAutomaticUnregister(bool enabled)
++{
++  _registration->setAutomaticUnregister(enabled);
+ }
+ 
+ void ModeBase::overrideRegistration(const std::shared_ptr<Registration>& registration)
+--- a/px4_ros2_cpp/test/unit/registration.cpp
++++ b/px4_ros2_cpp/test/unit/registration.cpp
+@@ -4,6 +4,7 @@
+  ****************************************************************************/
+ 
+ #include "src/components/registration.hpp"
++#include <px4_ros2/control/setpoint_types/experimental/trajectory.hpp>
+ 
+ #include <gtest/gtest.h>
+ 
+@@ -45,6 +46,9 @@
+ {
+   const std::string topic_prefix = "/test_registration/";
+   Registration registration(*_node, topic_prefix);
++  EXPECT_EQ(registration.requestId(), 0u);
++  auto received_request_id = std::make_shared<std::atomic<uint64_t>>(0);
++  auto reply_success = std::make_shared<std::atomic<bool>>(true);
+   auto responder_node = std::make_shared<rclcpp::Node>("registration_responder");
+   auto reply_pub = responder_node->create_publisher<px4_msgs::msg::RegisterExtComponentReply>(
+       topic_prefix + "fmu/out/register_ext_component_reply" +
+@@ -55,12 +59,14 @@
+           topic_prefix + "fmu/in/register_ext_component_request" +
+               px4_ros2::getMessageNameVersion<px4_msgs::msg::RegisterExtComponentRequest>(),
+           rclcpp::QoS(1),
+-          [reply_pub](px4_msgs::msg::RegisterExtComponentRequest::UniquePtr request) {
++          [reply_pub, received_request_id, reply_success](
++              px4_msgs::msg::RegisterExtComponentRequest::UniquePtr request) {
++            received_request_id->store(request->request_id);
+             px4_msgs::msg::RegisterExtComponentReply reply{};
+             reply.request_id = request->request_id;
+             reply.name = request->name;
+             reply.px4_ros2_api_version = request->px4_ros2_api_version;
+-            reply.success = true;
++            reply.success = reply_success->load();
+             reply.arming_check_id = 1;
+             reply.mode_id = 100;
+             reply.mode_executor_id = 2;
+@@ -94,13 +100,117 @@
+     ASSERT_NO_THROW(registered = registration.doRegister(settings));
+     ASSERT_TRUE(registered);
+     EXPECT_TRUE(registration.registered());
++    EXPECT_EQ(registration.requestId(), received_request_id->load());
+     EXPECT_EQ(registration.armingCheckId(), 1);
+     EXPECT_EQ(registration.modeId(), 100);
+     EXPECT_EQ(registration.modeExecutorId(), 2);
+     EXPECT_EQ(registration.name(), settings.name);
+     registration.doUnregister();
+     EXPECT_FALSE(registration.registered());
+-  }
++    EXPECT_EQ(registration.requestId(), 0u);
++  }
++
++  class RegisteredMode : public px4_ros2::ModeBase {
++   public:
++    RegisteredMode(rclcpp::Node& node, const std::string& prefix)
++        : ModeBase(node, Settings{"Test Registration"}, prefix)
++    {
++      _setpoint = std::make_shared<px4_ros2::TrajectorySetpointType>(*this);
++      setSkipMessageCompatibilityCheck();
++      setSkipSetpointCheck();
++    }
++
++   private:
++    std::shared_ptr<px4_ros2::TrajectorySetpointType> _setpoint;
++  };
++  {
++    RegisteredMode mode(*_node, topic_prefix);
++    mode.setAutomaticUnregister(false);
++    EXPECT_EQ(mode.registrationRequestId(), 0u);
++    ASSERT_TRUE(mode.doRegister());
++    EXPECT_EQ(mode.registrationRequestId(), received_request_id->load());
++  }
++
++  reply_success->store(false);
++  EXPECT_FALSE(registration.doRegister(settings));
++  EXPECT_FALSE(registration.registered());
++  EXPECT_EQ(registration.requestId(), 0u);
++}
++
++TEST_P(RegistrationTest, AutomaticUnregisterDefaultsAndExplicitOptOut)
++{
++  const std::string prefix = "/test_automatic_unregister/";
++  class InitializedRegistration : public Registration {
++   public:
++    InitializedRegistration(rclcpp::Node& node, const std::string& prefix)
++        : Registration(node, prefix)
++    {
++      setRegistrationDetails(1, 100, -1, "Automatic Test");
++    }
++  };
++  auto group = _node->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive, false);
++  rclcpp::SubscriptionOptions options;
++  options.callback_group = group;
++  auto observer = _node->create_subscription<px4_msgs::msg::UnregisterExtComponent>(
++      prefix + "fmu/in/unregister_ext_component" +
++          px4_ros2::getMessageNameVersion<px4_msgs::msg::UnregisterExtComponent>(),
++      rclcpp::QoS(10), [](px4_msgs::msg::UnregisterExtComponent::UniquePtr) {}, options);
++  rclcpp::WaitSet wait_set;
++  wait_set.add_subscription(observer);
++  const auto receive = [&]() {
++    if (wait_set.wait(200ms).kind() != rclcpp::WaitResultKind::Ready) {
++      return false;
++    }
++    px4_msgs::msg::UnregisterExtComponent message;
++    rclcpp::MessageInfo info;
++    const bool taken = observer->take(message, info);
++    if (taken) {
++      EXPECT_EQ(message.mode_id, 100);
++      EXPECT_EQ(message.arming_check_id, 1);
++    }
++    return taken;
++  };
++  const auto ready = [&]() {
++    const auto deadline = std::chrono::steady_clock::now() + 2s;
++    auto event = _node->get_graph_event();
++    while (observer->get_publisher_count() == 0 && std::chrono::steady_clock::now() < deadline) {
++      _node->wait_for_graph_change(event, 50ms);
++    }
++    ASSERT_GT(observer->get_publisher_count(), 0u);
++  };
++
++  for (const bool enabled : {true, false}) {
++    auto registration = std::make_unique<InitializedRegistration>(*_node, prefix);
++    if (!enabled) {
++      registration->setAutomaticUnregister(false);
++    }
++    ready();
++    registration.reset();
++    EXPECT_EQ(receive(), enabled);  // Actual destructor publication.
++
++#if HAS_RCLCPP_PRE_SHUTDOWN
++    auto context = rclcpp::contexts::get_global_default_context();
++    const auto previous_callbacks = context->get_pre_shutdown_callbacks().size();
++    registration = std::make_unique<InitializedRegistration>(*_node, prefix);
++    if (!enabled) {
++      registration->setAutomaticUnregister(false);
++    }
++    ready();
++    const auto callbacks = context->get_pre_shutdown_callbacks();
++    ASSERT_EQ(callbacks.size(), previous_callbacks + 1);
++    callbacks.back()();  // The actual callback registered with rclcpp.
++    EXPECT_EQ(receive(), enabled);
++    EXPECT_EQ(registration->registered(), !enabled);
++    if (!enabled) {
++      registration->doUnregister();
++      EXPECT_TRUE(receive());  // Opt-out never suppresses explicit unregister.
++      EXPECT_FALSE(registration->registered());
++    }
++    registration.reset();
++    EXPECT_FALSE(receive());
++#endif
++  }
++  wait_set.remove_subscription(observer);
+ }
+ 
+ INSTANTIATE_TEST_SUITE_P(Executors, RegistrationTest, testing::Bool(),

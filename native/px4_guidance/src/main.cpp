@@ -1,6 +1,5 @@
 #include <pixeagle/aircraft_observations.hpp>
 #include <pixeagle/external_mode.hpp>
-#include <pixeagle/phase_hold.hpp>
 #include <pixeagle/local_server.hpp>
 #include <px4_ros2/components/message_compatibility_check.hpp>
 #include <chrono>
@@ -44,18 +43,16 @@ int main(int argc, char** argv) {
         // operator-entered aircraft type can select this command contract.
         ExternalMode mode(*node, timeout, request_timeout, initial->is_vtol);
         AircraftObservations observations(*node, timeout);
-        mode.setPhaseHoldProvider([&](Phase phase, const std::optional<Objective>& previous) -> std::optional<Objective> {
-            const auto state = observations.snapshot(mode.status(), phase, mode.rescue(), mode.phaseReceived(), clockSeconds());
-            if (state.is_null()) return {};
-            const auto& envelope = state.at("fixed_wing_envelope");
-            return phaseHold(phase, previous, state.at("navigation_heading_rad").get<double>(),
-                envelope.at("minimum_eas_m_s").get<double>(), envelope.at("trim_eas_m_s").get<double>(),
-                envelope.at("maximum_eas_m_s").get<double>());
+        mode.setNeutralProvider([&] {
+            return observations.neutralFlightData(mode.status(), clockSeconds());
         });
         if (!mode.doRegister()) throw std::runtime_error("native_registration_failed");
         if (!px4_ros2::messageCompatibilityCheck(*node, {{"fmu/out/fixed_wing_guidance_status", "FixedWingGuidanceStatus"},
                 {"fmu/out/owned_mode_status", "OwnedModeStatus"}, {"fmu/in/owned_mode_request", "OwnedModeRequest"}}))
             throw std::runtime_error("native_firmware_contract_mismatch");
+        while (rclcpp::ok() && !mode.registrationConfirmed() && clockSeconds() < discovery_deadline)
+            executor.spin_once(std::chrono::milliseconds(20));
+        if (!mode.registrationConfirmed()) throw std::runtime_error("native_registration_not_confirmed");
         std::optional<std::uint64_t> pending_request;
         std::optional<Identity> pending_identity;
         double engage_expires{};
@@ -98,7 +95,8 @@ int main(int argc, char** argv) {
                         {"vtol_status_timeout_s", optional_number(health.vtol_timeout_s)}}},
                     {"vehicle_pose", observations.pose(now)},
                     {"native_guidance_feedback", observations.commandFeedback(now)},
-                    {"phase_hold_active", mode.phaseHoldActive()}, {"phase_hold_failure", mode.phaseHoldFailure()},
+                    {"release_pending", mode.releasePending()}, {"neutral_drain_active", mode.neutralDrainActive()},
+                    {"neutral_drain_failure", mode.neutralDrainFailure()},
                     {"nav_state", mode.status().nav_state}, {"nav_state_timestamp", mode.status().nav_state_timestamp},
                     {"release_receipt", mode.releaseReceipt(runtime)}};
             }

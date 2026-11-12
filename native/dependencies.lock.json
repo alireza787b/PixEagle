@@ -26,7 +26,8 @@
     {
       "repository": "Auterion/px4-ros2-interface-lib",
       "commit": "912868fe2597bac4cf3115a54ac813a97eee4dbb",
-      "sha256": "a30997aba5e0a04fe27b898fa7160057670d93c28a839cac596b9211af21e477"
+      "sha256": "a30997aba5e0a04fe27b898fa7160057670d93c28a839cac596b9211af21e477",
+      "extension_manifest_sha256": "8c7fb0e875302efd7316ae2089311c7fcb14796daab47935560824a8397f17b1"
     },
     {
       "repository": "PX4/px4_msgs",

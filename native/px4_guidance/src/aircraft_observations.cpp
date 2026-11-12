@@ -1,5 +1,6 @@
 #include <pixeagle/aircraft_observations.hpp>
 #include <pixeagle/navigation_heading.hpp>
+#include <pixeagle/neutral_release.hpp>
 #include <algorithm>
 #include <chrono>
 #include <iomanip>
@@ -89,6 +90,22 @@ std::string AircraftObservations::firmware(double now) const {
     std::ostringstream value;
     value << std::hex << std::setw(16) << std::setfill('0') << _envelope.value()->firmware_git_hash;
     return value.str();
+}
+
+std::optional<NativeNeutralInput> AircraftObservations::neutralFlightData(
+        const px4_msgs::msg::VehicleStatus& status, double now) const {
+    if (_binding.is_null() || !_envelope.fresh(now, _timeout) || !_position.fresh(now, _timeout)) return {};
+    const auto& e = *_envelope.value();
+    const auto& p = *_position.value();
+    if (std::to_string(e.autopilot_uid) != _binding.at("aircraft_uid").get<std::string>()
+            || !p.xy_valid || !p.v_xy_valid || !std::isfinite(p.heading)) return {};
+    // The FW half of a transition needs PX4's FW frame, never the MC transition heading.
+    const auto heading = navigationHeading(Phase::FixedWing, NAN, e.fixed_wing_heading,
+        e.fixed_wing_frame_is_tailsitter == status.is_vtol_tailsitter,
+        e.fixed_wing_attitude_sample_age, now - _envelope.received(), _timeout);
+    if (!heading) return {};
+    return NativeNeutralInput{*heading, e.minimum_equivalent_airspeed,
+                              e.trim_equivalent_airspeed, e.maximum_equivalent_airspeed};
 }
 
 Json AircraftObservations::snapshot(const px4_msgs::msg::VehicleStatus& status, Phase phase, bool rescue,

@@ -26,8 +26,22 @@ inline bool phaseSourcesFresh(double now, double vehicle_received, double vtol_r
         && (!is_vtol || fresh(vtol_received, vtol_status_heartbeat_s + delay_allowance_s));
 }
 
+enum class TransitionDirection { Unknown, ToFixedWing, ToMulticopter };
+
+inline bool transitionDirectionsAgree(bool transition_announced, TransitionDirection accepted,
+                                      TransitionDirection helper) {
+    return transition_announced && accepted != TransitionDirection::Unknown && accepted == helper;
+}
+
+inline bool observedPursuitPhaseExit(Phase initial, bool vehicle_fresh, bool transition_announced,
+                                     Phase vehicle_phase, bool vtol_fresh, Phase vtol_phase) {
+    if (initial == Phase::Unknown) return false;
+    return (vehicle_fresh && (transition_announced || (vehicle_phase != Phase::Unknown && vehicle_phase != initial)))
+        || (vtol_fresh && vtol_phase != Phase::Unknown && vtol_phase != initial);
+}
+
 // VehicleStatus and VtolVehicleStatus arrive independently. Positive transition
-// evidence pauses pursuit; settled pursuit requires both sources to agree.
+// evidence ends pursuit; settled operation requires both sources to agree.
 inline Phase resolveObservedPhase(bool fresh, bool rescue, bool is_vtol, bool transition_announced,
                                   Phase vehicle_phase, Phase vtol_phase) {
     if (!fresh || rescue || vehicle_phase == Phase::Unknown) return Phase::Unknown;

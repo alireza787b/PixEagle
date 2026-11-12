@@ -58,6 +58,32 @@ def apply_message_overlay(destination: Path, lock: dict, overlay: Path) -> None:
         shutil.copyfile(source, messages / source.name)
 
 
+def apply_sdk_extension(destination: Path, lock: dict, extension: Path) -> None:
+    """Patch only the verified SDK source used to build its matching library."""
+    source = next(item for item in lock["sources"]
+                  if item["repository"] == "Auterion/px4-ros2-interface-lib")
+    manifest_path = extension / "extension.json"
+    if (not manifest_path.is_file() or hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+            != source.get("extension_manifest_sha256")):
+        raise ValueError("Native SDK extension manifest checksum mismatch")
+    manifest = json.loads(manifest_path.read_text())
+    if manifest["baseline_commit"] != source["commit"] or manifest["repository"] != source["repository"]:
+        raise ValueError("Native SDK extension baseline mismatch")
+    sdk = destination / f"px4-ros2-interface-lib-{source['commit']}"
+    for root, files in ((extension, manifest["patches"]), (sdk, manifest["original_files"])):
+        for name, checksum in files.items():
+            candidate = root / name
+            if not candidate.is_file() or hashlib.sha256(candidate.read_bytes()).hexdigest() != checksum:
+                raise ValueError(f"Native SDK extension checksum mismatch: {name}")
+    for name in manifest["patches"]:
+        subprocess.run(["patch", "--batch", "--forward", "--fuzz=0", "-p1", "-i", str((extension / name).resolve())],
+                       cwd=sdk, check=True, capture_output=True, text=True)
+    for name, checksum in manifest["files"].items():
+        candidate = sdk / name
+        if not candidate.is_file() or hashlib.sha256(candidate.read_bytes()).hexdigest() != checksum:
+            raise ValueError(f"Native SDK patched source checksum mismatch: {name}")
+
+
 def verify_extension(source: Path, extension: Path) -> None:
     manifest = json.loads((extension / "extension.json").read_text())
     revision = subprocess.run(["git", "-C", str(source), "rev-parse", "HEAD"], check=True,
@@ -101,10 +127,13 @@ def main() -> None:
     context = output / "build-context"
     lock = json.loads((ROOT / "native/dependencies.lock.json").read_text())
     prepare_sources(lock, args.cache_dir.expanduser(), context / "dependencies")
+    sdk_extension = ROOT / "native/ros2_interface"
+    apply_sdk_extension(context / "dependencies", lock, sdk_extension)
     apply_message_overlay(context / "dependencies", lock, ROOT / "native/px4/messages")
     shutil.copytree(ROOT / "native/px4_guidance", context / "px4_guidance", dirs_exist_ok=True)
     shutil.copyfile(ROOT / "native/Dockerfile.tests", context / "Dockerfile")
     (output / "dependencies.lock.json").write_text(json.dumps(lock, indent=2) + "\n")
+    shutil.copyfile(sdk_extension / "extension.json", output / "sdk-extension.json")
     if args.px4_source:
         verify_extension(args.px4_source.resolve(), ROOT / "native/px4")
         commits = {source["repository"]: source["commit"] for source in lock["sources"]}

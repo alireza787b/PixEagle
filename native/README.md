@@ -10,16 +10,15 @@ transition. The adapter publishes navigation objectives, not a second TECS or
 attitude controller. There must not be simultaneous MAVSDK and DDS command
 publishers. VTOL admission remains closed: the accepted
 [consolidation plan](../docs/followers/05-development/follower-consolidation-plan.md)
-ends following on transition and requires a fresh Start afterward. The existing
-phase-retaining prototype and cycle reports below are historical component
-evidence; transition-preserving authority release remains S7 work.
+ends following on transition and requires a fresh Start afterward. Historical phase-retaining cycle reports below do not qualify the terminal
+release path; actual transition-preserving authority release remains S7 work.
 
 | Boundary | Contract |
 | --- | --- |
 | Backend → adapter | Private, same-UID Unix socket; versioned JSON; one session and expiring command lease |
 | FW → PX4 | Course in NED, equivalent airspeed, and either AMSL altitude or upward-positive height rate |
 | VTOL MC → PX4 | NED velocity and yaw rate |
-| Transition → PX4 | Both native FW and MC setpoints for the already observed transition; no transition request |
+| Transition release drain → PX4 | Neutral native FW/MC setpoints for the coherently observed transition; no transition request or pursuit |
 | PX4 → backend | Observed phase, full physical-body quaternion, velocity, relative/home altitude, qualified airspeed and native envelope |
 | Acquire/release → PX4 | Optional atomic owned-mode request/receipt; original token, firmware incarnation, intention revision, registration and actual activation epoch |
 
@@ -45,6 +44,31 @@ Intent, phase and release writes require that acquisition's token. Stop, EOF
 and lost-reply reconciliation retain the same context; a same-ID replacement,
 reused registration or firmware restart cannot become the old owner.
 
+The ROS interface SDK uses the checksum-pinned overlay in `ros2_interface/`.
+Before acquisition, the adapter must prove that its own successful SDK request
+ID occupies the current firmware slot. Startup waits for this proof within the
+existing discovery budget before RPC readiness. A later accepted removal,
+replacement or credible aircraft/incarnation conflict permanently retires the
+adapter; a numeric slot or same mode name cannot restore it. Preparation checks
+the baseline, patch and resulting hashes and builds matching headers/library;
+`sdk-extension.json` and `dependencies.lock.json` retain the provenance.
+
+This adapter opts out of weak automatic SDK destructor/shutdown unregister.
+Explicit unregister and ordinary SDK clients keep their defaults. Existing PX4
+policy garbage-collects inactive unresponsive registrations; cleanup may wait
+for disarm/update permission, and repeated adapter-process restarts can exhaust
+eight slots. This is deferred cleanup, not confirmed registration retirement.
+Ordinary backend reconnect/restart keeps the adapter running. Deterministic
+cleanup remains deferred pending recovery qualification.
+
+Source proof assumes one aircraft per topic namespace. Conflicts retire
+conservatively; SDK health replies emitted before the loss callback cannot be
+retracted. Supervision may restart a read-only adapter, never resume following.
+Actual registry replacement, process/runtime-restart reconciliation and
+transition preservation remain separate SIH gates. Hardware/deployment
+admission remains closed. Original ownership receipts are not redefined by
+registration retirement; process exit can still make them unavailable.
+
 Commander retains one bounded receipt and cancellation revision. Native-clock
 requests expire within 500 ms, with a real 100 ms source-clock heartbeat in its
 existing loop. The separate host RPC timeout defaults to 500 ms and remains
@@ -62,11 +86,23 @@ separate S7 gate; this foundation does not reopen VTOL admission.
 
 ## Reproduce the software build
 
-The current gated prototype invalidates the old pursuit objective on a phase
-change. It can
-publish phase-appropriate holding setpoints under the same unexpired lease
-until the backend binds the new generation. This does not renew the lease,
-extend target recovery, or survive takeover/rescue.
+The adapter ends pursuit on Stop, EOF, expiry or a positively observed phase
+exit. That original acquisition cannot accept another intent or phase advance.
+While conditional native release remains pending, its existing callback may
+publish only neutral commands under fresh exact original Acquired/Releasing
+ownership. No pursuit lease or release deadline is renewed. MC commands zero
+velocity/yaw; FW uses current qualified native course, constrained trim and zero
+height rate. Transition publication additionally requires matching accepted and
+native-helper direction, with a qualified native FW frame. Missing observations
+stop neutral publication without blocking the conditional release request.
+
+Startup waiting/holding remains separate: it expires at the original engagement
+deadline and ends with the first pursuit intent. Callback ordering may leave
+correlation pending within that same window; no startup command is published
+until the exact original acquisition is confirmed. Stop or positive takeover,
+rescue, phase exit or terminal receipt ends the wait. Contract tests and
+compilation do not qualify registered-mode draining or transition preservation; those require
+separate isolated SIH evidence. VTOL admission remains closed.
 
 From the PixEagle root, with Docker available:
 

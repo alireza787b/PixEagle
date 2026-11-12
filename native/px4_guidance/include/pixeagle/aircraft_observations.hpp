@@ -2,6 +2,7 @@
 
 #include <pixeagle/local_protocol.hpp>
 #include <pixeagle/source_sample.hpp>
+#include <pixeagle/neutral_release.hpp>
 #include <px4_msgs/msg/airspeed_validated.hpp>
 #include <px4_msgs/msg/fixed_wing_guidance_status.hpp>
 #include <px4_msgs/msg/vehicle_attitude.hpp>
@@ -26,6 +27,8 @@ public:
     Json pose(double now) const;
     Json commandFeedback(double now) const;
     Json attitudeTiming(double now) const;
+    std::optional<NativeNeutralInput> neutralFlightData(
+        const px4_msgs::msg::VehicleStatus& status, double now) const;
 private:
     template<class Message> void subscribe(rclcpp::Node& node, const std::string& topic, SourceSample<Message>& sample) {
         subscribe(node, topic, sample, [](const Message& message) { return message.timestamp; });

@@ -68,6 +68,113 @@ TEST(OwnedModeContract, ReplacementRegistrationCannotMatchTheOriginalReceipt) {
                                 source.source_mode, source.mode, 100));
 }
 
+TEST(OwnedModeContract, AcquisitionRequiresItsOwnSuccessfulRegistrationBeforeContextCreation) {
+    EXPECT_EQ(requireOwnRegistration(99, 99), 99u);
+    EXPECT_THROW(requireOwnRegistration(99, 100), std::invalid_argument);
+    EXPECT_THROW(requireOwnRegistration(99, 0), std::invalid_argument);
+    EXPECT_THROW(requireOwnRegistration(0, 99), std::invalid_argument);
+    EXPECT_THROW(requireOwnRegistration(0, 0), std::invalid_argument);
+    // Losing current eligibility does not invalidate an original terminal receipt.
+    const auto original = context();
+    EXPECT_TRUE(original.matches(original.token, original.incarnation, original.source_revision,
+        original.source_epoch, original.source_mode, original.mode, 99));
+}
+
+TEST(OwnedModeContract, RegistrationProofNeverAdoptsPreRegistrationOrReplacementStatus) {
+    RegistrationProof proof;
+    const OwnershipToken incarnation{7, 8};
+    for (const auto own : {0u, 99u}) {
+        for (const auto current : {0u, 100u}) {
+            proof.observe(own, current, incarnation, 10, 1, 1, true);
+            EXPECT_FALSE(proof.ready());
+            EXPECT_FALSE(proof.retired());
+        }
+    }
+    proof.observe(99, 99, incarnation, 10, 1, 1, false);
+    EXPECT_FALSE(proof.ready());
+    proof.observe(99, 99, {}, 10, 1, 1, true);
+    EXPECT_FALSE(proof.ready());
+    proof.observe(99, 99, incarnation, 10, 1, 1, true);
+    EXPECT_TRUE(proof.ready());
+}
+
+TEST(OwnedModeContract, ProgressingRegistrationRemovalOrReusePermanentlyRetiresProof) {
+    for (const auto replacement : {0u, 100u}) {
+        RegistrationProof proof;
+        const OwnershipToken incarnation{7, 8};
+        proof.observe(99, 99, incarnation, 10, 1, 1, true);
+        const bool old = ownershipPublicationProgresses(100, incarnation, 1000, 99, incarnation, 900);
+        ASSERT_FALSE(old);
+        proof.observe(99, replacement, incarnation, 10, 1, 1, old);
+        EXPECT_TRUE(proof.ready());
+        proof.observe(99, replacement, incarnation, 10, 1, 1, true);
+        EXPECT_TRUE(proof.retired());
+        EXPECT_FALSE(proof.ready());
+        proof.observe(99, 99, incarnation, 10, 1, 1, true);
+        EXPECT_FALSE(proof.ready());
+    }
+}
+
+TEST(OwnedModeContract, VerifiedRegistrationIncarnationChangeRetiresBeforeClockResetFiltering) {
+    RegistrationProof proof;
+    const OwnershipToken original{7, 8}, changed{9, 10};
+    proof.observe(99, 99, original, 10, 1, 1, true);
+    proof.observe(99, 99, changed, 10, 1, 1, false);
+    EXPECT_TRUE(proof.retired());
+    proof.observe(99, 99, original, 10, 1, 1, true);
+    EXPECT_FALSE(proof.ready());
+}
+
+TEST(OwnedModeContract, ConfirmedUidSystemOrComponentConflictPermanentlyRetiresRegistration) {
+    const std::array<std::array<std::uint64_t, 3>, 3> replacements{{{11, 1, 1}, {10, 2, 1}, {10, 1, 2}}};
+    for (const auto& source : replacements) {
+        for (const bool progresses : {false, true}) {
+            RegistrationProof proof;
+            const auto original = context();
+            proof.observe(99, 99, original.incarnation, 10, 1, 1, true);
+            CommandLease lease;
+            lease.acquire(original.identity, 10., 11.);
+            lease.submit({original.identity, 1, 10., 11., FixedWingObjective{1., 20., -2., {}}}, 10., Phase::FixedWing);
+            proof.observe(99, 99, original.incarnation, source[0], source[1], source[2], progresses);
+            EXPECT_TRUE(proof.retired());
+            EXPECT_FALSE(proof.ready());
+            EXPECT_EQ(lease.current(10.2, Phase::FixedWing, proof.ready(), true, false), nullptr);
+            EXPECT_FALSE(lease.identity());
+            proof.observe(99, 99, original.incarnation, 10, 1, 1, true);
+            EXPECT_FALSE(proof.ready());
+        }
+    }
+}
+
+TEST(OwnedModeContract, UnconfirmedForeignReplacementOrInvalidPacketCannotEstablishProof) {
+    RegistrationProof proof;
+    proof.observe(99, 100, {7, 8}, 11, 2, 3, true);
+    proof.observe(0, 99, {7, 8}, 11, 2, 3, true);
+    proof.observe(99, 99, {}, 11, 2, 3, true);
+    proof.observe(99, 99, {7, 8}, 11, 2, 3, false);
+    EXPECT_FALSE(proof.ready());
+    EXPECT_FALSE(proof.retired());
+    proof.observe(99, 99, {7, 8}, 10, 1, 1, true);
+    EXPECT_TRUE(proof.ready());
+    proof.observe(99, 100, {}, 11, 2, 3, true);
+    EXPECT_TRUE(proof.ready());
+}
+
+TEST(OwnedModeContract, RetirementRevokesRetainedPursuitWithoutChangingOriginalReceiptValidity) {
+    RegistrationProof proof;
+    const auto original = context();
+    proof.observe(99, 99, original.incarnation, 10, 1, 1, true);
+    CommandLease lease;
+    lease.acquire(original.identity, 10., 11.);
+    lease.submit({original.identity, 1, 10., 11., FixedWingObjective{1., 20., -2., {}}}, 10., Phase::FixedWing);
+    ASSERT_NE(lease.current(10.1, Phase::FixedWing, proof.ready(), true, false), nullptr);
+    proof.observe(99, 100, original.incarnation, 10, 1, 1, true);
+    EXPECT_EQ(lease.current(10.2, Phase::FixedWing, proof.ready(), true, false), nullptr);
+    EXPECT_FALSE(lease.identity());
+    EXPECT_TRUE(original.matches(original.token, original.incarnation, original.source_revision,
+        original.source_epoch, original.source_mode, original.mode, original.registration_id));
+}
+
 TEST(OwnedModeContract, EqualSessionIdentityCannotAuthorizeAnOldAcquisitionToken) {
     auto original = context();
     auto replacement = original;

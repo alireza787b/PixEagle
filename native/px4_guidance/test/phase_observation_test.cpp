@@ -29,7 +29,7 @@ TEST(PhaseObservation, SourceTimeoutInputsCannotBeNonfiniteOrNonpositive) {
     EXPECT_FALSE(phaseSourcesFresh(10., 9.8, 9.8, true, 0.));
 }
 
-TEST(PhaseObservation, EitherPositiveTransitionSourcePausesPursuit) {
+TEST(PhaseObservation, EitherPositiveTransitionSourceIdentifiesPhaseExit) {
     EXPECT_EQ(resolveObservedPhase(true, false, true, false, Phase::Multicopter, Phase::Transition), Phase::Transition);
     EXPECT_EQ(resolveObservedPhase(true, false, true, true, Phase::Multicopter, Phase::Multicopter), Phase::Transition);
     EXPECT_EQ(resolveObservedPhase(true, false, true, false, Phase::FixedWing, Phase::Multicopter), Phase::Transition);

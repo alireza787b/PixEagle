@@ -2,6 +2,7 @@
 
 #include <pixeagle/phase_observation.hpp>
 #include <pixeagle/owned_mode_contract.hpp>
+#include <pixeagle/neutral_release.hpp>
 #include <px4_ros2/components/mode.hpp>
 #include <px4_ros2/control/setpoint_types/experimental/trajectory.hpp>
 #include <px4_ros2/control/setpoint_types/fixedwing/lateral_longitudinal.hpp>
@@ -39,22 +40,30 @@ public:
     bool requestHandoff(const Identity& identity, OwnershipToken token);
     void disconnect();
     bool ownedContractAvailable() const;
+    bool registrationConfirmed() const { return _registration_proof.ready() && ownedContractAvailable(); }
     Json acquisition(const std::string& runtime) const;
     Json releaseReceipt(const std::string& runtime) const;
     bool acquisitionOutstanding() const;
     std::uint64_t publications() const { return _publications; }
-    using PhaseHoldProvider = std::function<std::optional<Objective>(Phase, const std::optional<Objective>&)>;
-    void setPhaseHoldProvider(PhaseHoldProvider provider) { _phase_hold_provider = std::move(provider); }
-    bool phaseHoldActive() const { return _phase_hold_active; }
-    const std::string& phaseHoldFailure() const { return _phase_hold_failure; }
+    using NeutralProvider = std::function<std::optional<NativeNeutralInput>()>;
+    void setNeutralProvider(NeutralProvider provider) { _neutral_provider = std::move(provider); }
+    bool releasePending() const { return _ownership_context && _ownership_context->release_pending; }
+    bool neutralDrainActive() const { return _neutral_drain_active; }
+    const std::string& neutralDrainFailure() const { return _neutral_drain_failure; }
 
 private:
     static double monotonicSeconds();
     void requestOwnership(bool release);
     void observeOwnership();
     bool ownedStatusFresh() const;
-    void publish(const Objective& objective);
+    bool publish(const Objective& objective);
     void stopOwnedMode();
+    NativeActivationEvidence activationEvidence() const;
+    void endPursuitOnPhaseExit();
+    void drainNeutral();
+    bool transitionDirectionConfirmed() const;
+    Phase vehiclePhase() const;
+    Phase vtolPhase() const;
     std::shared_ptr<px4_ros2::TrajectorySetpointType> _trajectory;
     std::shared_ptr<px4_ros2::FwLateralLongitudinalSetpointType> _fixed_wing;
     std::shared_ptr<px4_ros2::VTOL> _vtol;
@@ -65,6 +74,7 @@ private:
     px4_msgs::msg::OwnedModeStatus _ownership_status{};
     double _ownership_received{-1.};
     std::optional<OwnershipContext> _ownership_context;
+    RegistrationProof _registration_proof;
     std::optional<px4_msgs::msg::OwnedModeRequest> _release_request;
     px4_msgs::msg::VehicleStatus _status{};
     px4_msgs::msg::VtolVehicleStatus _vtol_status{};
@@ -73,10 +83,10 @@ private:
     const double _request_timeout_s;
     const bool _is_vtol;
     CommandLease _lease;
-    PhaseHoldProvider _phase_hold_provider;
-    std::optional<Objective> _last_objective;
-    bool _phase_hold_active{};
-    std::string _phase_hold_failure;
+    NeutralProvider _neutral_provider;
+    Phase _engagement_phase{Phase::Unknown};
+    bool _neutral_drain_active{};
+    std::string _neutral_drain_failure;
     std::optional<Objective> _activation_hold;
     double _activation_expires{};
     std::uint64_t _publications{};
