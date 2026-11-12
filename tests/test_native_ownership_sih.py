@@ -210,7 +210,7 @@ async def test_quiesce_joins_stimulus_before_stopping_the_only_publisher():
     commander.stop.assert_awaited_once_with(publish_final=False)
 
 
-@pytest.mark.parametrize('airframe', tool.AIRFRAMES)
+@pytest.mark.parametrize('airframe', ['pure_fixed_wing', 'settled_vtol_mc', 'settled_vtol_fw'])
 async def test_baseline_uses_production_binding_and_only_publisher_without_a_target(monkeypatch, native_follower_environment, airframe):
     import time
     from dataclasses import asdict
@@ -224,7 +224,8 @@ async def test_baseline_uses_production_binding_and_only_publisher_without_a_tar
     from tests.unit.drone_interface.test_aircraft_state import aircraft_state
 
     mc = airframe == 'settled_vtol_mc'
-    capabilities = NativeCapabilities('test-adapter', 'synthetic-fixture', 2, True, mc, False, True, 23)
+    is_vtol = airframe != 'pure_fixed_wing'
+    capabilities = NativeCapabilities('test-adapter', 'synthetic-fixture', 2, True, is_vtol, False, True, 23)
     aircraft = identity().binding
     client = SimpleNamespace(session_identity=None, acquisition_context=None, acquisition_token=None)
     sequence = [0]
@@ -242,7 +243,7 @@ async def test_baseline_uses_production_binding_and_only_publisher_without_a_tar
         now = time.monotonic()
         sequence[0] += 1
         state = aircraft_state(binding=aircraft, sequence=sequence[0], observed_at_monotonic_s=now,
-                               is_vtol=mc, phase=tool.AirframePhase.MULTICOPTER if mc else tool.AirframePhase.FIXED_WING,
+                               is_vtol=is_vtol, phase=tool.AirframePhase.MULTICOPTER if mc else tool.AirframePhase.FIXED_WING,
                                airspeed=replace(aircraft_state().airspeed, observed_at_monotonic_s=now))
         return {'owner_confirmed': True, 'fresh': True, 'rescue_active': False, 'aircraft_state': asdict(state),
                 'publications': sequence[0], 'vehicle_pose': {'px4_timestamp_us': sequence[0],
@@ -929,3 +930,148 @@ async def test_unqualified_restart_clock_refuses_before_process_signal(monkeypat
                                    contract=CONTRACT)
     assert calls == ['capture']
     assert progress['original_cleanup_read_only'] is False
+
+
+@pytest.mark.parametrize('airframe', ['pure_fixed_wing', 'settled_vtol_mc', 'settled_vtol_fw'])
+async def test_replacement_run_keeps_selected_airframe_at_both_session_boundaries(tmp_path, monkeypatch, airframe):
+    import time
+    from dataclasses import asdict
+    from unittest.mock import AsyncMock
+
+    from classes.native_guidance import NativeCapabilities, NativeGuidanceError
+    from tests.fixtures.native_ownership import release_receipt
+    from tests.unit.drone_interface.test_aircraft_state import aircraft_state
+
+    mc = airframe == 'settled_vtol_mc'
+    is_vtol = airframe != 'pure_fixed_wing'
+    capabilities = NativeCapabilities('test-adapter', 'synthetic-fixture', 2, True, is_vtol, False, True, 23)
+    client = SimpleNamespace(acquisition_context=None)
+    client.connect = AsyncMock(return_value=capabilities)
+
+    async def bind(aircraft):
+        client.binding = aircraft
+
+    client.bind = AsyncMock(side_effect=bind)
+    client.close = AsyncMock()
+
+    async def observe():
+        receipt = release_receipt(client.acquisition_context,
+                                  timestamp=client.acquisition_context.activation_timestamp + 100)
+        return {'fresh': True, 'owner_confirmed': False, 'rescue_active': False, 'nav_state': 4,
+                'nav_state_timestamp': receipt.observed_nav_state_timestamp, 'publications': 2,
+                'release_receipt': receipt.wire_payload(),
+                'phase_source_health': {'vehicle_status_timeout_s': 1., 'vehicle_status_age_s': 0.}}
+
+    client.observe = AsyncMock(side_effect=observe)
+    monkeypatch.setattr(tool, 'NativeGuidanceClient', Mock(return_value=client))
+
+    class Recorder:
+        def __init__(self, *args):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+    monkeypatch.setattr(tool, 'WireRecorder', Recorder)
+    monkeypatch.setattr(tool, 'native_parameters', Mock(return_value='synthetic parameter snapshot'))
+    monkeypatch.setattr(tool, 'archive_configuration', Mock(return_value={}))
+    monkeypatch.setattr(tool.Parameters, 'load_config', Mock())
+    stable_airframes, session_airframes, sessions = [], [], []
+
+    async def stable(client, connection, *, airframe='pure_fixed_wing', **kwargs):
+        state = aircraft_state(binding=client.binding, sequence=len(stable_airframes) + 1,
+                               observed_at_monotonic_s=time.monotonic(), relative_altitude_m=30.,
+                               is_vtol=is_vtol, phase=tool.AirframePhase.MULTICOPTER if mc else tool.AirframePhase.FIXED_WING)
+        # The real production validator refuses the wrong replacement strategy.
+        tool.require_airframe(state, airframe)
+        assert connection.commit_aircraft_state(state)
+        stable_airframes.append(airframe)
+
+    def create(client, connection, capabilities, owner, config, profile, log, *, run_started,
+               airframe='pure_fixed_wing'):
+        tool.require_airframe(connection.get_aircraft_state(), airframe)
+        session_airframes.append(airframe)
+        context = acquisition(owner, token=f'{len(sessions) + 1:032x}',
+                              activation_timestamp=200 + len(sessions) * 100)
+        session = SimpleNamespace(acquisition=context, commander=SimpleNamespace(successful_publishes=1))
+
+        async def stop(reason):
+            if client.acquisition_context != context:
+                raise NativeGuidanceError('native_session_replaced')
+            return {'executed': True, 'release_receipt': asdict(release_receipt(
+                context, timestamp=context.activation_timestamp + 100))}
+
+        session.binding = SimpleNamespace(stop=AsyncMock(side_effect=stop), abort=Mock())
+        sessions.append(session)
+        return session
+
+    async def activate(session, log):
+        client.acquisition_context = session.acquisition
+
+    monkeypatch.setattr(tool, 'stable_aircraft', AsyncMock(side_effect=stable))
+    monkeypatch.setattr(tool, 'create_session', Mock(side_effect=create))
+    monkeypatch.setattr(tool, 'activate_session', AsyncMock(side_effect=activate))
+    monkeypatch.setattr(tool, 'drive', AsyncMock())
+    monkeypatch.setattr(tool, 'confirmed_source', AsyncMock())
+    monkeypatch.setattr(tool, 'retired_owner', AsyncMock(return_value=(None, 0.)))
+    monkeypatch.setattr(tool, 'reconcile', AsyncMock(side_effect=lambda session, log:
+        release_receipt(session.acquisition, outcome='owner_already_released')))
+    monkeypatch.setattr(tool, 'user_mode', AsyncMock())
+    monkeypatch.setattr(tool, 'quiesce', AsyncMock())
+    config = tmp_path / 'config.yaml'
+    config.write_text('Follower: {}\n')
+    output = tmp_path / 'evidence'
+    args = SimpleNamespace(output=output, config=config, follower='gm_velocity_vector',
+                           case='stale_cleanup_new_acquisition', airframe=airframe, socket=tmp_path / 'native.sock',
+                           stable_timeout=1., test_altitude=30., duration=.01)
+    result = await tool.run(args, {'aircraft_uid': '123'}, CONTRACT)
+    assert result['passed'] is True, result
+    assert result['response_checks']['late_cleanup_rejected'] is True
+    assert result['response_checks']['distinct_acquisition'] is True
+    assert result['response_checks']['same_semantic_identity'] is True
+    assert result['response_checks']['replacement_preserved'] is True
+    assert stable_airframes == session_airframes == [airframe, airframe]
+    assert len(sessions) == 2 and client.acquisition_context == sessions[1].acquisition
+    assert json.loads((output / 'manifest.json').read_text())['airframe'] == airframe
+
+
+@pytest.mark.parametrize('airframe,phase,is_vtol,accepted', [
+    ('pure_fixed_wing', 'fixed_wing', False, True),
+    ('pure_fixed_wing', 'fixed_wing', True, False),
+    ('pure_fixed_wing', 'multicopter', False, False),
+    ('settled_vtol_mc', 'multicopter', True, True),
+    ('settled_vtol_mc', 'multicopter', False, False),
+    ('settled_vtol_mc', 'fixed_wing', True, False),
+    ('settled_vtol_mc', 'vtol_transition', True, False),
+    ('settled_vtol_fw', 'fixed_wing', True, True),
+    ('settled_vtol_fw', 'fixed_wing', False, False),
+    ('settled_vtol_fw', 'multicopter', True, False),
+    ('settled_vtol_fw', 'vtol_transition', True, False),
+])
+def test_explicit_airframe_requires_its_actual_kind_and_settled_phase(airframe, phase, is_vtol, accepted):
+    from tests.unit.drone_interface.test_aircraft_state import aircraft_state
+
+    state = aircraft_state(phase=tool.AirframePhase(phase), is_vtol=is_vtol)
+    if accepted:
+        tool.require_airframe(state, airframe)
+    else:
+        with pytest.raises(ValueError, match='ownership_fixture_requires_' + airframe):
+            tool.require_airframe(state, airframe)
+
+
+@pytest.mark.parametrize('airframe', ['pure_fixed_wing', 'settled_vtol_fw'])
+def test_restart_cli_still_refuses_every_non_mc_airframe_before_external_operations(tmp_path, monkeypatch, capsys, airframe):
+    forbidden = Mock(side_effect=AssertionError('wrong restart airframe must refuse before external operations'))
+    monkeypatch.setattr(tool, 'verify_simulator', forbidden)
+    monkeypatch.setattr(tool, 'run', forbidden)
+    with pytest.raises(SystemExit) as error:
+        tool.main(['--case', 'adapter_process_restart', '--airframe', airframe,
+            '--restart-plan', str(tmp_path / 'plan.json'), '--socket', str(tmp_path / 'native.sock'),
+            '--container', 'synthetic-fixture', '--instance', '0',
+            '--sih-build-manifest', str(tmp_path / 'manifest.json'), '--output', str(tmp_path / 'output')])
+    assert error.value.code == 2
+    assert 'adapter_process_restart requires --airframe settled_vtol_mc' in capsys.readouterr().err
+    forbidden.assert_not_called()

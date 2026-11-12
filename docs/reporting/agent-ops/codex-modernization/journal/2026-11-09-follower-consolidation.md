@@ -395,3 +395,11 @@ before the second takeoff; only C's ULog remains. Raw functional success is
 retained separately from incomplete whole-case log evidence. A prospective
 closed-log checkpoint is required before rearming; no flight or native cleanup
 policy is weakened to preserve evidence.
+
+The ownership fixture now keeps one selected aircraft-kind/phase contract at
+both original and replacement session boundaries. The regression reproduces
+the former MC replacement falling back to pure FW; explicit settled VTOL FW
+becomes another test contract without changing production admission. Independent
+review, 19 focused contracts and four hygiene checks pass; coherent root renewal
+and actual cases remain separate gates. No follower algorithm or saved setting
+changes.

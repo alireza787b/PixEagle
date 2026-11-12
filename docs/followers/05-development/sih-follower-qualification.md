@@ -127,7 +127,11 @@ manufacture completion or authorize another phase.
 The separate `tools/run_native_ownership_sih.py` tests causal ownership with
 phase-safe baseline commands, not a tracker or moving target. Its default remains
 pure FW. The explicit `--airframe settled_vtol_mc` option permits settled native
-VTOL MC component tests. `--case adapter_process_restart` additionally requires
+VTOL MC component tests; `--airframe settled_vtol_fw` requires actual settled
+VTOL FW state rather than treating it as an ordinary fixed-wing aircraft.
+The selected kind/phase contract applies at both original and replacement
+session boundaries. These options do not enable production VTOL admission.
+`--case adapter_process_restart` remains MC-only and additionally requires
 a reviewed, hash-bound `--restart-plan`; it is not an installation restart command.
 The plan identifies one isolated simulator, one owned adapter process and its
 private endpoint. A live accepted intent must extend across the verified crash

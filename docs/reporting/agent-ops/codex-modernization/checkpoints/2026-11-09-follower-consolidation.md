@@ -1578,3 +1578,24 @@ All these simulators are stopped. The native Transition→Auto trajectory handov
 is under causal review before any firmware change. S7, VTOL admission, S8's
 unrestricted-speed capability and hardware qualification remain open. Public and
 private defaults, QGC, installed services and remote repositories are unchanged.
+
+### S7 ownership fixture — explicit airframe contract
+
+Source review finds that replacement acquisition omitted the selected airframe
+at both readiness and session construction, silently reverting to pure FW.
+A control-flow regression reproduces rejection of a valid settled VTOL MC
+replacement through the production validator. One selected contract now flows
+through both boundaries and the retained manifest. A single declarative map
+also admits explicitly observed settled VTOL FW; wrong kind, transition or
+settled phase still refuses. Crash/restart remains explicitly MC-only.
+The three baseline tests use the production binding; replacement tests retain
+the original stale-owner rejection and separate acquisition identities.
+
+Independent source review and 19 focused contract checks plus four hygiene
+checks pass. Root's combined ownership/vector/clock/native-client/viewer/docs
+renewal passes 576 checks; touched tool/test Ruff checks pass. The prior
+236-check native-client/tool gate overlaps this scope.
+Candidate, red/green evidence and review are in
+`software-gates-s7-ownership-airframe-repair-r2/`. Full coherent renewal and actual
+cases remain required; this is diagnostic-tool support, not a follower,
+firmware, default or production-admission change.

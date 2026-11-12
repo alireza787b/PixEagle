@@ -77,15 +77,18 @@ from tools.sih_baseline import verify_source
 
 CASES = ('normal_stop', 'confirmed_owner_eof', 'same_mode_reselection', 'stale_cleanup_new_acquisition',
          'adapter_process_restart')
-AIRFRAMES = ('pure_fixed_wing', 'settled_vtol_mc')
+AIRFRAME_CONTRACTS = {
+    'pure_fixed_wing': (False, AirframePhase.FIXED_WING),
+    'settled_vtol_mc': (True, AirframePhase.MULTICOPTER),
+    'settled_vtol_fw': (True, AirframePhase.FIXED_WING),
+}
+AIRFRAMES = tuple(AIRFRAME_CONTRACTS)
 
 
 def require_airframe(state, airframe='pure_fixed_wing'):
     if airframe not in AIRFRAMES:
         raise ValueError('ownership_fixture_airframe_invalid')
-    if not isinstance(state, AircraftState) or not (
-            state.is_vtol and state.phase is AirframePhase.MULTICOPTER if airframe == 'settled_vtol_mc'
-            else not state.is_vtol and state.phase is AirframePhase.FIXED_WING):
+    if not isinstance(state, AircraftState) or (state.is_vtol, state.phase) != AIRFRAME_CONTRACTS[airframe]:
         raise ValueError('ownership_fixture_requires_' + airframe)
 
 
@@ -698,6 +701,7 @@ async def run(args, isolation, contract):
         (output / subdir).mkdir()
     config = yaml.safe_load(args.config.read_text())
     selected = component_profile(args.follower)
+    airframe = getattr(args, 'airframe', 'pure_fixed_wing')
     config['FOLLOWER_CIRCUIT_BREAKER'] = False  # Isolated copied configuration only.
     config['Follower']['FOLLOWER_MODE'] = selected.profile.mode
     (output / 'config.yaml').write_text(yaml.safe_dump(config, sort_keys=False))
@@ -724,7 +728,7 @@ async def run(args, isolation, contract):
         'case': args.case, 'isolation': isolation, 'source_contract': contract, 'configuration': configuration,
         'host_clock': {'basis': 'time.monotonic', 'origin_s': started,
                        'wire_timestamp_semantics': 'seconds_since_origin'},
-        'profile': selected.profile.mode, 'airframe': getattr(args, 'airframe', 'pure_fixed_wing'),
+        'profile': selected.profile.mode, 'airframe': airframe,
         'baseline_only': True, 'target_tracking_qualified': False,
         'application_startup_qualified': False, 'vtol_qualified': False, 'hardware_qualified': False,
         'lost_engagement_ack_tested': False, 'argv': sys.argv,
@@ -776,10 +780,10 @@ async def run(args, isolation, contract):
         await client.bind(aircraft)
         connection = ObservationConnection(aircraft)
         await stable_aircraft(client, connection, timeout=args.stable_timeout, altitude=args.test_altitude,
-                              hold_mode=contract['hold'], log=log, airframe=getattr(args, 'airframe', 'pure_fixed_wing'))
+                              hold_mode=contract['hold'], log=log, airframe=airframe)
         identity = GuidanceSessionIdentity(output.name, aircraft, 1)
         active = create_session(client, connection, capabilities, identity, config, selected.profile, log, run_started=started,
-                                airframe=getattr(args, 'airframe', 'pure_fixed_wing'))
+                                airframe=airframe)
         active.clock_domain = clock_domain
         await activate_session(active, log)
         await drive(active, args.duration, log)
@@ -821,8 +825,9 @@ async def run(args, isolation, contract):
                 capabilities = await client.connect()
                 await client.bind(aircraft)
                 await stable_aircraft(client, connection, timeout=args.stable_timeout, altitude=args.test_altitude,
-                                      hold_mode=contract['hold'], log=log)
-                active = create_session(client, connection, capabilities, identity, config, selected.profile, log, run_started=started)
+                                      hold_mode=contract['hold'], log=log, airframe=airframe)
+                active = create_session(client, connection, capabilities, identity, config, selected.profile, log, run_started=started,
+                                        airframe=airframe)
                 await activate_session(active, log)
                 await drive(active, args.duration, log)
                 await confirmed_source(args, isolation, active, contract, log)
