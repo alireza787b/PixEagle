@@ -1195,3 +1195,30 @@ removes one extra final newline from the new recorder file. Global target-clock
 slicing and the production lifecycle-observation fix remain under review before
 the next full renewal and actual VTOL execution. No runtime or hardware action
 is claimed by these tool tests.
+
+### S7 immediate native lifecycle interruption
+
+A real-client reproducer exposed a lifecycle ordering gap: a validated reply
+reporting owner loss or unavailable aircraft state was rejected before reaching
+the session observer. Public dispatch already refused commands, but internal
+controls could remain active until the generic publisher failure path ran.
+
+The existing observer now receives the actual reply before dispatch admission.
+Absent, expired or rejected state is typed `None`, never a cached pose. The
+binding fences its original acquisition before target work, ends controls and
+uses the existing terminal-dispatch callback on that first attempt. Replacement
+ownership is not aborted. The canonical phase owner records a fresh progressing
+transition even when its reply also confirms release; binding, stale state,
+rescue, layout and sequence guards retain precedence. No second callback,
+supervisor, command route or fabricated ownership is added.
+
+The frozen candidate passes 369 scoped checks, 74 Phase 0 checks, schema and
+critical static checks. Root's combined native/tool/doc renewal passes 325.
+The full Ruff comparison retains 13 existing findings, with none added.
+`software-gates-s7-observation-order-r1/fix-r1/review-manifest-final.json` records
+the exact seven files and tests. Missing-wire/invalid-reply exceptions without
+a validated observation retain the existing generic failure policy; this change
+does not invent a phase on communication failure. Full combined renewal and
+actual protocol-3 transition evidence remain next. The FW guide now presents
+only the current session behavior and labels earlier phase-retaining figures
+historical.

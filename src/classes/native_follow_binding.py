@@ -149,17 +149,41 @@ class NativeFollowBinding:
         finally:
             self._engage_in_progress = False
 
-    async def on_observation(self, state, observation, intent):
+    async def on_observation(self, state: AircraftState | None, observation, intent):
+        if not self._owns_client_acquisition():
+            self.abort("native_session_replaced")
+            raise DispatchRefused("native_session_replaced", DispatchRefusalKind.TERMINAL)
         if self._stopping:
-            raise NativeGuidanceError("native_follow_stopping")
-        evidence = self._target_evidence()
+            raise DispatchRefused("native_follow_stopping", DispatchRefusalKind.TERMINAL)
+        if self.terminal_reason is not None:
+            self.abort(self.terminal_reason)
+            raise DispatchRefused(self.terminal_reason, DispatchRefusalKind.TERMINAL)
+        if state is None or observation.get("fresh") is not True:
+            self.abort("native_aircraft_state_unavailable")
+            raise DispatchRefused("native_aircraft_state_unavailable", DispatchRefusalKind.TERMINAL)
+        owner = self.guidance.phase_owner
+        if not state.fresh(self.clock(), owner.observation_timeout_s):
+            self.abort("aircraft_state_stale")
+            raise DispatchRefused("aircraft_state_stale", DispatchRefusalKind.TERMINAL)
+        if observation.get("rescue_active") is not False or state.rescue_active:
+            self.abort("aircraft_rescue_active")
+            raise DispatchRefused("aircraft_rescue_active", DispatchRefusalKind.TERMINAL)
+        expected_phase = owner.initial_phase or owner.phase
+        # A known interruption must revoke controls before tracker/target work.
+        interrupted = (observation.get("owner_confirmed") is not True
+                       or state.phase not in self.guidance.supported_phases
+                       or expected_phase is not AirframePhase.UNKNOWN and state.phase is not expected_phase
+                       or state.binding != self.guidance.identity.binding
+                       or not owner.expected_layout.matches(state))
+        target_confirmed = (owner.state is not PhaseSessionState.PURSUIT and not interrupted
+                            and self._target_evidence().state is TargetEvidenceState.CONFIRMED)
         decision = self.guidance.observe(
             state, owner_confirmed=observation.get("owner_confirmed") is True,
-            target_confirmed=evidence.state is TargetEvidenceState.CONFIRMED,
+            target_confirmed=target_confirmed,
         )
         if decision.state is PhaseSessionState.ENDED:
             self.abort(decision.reason)
-            raise NativeGuidanceError(decision.reason)
+            raise DispatchRefused(decision.reason, DispatchRefusalKind.TERMINAL)
         if not self._strategy_bound:
             baseline = self.guidance.baseline()
             phase = self.guidance.phase
@@ -172,7 +196,7 @@ class NativeFollowBinding:
             )
             if result.handoff_request is not None:
                 self.abort(result.reason_code)
-                raise NativeGuidanceError(result.reason_code)
+                raise DispatchRefused(result.reason_code, DispatchRefusalKind.TERMINAL)
             self._strategy_bound = True
         if (intent is None or not decision.pursuit_allowed
                 or intent.guidance_identity != self.guidance.identity):

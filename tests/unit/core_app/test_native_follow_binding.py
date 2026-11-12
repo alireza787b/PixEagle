@@ -147,14 +147,14 @@ async def test_transition_ends_one_owner_and_does_not_reacquire_or_rebind(phase)
     f = fixture(phase=phase)
     original = f.guidance.identity
     await f.binding.engage()
-    with pytest.raises(NativeGuidanceError, match="aircraft_transition_observed"):
+    with pytest.raises(DispatchRefused, match="aircraft_transition_observed"):
         await f.observation(AirframePhase.VTOL_TRANSITION)
     assert f.binding.terminal_reason == "aircraft_transition_observed"
     assert not f.binding.owner_confirmed
     assert f.guidance.identity.guidance_generation == original.guidance_generation + 1
     assert f.binding.transport.identity == original
     f.client.engage.assert_awaited_once()
-    with pytest.raises(NativeGuidanceError, match="follow_stopping"):
+    with pytest.raises(DispatchRefused, match="follow_stopping"):
         await f.binding.on_observation(f.state, f.packet(), None)
     result = await f.binding.stop("transition_cleanup")
     assert result["local_sender_quiesced"]
@@ -169,7 +169,7 @@ async def test_phase_packet_before_next_pose_ends_without_refreshing_old_pose():
     f.clock[0] += .1
     changed = replace(previous, sequence=previous.sequence + 1, phase=AirframePhase.VTOL_TRANSITION)
     assert f.connection.commit_aircraft_state(changed)
-    with pytest.raises(NativeGuidanceError, match="aircraft_transition_observed"):
+    with pytest.raises(DispatchRefused, match="aircraft_transition_observed"):
         await f.binding.on_observation(changed, f.packet(), None)
     assert f.connection.get_aircraft_state().observed_at_monotonic_s == previous.observed_at_monotonic_s
     f.clock[0] += .8
@@ -205,7 +205,7 @@ async def test_stop_revokes_controls_before_awaiting_handoff_and_never_reengages
     await entered.wait()
     assert not f.binding.owner_confirmed
     assert f.binding.guidance.controls.current_control is None
-    with pytest.raises(NativeGuidanceError, match="stopping"):
+    with pytest.raises(DispatchRefused, match="stopping"):
         await f.binding.on_observation(f.state, f.packet(), None)
     finish.set()
     assert (await task)["executed"]
@@ -266,7 +266,7 @@ async def test_terminal_observations_cannot_resume_old_pursuit_or_issue_a_later_
         state = replace(state, rescue_active=True)
     else:
         state = replace(state, binding=replace(state.binding, connection_generation="other"))
-    with pytest.raises(NativeGuidanceError):
+    with pytest.raises(DispatchRefused):
         await f.binding.on_observation(state, packet, None)
     result = await f.binding.stop("late_cleanup")
     assert result["local_sender_quiesced"]
@@ -445,14 +445,14 @@ async def test_cached_release_property_rejects_wrong_binding_and_unreleased_rece
         await f.binding.stop("cleanup")
 
 
-async def test_owner_loss_precedence_retains_observed_transition_without_claiming_pilot_cause():
+async def test_actual_transition_reason_survives_coincident_owner_release():
     f = fixture()
     await f.binding.engage()
     state = replace(f.state, sequence=f.state.sequence + 1, phase=AirframePhase.VTOL_TRANSITION)
     assert f.connection.commit_aircraft_state(state)
     packet = f.packet() | {"owner_confirmed": False}
-    with pytest.raises(NativeGuidanceError, match="control_owner_lost"):
+    with pytest.raises(DispatchRefused, match="aircraft_transition_observed"):
         await f.binding.on_observation(state, packet, None)
     assert f.connection.get_aircraft_state().phase is AirframePhase.VTOL_TRANSITION
-    assert f.binding.terminal_reason == "control_owner_lost"
+    assert f.binding.terminal_reason == "aircraft_transition_observed"
     f.client.engage.assert_awaited_once()

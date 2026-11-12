@@ -15,6 +15,7 @@ import yaml
 
 from classes.aircraft_state import AircraftStateOwner, AirframePhase, AirspeedObservation, GuidanceSessionIdentity, Quaternion, Vector3
 from classes.app_controller import AppController
+from classes.command_dispatch_guard import validate_before_dispatch
 from classes.bearing_geometry_policy import BearingGeometryPolicy
 from classes.follower import FollowerFactory
 from classes.followers.fw_navigation_chase_follower import FWNavigationChaseFollower
@@ -272,7 +273,7 @@ async def publication_environment(env, monkeypatch):
     assert states.commit(env.state)
     connection = SimpleNamespace(get_aircraft_state=lambda: states.snapshot(timeout_s=.75),
                                  commit_aircraft_state=states.commit)
-    client = SimpleNamespace(session_identity=env.session.identity, submit=AsyncMock(), abort=Mock(),
+    client = SimpleNamespace(session_identity=None, submit=AsyncMock(), abort=Mock(),
                              handoff=AsyncMock(return_value=release_receipt(acquisition(env.session.identity))))
     client.acquisition_context = acquisition(env.session.identity)
     client.acquisition_token = client.acquisition_context.token
@@ -301,8 +302,20 @@ async def publication_environment(env, monkeypatch):
     binding = NativeFollowBinding(env.session, connection, client, continuity, profile_name=env.follower.profile_name,
         continuity_config=Parameters.TargetContinuity, target_evidence=lambda: app._target_evidence_snapshot(env.output),
         context=lambda: base, circuit_breaker=lambda: False, clock=lambda: env.now[0])
-    binding.transport.bind_acquisition(client.acquisition_context)
-    await binding.on_observation(env.state, await client.observe(), None)
+    async def engage(identity, **kwargs):
+        validate_before_dispatch(kwargs.get("before_dispatch"))
+        validate_before_dispatch(kwargs.get("on_mode_dispatch"))
+        client.session_identity = identity
+        client.acquisition_context = acquisition(identity, runtime_id=env.session.phase_owner.capabilities.runtime_id,
+            token=kwargs["ownership_token"])
+        client.acquisition_token = client.acquisition_context.token
+        client.handoff.return_value = release_receipt(client.acquisition_context)
+        return {"owner_confirmed": True, "runtime_id": client.acquisition_context.runtime_id,
+                "acquisition": client.acquisition_context.wire_payload()}
+
+    client.engage = AsyncMock(side_effect=engage)
+    await binding.engage()
+    assert binding.acquire_dispatched
     commander = OffboardCommander(connection, env.follower.setpoint_handler,
                                   command_transport=binding.transport, command_ttl_s=.3)
 

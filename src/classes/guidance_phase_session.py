@@ -77,14 +77,15 @@ class GuidancePhaseSession:
             return self.end("aircraft_state_stale")
         if observation.rescue_active:
             return self.end("aircraft_rescue_active")
-        if owner_confirmed is not True:
-            return self.end("control_owner_lost")
         if observation.phase is AirframePhase.UNKNOWN:
             return self.end("aircraft_phase_unknown")
         if not self.expected_layout.matches(observation):
             return self.end("aircraft_layout_mismatch")
+        owner_lost = owner_confirmed is not True
+        if owner_lost and observation.phase is not AirframePhase.VTOL_TRANSITION:
+            return self.end("control_owner_lost")
         if observation.sequence <= self._sequence:
-            return self._decision()
+            return self.end("control_owner_lost") if owner_lost else self._decision()
         if (self._last_observed_at is not None and observation.observed_at_monotonic_s
                 - self._last_observed_at > self.observation_timeout_s):
             return self.end("aircraft_observation_gap")

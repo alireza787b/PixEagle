@@ -20,7 +20,7 @@ class NativeCommandTransport:
     publication_source = "px4_native_external_mode"
 
     def __init__(self, client, connection, identity, *, circuit_breaker, clock=time.monotonic,
-                 on_observation: Callable[[AircraftState, dict, CommandIntent], Awaitable[CommandIntent]] | None = None):
+                 on_observation: Callable[[AircraftState | None, dict, CommandIntent], Awaitable[CommandIntent]] | None = None):
         self.client = client
         self.connection = connection
         self.identity = identity
@@ -133,22 +133,28 @@ class NativeCommandTransport:
             self.last_handoff.require_match(self.identity, acquisition.runtime_id, acquisition.token, acquisition)
             return self.last_handoff.released
         observation = await self.client.observe()
-        if (observation.get("fresh") is not True or observation.get("owner_confirmed") is not True
-                or observation.get("rescue_active") is not False):
-            raise ValueError("native_command_owner_unavailable")
-        incoming = AircraftState.from_payload(observation["aircraft_state"])
-        self.connection.commit_aircraft_state(incoming)
-        state = self.connection.get_aircraft_state()
-        if state is None or not self.ready():
-            raise ValueError("native_aircraft_state_stale")
-        if (state.source != incoming.source or state.binding != incoming.binding or state.phase != incoming.phase
-                or state.is_vtol != incoming.is_vtol or state.is_tailsitter != incoming.is_tailsitter):
-            raise ValueError("native_aircraft_state_rejected")
-        self._record_publication_count(observation.get("publications"))
+        payload = observation.get("aircraft_state")
+        incoming = None if payload is None else AircraftState.from_payload(payload)
+        state = None
+        state_rejected = False
+        if (incoming is not None and self.client.matches_acquisition(
+                acquisition.identity, acquisition.runtime_id, acquisition.token, acquisition)):
+            self.connection.commit_aircraft_state(incoming)
+            state = self.connection.get_aircraft_state()
+            if state is not None and state != incoming:
+                state, state_rejected = None, True
         if self.on_observation is not None:
             intent = await self.on_observation(state, observation, intent)
             if not isinstance(intent, CommandIntent):
                 raise ValueError("native_phase_intent_unavailable")
+        if (observation.get("fresh") is not True or observation.get("owner_confirmed") is not True
+                or observation.get("rescue_active") is not False):
+            raise ValueError("native_command_owner_unavailable")
+        if state_rejected:
+            raise ValueError("native_aircraft_state_rejected")
+        if state is None or not self.ready():
+            raise ValueError("native_aircraft_state_stale")
+        self._record_publication_count(observation.get("publications"))
         now = self.clock()
         created = intent.created_at_monotonic_s
         if (isinstance(created, bool) or not isinstance(created, (int, float))

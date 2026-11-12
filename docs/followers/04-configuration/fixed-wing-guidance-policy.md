@@ -82,7 +82,7 @@ aircraft profiles.
 | Pure MC | Existing MC vector math and MAVSDK owner |
 | Pure FW | Native course, vertical-path and airspeed strategy |
 | Settled VTOL MC or FW | Intended reuse of the corresponding strategy; admission remains gated until S7 |
-| Standard VTOL or tailsitter during transition | End following and release to PX4; require a fresh Start afterward; S7 implementation pending |
+| Standard VTOL or tailsitter during transition | End following and release to PX4; require a fresh Start afterward; actual S7 qualification pending |
 | Different gimbal or mounting | Provider adapter and mounting geometry produce the same physical ray |
 
 There is no separate tailsitter pursuit law. Public defaults provide the base
@@ -149,29 +149,22 @@ altitude, speed controls and the last feasible recovery course. A validated
 retarget can use this hook; it does not reset the continuity owner's deadlines
 or grant another session authority. A stopped session rejects the reset.
 
-The following describes the historical, gated transition implementation and its
-retained regression evidence, not the accepted end-on-transition workflow.
-S7 must replace its ownership/release behavior before VTOL admission opens.
-Transition holding latches the preceding feasible course and FW request for the
-transition episode. It does not chase physical yaw changes as a tailsitter
-pitches through vertical, or reuse an old FW course after returning to MC.
-Current native speed bounds still apply. MC provisional-angle retarget guidance
-does not mutate FW/transition guidance before target confirmation.
-When the guidance generation changes, the Vector input filter starts from its
-first fresh measurement. A pre-transition physical-body ray cannot seed the
-new phase after a tailsitter rotates. Normal filtering continues within a phase;
-this reset does not change speed requests, ownership or recovery deadlines.
-Submitted-command and MC smoothing history also start from the new phase's
-holding contract: FW course/EAS fields cannot seed an MC velocity limiter.
-The stored MC override is restored as MC state; FW EAS edits cannot change the
-MC SafetyManager velocity envelope.
-With altitude guidance off, the FW Hold target remains the follow session's
-engagement AMSL altitude across phase cycles. Entering FW does not recapture
-height lost during a transition. This historical altitude reference never
-refreshes current measurements; a changed estimator/home reference invalidates
-it. PX4 still owns the finite transition/altitude response.
+Start initializes one settled phase, engagement altitude, speed request and
+continuity strategy. A transition ends that session and its temporary controls;
+there is no phase advance, retained override or automatic resumption. A later
+explicit Start requires fresh settled aircraft and target evidence and creates
+a new acquisition. Old ray/filter/command history cannot seed it. With altitude
+guidance off, FW holds that new session's engagement altitude. This is estimator-
+referenced height, not terrain clearance; changed references invalidate it.
+PX4 owns the finite transition and altitude response during release.
 
 ## Current qualification boundary
+
+The [consolidation checkpoint](../../reporting/agent-ops/codex-modernization/checkpoints/2026-11-09-follower-consolidation.md)
+is authoritative for current source, software gates and S7 admission. The figures
+below retain earlier component evidence. In particular, the November 7 phase-
+retaining cycles are historical and do not qualify the current end-on-transition
+contract. No historical pass opens VTOL or physical installation admission.
 
 ![Observed PX4 SIH target range and altitude response for both gimbal mounts](../assets/native-vector-fw-matrix-20261107.png)
 
@@ -230,5 +223,5 @@ implementation.
 Qualification reports must show independent target truth, actual PX4 position,
 flight phase, flight path, requested/effective/observed speed, throttle and
 constraints. Nose direction is diagnostic alongside the flight path, not the
-command objective. See the [active checkpoint](../../reporting/agent-ops/codex-modernization/checkpoints/2026-11-06-gimbal-vector-airframes.md)
-for current evidence and remaining gates.
+command objective. The consolidation checkpoint separates current evidence,
+retained historical runs and remaining gates.

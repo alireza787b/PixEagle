@@ -1,6 +1,8 @@
+from dataclasses import replace
+
 import pytest
 
-from classes.aircraft_state import AircraftBinding, AirframePhase
+from classes.aircraft_state import AircraftBinding, AircraftLayout, AirframePhase
 from classes.guidance_phase_session import GuidancePhaseSession, PhaseSessionState
 from classes.native_guidance import GuidanceSessionIdentity, NativeCapabilities
 from tests.unit.drone_interface.test_aircraft_state import aircraft_state
@@ -96,3 +98,35 @@ def test_startup_waits_for_confirmed_target_without_rotating_identity():
 def test_initial_phase_is_pinned_before_first_observation():
     owner = session(initial_phase=AirframePhase.FIXED_WING)
     assert observe(owner, 1, 100., AirframePhase.MULTICOPTER).reason == "aircraft_phase_changed"
+
+
+@pytest.mark.parametrize("fault,reason", [
+    (None, "aircraft_transition_observed"),
+    ("binding", "aircraft_connection_changed"),
+    ("stale", "aircraft_state_stale"),
+    ("rescue", "aircraft_rescue_active"),
+    ("layout", "aircraft_layout_mismatch"),
+    ("gap", "aircraft_observation_gap"),
+    ("duplicate", "control_owner_lost"),
+])
+def test_current_transition_reason_survives_coincident_release_without_overriding_safety(fault, reason):
+    owner = session(initial_phase=AirframePhase.FIXED_WING)
+    observe(owner, 1, 100., AirframePhase.FIXED_WING)
+    observe(owner, 2, 100.5, AirframePhase.FIXED_WING)
+    now = 102. if fault == "gap" else 100.6
+    state = aircraft_state(sequence=3, observed_at_monotonic_s=now,
+        phase=AirframePhase.VTOL_TRANSITION, is_vtol=True, is_tailsitter=True)
+    if fault == "binding":
+        state = replace(state, binding=AircraftBinding("other", "connection-1", 1))
+    elif fault == "stale":
+        state = replace(state, observed_at_monotonic_s=99.)
+    elif fault == "rescue":
+        state = replace(state, rescue_active=True)
+    elif fault == "layout":
+        owner.expected_layout = AircraftLayout.FIXED_WING
+    elif fault == "duplicate":
+        state = replace(state, sequence=2)
+    result = owner.observe(state, now=now, owner_confirmed=False, target_confirmed=True)
+    assert result.state is PhaseSessionState.ENDED
+    assert result.reason == reason
+    assert not result.pursuit_allowed

@@ -281,3 +281,13 @@ capture are added to the existing native runner. The 383-check tool gate and
 321-check root renewal pass; actual transitions, global target-clock slicing
 and first-observation lifecycle repair remain pending. Prior failures stay
 archived and no hardware or installed configuration changes occur.
+
+The first validated native-loss observation now reaches the original session
+before publication admission, invalidating controls and invoking existing
+terminal cleanup immediately. Real-client/App tests cover missing/stale state,
+coincident transition/release, replacement ownership and a racing speed edit.
+The phase reason is decided in the canonical phase owner. The scoped gate passes
+369/74 checks and root's integration renewal passes 325; full renewal follows.
+No-reply transport errors keep the existing generic policy. Current FW guidance
+documentation removes obsolete cross-transition resume instructions while
+retaining historical evidence with its original scope.
