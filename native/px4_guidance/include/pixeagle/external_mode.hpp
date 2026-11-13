@@ -35,7 +35,9 @@ public:
     bool rescue() const;
     const px4_msgs::msg::VehicleStatus& status() const { return _status; }
     bool owns(const Identity& identity) const { return _lease.identity() && *_lease.identity() == identity; }
-    void requestActivation(const Identity& identity, OwnershipToken token, Objective hold, double expires);
+    void requestActivation(const Identity& identity, OwnershipToken token, Objective hold, double expires,
+                           const NativeStartContext& start_context);
+    std::optional<NativeStartContext> startContext(const std::string& runtime, const Json& binding) const;
     bool requestHandoff(const Identity& identity, OwnershipToken token);
     void disconnect();
     bool ownedContractAvailable() const;
@@ -81,6 +83,7 @@ private:
     px4_msgs::msg::VehicleStatus _status{};
     px4_msgs::msg::VtolVehicleStatus _vtol_status{};
     double _status_received{-1.}, _vtol_received{-1.};
+    bool _phase_history_valid{};
     const double _status_timeout_s;
     const double _request_timeout_s;
     const bool _is_vtol;

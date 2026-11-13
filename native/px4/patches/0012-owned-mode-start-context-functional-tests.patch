@@ -1,0 +1,212 @@
+diff --git a/src/modules/commander/CMakeLists.txt b/src/modules/commander/CMakeLists.txt
+--- a/src/modules/commander/CMakeLists.txt
++++ b/src/modules/commander/CMakeLists.txt
+@@ -102,3 +102,5 @@
+ px4_add_functional_gtest(SRC UserModeIntentionOwnedTest.cpp
+ 	LINKLIBS modules__commander health_and_arming_checks ArmAuthorization
+ 	)
++
++px4_add_functional_gtest(SRC OwnedModeStartContextTest.cpp)
+diff --git a/src/modules/commander/OwnedModeStartContextTest.cpp b/src/modules/commander/OwnedModeStartContextTest.cpp
+new file mode 100644
+--- /dev/null
++++ b/src/modules/commander/OwnedModeStartContextTest.cpp
+@@ -0,0 +1,198 @@
++// SPDX-License-Identifier: BSD-3-Clause
++#include "OwnedModeGuard.hpp"
++#include "../vtol_att_control/NativePhaseHistory.hpp"
++#include <gtest/gtest.h>
++
++namespace px4
++{
++struct NativePhaseHistoryTestPeer {
++	static void exhaust(NativePhaseHistory &history) { history._revision = std::numeric_limits<uint64_t>::max() - 1; }
++};
++}
++
++namespace
++{
++using namespace px4;
++constexpr uint8_t Hold = 4, External = 23;
++const OwnedModeToken Incarnation{10, 11}, Token{20, 21};
++
++struct Fixture {
++	OwnedModeGuard guard;
++	OwnedModeIntention intention;
++	NativePhaseHistory history{7};
++	OwnedModeObservation observation{Hold, 100, true, false, 9000, 7, 1, 1, true, true};
++	OwnedModeRequest request{OwnedModeOperation::Acquire, Incarnation, Token, 0, 100, 0,
++				 1000, 501000, Hold, External, 9000, 7, 1, 1};
++	Fixture() { guard.initialize(Incarnation); }
++	void event()
++	{
++		history.advance();
++		observation.phase_source_instance = history.instance();
++		observation.phase_revision = history.revision();
++	}
++	void pending()
++	{
++		ASSERT_EQ(guard.request(request, observation, intention, 1001, Hold), OwnedModeAction::Acquire);
++		intention.acceptedChange(Token);
++		guard.acquisitionRequested(true, intention);
++	}
++	void acquire()
++	{
++		pending();
++		observation.mode = External;
++		observation.epoch = 200;
++		EXPECT_EQ(guard.observe(observation, intention, 1002), OwnedModeAction::None);
++		ASSERT_TRUE(guard.ownerActive(observation, intention));
++	}
++	void refused()
++	{
++		const auto revision = intention.revision();
++		EXPECT_EQ(guard.request(request, observation, intention, 1001, Hold), OwnedModeAction::None);
++		EXPECT_EQ(intention.revision(), revision);
++		EXPECT_EQ(guard.acquiredEpoch(), 0);
++	}
++};
++
++TEST(OwnedModeStartContext, HealthyPollsDoNotConsumeContext)
++{
++	Fixture f;
++
++	for (unsigned poll = 0; poll < 100; ++poll) {
++		EXPECT_EQ(f.history.instance(), 7);
++		EXPECT_EQ(f.history.revision(), 1);
++		EXPECT_EQ(f.guard.observe(f.observation, f.intention, 1000), OwnedModeAction::None);
++		EXPECT_EQ(f.intention.revision(), 0);
++	}
++
++	f.acquire();
++}
++
++TEST(OwnedModeStartContext, OwnActivationDoesNotAssumeOneRevisionStep)
++{
++	Fixture f;
++	f.acquire();
++	EXPECT_NE(f.guard.acceptedRevision(), f.request.source_revision + 1);
++	EXPECT_EQ(f.guard.acquiredEpoch(), 200);
++}
++
++TEST(OwnedModeStartContext, AcquiredPhaseExitRetainsConditionalOriginalRelease)
++{
++	Fixture f;
++	f.acquire();
++	f.event();
++	f.observation.phase_settled = false;
++	auto release = f.request;
++	release.operation = OwnedModeOperation::Release;
++	release.acquired_epoch = 200;
++	release.source_clock = 2000;
++	release.expires = 502000;
++	EXPECT_EQ(f.guard.request(release, f.observation, f.intention, 2001, Hold), OwnedModeAction::Hold);
++}
++
++TEST(OwnedModeStartContext, PureFixedWingNeedsNoVtolSource)
++{
++	Fixture f;
++	f.observation.is_vtol = false;
++	f.observation.vehicle_type = f.request.source_vehicle_type = OwnedModeGuard::FixedWingVehicleType;
++	f.observation.phase_source_instance = f.observation.phase_revision = 0;
++	f.request.source_phase_instance = f.request.source_phase_revision = 0;
++	f.acquire();
++}
++
++TEST(OwnedModeStartContext, UnseenRoundTripRejectsOriginalAcquire)
++{
++	Fixture f;
++	f.event(); // Accepted front intent; no intermediate packet needs to reach the companion.
++	f.event(); // Transition then settled FW.
++	f.event(); // Accepted reverse intent.
++	f.event(); // Settled MC again; mode/type/epoch can equal their original values.
++	f.refused();
++}
++
++TEST(OwnedModeStartContext, AcceptedIntentBeforeStateFlipIsNotSettled)
++{
++	Fixture f;
++	f.event();
++	f.request.source_phase_revision = f.history.revision(); // Even a newly read context cannot claim settled MC.
++	f.observation.phase_settled = false;
++	f.refused();
++}
++
++TEST(OwnedModeStartContext, AbortedTransitionCannotReviveOriginalAcquire)
++{
++	Fixture f;
++	f.event();
++	f.event();
++	f.event(); // Abort returns to the same settled MC observation.
++	f.refused();
++}
++
++TEST(OwnedModeStartContext, SourceModuleRestartInvalidatesContext)
++{
++	Fixture f;
++	f.observation.phase_source_instance = 8;
++	f.observation.phase_revision = 1;
++	f.refused();
++}
++
++TEST(OwnedModeStartContext, ChangedHistoryDuringPendingWithdrawsOriginalIntention)
++{
++	Fixture f;
++	f.pending();
++	f.event();
++	EXPECT_EQ(f.guard.observe(f.observation, f.intention, 1002), OwnedModeAction::RestoreSource);
++	EXPECT_EQ(f.guard.state(), OwnedModeState::Superseded);
++	EXPECT_EQ(f.guard.acquiredEpoch(), 0);
++}
++
++TEST(OwnedModeStartContext, ChangedHistoryAtOwnEntryWithdrawsOnlyTaggedIntention)
++{
++	Fixture f;
++	f.pending();
++	f.event();
++	f.observation.mode = External;
++	f.observation.epoch = 200;
++	EXPECT_EQ(f.guard.observe(f.observation, f.intention, 1002), OwnedModeAction::RestoreSource);
++	EXPECT_EQ(f.guard.state(), OwnedModeState::Superseded);
++	EXPECT_EQ(f.guard.acquiredEpoch(), 200);
++	EXPECT_FALSE(f.guard.ownerActive(f.observation, f.intention));
++}
++
++TEST(OwnedModeStartContext, WrongPhysicalPhaseCannotAcquire)
++{
++	Fixture f;
++	f.observation.vehicle_type = OwnedModeGuard::FixedWingVehicleType;
++	f.refused();
++}
++
++TEST(OwnedModeStartContext, UnknownVtolHistoryCannotAcquire)
++{
++	Fixture f;
++	f.observation.phase_source_instance = f.observation.phase_revision = 0;
++	f.refused();
++}
++
++TEST(OwnedModeStartContext, ExhaustedHistoryCannotAcquireOrResume)
++{
++	Fixture f;
++	NativePhaseHistoryTestPeer::exhaust(f.history);
++	f.event();
++	EXPECT_EQ(f.history.instance(), 0);
++	EXPECT_EQ(f.history.revision(), 0);
++	f.event();
++	EXPECT_EQ(f.history.instance(), 0);
++	f.refused();
++}
++
++TEST(OwnedModeStartContext, ForeignPilotIntentionNeverGetsCleanupModeWrite)
++{
++	Fixture f;
++	f.pending();
++	f.event();
++	f.intention.acceptedChange();
++	f.observation.mode = External;
++	f.observation.epoch = 200;
++	EXPECT_EQ(f.guard.observe(f.observation, f.intention, 1002), OwnedModeAction::None);
++	EXPECT_EQ(f.guard.state(), OwnedModeState::Superseded);
++}
++}

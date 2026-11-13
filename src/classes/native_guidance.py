@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import asdict, dataclass
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -21,7 +22,7 @@ from classes.command_dispatch_guard import validate_before_dispatch
 from classes.command_intent import AltitudeHoldReference
 
 
-PROTOCOL_VERSION = 4
+PROTOCOL_VERSION = 5
 MAX_MESSAGE_BYTES = 65536
 DEFAULT_SOCKET_PATH = Path("/run/pixeagle/guidance.sock")
 
@@ -63,6 +64,68 @@ def _unsigned(value, bits: int) -> bool:
 
 
 @dataclass(frozen=True)
+class NativeStartContext:
+    version: int
+    runtime_id: str
+    binding: AircraftBinding
+    firmware_incarnation: str
+    mode_id: int
+    registration_id: int
+    intention_revision: int
+    source_nav_state: int
+    source_nav_state_timestamp: int
+    phase: str
+    phase_source_instance: int
+    phase_revision: int
+
+    def __post_init__(self):
+        if (type(self.version) is not int or self.version != 1
+                or not isinstance(self.runtime_id, str) or not self.runtime_id
+                or not isinstance(self.binding, AircraftBinding)
+                or not _unsigned(self.binding.telemetry_generation, 64)
+                or self.phase not in ('multicopter', 'fixed_wing')):
+            raise NativeGuidanceError('native_start_context_invalid')
+        validate_ownership_token(self.firmware_incarnation)
+        for name in ('registration_id', 'intention_revision', 'source_nav_state_timestamp',
+                     'phase_source_instance', 'phase_revision'):
+            if not _unsigned(getattr(self, name), 64):
+                raise NativeGuidanceError('native_start_context_invalid')
+        if (not _unsigned(self.mode_id, 8) or not 23 <= self.mode_id <= 30
+                or not _unsigned(self.source_nav_state, 8) or self.source_nav_state == self.mode_id
+                or self.registration_id == 0 or self.source_nav_state_timestamp == 0
+                or (self.phase_source_instance == 0) != (self.phase_revision == 0)
+                or self.phase == 'multicopter' and self.phase_source_instance == 0):
+            raise NativeGuidanceError('native_start_context_invalid')
+
+    @classmethod
+    def from_payload(cls, payload: dict) -> NativeStartContext:
+        try:
+            if not isinstance(payload, dict) or set(payload) != set(cls.__dataclass_fields__):
+                raise ValueError('native_start_context_fields_invalid')
+            value = dict(payload)
+            binding = value['binding']
+            if not isinstance(binding, dict) or set(binding) != set(AircraftBinding.__dataclass_fields__):
+                raise ValueError('native_start_context_binding_invalid')
+            value['binding'] = AircraftBinding(**binding)
+            return cls(**value)
+        except (ValueError, TypeError, KeyError, NativeGuidanceError) as error:
+            raise NativeGuidanceError('native_start_context_invalid') from error
+
+    def wire_payload(self) -> dict:
+        return asdict(self)
+
+    @property
+    def context_id(self) -> str:
+        payload = json.dumps(self.wire_payload(), sort_keys=True, separators=(',', ':'), ensure_ascii=True)
+        return hashlib.sha256(payload.encode('ascii')).hexdigest()
+
+    def require_match(self, binding: AircraftBinding, runtime_id: str, *, phase: AirframePhase | None = None) -> None:
+        if (self.binding != binding or self.runtime_id != runtime_id
+                or phase is not None and self.phase != phase.value):
+            raise NativeGuidanceError('native_start_context_changed')
+
+
+@dataclass(frozen=True)
 class NativeAcquisitionContext:
     runtime_id: str
     identity: GuidanceSessionIdentity
@@ -73,6 +136,7 @@ class NativeAcquisitionContext:
     source_nav_state_timestamp: int
     mode_id: int
     activation_timestamp: int
+    start_context: NativeStartContext
 
     def __post_init__(self):
         if not isinstance(self.runtime_id, str) or not self.runtime_id or not isinstance(self.identity, GuidanceSessionIdentity):
@@ -91,6 +155,15 @@ class NativeAcquisitionContext:
         if (self.source_nav_state_timestamp == 0 or self.source_nav_state == self.mode_id
                 or self.activation_timestamp != 0 and self.activation_timestamp <= self.source_nav_state_timestamp):
             raise NativeGuidanceError("native_acquisition_context_invalid")
+        if not isinstance(self.start_context, NativeStartContext):
+            raise NativeGuidanceError('native_start_context_required')
+        self.start_context.require_match(self.identity.binding, self.runtime_id)
+        if (self.start_context.firmware_incarnation != self.firmware_incarnation
+                or self.start_context.mode_id != self.mode_id
+                or self.start_context.intention_revision != self.source_revision
+                or self.start_context.source_nav_state != self.source_nav_state
+                or self.start_context.source_nav_state_timestamp != self.source_nav_state_timestamp):
+            raise NativeGuidanceError('native_start_context_changed')
 
     @classmethod
     def from_payload(cls, payload: dict) -> NativeAcquisitionContext:
@@ -106,6 +179,7 @@ class NativeAcquisitionContext:
                     or not _unsigned(identity["binding"].get("telemetry_generation"), 64)):
                 raise ValueError("native_acquisition_identity_invalid")
             value["identity"] = GuidanceSessionIdentity(**(identity | {"binding": AircraftBinding(**identity["binding"])}))
+            value['start_context'] = NativeStartContext.from_payload(value['start_context'])
             return cls(**value)
         except (ValueError, TypeError, KeyError) as error:
             raise NativeGuidanceError("native_acquisition_context_invalid") from error
@@ -178,6 +252,7 @@ class NativeCapabilities:
     owned_mode_supported: bool = False
     owned_mode_id: int | None = None
     multicopter_altitude_hold_supported: bool = False
+    source_clock_id: str | None = None
 
     @classmethod
     def from_payload(cls, payload: dict) -> NativeCapabilities:
@@ -195,6 +270,10 @@ class NativeCapabilities:
                 raise NativeGuidanceError("native_capabilities_invalid")
         if not _unsigned(payload["owned_mode_id"], 8):
             raise NativeGuidanceError("native_owned_mode_invalid")
+        if payload['source_clock_id'] is not None and (
+                not isinstance(payload['source_clock_id'], str)
+                or re.fullmatch(r'[A-Za-z0-9_.:-]{1,128}', payload['source_clock_id']) is None):
+            raise NativeGuidanceError('native_source_clock_identity_invalid')
         return cls(**payload)
 
 
@@ -428,6 +507,13 @@ class NativeGuidanceClient:
                     raise ValueError("native_observation_missing")
                 if self._identity is not None and state is not None and state.binding != self._identity.binding:
                     raise ValueError("native_observation_aircraft_changed")
+                if 'start_context' not in result:
+                    raise ValueError('native_start_context_missing')
+                if result['start_context'] is not None:
+                    start = NativeStartContext.from_payload(result['start_context'])
+                    if state is None or result['owner_confirmed'] or not result['fresh'] or result['rescue_active']:
+                        raise ValueError('native_start_context_unavailable')
+                    start.require_match(state.binding, result['runtime_id'], phase=state.phase)
             except (ValueError, TypeError, KeyError, NativeGuidanceError) as error:
                 await self._disconnect()
                 raise NativeGuidanceError("native_observation_invalid") from error
@@ -451,6 +537,7 @@ class NativeGuidanceClient:
     async def engage(self, identity: GuidanceSessionIdentity, *, circuit_breaker_active: bool,
                      ownership_token: str | None = None,
                      altitude_reference: AltitudeHoldReference | None = None,
+                     start_context: NativeStartContext | None = None,
                      before_dispatch: Callable[[], None] | None = None,
                      on_mode_dispatch: Callable[[], None] | None = None) -> dict:
         async with self._lock:
@@ -471,6 +558,11 @@ class NativeGuidanceClient:
             mode_id = self.capabilities.owned_mode_id
             if not _unsigned(mode_id, 8):
                 raise NativeGuidanceError("native_owned_mode_invalid")
+            if not isinstance(start_context, NativeStartContext):
+                raise NativeGuidanceError('native_start_context_required')
+            start_context.require_match(identity.binding, runtime_id)
+            if start_context.mode_id != mode_id:
+                raise NativeGuidanceError('native_start_context_changed')
 
             def dispatched():
                 validate_before_dispatch(on_mode_dispatch)
@@ -485,11 +577,14 @@ class NativeGuidanceClient:
             result = await self._exchange("engage", {"identity": asdict(identity),
                                                      "token": token, "runtime_id": runtime_id,
                                                      "altitude_reference": asdict(altitude_reference),
+                                                     "start_context": start_context.wire_payload(),
                                                      "expires_at_monotonic_s": now + self.request_timeout_s},
                                           before_dispatch=before_dispatch, on_dispatch=dispatched)
             try:
                 context = NativeAcquisitionContext.from_payload(result.get("acquisition"))
                 context.require_match(identity, runtime_id, token, mode_id=mode_id)
+                if context.start_context != start_context:
+                    raise NativeGuidanceError('native_start_context_changed')
                 if (result.get("owner_confirmed") is not True or result.get("runtime_id") != runtime_id
                         or context.activation_timestamp == 0):
                     raise NativeGuidanceError("native_ownership_not_confirmed")

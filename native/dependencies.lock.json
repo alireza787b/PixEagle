@@ -139,6 +139,28 @@
           "PitchOnlyCommonCoefficientInvariant"
         ],
         "characterization_env": null
+      },
+      "owned-mode-start-context": {
+        "target": "functional-OwnedModeStartContext",
+        "test_source": "src/modules/commander/OwnedModeStartContextTest.cpp",
+        "test_suite": "OwnedModeStartContext",
+        "negative_patch": "patches/0011-original-phase-context-acquisition-fence.patch",
+        "original_files": [
+          "src/modules/commander/OwnedModeGuard.hpp"
+        ],
+        "expected_tests": 14,
+        "expected_negative_failures": [
+          "UnseenRoundTripRejectsOriginalAcquire",
+          "AcceptedIntentBeforeStateFlipIsNotSettled",
+          "AbortedTransitionCannotReviveOriginalAcquire",
+          "SourceModuleRestartInvalidatesContext",
+          "ChangedHistoryDuringPendingWithdrawsOriginalIntention",
+          "ChangedHistoryAtOwnEntryWithdrawsOnlyTaggedIntention",
+          "WrongPhysicalPhaseCannotAcquire",
+          "UnknownVtolHistoryCannotAcquire",
+          "ExhaustedHistoryCannotAcquireOrResume"
+        ],
+        "characterization_env": null
       }
     }
   },

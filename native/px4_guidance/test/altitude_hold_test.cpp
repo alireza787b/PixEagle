@@ -23,6 +23,9 @@ protected:
         envelope.bank_limit = .5; envelope.vertical_acceleration_limit = 2.; envelope.altitude_response_time = 2.;
         px4_msgs::msg::VehicleAttitude attitude{};
         attitude.timestamp = attitude.timestamp_sample = 1000000; attitude.q[0] = 1.;
+        envelope.attitude_source_publication_us = 1000000;
+        envelope.attitude_source_sample_us = 999000;
+        envelope.attitude_source_quaternion[0] = 1.;
         observations->_attitude.update(attitude, 10., attitude.timestamp_sample);
         update(10.);
         observations->bind({{"aircraft_uid", "42"}, {"connection_generation", "connection"},
@@ -30,7 +33,7 @@ protected:
     }
     void update(double now) {
         observations->_position.update(position, now);
-        observations->_envelope.update(envelope, now);
+        observations->updateGuidanceStatus(envelope, now);
     }
     Json snapshot(double now = 10.1) {
         px4_msgs::msg::VehicleStatus status{};
@@ -42,6 +45,57 @@ protected:
     px4_msgs::msg::FixedWingGuidanceStatus envelope{};
     Identity identity{"follow", "42", "connection", 1, 1};
 };
+
+TEST_F(AircraftObservationsTest, RawSourceAttitudeUsesItsOriginalSampleReceiptAndPhysicalQuaternion) {
+    const auto first = observations->sourceAttitude(10.1);
+    ASSERT_FALSE(first.is_null());
+    EXPECT_EQ(first.at("sample_timestamp_us"), 999000);
+    EXPECT_EQ(first.at("publication_timestamp_us"), 1000000);
+    EXPECT_EQ(first.at("quaternion_wxyz"), (Json::array({1., 0., 0., 0.})));
+    EXPECT_EQ(first.at("time_basis"), "px4_source_us");
+    envelope.timestamp += 100000;
+    update(10.2);
+    EXPECT_EQ(observations->sourceAttitude(10.2).at("received_at_monotonic_s"), 10.);
+    EXPECT_TRUE(observations->sourceAttitude(10.501).is_null());
+}
+
+TEST_F(AircraftObservationsTest, RawSampleCanProgressWhileItsNativePublicationTimestampRepeats) {
+    envelope.timestamp += 100000;
+    envelope.attitude_source_sample_us = 1000000;
+    update(10.2);
+    const auto sample = observations->sourceAttitude(10.2);
+    ASSERT_FALSE(sample.is_null());
+    EXPECT_EQ(sample.at("sample_timestamp_us"), 1000000);
+    EXPECT_EQ(sample.at("publication_timestamp_us"), 1000000);
+    EXPECT_EQ(sample.at("received_at_monotonic_s"), 10.2);
+}
+
+TEST_F(AircraftObservationsTest, ConflictingSameSampleResetCannotReviveWithoutSourceProgress) {
+    envelope.timestamp += 100000;
+    envelope.attitude_source_quat_reset_counter = 1;
+    update(10.2);
+    EXPECT_TRUE(observations->sourceAttitude(10.2).is_null());
+    envelope.timestamp += 100000;
+    update(10.3);
+    EXPECT_TRUE(observations->sourceAttitude(10.3).is_null());
+    envelope.timestamp += 100000;
+    envelope.attitude_source_sample_us = envelope.attitude_source_publication_us = 1001000;
+    update(10.4);
+    ASSERT_FALSE(observations->sourceAttitude(10.4).is_null());
+    EXPECT_EQ(observations->sourceAttitude(10.4).at("quat_reset_counter"), 1);
+}
+
+TEST_F(AircraftObservationsTest, InvalidRawClockOrderAndQuaternionRefuseSourceAssociation) {
+    envelope.timestamp += 100000;
+    envelope.attitude_source_publication_us = 998000;
+    update(10.2);
+    EXPECT_TRUE(observations->sourceAttitude(10.2).is_null());
+    envelope.timestamp += 100000;
+    envelope.attitude_source_publication_us = envelope.attitude_source_sample_us = 1001000;
+    envelope.attitude_source_quaternion[0] = NAN;
+    update(10.3);
+    EXPECT_TRUE(observations->sourceAttitude(10.3).is_null());
+}
 
 TEST_F(AircraftObservationsTest, ConvertsFrozenAmslUsingCurrentLocalReferenceWithoutReanchoring) {
     const auto state = snapshot();

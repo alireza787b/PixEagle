@@ -12,6 +12,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <vector>
 #include <tuple>
+#include <array>
 
 namespace pixeagle {
 
@@ -29,10 +30,18 @@ public:
     Json pose(double now) const;
     Json commandFeedback(double now) const;
     Json attitudeTiming(double now) const;
+    Json sourceAttitude(double now) const;
     std::optional<NativeNeutralInput> neutralFlightData(
         const px4_msgs::msg::VehicleStatus& status, double now) const;
 private:
     friend class AircraftObservationsTest;
+    struct SourceAttitude {
+        // Raw sample identity is SourceSample's progress key; publication remains separate.
+        std::uint64_t timestamp{}, publication{};
+        std::array<float, 4> quaternion{};
+        std::uint8_t reset_counter{};
+    };
+    void updateGuidanceStatus(const px4_msgs::msg::FixedWingGuidanceStatus& message, double now);
     std::optional<std::uint64_t> altitudeReferenceGeneration(double now) const;
     template<class Message> void subscribe(rclcpp::Node& node, const std::string& topic, SourceSample<Message>& sample) {
         subscribe(node, topic, sample, [](const Message& message) { return message.timestamp; });
@@ -52,6 +61,8 @@ private:
     SourceSample<px4_msgs::msg::VehicleLocalPosition> _position;
     SourceSample<px4_msgs::msg::AirspeedValidated> _airspeed;
     SourceSample<px4_msgs::msg::FixedWingGuidanceStatus> _envelope;
+    SourceSample<SourceAttitude> _source_attitude;
+    bool _source_attitude_identity_valid{};
     std::vector<rclcpp::SubscriptionBase::SharedPtr> _subscriptions;
     mutable std::optional<std::tuple<std::uint64_t, std::uint32_t, std::uint8_t>> _reference;
     mutable std::uint64_t _reference_generation{};

@@ -1,6 +1,6 @@
 # Optional ownership receipt, published by Commander. A receipt is not command authority.
 uint32 MESSAGE_VERSION = 0
-uint8 CONTRACT_VERSION = 1
+uint8 CONTRACT_VERSION = 2
 uint8 STATE_IDLE = 0
 uint8 STATE_PENDING = 1
 uint8 STATE_ACQUIRED = 2
@@ -20,6 +20,10 @@ uint8 component_id
 uint64[2] incarnation
 uint64 source_clock_us # Raw firmware clock at this actual publication; DDS does not adjust this field
 uint64 intention_revision
+uint8 vehicle_type
+bool phase_settled # Includes accepted VTOL intent before the physical state flips
+uint64 phase_source_instance
+uint64 phase_revision
 uint64[8] registration_ids # Current registration request IDs for EXTERNAL1..EXTERNAL8, zero when absent
 uint8 state
 uint64[2] token

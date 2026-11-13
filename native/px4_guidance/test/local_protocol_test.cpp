@@ -55,10 +55,10 @@ TEST(LocalProtocol, AllCommandContractsAndNoSilentSpeedPolicyDowngrade) {
 
 TEST(LocalProtocol, RequestReplyAndErrorShareOnePrivateVersion) {
     const auto request = decodeRequest(requestJson().dump());
-    EXPECT_EQ(kProtocolVersion, 4u);
+    EXPECT_EQ(kProtocolVersion, 5u);
     EXPECT_EQ(Json::parse(encodeReply(request, Json::object())).at("protocol_version"), kProtocolVersion);
     EXPECT_EQ(Json::parse(encodeError(request, "refused")).at("protocol_version"), kProtocolVersion);
-    for (const auto old_version : {1u, 2u, 3u}) {
+    for (const auto old_version : {1u, 2u, 3u, 4u}) {
         auto old = requestJson(); old["protocol_version"] = old_version;
         EXPECT_THROW(decodeRequest(old.dump()), std::invalid_argument);
     }

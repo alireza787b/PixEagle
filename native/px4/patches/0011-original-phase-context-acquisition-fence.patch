@@ -1,0 +1,31 @@
+diff --git a/src/modules/commander/OwnedModeGuard.hpp b/src/modules/commander/OwnedModeGuard.hpp
+--- a/src/modules/commander/OwnedModeGuard.hpp
++++ b/src/modules/commander/OwnedModeGuard.hpp
+@@ -194,7 +194,7 @@
+ 		if (!terminal() || !validTime(request, now) || !observation.armed || observation.rescue
+ 		    || request.registration_id == 0 || request.registration_id != observation.registration_id
+ 		    || !matchesSource(request, observation) || request.source_mode == request.mode
+-		    || !intention.consume(request.source_revision)) { return OwnedModeAction::None; }
++		    || !matchesSourcePhase(request, observation) || !intention.consume(request.source_revision)) { return OwnedModeAction::None; }
+ 
+ 		_acquisition = request;
+ 		_acquisition.operation = OwnedModeOperation::Acquire;
+@@ -228,6 +228,18 @@
+ 	OwnedModeAction observe(const OwnedModeObservation &observation, const OwnedModeIntention &intention, uint64_t now)
+ 	{
+ 		if (_state == OwnedModeState::Pending) {
++			if (!matchesSourcePhase(_acquisition, observation)) {
++				const bool original_intention = intention.token() == _acquisition.token && intention.revision() == _accepted_revision;
++				const bool entered = original_intention && observation.registration_id == _acquisition.registration_id
++						     && observation.mode == _acquisition.mode && observation.epoch > _acquisition.source_epoch;
++
++				if (entered) { _acquired_epoch = observation.epoch; }
++
++				_state = OwnedModeState::Superseded;
++				return original_intention && (matchesSource(observation) || entered)
++				       ? OwnedModeAction::RestoreSource : OwnedModeAction::None;
++			}
++
+ 			if (observation.registration_id != _acquisition.registration_id) {
+ 				_state = OwnedModeState::Superseded;
+ 				return intention.token() == _acquisition.token && matchesSource(observation)

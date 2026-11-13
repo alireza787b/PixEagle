@@ -7,7 +7,7 @@
 namespace pixeagle {
 
 using Json = nlohmann::json;
-constexpr std::uint64_t kProtocolVersion = 4;
+constexpr std::uint64_t kProtocolVersion = 5;
 constexpr std::size_t kMaximumMessageBytes = 65536;
 
 inline void exactFields(const Json& object, const std::set<std::string>& names) {

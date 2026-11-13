@@ -9,6 +9,10 @@ uint64 parameter_revision # [us] Time of latest native parameter resolution
 uint64 nav_state_timestamp # [us] Time the current navigation mode was activated
 uint64 autopilot_uid # Same legacy hardware UID as MAVLink AUTOPILOT_VERSION
 uint64 firmware_git_hash # Native firmware git version, for runtime provenance
+uint64 attitude_source_publication_us # Raw PX4 vehicle_attitude publication clock; not XRCE adjusted
+uint64 attitude_source_sample_us # Raw PX4 vehicle_attitude sample clock; not XRCE adjusted
+float32[4] attitude_source_quaternion # Physical body-to-NED quaternion from that exact native sample
+uint8 attitude_source_quat_reset_counter # Reset counter paired with that exact quaternion
 uint8 nav_state # [enum VehicleStatus.NAVIGATION_STATE] Observed mode
 float32 home_altitude_amsl # [m] Current estimator/home altitude reference; not terrain clearance
 uint32 home_update_count # Changes when the native home reference changes

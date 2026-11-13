@@ -6,8 +6,11 @@
 using namespace pixeagle;
 
 static OwnershipContext context() {
-    return {Identity{"follow-a", "aircraft-a", "1", 1, 1}, {0, 1}, {0, 2}, 7, 1000000, 2000000,
+    auto result = OwnershipContext{Identity{"follow-a", "aircraft-a", "1", 1, 1}, {0, 1}, {0, 2}, 7, 1000000, 2000000,
             1500000, 4, 23, 99};
+    result.start_context = NativeStartContext{"test-adapter", {{"aircraft_uid", "aircraft-a"},
+        {"connection_generation", "1"}, {"telemetry_generation", 1u}}, {0, 2}, 23, 4, 99, 7, 1000000, 0, 0, Phase::FixedWing};
+    return result;
 }
 
 TEST(OwnedModeContract, GoldenAcquisitionAndReceiptUseTheOriginalIdentity) {

@@ -19,7 +19,39 @@ AircraftObservations::AircraftObservations(rclcpp::Node& node, double timeout_s)
               [](const px4_msgs::msg::VehicleAttitude& message) { return message.timestamp_sample; });
     subscribe(node, "fmu/out/vehicle_local_position", _position);
     subscribe(node, "fmu/out/airspeed_validated", _airspeed);
-    subscribe(node, "fmu/out/fixed_wing_guidance_status", _envelope);
+    using Guidance = px4_msgs::msg::FixedWingGuidanceStatus;
+    _subscriptions.push_back(node.create_subscription<Guidance>(
+        "fmu/out/fixed_wing_guidance_status" + px4_ros2::getMessageNameVersion<Guidance>(), rclcpp::SensorDataQoS(),
+        [this](Guidance::ConstSharedPtr message) { updateGuidanceStatus(*message, clock()); }));
+}
+
+void AircraftObservations::updateGuidanceStatus(const px4_msgs::msg::FixedWingGuidanceStatus& message, double now) {
+    if (!_envelope.update(message, now)) return;
+    const SourceAttitude source{message.attitude_source_sample_us, message.attitude_source_publication_us,
+        message.attitude_source_quaternion, message.attitude_source_quat_reset_counter};
+    const auto& previous = _source_attitude.value();
+    const bool same_sample = previous && previous->timestamp == source.timestamp;
+    const double norm = std::hypot(std::hypot(source.quaternion[0], source.quaternion[1]),
+                                  std::hypot(source.quaternion[2], source.quaternion[3]));
+    if (source.timestamp == 0 || source.publication < source.timestamp || !std::isfinite(norm) || std::abs(norm - 1.) > .001
+            || (previous && source.timestamp < previous->timestamp)
+            || (same_sample && (source.quaternion != previous->quaternion || source.reset_counter != previous->reset_counter))) {
+        _source_attitude_identity_valid = false;
+        return;
+    }
+    if (!previous || source.timestamp > previous->timestamp) _source_attitude_identity_valid = true;
+    _source_attitude.update(source, now);
+}
+
+Json AircraftObservations::sourceAttitude(double now) const {
+    if (_binding.is_null() || !_source_attitude_identity_valid || !_source_attitude.sampleFresh(now, _timeout)
+            || !_envelope.fresh(now, _timeout)
+            || std::to_string(_envelope.value()->autopilot_uid) != _binding.at("aircraft_uid").get<std::string>()) return nullptr;
+    const auto& source = *_source_attitude.value();
+    if (double(source.publication - source.timestamp) * 1e-6 + now - _source_attitude.sampleReceived() > _timeout) return nullptr;
+    return {{"sample_timestamp_us", source.timestamp}, {"publication_timestamp_us", source.publication},
+        {"quaternion_wxyz", source.quaternion}, {"quat_reset_counter", source.reset_counter},
+        {"received_at_monotonic_s", _source_attitude.sampleReceived()}, {"time_basis", "px4_source_us"}};
 }
 
 void AircraftObservations::bind(const Json& binding, double now) {

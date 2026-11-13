@@ -69,7 +69,14 @@ ExternalMode::ExternalMode(rclcpp::Node& node, double status_timeout_s, double r
     _vtol_subscription = node.create_subscription<px4_msgs::msg::VtolVehicleStatus>(
         "fmu/out/vtol_vehicle_status" + px4_ros2::getMessageNameVersion<px4_msgs::msg::VtolVehicleStatus>(),
         rclcpp::SensorDataQoS(), [this](px4_msgs::msg::VtolVehicleStatus::ConstSharedPtr message) {
-            if (message->timestamp <= _vtol_status.timestamp) return;
+            if (message->timestamp < _vtol_status.timestamp) return;
+            const bool new_instance = message->phase_source_instance > _vtol_status.phase_source_instance;
+            const bool same_instance = message->phase_source_instance == _vtol_status.phase_source_instance;
+            const bool new_revision = same_instance && message->phase_revision > _vtol_status.phase_revision;
+            if (message->timestamp == _vtol_status.timestamp && !new_instance && !new_revision) return;
+            if (new_instance) _phase_history_valid = message->phase_revision > 0;
+            else if (!same_instance || message->phase_revision < _vtol_status.phase_revision
+                     || message->phase_source_instance == 0 || message->phase_revision == 0) _phase_history_valid = false;
             _vtol_status = *message;
             _vtol_received = monotonicSeconds();
             endPursuitOnPhaseExit();
@@ -178,7 +185,12 @@ void ExternalMode::endPursuitOnPhaseExit() {
     const auto recent = [now](double received, double budget) {
         return received >= 0. && now >= received && now - received < budget;
     };
-    if (observedPursuitPhaseExit(_engagement_phase, recent(_status_received, _status_timeout_s),
+    const auto original = _ownership_context->start_context;
+    const bool phase_history_changed = original && _is_vtol
+        && recent(_vtol_received, vtol_status_heartbeat_s + _status_timeout_s)
+        && (!_phase_history_valid || _vtol_status.phase_source_instance != original->phase_instance
+            || _vtol_status.phase_revision != original->phase_revision);
+    if (phase_history_changed || observedPursuitPhaseExit(_engagement_phase, recent(_status_received, _status_timeout_s),
             _status.in_transition_mode, vehiclePhase(), _is_vtol
             && recent(_vtol_received, vtol_status_heartbeat_s + _status_timeout_s), vtolPhase())) stopOwnedMode();
 }
@@ -282,6 +294,11 @@ void ExternalMode::requestOwnership(bool release) {
     request.incarnation = context.incarnation;
     request.token = context.token;
     request.source_revision = context.source_revision;
+    if (!context.start_context) throw std::invalid_argument("native_start_context_required");
+    request.source_vehicle_type = context.start_context->phase == Phase::Multicopter
+        ? px4_msgs::msg::VehicleStatus::VEHICLE_TYPE_ROTARY_WING : px4_msgs::msg::VehicleStatus::VEHICLE_TYPE_FIXED_WING;
+    request.source_phase_instance = context.start_context->phase_instance;
+    request.source_phase_revision = context.start_context->phase_revision;
     request.source_nav_state = context.source_mode;
     request.source_nav_state_timestamp = context.source_epoch;
     request.mode_id = context.mode;
@@ -296,8 +313,32 @@ void ExternalMode::requestOwnership(bool release) {
     _ownership_publisher->publish(request);
 }
 
-void ExternalMode::requestActivation(const Identity& identity, OwnershipToken token, Objective hold, double expires) {
+std::optional<NativeStartContext> ExternalMode::startContext(const std::string& runtime, const Json& binding) const {
+    if (!fresh() || rescue() || !registrationConfirmed() || acquisitionOutstanding()
+            || !_ownership_status.phase_settled || _ownership_status.nav_state != _status.nav_state
+            || _ownership_status.nav_state_timestamp != _status.nav_state_timestamp
+            || _ownership_status.vehicle_type != _status.vehicle_type || _status.nav_state == id()) return {};
+    const auto phase = observedPhase();
+    if (phase != Phase::Multicopter && phase != Phase::FixedWing) return {};
+    if (_is_vtol && (!_phase_history_valid || _vtol_status.transition_intent_pending
+            || _ownership_status.phase_source_instance != _vtol_status.phase_source_instance
+            || _ownership_status.phase_revision != _vtol_status.phase_revision)) return {};
+    const auto first = px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_EXTERNAL1;
+    const auto last = px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_EXTERNAL8;
+    if (id() < first || id() > last) return {};
+    const auto registration = requireOwnRegistration(registrationRequestId(), _ownership_status.registration_ids[id() - first]);
+    return decodeStartContext(NativeStartContext{runtime, binding, _ownership_status.incarnation,
+        static_cast<std::uint8_t>(id()), _status.nav_state, registration, _ownership_status.intention_revision,
+        _status.nav_state_timestamp, _is_vtol ? _vtol_status.phase_source_instance : 0,
+        _is_vtol ? _vtol_status.phase_revision : 0, phase}.wire());
+}
+
+void ExternalMode::requestActivation(const Identity& identity, OwnershipToken token, Objective hold, double expires,
+                                   const NativeStartContext& start_context) {
     const auto now = monotonicSeconds();
+    const auto current = startContext(start_context.runtime, start_context.binding);
+    if (!current || current->wire() != start_context.wire() || !start_context.bindingMatches(identity))
+        throw std::invalid_argument("native_start_context_changed");
     if (token[0] == 0 && token[1] == 0) throw std::invalid_argument("native_ownership_token_invalid");
     if (_lease.identity() || _activation_hold || acquisitionOutstanding() || !fresh() || rescue() || !registrationConfirmed()
             || _status.nav_state == id() || _ownership_status.nav_state != _status.nav_state
@@ -315,10 +356,11 @@ void ExternalMode::requestActivation(const Identity& identity, OwnershipToken to
         throw std::invalid_argument("native_mode_registration_unavailable");
     const auto own_registration = requireOwnRegistration(registrationRequestId(),
         _ownership_status.registration_ids[id() - first_external]);
-    _ownership_context = OwnershipContext{identity, token, _ownership_status.incarnation,
-        _ownership_status.intention_revision, _status.nav_state_timestamp, 0,
-        ownershipDeadline(_ownership_status.source_clock_us, now, expires), _status.nav_state, static_cast<std::uint8_t>(id()),
+    _ownership_context = OwnershipContext{identity, token, start_context.incarnation,
+        start_context.intention_revision, start_context.source_epoch, 0,
+        ownershipDeadline(_ownership_status.source_clock_us, now, expires), start_context.source_mode, static_cast<std::uint8_t>(id()),
         own_registration};
+    _ownership_context->start_context = start_context;
     _release_request.reset();
     _engagement_phase = phaseOf(hold);
     _neutral_drain_failure.clear();

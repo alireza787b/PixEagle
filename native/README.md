@@ -37,7 +37,7 @@ be replaced by MC yaw. No camera mount is changed during a VTOL transition.
 
 ## Correlated ownership contract
 
-Private RPC protocol 4 requires the optional `OwnedModeRequest`/`OwnedModeStatus`
+Private RPC protocol 5 requires the optional `OwnedModeRequest`/`OwnedModeStatus`
 firmware extension; there is no raw mode-command fallback. An engagement ACK
 contains the original causal acquisition receipt, not merely an accepted
 intention. The adapter advertises its actual registered `owned_mode_id`.
@@ -45,14 +45,14 @@ Intent and release writes require that acquisition's token. Stop, EOF
 and lost-reply reconciliation retain the same context; a same-ID replacement,
 reused registration or firmware restart cannot become the old owner.
 
-Protocol 3 and older peers are refused during hello, before acquisition. The separate
+Protocol 4 and older peers are refused during hello, before acquisition. The separate
 PX4 ROS external-mode API remains version 2 and the owned-mode firmware contract
-remains version 1. The `multicopter_supported` capability advertises settled
+is version 2. The `multicopter_supported` capability advertises settled
 native MC commands; it does not authorize transition pursuit. There is no
 phase-advance RPC or external transition-command payload. Observed phase remains
 available, and the adapter retains its internal neutral transition drain.
 
-Protocol 4 requires one finite AMSL engagement-altitude reference and its native
+Protocol 5 retains one finite AMSL engagement-altitude reference and its native
 reference generation before acquisition. Startup and the first follower objective
 use the same reference; receiving the engagement ACK never recaptures the height.
 For native MC pursuit with target-altitude guidance disabled, horizontal velocity
@@ -61,6 +61,42 @@ Explicit target-altitude guidance uses vertical velocity instead. The two comman
 variants are exclusive; no application PID or vertical-to-horizontal redistribution
 is added. The `multicopter_altitude_hold_supported` capability advertises this
 native contract, not support on the ordinary MAVSDK body-velocity path.
+
+Protocol 5 also requires the exact typed `start_context` from passive observation,
+captured before asynchronous startup. Its stable identity includes aircraft binding,
+adapter runtime, firmware incarnation, registration, source intention revision,
+source navigation mode and activation epoch, phase and native VTOL history.
+`NativeStartContext.context_id` hashes canonical JSON over those semantic fields;
+pose, sample/publication times and poll sequence do not enter it. The source mode's
+`source_nav_state_timestamp` does enter it. Acquisition echoes the original context;
+it cannot substitute newer observations or assume that own activation advances the
+intention revision by one. Missing or incompatible contexts refuse before acquisition.
+
+The native VTOL controller owns persistent `phase_source_instance` and
+`phase_revision` fields on the existing VTOL status topic. Accepted transition
+intent publishes history before ACK/state update, including an explicit pending
+intent bit. Physical phase/failure changes also advance history; heartbeat and
+observation reads do not. A round trip or abort therefore invalidates old intent
+even when the companion misses every intermediate packet. Commander compares the
+original settled phase/history at acquisition and through pending activation.
+Cancellation withdraws only the exact tagged intention; established ownership keeps
+the existing conditional release and neutral drain. Pure FW needs no VTOL history;
+ordinary MAVSDK MC does not use this protocol. This source change still requires
+new firmware, adapter and normal-application simulator qualification.
+
+For simulator camera association, the optional adapter ROS parameter
+`simulator_clock_id` is echoed as nullable `source_clock_id` in capabilities.
+The launcher must establish that token from a verified shared world; the label
+grants no command authority or clock conversion. An optional `source_attitude`
+observation carries raw PX4 sample/publication times, the same physical quaternion
+and its reset counter, plus that sample's first monotonic receipt. It is copied
+before the native FW frame transform. This observation topic has a 20 ms native
+publication minimum and a matching 50 Hz DDS cap; controller and setpoint rates
+are unchanged. Actual arrival rate and camera association still need measurement.
+Repeated envelope packets cannot renew the sample receipt. XRCE-adjusted
+attitude timestamps remain separate; absent, stale, conflicting or unmatched raw
+samples cannot authorize camera alignment. No higher-rate, exposure-time or exact
+image-to-pose association is implied.
 
 Retargeting and bounded recovery retain the original height. Each native hold
 publication checks fresh bound observations and the reference generation, then

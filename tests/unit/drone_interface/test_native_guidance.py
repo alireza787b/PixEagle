@@ -17,13 +17,13 @@ from classes.native_guidance import (
     NativeMulticopterCommand, NativeAcquisitionContext, NativeReleaseReceipt, PROTOCOL_VERSION,
 )
 from tests.unit.drone_interface.test_aircraft_state import aircraft_state, attitude_timing
-from tests.fixtures.native_ownership import acquisition, release_receipt, TOKEN
+from tests.fixtures.native_ownership import acquisition, release_receipt, start_context, TOKEN
 
 
 CAPABILITIES = dict(runtime_id="test-adapter", px4_firmware="test-firmware",
                     external_mode_api_version=2, fixed_wing_supported=True,
                     multicopter_supported=True, unrestricted_speed_supported=False, owned_mode_supported=True, owned_mode_id=23,
-                    multicopter_altitude_hold_supported=True)
+                    multicopter_altitude_hold_supported=True, source_clock_id=None)
 ALTITUDE_REFERENCE = AltitudeHoldReference(523.25, 7)
 
 
@@ -68,7 +68,7 @@ async def native_server():
                     result = {"fresh": True, "owner_confirmed": behavior["owner_confirmed"],
                               "nav_state": behavior["nav_state"], "nav_state_timestamp": behavior["nav_state_timestamp"],
                               "rescue_active": False, "runtime_id": "test-adapter",
-                              "aircraft_state": state, "release_receipt": behavior["release_receipt"]}
+                              "aircraft_state": state, "release_receipt": behavior["release_receipt"], "start_context": None}
                     result.update(behavior.get("observation", {}))
                 if operation == "engage" and behavior.get("drop_engage_ack"):
                     behavior["release_receipt"] = release_receipt(behavior["acquisition"]).wire_payload()
@@ -105,13 +105,13 @@ def identity():
 @pytest.mark.parametrize("reference", [
     ALTITUDE_REFERENCE, AltitudeHoldReference(-12.5, 0), AltitudeHoldReference(0., 2**64 - 1),
 ])
-async def test_protocol_four_transmits_explicit_amsl_reference_and_mc_hold_without_down_velocity(native_server, reference):
+async def test_protocol_five_transmits_explicit_amsl_reference_and_mc_hold_without_down_velocity(native_server, reference):
     path, requests, _ = native_server
     client = NativeGuidanceClient(path, clock=lambda: 100.)
     try:
         capabilities = await client.connect()
         assert capabilities.multicopter_altitude_hold_supported is True
-        await client.engage(identity(), circuit_breaker_active=False, ownership_token=TOKEN,
+        await client.engage(identity(), start_context=start_context(identity()), circuit_breaker_active=False, ownership_token=TOKEN,
                             altitude_reference=reference)
         assert requests[-1]["payload"]["altitude_reference"] == asdict(reference)
         command = NativeMulticopterCommand(Vector3(1, -2, 0), .1, altitude_hold=reference)
@@ -122,7 +122,7 @@ async def test_protocol_four_transmits_explicit_amsl_reference_and_mc_hold_witho
             "altitude_amsl_m": reference.altitude_amsl_m,
             "altitude_reference_generation": reference.reference_generation,
         }
-        assert all(request["protocol_version"] == 4 for request in requests)
+        assert all(request["protocol_version"] == 5 for request in requests)
     finally:
         await client.close()
 
@@ -138,7 +138,7 @@ async def test_engage_requires_typed_altitude_reference_before_any_rpc(native_se
         await client.connect()
         before = (client._request_id, client._generation)
         with pytest.raises(NativeGuidanceError, match="native_engagement_reference_required"):
-            await client.engage(identity(), circuit_breaker_active=False, ownership_token=TOKEN, **reference_kwargs)
+            await client.engage(identity(), start_context=start_context(identity()), circuit_breaker_active=False, ownership_token=TOKEN, **reference_kwargs)
         assert [request["operation"] for request in requests] == ["hello"]
         assert (client._request_id, client._generation) == before
         assert client.acquisition_token is None and client.acquisition_context is None
@@ -174,7 +174,7 @@ async def test_unadvertised_mc_hold_has_no_velocity_fallback_or_intent_write(nat
     client = NativeGuidanceClient(path, clock=lambda: 100.)
     try:
         await client.connect()
-        await client.engage(identity(), circuit_breaker_active=False, ownership_token=TOKEN,
+        await client.engage(identity(), start_context=start_context(identity()), circuit_breaker_active=False, ownership_token=TOKEN,
                             altitude_reference=ALTITUDE_REFERENCE)
         command = NativeMulticopterCommand(Vector3(1, 2, 0), .1, altitude_hold=ALTITUDE_REFERENCE)
         with pytest.raises(NativeGuidanceError, match="native_mc_altitude_hold_unavailable"):
@@ -207,7 +207,7 @@ async def test_mc_hold_capability_preserves_prior_submit_refusal_precedence(nati
     client = NativeGuidanceClient(path, clock=lambda: 100.)
     try:
         await client.connect()
-        await client.engage(identity(), circuit_breaker_active=False, ownership_token=TOKEN,
+        await client.engage(identity(), start_context=start_context(identity()), circuit_breaker_active=False, ownership_token=TOKEN,
                             altitude_reference=ALTITUDE_REFERENCE)
         if refusal == "obsolete":
             await client.submit(intent(), ownership_token=TOKEN, acquisition=client.acquisition_context,
@@ -247,7 +247,7 @@ async def test_native_observation_binding_is_read_only_and_not_changeable_during
     try:
         await client.connect()
         await client.bind(identity().binding)
-        await client.engage(identity(), circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE)
+        await client.engage(identity(), start_context=start_context(identity()), circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE)
         with pytest.raises(NativeGuidanceError, match="already_owned"):
             await client.bind(identity().binding)
         assert [r["operation"] for r in requests] == ["hello", "bind", "engage"]
@@ -273,7 +273,7 @@ async def test_post_abort_reconciles_exact_receipt_without_mode_commands(native_
     path, requests, behavior = native_server
     client = NativeGuidanceClient(path, request_timeout_s=.1, clock=lambda: 100.)
     await client.connect()
-    await client.engage(identity(), circuit_breaker_active=False, ownership_token=TOKEN, altitude_reference=ALTITUDE_REFERENCE)
+    await client.engage(identity(), start_context=start_context(identity()), circuit_breaker_active=False, ownership_token=TOKEN, altitude_reference=ALTITUDE_REFERENCE)
     context = client.acquisition_context
     client.abort()
     behavior.update(owner_confirmed=False, nav_state=mode)
@@ -289,7 +289,7 @@ async def test_release_evidence_retains_one_immutable_receipt_and_observation(na
     path, _, behavior = native_server
     client = NativeGuidanceClient(path, request_timeout_s=.1, clock=lambda: 100.)
     await client.connect()
-    await client.engage(identity(), circuit_breaker_active=False, ownership_token=TOKEN, altitude_reference=ALTITUDE_REFERENCE)
+    await client.engage(identity(), start_context=start_context(identity()), circuit_breaker_active=False, ownership_token=TOKEN, altitude_reference=ALTITUDE_REFERENCE)
     context = client.acquisition_context
     client.abort()
     behavior.update(owner_confirmed=False, release_receipt=release_receipt(context).wire_payload())
@@ -328,6 +328,10 @@ async def test_replaced_acquisition_cannot_confirm_hold_even_at_same_mode_and_ep
         "source_revision": 8, "activation_timestamp": 201,
         "identity": asdict(replace(identity(), guidance_generation=2)),
     }[replacement]
+    if replacement == 'firmware_incarnation':
+        changed['start_context']['firmware_incarnation'] = changed['firmware_incarnation']
+    elif replacement == 'source_revision':
+        changed['start_context']['intention_revision'] = changed['source_revision']
     behavior["release_receipt"] = release_receipt(NativeAcquisitionContext.from_payload(changed)).wire_payload()
     with pytest.raises(NativeGuidanceError, match="context_changed"):
         await client.observe_after_release(identity(), runtime_id="test-adapter", mode_id=23, ownership_token=TOKEN, acquisition=context)
@@ -348,7 +352,7 @@ async def test_release_observation_cannot_replace_an_active_session(native_serve
     client = NativeGuidanceClient(path)
     try:
         await client.connect()
-        await client.engage(identity(), circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE)
+        await client.engage(identity(), start_context=start_context(identity()), circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE)
         count = len(requests)
         with pytest.raises(NativeGuidanceError, match="already_owned"):
             await client.observe_after_release(identity(), runtime_id="test-adapter", mode_id=23, ownership_token=TOKEN)
@@ -362,7 +366,7 @@ async def test_stop_abort_does_not_wait_for_a_blocked_status_exchange(native_ser
     path, requests, behavior = native_server
     client = NativeGuidanceClient(path, clock=lambda: 100)
     await client.connect()
-    await client.engage(identity(), circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE)
+    await client.engage(identity(), start_context=start_context(identity()), circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE)
     behavior["delay_operation"] = "observe"
     blocked = asyncio.create_task(client.observe())
     await behavior["delay_started"].wait()
@@ -391,7 +395,7 @@ async def test_real_local_protocol_connect_and_reconnect_do_not_acquire_control(
     try:
         assert (await client.connect()).runtime_id == "test-adapter"
         await client.observe()
-        await client.engage(identity(), circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE)
+        await client.engage(identity(), start_context=start_context(identity()), circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE)
         await client.submit(intent(), ownership_token=client.acquisition_token, acquisition=client.acquisition_context, circuit_breaker_active=False)
         await client.connect()
         await client.observe()
@@ -408,8 +412,8 @@ async def test_circuit_breaker_blocks_engagement_and_every_publication(native_se
     try:
         await client.connect()
         with pytest.raises(NativeGuidanceError, match="circuit_breaker"):
-            await client.engage(identity(), circuit_breaker_active=True, altitude_reference=ALTITUDE_REFERENCE)
-        await client.engage(identity(), circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE)
+            await client.engage(identity(), start_context=start_context(identity()), circuit_breaker_active=True, altitude_reference=ALTITUDE_REFERENCE)
+        await client.engage(identity(), start_context=start_context(identity()), circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE)
         with pytest.raises(NativeGuidanceError, match="circuit_breaker"):
             await client.submit(intent(), ownership_token=client.acquisition_token, acquisition=client.acquisition_context, circuit_breaker_active=True)
         assert client.capabilities is None
@@ -424,7 +428,7 @@ async def test_no_obsolete_expired_wrong_phase_or_unqualified_command_is_sent(na
     client = NativeGuidanceClient(path, clock=lambda: clock[0])
     try:
         await client.connect()
-        await client.engage(identity(), circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE)
+        await client.engage(identity(), start_context=start_context(identity()), circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE)
         await client.submit(intent(), ownership_token=client.acquisition_token, acquisition=client.acquisition_context, circuit_breaker_active=False)
         for invalid, reason in [
             (intent(), "obsolete"),
@@ -447,7 +451,7 @@ async def test_obsolete_callback_disconnects_without_replaying_any_action(native
     client = NativeGuidanceClient(path, clock=lambda: 100)
     try:
         await client.connect()
-        await client.engage(identity(), circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE)
+        await client.engage(identity(), start_context=start_context(identity()), circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE)
         behavior["wrong_reply_id"] = True
         with pytest.raises(NativeGuidanceError, match="context_mismatch"):
             await client.submit(intent(), ownership_token=client.acquisition_token, acquisition=client.acquisition_context, circuit_breaker_active=False)
@@ -464,7 +468,7 @@ async def test_unconfirmed_handoff_does_not_retain_pursuit_authority(native_serv
     client = NativeGuidanceClient(path, clock=lambda: 100)
     try:
         await client.connect()
-        await client.engage(identity(), circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE)
+        await client.engage(identity(), start_context=start_context(identity()), circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE)
         behavior["handoff_confirmed"] = False
         assert (await client.handoff(identity(), ownership_token=client.acquisition_token, acquisition=client.acquisition_context, reason="operator_stop")).outcome == "unconfirmed"
         with pytest.raises(NativeGuidanceError, match="session_stale"):
@@ -479,7 +483,7 @@ async def test_observed_authority_loss_prevents_any_later_publication(native_ser
     client = NativeGuidanceClient(path, clock=lambda: 100)
     try:
         await client.connect()
-        await client.engage(identity(), circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE)
+        await client.engage(identity(), start_context=start_context(identity()), circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE)
         behavior["owner_confirmed"] = False
         await client.observe()
         with pytest.raises(NativeGuidanceError, match="session_stale"):
@@ -536,7 +540,7 @@ async def test_invalid_top_level_timing_disconnects_without_authority_replay(nat
     client = NativeGuidanceClient(path, clock=lambda: 100.)
     try:
         await client.connect()
-        await client.engage(identity(), circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE)
+        await client.engage(identity(), start_context=start_context(identity()), circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE)
         with pytest.raises(NativeGuidanceError, match="observation_invalid"):
             await client.observe()
         assert client.capabilities is None
@@ -569,7 +573,7 @@ async def test_wire_expiry_cannot_be_renewed_by_queue_delay(native_server):
     client = NativeGuidanceClient(path, clock=lambda: 100.2)
     try:
         await client.connect()
-        await client.engage(identity(), circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE)
+        await client.engage(identity(), start_context=start_context(identity()), circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE)
         await client.submit(intent(), ownership_token=client.acquisition_token, acquisition=client.acquisition_context, circuit_breaker_active=False)
         assert requests[-1]["payload"]["expires_at_monotonic_s"] == 100.5
         assert "remaining_lease_s" not in requests[-1]["payload"]
@@ -583,7 +587,7 @@ async def test_final_guard_rejects_after_rpc_lock_without_wire_effects(native_se
     client = NativeGuidanceClient(path, clock=lambda: 100)
     await client.connect()
     if operation == "intent":
-        await client.engage(identity(), circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE)
+        await client.engage(identity(), start_context=start_context(identity()), circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE)
     refusal = DispatchRefused("target_replaced", DispatchRefusalKind.SUPERSEDED)
     valid = True
     receipts = []
@@ -594,7 +598,7 @@ async def test_final_guard_rejects_after_rpc_lock_without_wire_effects(native_se
 
     await client._lock.acquire()
     try:
-        call = (client.engage(identity(), circuit_breaker_active=False, before_dispatch=guard,
+        call = (client.engage(identity(), start_context=start_context(identity()), circuit_breaker_active=False, before_dispatch=guard,
                               on_mode_dispatch=lambda: receipts.append("acquire"), altitude_reference=ALTITUDE_REFERENCE)
                 if operation == "engage" else
                 client.submit(intent(), ownership_token=client.acquisition_token, acquisition=client.acquisition_context, circuit_breaker_active=False, before_dispatch=guard))
@@ -616,7 +620,7 @@ async def test_final_guard_rejects_after_rpc_lock_without_wire_effects(native_se
         assert receipts == []
         valid = True
         if operation == "engage":
-            await client.engage(identity(), circuit_breaker_active=False, before_dispatch=guard,
+            await client.engage(identity(), start_context=start_context(identity()), circuit_breaker_active=False, before_dispatch=guard,
                                 on_mode_dispatch=lambda: receipts.append("acquire"), altitude_reference=ALTITUDE_REFERENCE)
             assert receipts == ["acquire"]
         else:
@@ -632,7 +636,7 @@ async def test_async_final_native_guard_is_not_a_transport_failure(native_server
     client = NativeGuidanceClient(path, clock=lambda: 100)
     await client.connect()
     if operation == "intent":
-        await client.engage(identity(), circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE)
+        await client.engage(identity(), start_context=start_context(identity()), circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE)
 
     async def invalid():
         raise AssertionError("async guard body must not run")
@@ -641,7 +645,7 @@ async def test_async_final_native_guard_is_not_a_transport_failure(native_server
     try:
         with pytest.raises(DispatchRefused, match="dispatch_guard_contract_invalid"):
             if operation == "engage":
-                await client.engage(identity(), circuit_breaker_active=False, before_dispatch=invalid, altitude_reference=ALTITUDE_REFERENCE)
+                await client.engage(identity(), start_context=start_context(identity()), circuit_breaker_active=False, before_dispatch=invalid, altitude_reference=ALTITUDE_REFERENCE)
             else:
                 await client.submit(intent(), ownership_token=client.acquisition_token, acquisition=client.acquisition_context, circuit_breaker_active=False, before_dispatch=invalid)
         assert requests == previous
@@ -657,7 +661,7 @@ async def test_native_acquisition_receipt_precedes_missing_ack(native_server):
     behavior["delay_operation"] = "engage"
     receipts = []
     task = asyncio.create_task(client.engage(
-        identity(), circuit_breaker_active=False, before_dispatch=lambda: None,
+        identity(), start_context=start_context(identity()), circuit_breaker_active=False, before_dispatch=lambda: None,
         on_mode_dispatch=lambda: receipts.append("possibly_sent"),
         altitude_reference=ALTITUDE_REFERENCE,
     ))
@@ -675,7 +679,7 @@ async def test_guarded_queued_ttl_handoff_does_not_hold_a_superseding_target(nat
     path, requests, _ = native_server
     client = NativeGuidanceClient(path, clock=lambda: 100)
     await client.connect()
-    await client.engage(identity(), circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE)
+    await client.engage(identity(), start_context=start_context(identity()), circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE)
     current = True
     refusal = DispatchRefused("target_replaced", DispatchRefusalKind.SUPERSEDED)
 
@@ -719,7 +723,7 @@ async def test_invalid_acquisition_observer_cannot_advance_wire_or_session(nativ
 
     try:
         with pytest.raises(DispatchRefused, match="dispatch_guard_contract_invalid"):
-            await client.engage(identity(), circuit_breaker_active=False, on_mode_dispatch=invalid, altitude_reference=ALTITUDE_REFERENCE)
+            await client.engage(identity(), start_context=start_context(identity()), circuit_breaker_active=False, on_mode_dispatch=invalid, altitude_reference=ALTITUDE_REFERENCE)
         assert requests == previous
         assert client._request_id == request_id
         assert client.session_identity is None
@@ -734,10 +738,10 @@ async def test_cancelled_exchange_closes_the_socket_and_revokes_control(native_s
     client = NativeGuidanceClient(path, clock=lambda: 100)
     await client.connect()
     if operation != "engage":
-        await client.engage(identity(), circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE)
+        await client.engage(identity(), start_context=start_context(identity()), circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE)
     behavior["delay_operation"] = operation
     calls = {
-        "engage": lambda: client.engage(identity(), circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE),
+        "engage": lambda: client.engage(identity(), start_context=start_context(identity()), circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE),
         "intent": lambda: client.submit(intent(), ownership_token=client.acquisition_token, acquisition=client.acquisition_context, circuit_breaker_active=False),
         "handoff": lambda: client.handoff(identity(), ownership_token=client.acquisition_token, acquisition=client.acquisition_context, reason="stop"),
     }
@@ -770,7 +774,7 @@ async def test_phase_specific_native_contracts_use_one_owned_socket(native_serve
     client = NativeGuidanceClient(path, clock=lambda: 100.)
     try:
         await client.connect()
-        await client.engage(identity(), circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE)
+        await client.engage(identity(), start_context=start_context(identity()), circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE)
         await client.submit(intent(command=command), ownership_token=client.acquisition_token, acquisition=client.acquisition_context, circuit_breaker_active=False)
         assert requests[-1]["payload"]["phase"] == phase
         assert requests[-1]["payload"]["command"] == command.wire_payload()
@@ -799,7 +803,7 @@ async def test_unadvertised_native_mc_refuses_without_an_intent_write(native_ser
     client = NativeGuidanceClient(path, clock=lambda: 100.)
     try:
         await client.connect()
-        await client.engage(identity(), circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE)
+        await client.engage(identity(), start_context=start_context(identity()), circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE)
         with pytest.raises(NativeGuidanceError, match='multicopter_contract_unavailable'):
             await client.submit(intent(command=NativeMulticopterCommand(Vector3(1, 2, -1), .1)),
                 ownership_token=client.acquisition_token, acquisition=client.acquisition_context,
@@ -811,7 +815,7 @@ async def test_unadvertised_native_mc_refuses_without_an_intent_write(native_ser
 
 def test_python_ownership_contract_matches_shared_cpp_golden_json():
     golden = json.loads((Path(__file__).parents[3] / 'native/px4_guidance/test/fixtures/ownership-protocol.json').read_text())
-    assert golden['protocol_version'] == PROTOCOL_VERSION == 4
+    assert golden['protocol_version'] == PROTOCOL_VERSION == 5
     assert golden['capabilities']['external_mode_api_version'] == 2
     capabilities = NativeCapabilities.from_payload(golden['capabilities'])
     assert capabilities.owned_mode_supported
@@ -830,7 +834,7 @@ async def test_malformed_acquisition_token_never_reaches_adapter(native_server, 
     await client.connect()
     try:
         with pytest.raises(NativeGuidanceError, match='ownership_token_invalid'):
-            await client.engage(identity(), circuit_breaker_active=False, ownership_token=token, altitude_reference=ALTITUDE_REFERENCE)
+            await client.engage(identity(), start_context=start_context(identity()), circuit_breaker_active=False, ownership_token=token, altitude_reference=ALTITUDE_REFERENCE)
         assert [row['operation'] for row in requests] == ['hello']
     finally:
         await client.close()
@@ -865,7 +869,7 @@ async def test_lost_engage_ack_keeps_original_token_and_reconciles_read_only(nat
     await client.connect()
     behavior['drop_engage_ack'] = True
     with pytest.raises(NativeGuidanceError, match='reply_missing'):
-        await client.engage(identity(), circuit_breaker_active=False, ownership_token=TOKEN, altitude_reference=ALTITUDE_REFERENCE)
+        await client.engage(identity(), start_context=start_context(identity()), circuit_breaker_active=False, ownership_token=TOKEN, altitude_reference=ALTITUDE_REFERENCE)
     assert client.acquisition_token == TOKEN
     assert client.acquisition_context is None
     assert client.session_identity is None
@@ -882,11 +886,11 @@ async def test_pending_lost_ack_cannot_be_reacquired_on_reconnect(native_server)
     await client.connect()
     behavior['drop_engage_ack'] = True
     with pytest.raises(NativeGuidanceError):
-        await client.engage(identity(), circuit_breaker_active=False, ownership_token=TOKEN, altitude_reference=ALTITUDE_REFERENCE)
+        await client.engage(identity(), start_context=start_context(identity()), circuit_breaker_active=False, ownership_token=TOKEN, altitude_reference=ALTITUDE_REFERENCE)
     await client.connect()
     try:
         with pytest.raises(NativeGuidanceError, match='already_owned'):
-            await client.engage(identity(), circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE)
+            await client.engage(identity(), start_context=start_context(identity()), circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE)
         assert [row['operation'] for row in requests].count('engage') == 1
     finally:
         await client.close()
@@ -897,7 +901,7 @@ async def test_acquisition_ack_is_not_replaced_by_later_navigation_observation(n
     client = NativeGuidanceClient(path)
     await client.connect()
     try:
-        await client.engage(identity(), circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE)
+        await client.engage(identity(), start_context=start_context(identity()), circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE)
         original = client.acquisition_context
         assert original.activation_timestamp == 200
         behavior['nav_state_timestamp'] = 300
@@ -912,7 +916,7 @@ async def test_handoff_keeps_original_acquisition_identity_and_token(native_serv
     client = NativeGuidanceClient(path)
     await client.connect()
     try:
-        await client.engage(identity(), circuit_breaker_active=False, ownership_token=TOKEN, altitude_reference=ALTITUDE_REFERENCE)
+        await client.engage(identity(), start_context=start_context(identity()), circuit_breaker_active=False, ownership_token=TOKEN, altitude_reference=ALTITUDE_REFERENCE)
         original = client.acquisition_context
         receipt = await client.handoff(identity(), ownership_token=client.acquisition_token, acquisition=client.acquisition_context, reason='operator_stop')
         assert receipt.acquisition == original
@@ -943,7 +947,7 @@ async def test_incompatible_handoff_receipt_revokes_only_original_pursuit(native
     path, _, behavior = native_server
     client = NativeGuidanceClient(path)
     await client.connect()
-    await client.engage(identity(), circuit_breaker_active=False, ownership_token=TOKEN, altitude_reference=ALTITUDE_REFERENCE)
+    await client.engage(identity(), start_context=start_context(identity()), circuit_breaker_active=False, ownership_token=TOKEN, altitude_reference=ALTITUDE_REFERENCE)
     behavior['handoff_reply'] = release_receipt(acquisition(identity(), token='d' * 32)).wire_payload()
     try:
         with pytest.raises(NativeGuidanceError, match='context_changed'):
@@ -962,13 +966,13 @@ async def test_missing_owned_mode_support_refuses_before_engage(native_server):
     await client.connect()
     try:
         with pytest.raises(NativeGuidanceError, match='ownership_contract_unavailable'):
-            await client.engage(identity(), circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE)
+            await client.engage(identity(), start_context=start_context(identity()), circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE)
         assert [row['operation'] for row in requests] == ['hello']
     finally:
         await client.close()
 
 
-@pytest.mark.parametrize('old_version', [1, 2, 3])
+@pytest.mark.parametrize('old_version', [1, 2, 3, 4])
 async def test_old_protocol_refuses_at_hello_before_any_acquisition(native_server, old_version):
     path, requests, behavior = native_server
     behavior['protocol_version'] = old_version
@@ -983,7 +987,7 @@ async def test_runtime_replacement_cannot_reconcile_an_old_acquisition(native_se
     path, requests, behavior = native_server
     client = NativeGuidanceClient(path)
     await client.connect()
-    await client.engage(identity(), circuit_breaker_active=False, ownership_token=TOKEN, altitude_reference=ALTITUDE_REFERENCE)
+    await client.engage(identity(), start_context=start_context(identity()), circuit_breaker_active=False, ownership_token=TOKEN, altitude_reference=ALTITUDE_REFERENCE)
     original = client.acquisition_context
     client.abort()
     behavior['capabilities'] = CAPABILITIES | {'runtime_id': 'replacement-adapter'}
@@ -1007,7 +1011,7 @@ async def test_invalid_engage_ack_cannot_create_authority(native_server, reply):
     client = NativeGuidanceClient(path)
     await client.connect()
     with pytest.raises(NativeGuidanceError):
-        await client.engage(identity(), circuit_breaker_active=False, ownership_token=TOKEN, altitude_reference=ALTITUDE_REFERENCE)
+        await client.engage(identity(), start_context=start_context(identity()), circuit_breaker_active=False, ownership_token=TOKEN, altitude_reference=ALTITUDE_REFERENCE)
     assert client.session_identity is None
     assert client.acquisition_context is None
     assert client.acquisition_token == TOKEN
@@ -1019,7 +1023,7 @@ async def test_queued_equal_identity_replacement_cannot_adopt_new_acquisition(na
     path, requests, _ = native_server
     client = NativeGuidanceClient(path)
     await client.connect()
-    await client.engage(identity(), circuit_breaker_active=False, ownership_token=TOKEN, altitude_reference=ALTITUDE_REFERENCE)
+    await client.engage(identity(), start_context=start_context(identity()), circuit_breaker_active=False, ownership_token=TOKEN, altitude_reference=ALTITUDE_REFERENCE)
     original = client.acquisition_context
     await client._lock.acquire()
     try:
@@ -1032,7 +1036,7 @@ async def test_queued_equal_identity_replacement_cannot_adopt_new_acquisition(na
         call = calls[operation]()
         task = asyncio.create_task(call)
         await asyncio.sleep(0)
-        replacement = replace(original, token='e' * 32, source_revision=8)
+        replacement = replace(original, token='e' * 32, source_revision=8, start_context=replace(original.start_context, intention_revision=8))
         client._acquisition = replacement
         client._ownership_token = replacement.token
         previous = list(requests)
@@ -1077,18 +1081,18 @@ def test_invalid_acquisition_epochs_and_source_modes_are_not_proofs(change):
 
 async def test_ack_mode_must_match_captured_registered_mode(native_server):
     path, _, behavior = native_server
-    behavior['engage_reply'] = {'acquisition': replace(acquisition(identity()), mode_id=24).wire_payload()}
+    behavior['engage_reply'] = {'acquisition': acquisition(identity(), start=replace(start_context(identity()), mode_id=24)).wire_payload()}
     client = NativeGuidanceClient(path)
     await client.connect()
     with pytest.raises(NativeGuidanceError, match='context_changed'):
-        await client.engage(identity(), circuit_breaker_active=False, ownership_token=TOKEN, altitude_reference=ALTITUDE_REFERENCE)
+        await client.engage(identity(), start_context=start_context(identity()), circuit_breaker_active=False, ownership_token=TOKEN, altitude_reference=ALTITUDE_REFERENCE)
     assert client.session_identity is None
     assert client.acquisition_context is None
 
 
 async def test_pending_release_receipt_must_match_original_registered_mode(native_server):
     path, requests, behavior = native_server
-    context = replace(acquisition(identity()), mode_id=24, activation_timestamp=0)
+    context = acquisition(identity(), activation_timestamp=0, start=replace(start_context(identity()), mode_id=24))
     behavior['release_receipt'] = release_receipt(context, outcome='owner_already_released').wire_payload()
     client = NativeGuidanceClient(path)
     with pytest.raises(NativeGuidanceError, match='context_changed'):
@@ -1101,7 +1105,7 @@ async def test_contextless_write_cannot_adopt_client_ack(native_server, operatio
     path, requests, _ = native_server
     client = NativeGuidanceClient(path)
     await client.connect()
-    await client.engage(identity(), ownership_token=TOKEN, circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE)
+    await client.engage(identity(), start_context=start_context(identity()), ownership_token=TOKEN, circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE)
     previous = list(requests)
     calls = {
         'handoff': lambda: client.handoff(identity(), ownership_token=TOKEN, acquisition=None, reason='stop'),
@@ -1120,9 +1124,9 @@ async def test_stale_circuit_breaker_request_cannot_disconnect_replacement_owner
     path, requests, _ = native_server
     client = NativeGuidanceClient(path)
     await client.connect()
-    await client.engage(identity(), ownership_token=TOKEN, circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE)
+    await client.engage(identity(), start_context=start_context(identity()), ownership_token=TOKEN, circuit_breaker_active=False, altitude_reference=ALTITUDE_REFERENCE)
     original = client.acquisition_context
-    replacement = replace(original, token='c' * 32, source_revision=8)
+    replacement = replace(original, token='c' * 32, source_revision=8, start_context=replace(original.start_context, intention_revision=8))
     client._acquisition = replacement
     client._ownership_token = replacement.token
     previous = list(requests)
@@ -1134,7 +1138,7 @@ async def test_stale_circuit_breaker_request_cannot_disconnect_replacement_owner
         assert client.capabilities is not None
         assert requests == previous
         with pytest.raises(NativeGuidanceError, match='already_owned'):
-            await client.engage(identity(), circuit_breaker_active=True, altitude_reference=ALTITUDE_REFERENCE)
+            await client.engage(identity(), start_context=start_context(identity()), circuit_breaker_active=True, altitude_reference=ALTITUDE_REFERENCE)
         assert client.session_identity == identity()
         assert client.capabilities is not None
     finally:
