@@ -1018,6 +1018,29 @@ def attach_component_observer(binding, connection, log, *, started: float, clock
     binding.transport.on_observation = observation
 
 
+async def refresh_component_start(client, connection, qualified_window, *, runtime_id, expected_altitude_m,
+                                  deadline, log, started, clock=time.monotonic):
+    """Read actual state after setup; never refresh a retained sample's receipt."""
+    remaining = deadline - clock()
+    if remaining <= 0.:
+        raise TimeoutError("native_component_start_refresh_deadline")
+    packet = await asyncio.wait_for(client.observe(), timeout=remaining)
+    log("observations.jsonl", dict(timestamp=clock()-started, value=packet, purpose="pre_projection_start_refresh"))
+    if clock() >= deadline:
+        raise TimeoutError("native_component_start_refresh_deadline")
+    if (packet.get("runtime_id") != runtime_id or packet.get("fresh") is not True
+            or packet.get("owner_confirmed") is not False or packet.get("rescue_active") is not False
+            or packet.get("nav_state") != 4 or packet.get("phase_status_fresh") is not True
+            or packet.get("release_pending") is not False or packet.get("neutral_drain_active") is not False):
+        raise ValueError("native_component_start_refresh_unqualified")
+    state = AircraftState.from_payload(packet["aircraft_state"])
+    window = qualified_window if state == qualified_window[-1] else [*qualified_window, state]
+    if (not stable_window(window, expected_altitude_m=expected_altitude_m)
+            or not connection.commit_aircraft_state(state) or not connection.retain_packet(state, packet)):
+        raise ValueError("native_component_start_refresh_not_stable")
+    return state
+
+
 def load_component_scenario(path, *, mount, altitude, duration, is_vtol, follower="gm_velocity_vector"):
     selected = component_profile(follower)
     scenario = VisualizationScenario.from_yaml(path)
@@ -1331,6 +1354,8 @@ async def run(args, isolation):
             circuit_breaker=lambda: False,
         )
         attach_component_observer(binding, connection, log, started=started)
+        state = await refresh_component_start(client, connection, window, runtime_id=capabilities.runtime_id,
+            expected_altitude_m=args.test_altitude, deadline=started+args.stable_timeout, log=log, started=started)
         initial_target = (world_clock.target_at_host(connection.last_packet["vehicle_pose"]["observed_at_monotonic_s"])
                           if world_clock is not None else scenario.target_at(0.))
         (output / "start-pose.json").write_text(json.dumps(dict(

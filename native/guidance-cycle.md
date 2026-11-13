@@ -27,6 +27,12 @@ pose and closed ULog ground truth come from the simulator. The loaded continuity
 policy, including its existing 4 m/8 s behavior, is not overridden. Short loss
 and reacquisition are a separate next case.
 
+After source/scenario preparation, one read-only native observation refreshes
+the accepted pose before initial projection. It must retain the original
+qualified stable phase/binding and admission deadline; existing projection
+freshness limits still apply. The target clock and old sample receipts are
+never restamped to cover setup latency.
+
 The user's clarified scope separates native pilot-maneuver response from
 following ownership. All full raw pose/envelope data and native 2 m failures
 remain available. Pursuit altitude/range acceptance uses measured active
@@ -66,9 +72,12 @@ is needed. Cleanup retains the original two token-owned CIDs and logger closure
 even when component or evidence gates fail.
 
 Software checks and a replay of a retained actual target-free FW normal-Stop log
-validate the tooling only. The old native-only results remain FAILED. This new
-guidance case remains unexecuted until separate review/approval; no whole-S7,
-application, sensorless, private-airframe or hardware qualification follows.
+validate the tooling only. The old native-only results remain FAILED. The first
+actual VERTICAL attempt failed initial projection before acquisition, with zero
+publications: source/scenario setup aged the retained stable-state snapshot.
+That failed capture remains unchanged. The fresh-read correction needs separate
+review and actual evidence; no whole-S7, application, sensorless, private-airframe
+or hardware qualification follows.
 
 The existing `.github/workflows/tests.yml` coverage job selects this unmarked
 test module through `pytest tests/`. The smaller unit-only job does not select

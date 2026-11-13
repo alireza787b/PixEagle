@@ -797,6 +797,78 @@ def native_gimbal_context(mount='HORIZONTAL'):
     return env
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize('mount', ['HORIZONTAL', 'VERTICAL'])
+async def test_delayed_setup_reads_actual_pose_before_projection_without_restamping_target(tmp_path, monkeypatch, mount):
+    env = native_gimbal_context(mount)
+    window = [replace(env.state, sequence=i+1, observed_at_monotonic_s=97.+i*.5,
+        airspeed=replace(env.state.airspeed, observed_at_monotonic_s=97.+i*.5)) for i in range(7)]
+    assert stable_window(window)
+    # Initial state and source progress are real data, independent of setup work.
+    env.state = window[-1]
+    connection = ObservationConnection(env.state.binding, clock=lambda: env.now[0])
+    env.packet['aircraft_state'] = asdict(env.state)
+    assert connection.commit_aircraft_state(env.state) and connection.retain_packet(env.state, env.packet)
+    artifact, source, _ = world_clock_fixture(tmp_path, monkeypatch)
+    before = artifact.read_bytes(), source.read_bytes()
+    target = tool.WorldTargetClock.from_file(artifact, now=100.)
+    env.now[0] = 100.51
+    old = project_component_input(env.fixture, env.packet, env.state, target.target_at_host(env.now[0]), timestamp_s=1.)
+    assert old.metadata['projection_error'] == 'sih_projection_attitude_stale'
+    current = replace(env.state, sequence=8, observed_at_monotonic_s=env.now[0],
+        attitude_timing=replace(env.state.attitude_timing, publication_timestamp_us=1510000,
+            sample_timestamp_us=1500000, publication_received_at_monotonic_s=env.now[0],
+            sample_received_at_monotonic_s=env.now[0]))
+    packet = deepcopy(env.packet)
+    packet.update(aircraft_state=asdict(current), attitude_timing=asdict(current.attitude_timing),
+        owner_confirmed=False, rescue_active=False, nav_state=4, phase_status_fresh=True,
+        release_pending=False, neutral_drain_active=False)
+    packet['vehicle_pose'].update(px4_timestamp_us=1510000, observed_at_monotonic_s=env.now[0])
+    client, records = SimpleNamespace(observe=AsyncMock(return_value=packet)), []
+    state = await tool.refresh_component_start(client, connection, window, runtime_id='native-fixture',
+        expected_altitude_m=50., deadline=110., log=lambda n, v: records.append((n, v)),
+        started=97., clock=lambda: env.now[0])
+    fresh = project_component_input(env.fixture, connection.last_packet, state,
+        target.target_at_host(env.now[0]), timestamp_s=2.)
+    assert fresh.tracking_active and measurement_time(fresh) == 100.51
+    assert fresh.raw_data['measurement_target_ned'] == tuple(target.target_at_host(100.51))
+    assert target.target_at_host(100.) != target.target_at_host(100.51)
+    assert (artifact.read_bytes(), source.read_bytes()) == before
+    assert records[0][1]['purpose'] == 'pre_projection_start_refresh'
+    client.observe.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('bad', ['phase', 'owner', 'rescue', 'runtime', 'stale', 'deadline', 'late_reply'])
+async def test_start_refresh_refuses_unqualified_or_expired_read_before_acquire(bad):
+    env = native_image_context()
+    env.state = replace(env.state, sequence=7)
+    connection = ObservationConnection(env.state.binding, clock=lambda: env.now[0])
+    env.packet['aircraft_state'] = asdict(env.state)
+    assert connection.commit_aircraft_state(env.state) and connection.retain_packet(env.state, env.packet)
+    window = [replace(env.state, sequence=i+1, observed_at_monotonic_s=97.+i*.5,
+        airspeed=replace(env.state.airspeed, observed_at_monotonic_s=97.+i*.5)) for i in range(7)]
+    assert stable_window(window)
+    packet = deepcopy(env.packet)
+    packet.update(owner_confirmed=False, rescue_active=False, nav_state=4, phase_status_fresh=True,
+        release_pending=False, neutral_drain_active=False)
+    if bad == 'phase': packet['aircraft_state']['phase'] = AirframePhase.VTOL_TRANSITION.value
+    elif bad == 'owner': packet['owner_confirmed'] = True
+    elif bad == 'rescue': packet['rescue_active'] = True
+    elif bad == 'runtime': packet['runtime_id'] = 'replacement'
+    elif bad == 'stale': env.now[0] = 101.
+    elif bad == 'deadline': env.now[0] = 110.
+    async def observe():
+        if bad == 'late_reply': env.now[0] = 110.
+        return packet
+    client = SimpleNamespace(observe=AsyncMock(side_effect=observe), engage=AsyncMock())
+    with pytest.raises((ValueError, TimeoutError)):
+        await tool.refresh_component_start(client, connection, window, runtime_id='native-fixture',
+            expected_altitude_m=50., deadline=110., log=lambda *args: None, started=97., clock=lambda: env.now[0])
+    client.engage.assert_not_awaited()
+    if bad == 'deadline': client.observe.assert_not_awaited()
+
+
 @pytest.mark.parametrize('profile,kind', [('gm_velocity_vector', TrackerDataType.GIMBAL_ANGLES),
                                         ('fw_navigation_chase', TrackerDataType.POSITION_2D)])
 def test_declared_native_input_binds_the_same_readonly_resolver_before_authority(profile, kind):
