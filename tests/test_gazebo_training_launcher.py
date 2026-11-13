@@ -75,3 +75,110 @@ def test_startup_authentication_uses_only_the_typed_login_fields(tmp_path, monke
     training.wait_backend(tmp_path)
     client.post.assert_called_once_with('http://127.0.0.1:5077/api/v1/auth/login',
         json=dict(username='test-account', password='test-secret'), timeout=3)
+
+
+def test_vtol_adapter_is_required_before_staging_or_launch(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    commands = Mock(side_effect=AssertionError('must not launch'))
+    monkeypatch.setattr(training.host, 'command', commands)
+    args = SimpleNamespace(adapter_bundle=None, adapter_file_manifest=None)
+    assert training.native_training_assets(args, 'gazebo', {'expected_parameters': {'MAV_TYPE': 2}}) is None
+    with pytest.raises(ValueError, match='requires the verified native adapter'):
+        training.native_training_assets(args, 'gazebo', {'expected_parameters': {'MAV_TYPE': 22}})
+    assert list(tmp_path.iterdir()) == []
+    commands.assert_not_called()
+
+
+@pytest.mark.parametrize('kind', [1, 19, 20, 21, None])
+def test_undeclared_aircraft_families_are_not_implicitly_training_ready(kind):
+    from types import SimpleNamespace
+    with pytest.raises(ValueError, match='declared MC or standard VTOL'):
+        training.native_training_assets(SimpleNamespace(), 'gazebo', {'expected_parameters': {'MAV_TYPE': kind}})
+
+
+@pytest.mark.parametrize('part', ['adapter_bundle', 'adapter_file_manifest'])
+def test_incomplete_adapter_authority_refuses(part, tmp_path):
+    from types import SimpleNamespace
+    with pytest.raises(ValueError, match='supplied together'):
+        training.native_training_assets(SimpleNamespace(**{part: tmp_path}), 'gazebo',
+                                        {'expected_parameters': {'MAV_TYPE': 22}})
+
+
+def test_adapter_preflight_checks_bundle_and_source_before_image(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    args = SimpleNamespace(adapter_bundle=tmp_path / 'bundle', adapter_file_manifest=tmp_path / 'files',
+                           build_manifest=tmp_path / 'build.json')
+    source = tmp_path / 'context/source' / training.native_runtime.DDS_STATUS_SOURCE
+    source.parent.mkdir(parents=True)
+    source.write_text('reviewed print_status source')
+    assets = dict(bootstrap_files={training.native_runtime.DDS_STATUS_SOURCE: training.native_runtime.digest(source)})
+    assets_path = tmp_path / 'assets.json'
+    assets_path.write_text(json.dumps(assets))
+    monkeypatch.setattr(training.native_runtime, 'ASSETS', assets_path)
+    bundle, image = Mock(), Mock()
+    monkeypatch.setattr(training.native_runtime, 'verify_adapter', bundle)
+    monkeypatch.setattr(training.native_runtime, 'verify_adapter_image', image)
+    assert training.native_training_assets(args, 'gazebo', {'expected_parameters': {'MAV_TYPE': 22}}) == assets
+    bundle.assert_called_once_with(args.adapter_bundle, args.adapter_file_manifest, assets)
+    image.assert_called_once_with(assets)
+    image.reset_mock()
+    source.write_text('changed status parser contract')
+    with pytest.raises(ValueError, match='bootstrap source'):
+        training.native_training_assets(args, 'gazebo', {'expected_parameters': {'MAV_TYPE': 22}})
+    image.assert_not_called()
+
+
+def desktop_adapter(tmp_path, monkeypatch):
+    import os
+    from types import SimpleNamespace
+    output = tmp_path / 'run'
+    (output / 'simulator').mkdir(parents=True)
+    primary = dict(Image='image', State={'Running': True}, Config={'User': f'{os.getuid()}:{os.getgid()}',
+        'WorkingDir': '/work/rootfs'}, HostConfig={'Privileged': False, 'Devices': []},
+        NetworkSettings={'Ports': {}, 'Networks': {'owned-network': {}}},
+        Mounts=[dict(Destination='/work', Source=str(output / 'simulator'), RW=True)])
+    monkeypatch.setattr(training.host, 'owned_container_info', Mock(return_value=primary))
+    monkeypatch.setattr(training.host, 'owned_internal_network_info', Mock(return_value={'Name': 'owned-network'}))
+    adapter = training.TrainingAdapter(SimpleNamespace(adapter_bundle=tmp_path / 'bundle'), output,
+        'token', 'original', 'network', {'image_id': 'image'}, {'adapter_image': 'adapter-image'}, [])
+    return adapter, primary
+
+
+@pytest.mark.parametrize('change', ['image', 'stopped', 'user', 'workdir', 'privileged', 'device', 'ports', 'network', 'mount'])
+def test_desktop_bootstrap_rechecks_original_authority_before_readonly_status(tmp_path, monkeypatch, change):
+    import copy
+    adapter, primary = desktop_adapter(tmp_path, monkeypatch)
+    primary = copy.deepcopy(primary)
+    if change == 'image': primary['Image'] = 'replacement'
+    elif change == 'stopped': primary['State']['Running'] = False
+    elif change == 'user': primary['Config']['User'] = '0:0'
+    elif change == 'workdir': primary['Config']['WorkingDir'] = '/other'
+    elif change == 'privileged': primary['HostConfig']['Privileged'] = True
+    elif change == 'device': primary['HostConfig']['Devices'] = ['/dev/ttyUSB0']
+    elif change == 'ports': primary['NetworkSettings']['Ports'] = {'14550/udp': 'host'}
+    elif change == 'network': primary['NetworkSettings']['Networks'] = {'other-network': {}}
+    else: primary['Mounts'][0]['RW'] = False
+    monkeypatch.setattr(training.host, 'owned_container_info', Mock(return_value=primary))
+    adapter.command = Mock(side_effect=AssertionError('probe must not execute'))
+    with pytest.raises(ValueError, match='identity or isolation'):
+        adapter.bootstrap_status(timeout=1)
+    adapter.command.assert_not_called()
+
+
+def test_desktop_adapter_retains_original_cid_for_cleanup_on_bootstrap_failure(tmp_path, monkeypatch):
+    from unittest.mock import AsyncMock
+    adapter, _ = desktop_adapter(tmp_path, monkeypatch)
+    def launch(argv, name):
+        assert '/work/ws' not in ' '.join(argv)  # Runtime scripts source ROS; host workspace is not mounted.
+        assert argv[argv.index('--network') + 1] == 'container:original'
+        adapter.created.append('adapter-original')
+        return 'adapter-original'
+    adapter.launch = launch
+    adapter.bootstrap = AsyncMock(side_effect=TimeoutError('no DDS session'))
+    with pytest.raises(TimeoutError):
+        adapter.start()
+    assert adapter.created == ['adapter-original']
+    assert adapter.sidecar == 'adapter-original'
+    assert not (adapter.output / 'native-adapter-ready.json').exists()
+    script = (adapter.output / 'simulator/adapter.sh').read_text()
+    assert '/runtime/private/guidance.sock' in script and '/work/ws/install/setup.bash' in script

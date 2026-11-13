@@ -140,3 +140,28 @@ Reset uses the captured session and token-owned process/container identities,
 closes logs and starts a fresh run/source incarnation. It must not resume an old
 Start, discard failed evidence, stop unrelated processes or overwrite public or
 private configuration. Any uncertain ownership/cleanup blocks another Start.
+
+### Standard quadplane runtime staging
+
+The explicit `standard-vtol-mono-camera-courtyard-v1` scenario selects the stock
+4004 standard VTOL airframe with its reviewed fixed camera wrapper and populated
+world. The launcher requires `--adapter-bundle` and `--adapter-file-manifest` for
+this declared VTOL scenario, verifies the pinned runtime assets and DDS status
+source before staging, and starts the canonical DDS agent before the one-shot
+adapter bootstrap. Its private socket is mounted at the normal application path
+`/run/pixeagle/guidance.sock`. The adapter joins the original simulator namespace
+and the existing token-owned cleanup list; no second MAVSDK connection is added.
+The native baseline retains its stricter network-none verification unchanged.
+
+This prepares transport availability, not following eligibility. The ordinary
+VTOL catalog gate, source phase/intention fence and FW image timing/calibration
+requirements remain in force. Current Gazebo RTP carries an encoder-time stamp,
+not the original image acquisition stamp. A rendered-image source that retains
+pixels and the Gazebo acquisition stamp together, aligned with bound native
+attitude samples, is required before FW image Chase qualification. Starting a
+scene or a native socket does not satisfy that requirement. The default pure-MC
+launcher still requires no native adapter.
+
+The shared adapter implementation is `tools/native_adapter_runtime.py`. New
+source-evidence authorities must pin this dependency along with the caller;
+historical frozen runtime receipts keep their original source authority.

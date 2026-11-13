@@ -7,6 +7,7 @@ disarmed and command-blocked; closing it stops only its own simulation stack.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import configparser
 import ipaddress
 import json
@@ -25,6 +26,8 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / 'src'))
 
 from tools import sih_isolated_host as host  # noqa: E402
+from tools import run_native_transition_baseline as native_runtime  # noqa: E402
+from tools.native_adapter_runtime import adapter_launch_args  # noqa: E402
 from tools.gazebo_scenario import verified_scenario  # noqa: E402
 from tools.prepare_simulation_profile import prepare  # noqa: E402
 from tools.run_native_vector_sih import inspect_simulator_process, verify_gazebo_runtime  # noqa: E402
@@ -157,6 +160,79 @@ def stop_child_group(relay):
         relay.wait(timeout=5)
 
 
+def native_training_assets(args, simulator, scenario):
+    """Runtime availability never grants profile or phase admission."""
+    if simulator != 'gazebo' or scenario['expected_parameters'].get('MAV_TYPE') not in (2, 22):
+        raise ValueError('Training requires a declared MC or standard VTOL Gazebo scenario')
+    bundle, manifest = getattr(args, 'adapter_bundle', None), getattr(args, 'adapter_file_manifest', None)
+    if bool(bundle) != bool(manifest):
+        raise ValueError('Native adapter bundle and file manifest must be supplied together')
+    if not bundle:
+        if scenario['expected_parameters']['MAV_TYPE'] == 22:
+            raise ValueError('Declared VTOL training requires the verified native adapter')
+        return None
+    assets = json.loads(native_runtime.ASSETS.read_text())
+    native_runtime.verify_adapter(bundle.resolve(), manifest, assets)
+    source = args.build_manifest.resolve().parent / 'context/source'
+    dds_source = native_runtime.DDS_STATUS_SOURCE
+    if native_runtime.digest(source / dds_source) != assets['bootstrap_files'][dds_source]:
+        raise ValueError('Native DDS bootstrap source differs from the reviewed status contract')
+    native_runtime.verify_adapter_image(assets)
+    return assets
+
+
+class TrainingAdapter:
+    """Desktop caller of the canonical adapter bootstrap, with its own network authority."""
+    command = native_runtime.Runtime.command
+    launch = native_runtime.Runtime.launch
+    sidecar_info = native_runtime.Runtime.sidecar_info
+    bootstrap = native_runtime.Runtime.bootstrap
+
+    def __init__(self, args, output, token, primary, network_id, baseline, assets, containers):
+        self.args, self.output, self.token = args, output, token
+        self.primary, self.network_id, self.baseline, self.assets = primary, network_id, baseline, assets
+        self.created, self.sidecar, self.adapter_requested = containers, None, False
+        self.socket = output / 'simulator/private/guidance.sock'
+        self.original_mounts = host.owned_container_info(primary, token)['Mounts']
+
+    def primary_info(self):
+        info = host.owned_container_info(self.primary, self.token)
+        network = host.owned_internal_network_info(self.network_id, self.token)
+        config, host_config = info['Config'], info['HostConfig']
+        if (info['Image'] != self.baseline['image_id'] or info['State']['Running'] is not True
+                or config['User'] != f'{os.getuid()}:{os.getgid()}' or config['WorkingDir'] != '/work/rootfs'
+                or host_config['Privileged'] or host_config.get('Devices') or info['NetworkSettings']['Ports']
+                or set(info['NetworkSettings']['Networks']) != {network['Name']}
+                or info['Mounts'] != self.original_mounts):
+            raise ValueError('Original desktop simulator identity or isolation changed')
+        mounts = {item['Destination']: (Path(item['Source']).resolve(), item['RW']) for item in info['Mounts']}
+        if mounts.get('/work') != (self.output / 'simulator', True):
+            raise ValueError('DDS bootstrap requires the original private primary workdir')
+        return info
+
+    def bootstrap_status(self, *, timeout):
+        self.primary_info()
+        self.sidecar_info()
+        return self.command(['docker', 'exec', '--user', f'{os.getuid()}:{os.getgid()}', self.primary,
+            '/opt/px4/bin/px4-uxrce_dds_client', '--instance', '0', 'status'], check=False, timeout=timeout)
+
+    def start(self):
+        self.primary_info()
+        work = self.output / 'simulator'
+        (work / 'private').mkdir(mode=0o700)
+        name = 'pixeagle-training-adapter-' + self.token[:12]
+        argv = adapter_launch_args(work, self.args.adapter_bundle, self.assets,
+            token=self.token, primary=self.primary, label=host.LABEL, name=name)
+        self.sidecar = self.launch(argv, name)
+        asyncio.run(self.bootstrap(time.monotonic() + 45.))
+        self.sidecar_info()
+        write(self.output / 'native-adapter-ready.json', dict(primary=self.primary, sidecar=self.sidecar,
+            adapter_image=self.assets['adapter_image'], adapter_sha256=self.assets['adapter_sha256'],
+            file_manifest_sha256=self.assets['file_manifest_sha256'], socket='/run/pixeagle/guidance.sock',
+            assets_sha256=native_runtime.digest(native_runtime.ASSETS),
+            following_qualification=False, scope='DDS and private socket startup only'))
+
+
 def run(args):
     runtime = args.runtime.absolute()
     if runtime.exists():
@@ -173,8 +249,7 @@ def run(args):
             probe.bind(('127.0.0.1', port))
     simulator, baseline, manifest = host.verified_simulation_build(args.build_manifest, repository=ROOT)
     scenario = verified_scenario(args.scenario, baseline, manifest)
-    if simulator != 'gazebo' or scenario['expected_parameters'].get('MAV_TYPE') != 2:
-        raise ValueError('The first training checkpoint requires a declared pure multicopter')
+    assets = native_training_assets(args, simulator, scenario)
     runtime.mkdir(parents=True, mode=0o700)
     profile = runtime / 'backend'
     prepare(profile, udp_url=f'udp://127.0.0.1:{scenario["descriptor"]["camera"]["udp_port"]}',
@@ -225,11 +300,17 @@ def run(args):
                 time.sleep(1)
         else:
             raise TimeoutError('Gazebo startup: ' + str(last))
+        native_mounts = []
+        if assets is not None:
+            adapter = TrainingAdapter(args, runtime, token, primary, network_id, baseline, assets, containers)
+            adapter.start()
+            native_mounts = [(runtime / 'simulator/private', Path('/run/pixeagle'), False)]
+            write(runtime / 'run.json', receipt)
         shared = [(args.python.parent.parent, args.python.parent.parent, True),
             (args.bin_dir, args.bin_dir, True), (args.router, args.router, True),
             ('/usr/lib/x86_64-linux-gnu', '/mnt/hostlibs', True)]
         worker = host.command(*container_args('pixeagle-training-backend-' + token[:12], token, primary,
-            [*shared, (profile, profile, False), (ROOT / 'tools/simulation_stack_entry.sh', '/entry.sh', True)],
+            [*shared, *native_mounts, (profile, profile, False), (ROOT / 'tools/simulation_stack_entry.sh', '/entry.sh', True)],
             dict(PIXEAGLE_SIM_RUNTIME=profile, PIXEAGLE_SIM_PYTHON=args.python,
                 PIXEAGLE_SIM_BIN_DIR=args.bin_dir, PIXEAGLE_SIM_ROUTER=args.router,
                 LD_LIBRARY_PATH='/mnt/hostlibs', PYTHONDONTWRITEBYTECODE='1',
@@ -320,6 +401,8 @@ def main():
     parser.add_argument('--execute', action='store_true')
     parser.add_argument('--runtime', type=Path, required=True)
     parser.add_argument('--build-manifest', type=Path, required=True)
+    parser.add_argument('--adapter-bundle', type=Path, help='Exact reviewed native runtime bundle (required for VTOL)')
+    parser.add_argument('--adapter-file-manifest', type=Path)
     parser.add_argument('--scenario', default='x500-mono-camera-aruco-v1')
     parser.add_argument('--python', type=Path, required=True)
     parser.add_argument('--bin-dir', type=Path, required=True)
