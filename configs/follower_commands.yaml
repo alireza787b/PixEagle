@@ -158,6 +158,8 @@ follower_profiles:
         unit: m/s
         step: 0.5
     airframe_phase: "multicopter"
+    native_phase_contracts:
+      multicopter: velocity_body_offboard
     required_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s"]
     ui_category: "velocity"
     # Schema-driven tracker data requirements

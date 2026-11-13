@@ -289,17 +289,10 @@ class GMVelocityVectorFollower(BaseFollower):
         return session
 
     def bind_airframe_session(self, session) -> None:
-        """Bind the native phase owner after the normal control-session reset."""
         from classes.vector_guidance_session import VectorGuidanceSession
-        prepared = getattr(self, '_airframe_session', None)
-        if (not isinstance(session, VectorGuidanceSession) or getattr(self, '_airframe_session_bound', False)
-                or prepared is not None and prepared is not session):
+        if not isinstance(session, VectorGuidanceSession):
             raise ValueError("airframe_session_binding_invalid")
-        session.require_state()
-        self._airframe_session = session
-        self._airframe_session_bound = True
-        # The phase owner adopts this declaration; retain a single runtime value.
-        self._session_controls = {}
+        super().bind_airframe_session(session)
 
     def get_control_type(self) -> str:
         session = getattr(self, '_airframe_session', None)
@@ -716,38 +709,12 @@ class GMVelocityVectorFollower(BaseFollower):
         return self._create_translation_speed_controls(ceiling, startup=self.config.get('REQUESTED_SPEED'))
 
     def update_session_control(self, control_id, value, revision):
-        session = getattr(self, '_airframe_session', None)
-        if session is None:
-            super().update_session_control(control_id, value, revision)
-        else:
-            self.validate_session_control(control_id, value, revision)
-            session.controls.update(value, identity=session.identity, expected_revision=revision)
+        super().update_session_control(control_id, value, revision)
         self._sync_translation_speed_override()
-
-    def validate_session_control(self, control_id, value, revision):
-        session = getattr(self, '_airframe_session', None)
-        if session is None:
-            return super().validate_session_control(control_id, value, revision)
-        if control_id != 'requested_speed':
-            raise ValueError('session_control_unsupported')
-        session.controls.validate_update(value, identity=session.identity, expected_revision=revision)
-
-    def session_controls(self) -> list:
-        session = getattr(self, '_airframe_session', None)
-        if session is None:
-            return super().session_controls()
-        control = session.controls.snapshot(client_contract_version=2)
-        return [control] if control is not None else []
-
-    def _requested_speed_control(self):
-        session = getattr(self, '_airframe_session', None)
-        return session.controls.current_control if session is not None else getattr(self, '_session_controls', {}).get('requested_speed')
 
     def release_session_controls(self):
         self._clear_session_velocity()
-        session = getattr(self, '_airframe_session', None)
-        if session is not None:
-            session.end('follow_session_ended')
+        super().release_session_controls()
         self._native_guidance_input_resolver = None
 
     def _session_velocity_envelope(self):

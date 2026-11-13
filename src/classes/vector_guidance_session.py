@@ -1,10 +1,4 @@
-"""Shared Vector strategy/session binding with explicitly supported phases.
-
-This object produces intent only. It owns no publisher, target-loss timer,
-camera transform or aircraft controller. MC math stays in the existing follower;
-FW objectives use native PX4 navigation control. The application binds one
-settled strategy to its publisher and existing continuity supervisor. A later phase change ends this session.
-"""
+"""Vector pursuit strategies over the shared native phase/session owner."""
 
 from dataclasses import replace
 import time
@@ -13,16 +7,17 @@ from typing import Callable
 from classes.aircraft_state import AircraftLayout, AircraftState, AirframePhase, GuidanceSessionIdentity, Vector3, body_ray_to_heading_frame
 from classes.airframe_session_controls import AirframeSessionControls
 from classes.bearing_geometry_policy import BearingGeometryPolicy
-from classes.command_intent import AltitudeHoldReference, CommandIntent
+from classes.command_intent import CommandIntent
 from classes.fixed_wing_vector_guidance import FixedWingCommand, FixedWingVectorGuidance
 from classes.fixed_wing_guidance_policy import FixedWingGuidancePolicy, UpperSpeedPolicy
 from classes.gimbal_guidance import GimbalObservationLimits
-from classes.guidance_phase_session import GuidancePhaseSession, PhaseDecision, PhaseSessionState
+from classes.guidance_phase_session import PhaseDecision, PhaseSessionState
 from classes.native_guidance import NativeCapabilities
+from classes.native_phase_guidance_session import NativePhaseGuidanceSession
 from classes.safety_types import AltitudeLimits
 
 
-class VectorGuidanceSession:
+class VectorGuidanceSession(NativePhaseGuidanceSession):
     def __init__(self, identity: GuidanceSessionIdentity, capabilities: NativeCapabilities, *,
                  profile_name: str, controls: AirframeSessionControls,
                  supported_phases: frozenset[AirframePhase], geometry_policy: BearingGeometryPolicy,
@@ -30,128 +25,50 @@ class VectorGuidanceSession:
                  observation_timeout_s: float, clock=time.monotonic,
                  fixed_wing_policy: FixedWingGuidancePolicy | None = None,
                  expected_layout: AircraftLayout = AircraftLayout.AUTO, initial_phase: AirframePhase | None = None):
-        if not isinstance(controls, AirframeSessionControls) or controls.identity != identity:
-            raise ValueError("session_controls_binding_invalid")
-        if (not isinstance(supported_phases, frozenset) or not supported_phases
-                or any(not isinstance(phase, AirframePhase) for phase in supported_phases)
-                or not supported_phases.issubset({AirframePhase.MULTICOPTER, AirframePhase.FIXED_WING})):
-            raise ValueError("session_supported_phases_invalid")
-        self.profile_name = profile_name
-        self.supported_phases = supported_phases
-        self.phase_owner = GuidancePhaseSession(
-            identity, capabilities, confirmation_s=confirmation_s,
-            observation_timeout_s=observation_timeout_s, expected_layout=expected_layout, initial_phase=initial_phase,
-        )
-        self.controls = controls
+        super().__init__(identity, capabilities, profile_name=profile_name, controls=controls,
+                         supported_phases=supported_phases, altitude_control=altitude_control,
+                         altitude_limits=altitude_limits, confirmation_s=confirmation_s,
+                         observation_timeout_s=observation_timeout_s, clock=clock,
+                         expected_layout=expected_layout, initial_phase=initial_phase)
         self.fixed_wing = FixedWingVectorGuidance(enable_altitude_control=altitude_control,
                                                 geometry_policy=geometry_policy, policy=fixed_wing_policy,
                                                 unrestricted_capability=capabilities.unrestricted_speed_supported)
-        self.altitude_limits = altitude_limits
-        self.clock = clock
-        self._state = None
-        self._engagement_altitude_reference = None
         self.last_guidance = None
 
     @property
-    def identity(self) -> GuidanceSessionIdentity:
-        return self.phase_owner.identity
-
-    @property
-    def phase(self) -> AirframePhase:
-        return self.phase_owner.phase
+    def altitude_control(self) -> bool:
+        return self.fixed_wing.enable_altitude_control
 
     @property
     def control_type(self) -> str:
         return {AirframePhase.MULTICOPTER: "velocity_body_offboard",
                 AirframePhase.FIXED_WING: "fixed_wing_external"}.get(self.phase, "unknown")
 
-    def prepare_engagement_reference(self, state: AircraftState) -> AltitudeHoldReference:
-        """Freeze before acquisition; later observations cannot ratchet this target."""
-        if self.phase_owner.state is PhaseSessionState.ENDED:
-            raise ValueError("guidance_session_ended")
-        if (state.binding != self.identity.binding or state.rescue_active
-                or not state.fresh(self.clock(), self.phase_owner.observation_timeout_s)
-                or state.phase not in self.supported_phases):
-            raise ValueError("native_engagement_state_unavailable")
-        if state.phase is AirframePhase.MULTICOPTER and not self.phase_owner.capabilities.multicopter_altitude_hold_supported:
-            raise ValueError("native_mc_altitude_hold_unavailable")
-        reference = self._engagement_altitude_reference or state
-        if (reference.binding != state.binding
-                or reference.altitude_reference_generation != state.altitude_reference_generation):
-            raise ValueError("altitude_reference_changed")
-        self.altitude_limits.require_hold_target(
-            reference.altitude_amsl_m, current_amsl_m=state.altitude_amsl_m,
-            current_relative_m=state.relative_altitude_m)
-        self._engagement_altitude_reference = reference
-        return AltitudeHoldReference(reference.altitude_amsl_m, reference.altitude_reference_generation)
+    def _start_phase(self, state: AircraftState) -> None:
+        self._unrestricted_speed_verified = (self.phase_owner.capabilities.unrestricted_speed_supported
+            and self.fixed_wing.policy.upper_speed_policy is UpperSpeedPolicy.NO_UPPER_SPEED_BOUND)
+        super()._start_phase(state)
+        if state.phase is AirframePhase.FIXED_WING:
+            self.fixed_wing.begin_phase(self.identity, state, now=self.clock(),
+                                       timeout_s=self.phase_owner.observation_timeout_s,
+                                       altitude_reference=self._engagement_altitude_reference)
 
-    def _multicopter_intent(self, intent: CommandIntent, state: AircraftState) -> CommandIntent:
-        hold = None
-        if (not self.fixed_wing.enable_altitude_control
-                or self.phase_owner.state is not PhaseSessionState.PURSUIT):
-            if intent.fields.get("vel_body_down") != 0.:
-                raise ValueError("native_vertical_contract_invalid")
-            hold = self.prepare_engagement_reference(state)
-        return replace(intent, profile_name=self.profile_name, guidance_identity=self.identity, altitude_hold=hold)
-
-    def observe(self, state: AircraftState, *, owner_confirmed: bool, target_confirmed: bool):
-        decision = self.phase_owner.observe(state, now=self.clock(), owner_confirmed=owner_confirmed,
-                                            target_confirmed=target_confirmed)
-        if decision.state is PhaseSessionState.ENDED:
-            self.end(decision.reason)
-            return decision
-        if state.phase not in self.supported_phases:
-            return self.end("unsupported_aircraft_phase")
-        if self._state is not None and state.sequence <= self._state.sequence:
-            return decision
-        try:
-            self.prepare_engagement_reference(state)
-            if self._state is None:
-                self.controls.enter_phase(self.identity, state, now=self.clock(),
-                                          timeout_s=self.phase_owner.observation_timeout_s,
-                                          unrestricted_verified=(
-                                              self.phase_owner.capabilities.unrestricted_speed_supported
-                                              and self.fixed_wing.policy.upper_speed_policy is UpperSpeedPolicy.NO_UPPER_SPEED_BOUND))
-                if state.phase is AirframePhase.FIXED_WING:
-                    self.fixed_wing.begin_phase(self.identity, state, now=self.clock(),
-                                               timeout_s=self.phase_owner.observation_timeout_s,
-                                               altitude_reference=self._engagement_altitude_reference)
-            elif state.phase is AirframePhase.FIXED_WING:
-                self.controls.refresh_envelope(state, now=self.clock(),
-                                               timeout_s=self.phase_owner.observation_timeout_s)
-        except ValueError as error:
-            self.end(str(error))
-            raise
-        self._state = state
-        return decision
-
-    def require_state(self) -> AircraftState:
-        if self.phase_owner.state is PhaseSessionState.ENDED:
-            raise ValueError("guidance_session_ended")
-        state = self._state
-        if state is None or not state.fresh(self.clock(), self.phase_owner.observation_timeout_s):
-            raise ValueError("aircraft_state_stale")
-        return state
+    def _refresh_phase(self, state: AircraftState) -> None:
+        if state.phase is AirframePhase.FIXED_WING:
+            self.controls.refresh_envelope(state, now=self.clock(),
+                                          timeout_s=self.phase_owner.observation_timeout_s)
 
     def baseline(self) -> CommandIntent:
-        """Native phase-safe objective; this does not authorize target pursuit."""
+        if self.phase is not AirframePhase.FIXED_WING:
+            return super().baseline()
         state = self.require_state()
-        if self.phase is AirframePhase.MULTICOPTER:
-            fields = dict.fromkeys(("vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s"), 0.)
-        elif self.phase is AirframePhase.FIXED_WING:
-            command = self.fixed_wing.level_command(
-                state, requested_eas_m_s=self.controls.current_control.value,
-                identity=self.identity, altitude_limits=self.altitude_limits, now=self.clock(),
-                timeout_s=self.phase_owner.observation_timeout_s,
-            )
-            return replace(command.intent(self.identity, profile_name=self.profile_name, source=type(self).__name__),
-                           reason="phase_confirmation_pending", created_at_monotonic_s=self.clock())
-        else:
-            raise ValueError("aircraft_phase_unknown")
-        intent = CommandIntent(self.profile_name, self.control_type, fields, type(self).__name__,
-                               reason="phase_confirmation_pending", created_at_monotonic_s=self.clock(),
-                               guidance_identity=self.identity)
-        return self._multicopter_intent(intent, state)
+        command = self.fixed_wing.level_command(
+            state, requested_eas_m_s=self.controls.current_control.value,
+            identity=self.identity, altitude_limits=self.altitude_limits, now=self.clock(),
+            timeout_s=self.phase_owner.observation_timeout_s,
+        )
+        return replace(command.intent(self.identity, profile_name=self.profile_name, source=type(self).__name__),
+                       reason="phase_confirmation_pending", created_at_monotonic_s=self.clock())
 
     def calculate(self, physical_body_ray: Vector3, *, observation_limits: GimbalObservationLimits,
                   multicopter_calculate: Callable[[Vector3], CommandIntent]) -> CommandIntent:
@@ -202,10 +119,7 @@ class VectorGuidanceSession:
         self.last_guidance = None
 
     def end(self, reason: str) -> PhaseDecision:
-        decision = self.phase_owner.end(reason)
-        self.controls.end()
-        self._state = None
-        self._engagement_altitude_reference = None
+        decision = super().end(reason)
         self.last_guidance = None
         return decision
 

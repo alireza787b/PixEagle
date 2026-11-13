@@ -1324,6 +1324,37 @@ class MCVelocityChaseFollower(BaseFollower):
             logger.error(f"Altitude safety check failed: {e}")
             return False
 
+    def create_airframe_session(self, identity, capabilities, **policy):
+        """Reuse native ownership with the existing image-guided MC command law."""
+        from classes.aircraft_state import AirframePhase
+        from classes.airframe_session_controls import AirframeSessionControls
+        from classes.native_phase_guidance_session import NativePhaseGuidanceSession
+        if getattr(self, '_airframe_session', None) is not None:
+            raise ValueError('airframe_session_already_bound')
+        # App supplies the shared factory policy; MC has no FW energy strategy.
+        policy.pop('fixed_wing_policy', None)
+        session = NativePhaseGuidanceSession(
+            identity, capabilities, profile_name=self.profile_name,
+            controls=AirframeSessionControls.from_multicopter_control(identity, self._requested_speed_control()),
+            supported_phases=frozenset({AirframePhase.MULTICOPTER}),
+            altitude_control=self.enable_altitude_control, altitude_limits=self.altitude_limits, **policy,
+        )
+        self._airframe_session = session
+        self._airframe_session_bound = False
+        self._native_initial_speed_revision = 0 if self._session_controls['requested_speed'].revision == 0 else -1
+        return session
+
+    def bind_airframe_session(self, session) -> None:
+        from classes.aircraft_state import AirframePhase
+        from classes.native_phase_guidance_session import NativePhaseGuidanceSession
+        if (not isinstance(session, NativePhaseGuidanceSession)
+                or session.supported_phases != frozenset({AirframePhase.MULTICOPTER})):
+            raise ValueError('airframe_session_binding_invalid')
+        super().bind_airframe_session(session)
+        # Phase binding advances the editor revision without a speed edit.
+        if getattr(self, '_native_initial_speed_revision', -1) == 0:
+            self._native_initial_speed_revision = session.controls.current_control.revision
+
     def calculate_control_commands(self, tracker_data: TrackerOutput) -> bool:
         """
         Calculates and sets body velocity control commands with dual-mode lateral guidance.
@@ -1353,7 +1384,16 @@ class MCVelocityChaseFollower(BaseFollower):
         Returns:
             bool: Whether a complete nominal command intent was produced.
         """
+        session = getattr(self, '_airframe_session', None)
         try:
+            if session is not None:
+                from classes.guidance_phase_session import PhaseSessionState
+                if not getattr(self, '_airframe_session_bound', False):
+                    raise ValueError('native_guidance_session_unbound')
+                session.require_state()
+                if session.phase_owner.state is not PhaseSessionState.PURSUIT:
+                    self._last_command_intent = session.baseline()
+                    return True
             self.last_ramp_update_time, dt = self.bounded_control_delta(
                 self.last_ramp_update_time,
                 self.ramp_update_rate,
@@ -1446,6 +1486,8 @@ class MCVelocityChaseFollower(BaseFollower):
                 reason='mc_velocity_chase_normal_tracking',
             ):
                 raise RuntimeError("Failed to apply MC velocity chase command intent")
+            if session is not None:
+                self._last_command_intent = session.multicopter_intent(self.get_last_command_intent())
             
             # Update telemetry metadata
             self.update_telemetry_metadata('last_target_coords', target_coords)
@@ -1469,6 +1511,8 @@ class MCVelocityChaseFollower(BaseFollower):
             return True
             
         except Exception as e:
+            if session is not None:
+                self._invalidate_command_intent(str(e))
             logger.error(f"Error calculating control commands: {e}")
             return False
 
@@ -1661,7 +1705,7 @@ class MCVelocityChaseFollower(BaseFollower):
 
     def limit_session_control_command(self, fields: Dict[str, float]) -> Dict[str, float]:
         control = self._requested_speed_control()
-        if control is None or control.revision == 0:
+        if control is None or control.revision == getattr(self, '_native_initial_speed_revision', 0):
             return dict(fields)
         return self._limit_translation_speed(fields, acceleration=self.forward_ramp_rate,
                                               update_rate_hz=self.ramp_update_rate, ramp_increase=True)
@@ -1672,6 +1716,7 @@ class MCVelocityChaseFollower(BaseFollower):
     def release_session_controls(self) -> None:
         self._clear_session_velocity()
         self._update_velocity_pid_limits()
+        super().release_session_controls()
 
     def reset_control_session(self) -> None:
         super().reset_control_session()

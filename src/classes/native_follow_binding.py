@@ -45,9 +45,10 @@ class NativeFollowBinding:
         self.continuity = continuity
         self.profile_name = profile_name
         self._continuity_config = deepcopy(continuity_config)
-        fw_policy = ContinuityPolicy.resolve(self._continuity_config, profile_name, AirframePhase.FIXED_WING)
-        if fw_policy.mode is not ContinuityMode.BOUNDED_FLIGHT:
-            raise ValueError("native_fixed_wing_continuity_not_configured")
+        if AirframePhase.FIXED_WING in guidance.supported_phases:
+            fw_policy = ContinuityPolicy.resolve(self._continuity_config, profile_name, AirframePhase.FIXED_WING)
+            if fw_policy.mode is not ContinuityMode.BOUNDED_FLIGHT:
+                raise ValueError("native_fixed_wing_continuity_not_configured")
         self._target_evidence = target_evidence
         self._context = context
         self._circuit_breaker = circuit_breaker

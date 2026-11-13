@@ -754,20 +754,49 @@ class BaseFollower(ABC):
 
     def release_session_controls(self) -> None:
         """Release optional session-owned runtime resources."""
+        session = getattr(self, '_airframe_session', None)
+        if session is not None:
+            session.end('follow_session_ended')
+
+    def bind_airframe_session(self, session) -> None:
+        """Transfer the existing control declaration to one prepared native owner."""
+        from classes.native_phase_guidance_session import NativePhaseGuidanceSession
+        prepared = getattr(self, '_airframe_session', None)
+        if (not isinstance(session, NativePhaseGuidanceSession) or getattr(self, '_airframe_session_bound', False)
+                or prepared is not None and prepared is not session):
+            raise ValueError('airframe_session_binding_invalid')
+        session.require_state()
+        self._airframe_session = session
+        self._airframe_session_bound = True
+        self._session_controls = {}
 
     def create_session_controls(self) -> dict:
         """Opt-in implementations resolve declared controls against safety limits."""
         return {}
 
     def session_controls(self) -> list:
+        session = getattr(self, '_airframe_session', None)
+        if session is not None:
+            control = session.controls.snapshot(client_contract_version=2)
+            return [control] if control is not None else []
         return [control.snapshot() for control in getattr(self, '_session_controls', {}).values()]
 
     def update_session_control(self, control_id: str, value: float, revision: int) -> None:
         self.validate_session_control(control_id, value, revision)
+        session = getattr(self, '_airframe_session', None)
+        if session is not None:
+            session.controls.update(value, identity=session.identity, expected_revision=revision)
+            return
         controls = getattr(self, '_session_controls', {})
         self._session_controls = {**controls, control_id: controls[control_id].updated(value, revision)}
 
     def validate_session_control(self, control_id: str, value: float, revision: int) -> None:
+        session = getattr(self, '_airframe_session', None)
+        if session is not None:
+            if control_id != 'requested_speed':
+                raise ValueError('session_control_unsupported')
+            session.controls.validate_update(value, identity=session.identity, expected_revision=revision)
+            return
         controls = getattr(self, '_session_controls', {})
         if control_id not in controls:
             raise ValueError('session_control_unsupported')
@@ -787,7 +816,8 @@ class BaseFollower(ABC):
         return {control.control_id: control}
 
     def _requested_speed_control(self):
-        return getattr(self, '_session_controls', {}).get('requested_speed')
+        session = getattr(self, '_airframe_session', None)
+        return session.controls.current_control if session is not None else getattr(self, '_session_controls', {}).get('requested_speed')
 
     def _sync_translation_speed_override(self) -> None:
         control = self._requested_speed_control()
