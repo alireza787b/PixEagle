@@ -124,6 +124,21 @@
           "UnqualifiedNativeHeadingKeepsNavigatorGeometry"
         ],
         "characterization_env": null
+      },
+      "control-allocation-sparse-axes": {
+        "target": "functional-ControlAllocationSparseAxes",
+        "test_source": "src/lib/control_allocation/control_allocation/ControlAllocationSparseAxesTest.cpp",
+        "test_suite": "ControlAllocationSparseAxesTest",
+        "negative_patch": "patches/0008-control-allocation-active-axis-normalization.patch",
+        "original_files": [
+          "src/lib/control_allocation/control_allocation/ControlAllocationPseudoInverse.cpp"
+        ],
+        "expected_tests": 11,
+        "expected_negative_failures": [
+          "RollOnlyCommonCoefficientInvariant",
+          "PitchOnlyCommonCoefficientInvariant"
+        ],
+        "characterization_env": null
       }
     }
   },

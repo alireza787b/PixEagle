@@ -6,6 +6,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 from types import SimpleNamespace
 import xml.etree.ElementTree as ET
@@ -429,3 +430,66 @@ def test_canonical_functional_inputs_are_pinned_without_report_paths():
     assert prospective["expected_tests"] == 10 and len(prospective["expected_negative_failures"]) == 5
     assert tool.select_regression(root, "fw-mode-transition-heading")[1] == prospective
     assert prospective["characterization_env"] is None
+
+
+def test_sparse_axes_authority_omits_only_production_fix_and_retains_test_hook():
+    root = Path(__file__).resolve().parents[1]
+    _, record = tool.select_regression(root, "control-allocation-sparse-axes")
+    canonical = json.loads((root / "native/px4/extension.json").read_text())
+    assert record["target"] == "functional-ControlAllocationSparseAxes"
+    assert record["expected_tests"] == 11 and len(record["expected_negative_failures"]) == 2
+    assert record["characterization_env"] is None
+    with tool.source_authority(root, "baseline", record) as authority:
+        baseline = json.loads((authority / "native/px4/extension.json").read_text())
+        assert set(canonical["patches"]) - set(baseline["patches"]) == {record["negative_patch"]}
+        assert {name for name in canonical["files"] if canonical["files"][name] != baseline["files"][name]} == set(record["original_files"])
+        assert baseline["files"][record["original_files"][0]] == canonical["original_files"][record["original_files"][0]]
+        assert baseline["files"][record["test_source"]] == canonical["files"][record["test_source"]]
+        assert baseline["patches"]["patches/0009-control-allocation-sparse-axes-functional-tests.patch"] == canonical["patches"]["patches/0009-control-allocation-sparse-axes-functional-tests.patch"]
+    assert tool.select_regression(root, None)[0] == "transition-acceleration"
+
+
+def test_sparse_axes_record_uses_shared_orchestrator_with_mocked_compiler(build_inputs, tmp_path, monkeypatch):
+    root = Path(__file__).resolve().parents[1]
+    selector, record = tool.select_regression(root, "control-allocation-sparse-axes")
+    patch_text = (root / "native/px4/patches/0009-control-allocation-sparse-axes-functional-tests.patch").read_text()
+    names = set(re.findall(r"^\+TEST_F\(" + re.escape(record["test_suite"]) + r", (\w+)\)", patch_text, re.M))
+    assert len(names) == record["expected_tests"]
+    assert set(record["expected_negative_failures"]) < names
+    assert {"SignedSaturationAndDesaturationStayFiniteAndBounded", "NoRenormalizationPreservesCapturedScale",
+            "ActuatorFailureFreezesNormalizationScale", "MetricAllocationKeepsAnalyticInverseCoefficient"} <= names
+    extension = build_inputs.repository / "native/px4"
+    production = record["original_files"][0]
+    original, patched = "float synthetic_scale = 1;\n", "float synthetic_scale = 0;\n"
+    for name, contents in [(production, patched), (record["test_source"], "\n".join(
+            f"TEST_F({record['test_suite']}, {name}) {{}}" for name in sorted(names)))]:
+        path = build_inputs.source / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(contents)
+    production_patch = extension / record["negative_patch"]
+    production_patch.write_text("".join(difflib.unified_diff(original.splitlines(True), patched.splitlines(True),
+        fromfile="a/" + production, tofile="b/" + production)))
+    hook = extension / "patches/0009-control-allocation-sparse-axes-functional-tests.patch"
+    hook.write_text(patch_text)
+    path = extension / "extension.json"
+    manifest = json.loads(path.read_text())
+    manifest["patches"].update({record["negative_patch"]: tool.sih.digest(production_patch),
+                              "patches/0009-control-allocation-sparse-axes-functional-tests.patch": tool.sih.digest(hook)})
+    manifest["files"].update({name: tool.sih.digest(build_inputs.source / name)
+                             for name in [production, record["test_source"]]})
+    manifest["original_files"][production] = hashlib.sha256(original.encode()).hexdigest()
+    path.write_text(json.dumps(manifest))
+    build_inputs.lock["px4_functional_tests"]["regressions"][selector] = record
+    (build_inputs.repository / "native/dependencies.lock.json").write_text(json.dumps(build_inputs.lock))
+    calls = mock_compiler(monkeypatch)
+    output = tmp_path / "sparse"
+    result = json.loads(build(build_inputs, output, regression=selector).read_text())
+    assert result["variants"]["baseline"]["tests"]["failed_names"] == sorted(record["expected_negative_failures"])
+    assert result["variants"]["candidate"]["tests"]["passed_names"] == sorted(names)
+    assert result["variants"]["baseline"]["tests"]["tests"] == 11
+    assert len(result["variants"]["baseline"]["tests"]["passed_names"]) == 9
+    assert result["variants"]["baseline"]["changed_from_canonical"] == [production]
+    assert len(calls) == 2 and all("PX4_FUNCTIONAL_TARGET=" + record["target"] in call for call in calls)
+    assert all(not any("CHARACTERIZATION=" in argument for argument in call) for call in calls)
+    assert (output / "source-baseline" / record["test_source"]).read_bytes() == (output / "source-candidate" / record["test_source"]).read_bytes()
+    assert (build_inputs.source / production).read_text() == patched

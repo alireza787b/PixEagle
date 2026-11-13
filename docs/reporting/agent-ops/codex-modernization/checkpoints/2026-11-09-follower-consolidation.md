@@ -1814,7 +1814,13 @@ depends on the common effectiveness coefficient. This is not proof of a bad
 plant or a complete force balance. A general native regression/candidate is
 being prepared; neither an authority increase nor a gain/default change is
 adopted. Storage was the build blocker at this checkpoint; it is now available
-(2026-11-13), and the separately reviewed native regression is proceeding.
+(2026-11-13). The reviewed allocator regression compiles and executes eleven
+native cases: exactly two baseline normalization failures with nine compatibility
+passes, then eleven candidate passes. Actual formatting and source/cache checks
+pass; root independently verifies both 16,436-entry source maps, XML, executable
+and log hashes and matching build flags. Patch0008 is integrated into the
+development patch series; increased sparse-axis authority and altitude response
+remain unqualified. Raw R1/R2 failures/results are preserved.
 
 The positive App/HTTP lifecycle remains behind the existing VTOL admission
 gate. Replay authorization does not bypass it. After native/ownership gates
@@ -1854,6 +1860,15 @@ review corrects a receipt-order assumption before adoption: aggregate state time
 is the oldest constituent receipt, so a newer airspeed receipt is legitimate.
 Absolute packet freshness remains the caller's responsibility. No actual
 sensorless flight or new VTOL application admission is claimed.
+
+The stock Gazebo quad build also compiles and packages successfully. A separate
+disarmed runtime verifies the exact binary/image, observed airframe 4018 with
+four motors/zero control surfaces, actual `quadtailsitter_0` scene and live
+IMU/ground-truth pose/airspeed topics. Its isolated container stops with exit 0.
+This is startup evidence, not hover, transition, no-pitot or pursuit acceptance.
+The initial recipe's `-j2` did not constrain PX4's Ninja child; about 24 compiler
+workers were observed. A future bounded recipe needs PX4's `j=2` forwarding;
+the completed first build and its original inputs remain intact.
 
 Continue the sparse-axis native regression and separate tailsitter performance investigation, then remaining ownership,
 abort/rescue/takeover, fault, mount and full-application matrix. Do not tune a

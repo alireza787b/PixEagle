@@ -299,6 +299,24 @@ the initial-heading boundary, while both still fail the unchanged altitude
 gate at about 7.1 m. This is not aircraft qualification. No operator runtime
 setting is added.
 
+Add `--regression control-allocation-sparse-axes` to run
+`functional-ControlAllocationSparseAxes` through the same builder, using a new
+fully patched checkout/output directory. Patch0008 normalizes only active
+roll/pitch axes; patch0009 tests both real allocators with rotor geometry.
+Coverage includes signed coefficient invariance, full-rank and absent axes,
+disabled normalization, saturation/desaturation, frozen scales and metric
+allocation. Its failure-flag test checks scale handling, not fault detection.
+
+The [actual R3 comparison](../reports/native-guidance/control-allocation-sparse-functional-20261113-r3/functional-results.json)
+compiled and ran eleven cases: the control omitting only0008 failed the two
+normalization cases and passed nine compatibility cases; the candidate passed
+eleven. Formatting, exact source/cache integrity and identical build flags pass.
+The [journal](../docs/reporting/agent-ops/codex-modernization/journal/2026-11-13-sparse-allocation-normalization.md)
+retains the earlier fixture/build history. This adds a development patch and
+software regression, not an accepted aircraft change. Increased authority for
+sparse geometry needs separate flight qualification; failed Xvert altitude
+verdicts and the original 2 m gate remain unchanged.
+
 Controlled SIH comparisons may use the same builder's temporary negative-control
 authority. The existing simulator verifier, source-contract reader and pilot
 event recheck accept that explicit internal repository context. It requires the
