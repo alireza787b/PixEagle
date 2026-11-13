@@ -57,6 +57,53 @@ def test_heartbeat_progress_required_and_frozen_http_payload_expires():
     assert not identity.snapshot(connected=True, now=15)["fresh"]
 
 
+def test_expiry_with_new_heartbeat_retires_old_epoch_and_confirms_current_progress():
+    identity = TelemetryAircraftIdentity(7, 1, 2)
+    identity.observe(mavlink_payload(10), now=10)
+    identity.observe(mavlink_payload(11), now=11)
+    before = identity.snapshot(connected=True, now=11)
+    assert before['fresh']
+    assert not identity.snapshot(connected=True, now=13.001)['fresh']
+    identity.observe(mavlink_payload(12), now=13.01)
+    renewed = identity.snapshot(connected=True, now=13.01)
+    assert renewed['connection_generation'] != before['connection_generation']
+    assert renewed['fresh']
+    assert not identity.snapshot(connected=True, now=15.011)['fresh']
+
+
+@pytest.mark.parametrize('change', ['uid', 'counter', 'boot', 'kind', 'invalid', 'frozen'])
+def test_expiry_cannot_confirm_changed_or_unprogressed_identity(change):
+    identity = TelemetryAircraftIdentity(7, 1, 2)
+    payload = mavlink_payload(10)
+    messages = payload['vehicles']['7']['components']['1']['messages']
+    messages['HEARTBEAT']['message']['mavtype'] = {'type': 'MAV_TYPE_QUADROTOR'}
+    messages['ATTITUDE'] = {'message': {'time_boot_ms': 1000}}
+    identity.observe(payload, now=10)
+    messages['HEARTBEAT']['status']['time']['counter'] = 11
+    messages['ATTITUDE']['message']['time_boot_ms'] = 2000
+    identity.observe(payload, now=11)
+    messages['HEARTBEAT']['status']['time']['counter'] = 12
+    messages['ATTITUDE']['message']['time_boot_ms'] = 3000
+    if change == 'uid':
+        messages['AUTOPILOT_VERSION']['message']['uid'] = 22
+    elif change == 'counter':
+        messages['HEARTBEAT']['status']['time']['counter'] = 1
+    elif change == 'boot':
+        messages['ATTITUDE']['message']['time_boot_ms'] = 100
+    elif change == 'kind':
+        messages['HEARTBEAT']['message']['mavtype'] = {'type': 'MAV_TYPE_FIXED_WING'}
+    elif change == 'invalid':
+        messages.pop('AUTOPILOT_VERSION')
+    else:
+        messages['HEARTBEAT']['status']['time']['counter'] = 11
+    identity.observe(payload, now=13.01)
+    for now in (13.01, 13.5, 14.):
+        assert not identity.snapshot(connected=True, now=now)['fresh']
+    if change == 'frozen':
+        identity.observe(payload, now=14.)
+        assert not identity.snapshot(connected=True, now=14.)['fresh']
+
+
 def test_identity_replacement_reconnect_and_counter_reset_invalidate_generation():
     identity = TelemetryAircraftIdentity(7, 1, 2)
     identity.observe(mavlink_payload(10), now=1)

@@ -88,10 +88,13 @@ class TelemetryAircraftIdentity:
         reset = self._counter is not None and counter < self._counter
         rebooted = self._boot_ms is not None and boot_ms is not None and boot_ms < self._boot_ms
         expired = self._last_advance is not None and now - self._last_advance > self.stale_timeout_s
+        progressed = self._counter is not None and counter > self._counter
+        renewed_progress = (expired and progressed and kind is self.aircraft_kind
+                            and not (changed or reset or rebooted))
         if changed or reset or expired or rebooted:
             self.generation += 1
-            self._last_advance = None
-        elif self._counter is not None and counter > self._counter:
+            self._last_advance = now if renewed_progress else None
+        elif progressed:
             self._last_advance = now
         self.uid = uid
         self._counter = counter

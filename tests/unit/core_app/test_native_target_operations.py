@@ -201,6 +201,33 @@ async def test_changes_reject_without_any_tracker_or_aircraft_mutation(owner, ch
     owner.app_controller.px4_interface.connect.assert_not_called()
 
 
+def test_heartbeat_expiry_rejects_queued_guard_even_when_new_epoch_is_fresh(owner):
+    from classes.aircraft_identity import TelemetryAircraftIdentity
+    from classes.api_v1_native_targets import _validate_guard, NativeTargetError
+
+    identity = TelemetryAircraftIdentity(1, 1, 2)
+    messages = {'HEARTBEAT': {'message': {'autopilot': {'type': 'MAV_AUTOPILOT_PX4'}},
+                              'status': {'time': {'counter': 10}}},
+                'AUTOPILOT_VERSION': {'message': {'uid': 42}}}
+    payload = {'vehicles': {'1': {'components': {'1': {'messages': messages}}}}}
+    identity.observe(payload, now=10)
+    messages['HEARTBEAT']['status']['time']['counter'] = 11
+    identity.observe(payload, now=11)
+    owner.telemetry_test.update(identity.snapshot(connected=True, now=11))
+    queued = start_request(owner)
+    messages['HEARTBEAT']['status']['time']['counter'] = 12
+    identity.observe(payload, now=13.01)
+    owner.telemetry_test.update(identity.snapshot(connected=True, now=13.01))
+    assert owner.telemetry_test['fresh']
+    with pytest.raises(NativeTargetError, match='context changed') as refused:
+        _validate_guard(owner, queued, owner.principal_test, 'tracking_start')
+    assert refused.value.code == 'native_context_stale'
+    fresh = start_request(owner)
+    assert _validate_guard(owner, fresh, owner.principal_test, 'tracking_start')['guard'] == context(owner)['guard']
+    assert not owner.app_controller.selected_frames
+    owner.app_controller.px4_interface.connect.assert_not_called()
+
+
 async def test_classic_retarget_is_admitted_during_following_without_restarting_it(owner):
     owner.app_controller.following_active = True
     state = target_state(owner, owner.principal_test)

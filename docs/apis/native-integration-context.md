@@ -110,6 +110,14 @@ Heartbeat counter reset, observed boot-time rollback, UID replacement, loss,
 and stale recovery invalidate the telemetry generation. A duplicate observed
 UID under another vehicle/component is ambiguous and fails closed.
 
+Expiry still retires the old generation when the next poll contains a newer
+heartbeat. If that poll proves strictly advancing heartbeat evidence for the
+same UID and aircraft kind, with no counter or boot-clock rollback, it can
+confirm freshness in the new generation immediately. It does not preserve an
+old client binding or queued action. Frozen payloads, cold discovery, changed
+identity and reboot evidence retain their progression requirements; HTTP
+success alone never extends freshness or the configured expiry interval.
+
 Association additionally requires the command link to be connected and its
 nonzero observed UID to equal telemetry's UID. The native client must then
 match that UID and telemetry system ID to its currently selected QGC vehicle
