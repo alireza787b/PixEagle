@@ -161,3 +161,62 @@ def test_native_fw_retarget_keeps_native_fields_identity_and_level_recovery(alti
     assert carryover.guidance_identity == identity
     assert set(carryover.fields) == set(prior.fields)
     assert controller.target_continuity.begin_target_transition(session_epoch=8, previous_intent=prior)
+
+
+@pytest.mark.parametrize("native", [False, True])
+@pytest.mark.parametrize("handoff_result", [None, False, True])
+def test_retarget_cannot_reopen_pending_or_completed_handoff(native, handoff_result):
+    identity = GuidanceSessionIdentity("follow", AircraftBinding("aircraft", "connection", 1), 2)
+    prior = (FixedWingCommand(0.7, 18.0, -2.0, None).intent(
+        identity, profile_name="gm_velocity_vector", source="fixture",
+    ) if native else _velocity_intent())
+    controller = _controller(prior)
+    owner = controller.target_continuity
+    owner.evaluate(
+        TargetEvidenceSnapshot(TargetEvidenceState.CONFIRMED, 0.0, 7, "old-target",
+                               IdentityVerdict.CONFIRMED, "fixture"),
+        ContinuityContext("PX4_NATIVE" if native else "PX4",
+                          AirframePhase.FIXED_WING if native else AirframePhase.MULTICOPTER,
+                          prior.control_type, False, True, True,
+                          guidance_identity=prior.guidance_identity),
+        prior, now_monotonic_s=1.0,
+    )
+    if handoff_result is not None:
+        owner.record_handoff_result(success=handoff_result, detail="fixture")
+    before = owner.get_status()
+
+    assert not owner.begin_target_transition(session_epoch=8, previous_intent=prior)
+    assert owner.get_status() == before
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("native", [False, True])
+async def test_pending_handoff_rejects_retarget_before_command_or_tracker_mutation(native):
+    identity = GuidanceSessionIdentity("follow", AircraftBinding("aircraft", "connection", 1), 2)
+    prior = (FixedWingCommand(0.7, 18.0, -2.0, None).intent(
+        identity, profile_name="gm_velocity_vector", source="fixture",
+    ) if native else _velocity_intent())
+    controller = _controller(prior)
+    owner = controller.target_continuity
+    owner.evaluate(
+        TargetEvidenceSnapshot(TargetEvidenceState.CONFIRMED, 0.0, 7, "old-target",
+                               IdentityVerdict.CONFIRMED, "fixture"),
+        ContinuityContext("PX4_NATIVE" if native else "PX4",
+                          AirframePhase.FIXED_WING if native else AirframePhase.MULTICOPTER,
+                          prior.control_type, False, True, True,
+                          guidance_identity=prior.guidance_identity),
+        prior, now_monotonic_s=1.0,
+    )
+    before = owner.get_status()
+
+    result = await controller.start_tracking({"x": 50, "y": 30, "width": 30, "height": 20})
+
+    assert not result["started"]
+    assert result["reason"] == "following_stop_pending"
+    controller.follower.prepare_for_target_transition.assert_not_called()
+    controller.offboard_commander.submit_intent.assert_not_called()
+    controller.tracker.reset.assert_not_called()
+    controller.tracker.start_tracking.assert_not_called()
+    assert controller.selected_bbox == (10, 10, 20, 20)
+    assert controller._tracking_session_generation == 7
+    assert owner.get_status() == before

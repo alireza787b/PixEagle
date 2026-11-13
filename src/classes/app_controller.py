@@ -1369,6 +1369,8 @@ class AppController:
             }
 
         supervisor = self._get_target_continuity_supervisor()
+        if not supervisor.target_transition_available:
+            return {"prepared": False, "reason": "following_stop_pending"}
         previous_intent = supervisor.last_authorized_intent() or self._get_current_command_intent()
         if previous_intent is None and execution_mode == PX4_EXECUTION_MODE:
             return {

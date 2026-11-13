@@ -26,6 +26,11 @@ only finite/profile-specific coordinate and command validation.
 | `REACQUIRING` | Identity is confirmed again while authority is restored |
 | `HANDOFF_PENDING` | Command authority is surrendered and PX4 handoff confirmation is pending |
 
+Retargeting is available only in `ACTIVE`, `COASTING` or `REACQUIRING` with no
+pending handoff. Once a handoff starts, selecting another target cannot cancel
+it, submit carryover guidance or mutate the current target. A completed handoff
+requires a new follow session; a failed handoff remains pending.
+
 Identity ambiguity, operator abort, stale vehicle state, unhealthy publication,
 an unconfirmed Offboard state, or exhausted loss budgets request an immediate
 handoff. Live body-velocity decay also requires a finite, fresh aircraft heading
@@ -63,18 +68,13 @@ seconds. No MC distance budget or horizontal decay applies to FW. Recovery
 requires the native command owner; the MAVSDK attitude-rate FW path remains
 unsupported. Unknown execution contracts fail closed.
 
-The historical development path below retains a session through transition.
-The [2026-11-09 plan](../05-development/follower-consolidation-plan.md) supersedes
-that design: transition ends following and requires a new Start. Its
-transition-preserving authority release is not implemented/qualified yet.
-Historical transition results do not qualify the new policy.
-
-In the existing development runtime, during a PX4-owned transition the supervisor retains the original
-loss deadline while the native owner publishes phase-safe holding objectives.
-Transition and repeated retargeting cannot renew the deadline. Re-entry to MC
-restores its policy and accumulated commanded travel. See the
-[shared FW policy](../04-configuration/fixed-wing-guidance-policy.md) for the
-development qualification boundary.
+An observed PX4 transition ends following. Tracking and video may remain active,
+but a new Start requires settled phase and fresh target checks, with a new
+session and recovery budget. Safe native publication during authority release
+does not continue pursuit. Actual transition-preserving authority release is
+still under qualification and live VTOL application admission remains closed.
+See the [current plan](../05-development/follower-consolidation-plan.md) and
+[shared FW policy](../04-configuration/fixed-wing-guidance-policy.md).
 
 Both fresh gimbal profiles use 8 seconds and 4 m of commanded horizontal
 travel for loss and retarget. Explicit existing configurations are preserved:
@@ -97,6 +97,12 @@ TargetContinuity:
   RETARGET_PROVISIONAL_AUTHORITY_FRACTION: 0.5
   RETARGET_RESTORE_TIME_S: 0.5
   TERMINAL_ACTION: hold
+  PhaseOverrides:
+    fixed_wing:
+      MODE: bounded_flight
+      MAX_COAST_TIME_S: 8.0
+      MAX_RETARGET_TIME_S: 8.0
+      AUTHORITY_RESTORE_TIME_S: 0.5
   FollowerOverrides:
     GM_VELOCITY_CHASE:
       MODE: bounded_decay

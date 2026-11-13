@@ -449,11 +449,19 @@ class TargetContinuitySupervisor:
             return False
         return True
 
+    @property
+    def target_transition_available(self) -> bool:
+        return (self._pending_handoff is None and self._state in {
+            ContinuityAuthorityState.ACTIVE,
+            ContinuityAuthorityState.COASTING,
+            ContinuityAuthorityState.REACQUIRING,
+        })
+
     def begin_target_transition(
         self, *, session_epoch: int, previous_intent: CommandIntent,
     ) -> bool:
         """Continue bounded prior motion while a replacement target is confirmed."""
-        if not self.supports_target_transition_intent(previous_intent):
+        if not self.target_transition_available or not self.supports_target_transition_intent(previous_intent):
             return False
         native_flight = previous_intent.control_type == "fixed_wing_external"
         now = self._clock()
