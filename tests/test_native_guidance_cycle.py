@@ -414,7 +414,7 @@ async def test_real_cycle_flow_keeps_native_zoom_separate_and_cleanup_unconditio
         assert calls[0].target_clock == calls[1].target_clock == clock
         assert calls[0].expect_handoff == 'aircraft_transition_observed'
         assert calls[1].expect_handoff == expected_fw_handoff
-        assert calls[0].minimum_forward_ground_speed_m_s is None
+        assert calls[0].minimum_forward_ground_speed_m_s == (14. if no_pitot else None)
         assert calls[1].minimum_forward_ground_speed_m_s == (14. if no_pitot else None)
         assert (output/'fw-motion-readiness.json').exists() is no_pitot
         assert result['full_native_capture']['passed'] is False

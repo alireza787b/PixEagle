@@ -619,7 +619,8 @@ def record_released_observation(packet, acquisition, *, captured_at, follow_star
 
 async def capture_post_transition(client, event, acquisition, *, log, started, follow_start, timeout_s,
                                   scenario, response, previous_pose_timestamp_us=None, world_clock=None,
-                                  release_observed_at=None, previous_publications=None, clock=time.monotonic):
+                                  release_observed_at=None, previous_publications=None, clock=time.monotonic,
+                                  minimum_forward_ground_speed_m_s=None):
     """Read only after publisher join/release; observed motion remains PX4 truth."""
     deadline = clock() + timeout_s
     window, samples, publications, previous_pose = [], [], previous_publications, previous_pose_timestamp_us
@@ -637,7 +638,7 @@ async def capture_post_transition(client, event, acquisition, *, log, started, f
                 if (not window or state.sequence > window[-1][0].sequence
                         and state.observed_at_monotonic_s - window[-1][0].observed_at_monotonic_s >= .49):
                     window = (window + [stability_sample(state, packet, captured_at=captured_at)])[-7:]
-                if stable_samples(window):
+                if stable_samples(window, minimum_forward_ground_speed_m_s=minimum_forward_ground_speed_m_s):
                     return dict(settled=True, states=[asdict(item[0]) for item in window], publications=publications,
                                 last_packet=packet, samples=len(samples))
             else:
@@ -1020,7 +1021,7 @@ def stable_samples(samples, *, expected_altitude_m=None, minimum_forward_ground_
                 else None)
     stable = stable_window(states, expected_altitude_m=expected_altitude_m,
                            native_airspeed_control_enabled=controls)
-    return stable and (minimum_forward_ground_speed_m_s is None
+    return stable and (minimum_forward_ground_speed_m_s is None or states[0].phase is AirframePhase.MULTICOPTER
         or forward_motion_ready(states, minimum_forward_ground_speed_m_s))
 
 
@@ -1621,7 +1622,8 @@ async def run(args, isolation):
                 log=log, started=started, follow_start=follow_start, timeout_s=args.stable_timeout,
                 scenario=scenario, response=response, previous_pose_timestamp_us=previous_pose_timestamp,
                 release_observed_at=release_observed_at, previous_publications=released_publications,
-                world_clock=world_clock)
+                world_clock=world_clock,
+                minimum_forward_ground_speed_m_s=getattr(args, "minimum_forward_ground_speed_m_s", None))
             packet = post_transition["last_packet"]
             (output / "post-transition-settled.json").write_text(json.dumps(post_transition, indent=2))
         if world_clock is not None:

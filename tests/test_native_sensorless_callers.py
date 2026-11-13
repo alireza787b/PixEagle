@@ -52,7 +52,7 @@ def packets(*, sensorless=True, feedback=False, binding=None, phase=AirframePhas
     (AirframePhase.MULTICOPTER, True, None, True)])
 async def test_real_vector_initial_settle_and_refresh_forward_paired_feedback(
         tmp_path, monkeypatch, phase, sensorless, feedback, ready, minimum_motion, forward):
-    ready = ready and (minimum_motion is None or phase is AirframePhase.FIXED_WING and forward >= minimum_motion)
+    ready = ready and (minimum_motion is None or phase is AirframePhase.MULTICOPTER or forward >= minimum_motion)
     output = tmp_path/'caller'
     observed = packets(sensorless=sensorless, feedback=feedback, binding=AircraftBinding('42', 'sih-caller', 1), phase=phase)
     if forward and phase is AirframePhase.FIXED_WING:
@@ -129,6 +129,44 @@ async def test_post_transition_sensorless_settle_uses_current_packet_feedback(mo
         assert (await capture)['settled']
     else:
         with pytest.raises(TimeoutError, match='settle_timeout'): await capture
+
+
+async def test_post_transition_waits_for_a_complete_forward_motion_window(monkeypatch):
+    # Synthetic telemetry follows the observed accelerating pattern; it is never reported as actual PX4 evidence.
+    speeds = [6., 11., 13., 14.3, 15., 15.5, 16., 18., 18., 18.]
+    template = packets()[0]
+    observed = []
+    for index, speed in enumerate(speeds):
+        packet = deepcopy(template)
+        stamp = 100.+index*.5
+        state = AircraftState.from_payload(packet['aircraft_state'])
+        state = replace(state, sequence=index+1, observed_at_monotonic_s=stamp, navigation_heading_rad=0.,
+            velocity_ned_m_s=replace(state.velocity_ned_m_s, x=speed, y=0.),
+            airspeed=replace(state.airspeed, observed_at_monotonic_s=stamp),
+            attitude_timing=replace(state.attitude_timing, publication_timestamp_us=int(stamp*1e6),
+                sample_timestamp_us=int(stamp*1e6), publication_received_at_monotonic_s=stamp,
+                sample_received_at_monotonic_s=stamp))
+        packet.update(aircraft_state=asdict(state), attitude_timing=asdict(state.attitude_timing))
+        packet['vehicle_pose'].update(observed_at_monotonic_s=stamp, px4_timestamp_us=int(stamp*1e6))
+        packet['native_guidance_feedback']['observed_at_monotonic_s'] = stamp
+        observed.append(packet)
+    clock, count = [100.], [0]
+    async def observe():
+        value = observed[count[0]]
+        count[0] += 1
+        clock[0] = value['aircraft_state']['observed_at_monotonic_s']
+        return value
+    async def sleep(_delay): pass
+    monkeypatch.setattr(tool, 'asyncio', SimpleNamespace(sleep=sleep))
+    monkeypatch.setattr(tool, 'observed_pose_record', Mock(return_value=None))
+    state = AircraftState.from_payload(observed[0]['aircraft_state'])
+    context = acquisition(GuidanceSessionIdentity('caller', state.binding, 1))
+    result = await tool.capture_post_transition(SimpleNamespace(observe=AsyncMock(side_effect=observe)),
+        tool.PilotTransitionEvent(1., AirframePhase.FIXED_WING), context, log=Mock(), started=90., follow_start=95.,
+        timeout_s=6., scenario=SimpleNamespace(target_at=lambda _: (80., 0., -30.)), response=[],
+        minimum_forward_ground_speed_m_s=14., clock=lambda: clock[0])
+    assert result['settled'] and count[0] == 10
+    assert all(tool.forward_ground_speed(AircraftState.from_payload(s)) >= 14. for s in result['states'])
 
 
 @pytest.mark.parametrize('change', [None, 'missing', 'enabled', 'nonbool', 'stale', 'future', 'oldest', 'mode', 'binding', 'reset', 'sample'])

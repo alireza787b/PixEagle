@@ -176,7 +176,7 @@ async def execute(args, fixture):
                 expect_handoff='aircraft_transition_observed' if index == 0 else fixture['fw'].get('expected_handoff'),
                 mc_request=fixture['mc']['requested_speed_m_s'] if index == 0 else None,
                 initial_phase='multicopter' if index == 0 else 'fixed_wing',
-                minimum_forward_ground_speed_m_s=fixture.get('minimum_forward_ground_speed_m_s') if index else None,
+                minimum_forward_ground_speed_m_s=fixture.get('minimum_forward_ground_speed_m_s'),
                 simulation_build_manifest=args.simulation_build_manifest, build_repository=args.build_repository)
             value = await vector.run(stage, runtime.isolation)
             result['sessions'].append(value)

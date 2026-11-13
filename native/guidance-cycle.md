@@ -168,10 +168,12 @@ no tailsitter quaternion transform or command-derived motion is introduced.
 
 All seven original settled FW states must pass, with their last state matching
 the actual retained packet. `fw-motion-readiness.json` retains those states,
-projections, threshold and source/world hashes. The same condition is forwarded
-only to the FW component's fresh initial window and final Start refresh; an old
-post-transition window cannot authorize a newly stationary/reversed aircraft.
-The stock/MC paths do not request this additional fixture condition.
+projections, threshold and source/world hashes. The same FW condition is retained
+through the coordinator, read-only post-transition sampler, fresh FW initial
+window and final Start refresh. The sampler waits for a complete ready window
+within its existing deadline; an old window cannot authorize a newly
+stationary/reversed aircraft. MC settling keeps its existing rules while
+carrying the FW condition to the later sampler.
 
 The shared additive logger now also requests `differential_pressure 0 0`.
 Qualification still requires closed-log sensor/publisher absence and actual
@@ -186,3 +188,10 @@ stock control flight. The single guidance source contract records both exact
 `runtime_helper_sha256` and `runtime_assets_sha256` values; startup changes renew
 both together. Older captures remain bound to their original
 frozen helper/assets authority; no old hash is accepted as a new recipe.
+
+The first actual no-pitot capture passed both sensor-absence probes and MC
+following/release. FW Start correctly refused a seven-sample window that still
+contained accelerating speeds below 14 m/s. The post-transition sampler had not
+received the FW motion condition; the correction passes that same condition to
+its existing wait, without lowering the threshold or extending the deadline.
+The failed capture remains unchanged and contains no FW pursuit acquisition.

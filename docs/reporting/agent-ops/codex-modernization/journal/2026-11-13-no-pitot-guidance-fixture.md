@@ -41,3 +41,13 @@ Old captures remain bound to their frozen original authority. No compatibility
 allowlist, source-hash normalization or production safety/default change is
 introduced. Actual no-pitot following remains unqualified pending review and a
 separate authorized capture.
+
+The subsequent actual R1 capture passes both pre-action sensor probes and MC
+following/release, but refuses FW Start: its original seven-sample settled window
+includes forward speeds below 14 m/s. The FW motion condition had not been passed
+to the read-only post-transition sampler. Its correction reuses the same
+predicate there, so it waits within the original timeout for seven ready samples.
+MC settling is unchanged, and the threshold is not lowered. The failed raw
+capture remains retained; it proves no FW pursuit. A deterministic accelerating
+packet regression checks that the sampler continues beyond the first seven
+samples before declaring readiness.
