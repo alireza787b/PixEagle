@@ -12,6 +12,7 @@ import math
 import os
 from pathlib import Path
 import signal
+import select
 import socket
 import stat
 import struct
@@ -35,6 +36,7 @@ class ImageStream:
         self.error = None
         self.stopped = False
         self.frame_id = self.sent = self.replaced = 0
+        self.connections = self.client_failures = 0
         self.last_simtime_us = None
 
     def image(self, message):
@@ -126,20 +128,34 @@ def serve(stream, path):
                 connection, _ = listener.accept()
             except socket.timeout:
                 continue
-            listener.close()  # Exactly one connection; a replacement requires a fresh source incarnation.
+            connected_at = stream.clock()
             with connection:
                 _pid, uid, _ = struct.unpack('3i', connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
                 if uid != os.getuid():
-                    raise ValueError('Camera receiver must be a same-user local process')
+                    continue
+                with stream.condition:
+                    stream.latest = None
+                    stream.connections += 1
+                    stream.condition.notify_all()
+                print(json.dumps(dict(kind='camera_receiver_connected', connection=stream.connections,
+                    accepted_at_monotonic_s=connected_at, provider_incarnation=stream.incarnation)), flush=True)
                 connection.settimeout(1.)  # Transport resource bound, not an image-age qualification.
-                while not stream.stopped:
-                    frame = stream.take()
-                    if frame is not None:
-                        header, payload = frame
-                        connection.sendall(pack_header(header))
-                        connection.sendall(payload)
-                        stream.sent += 1
-            break
+                try:
+                    while not stream.stopped:
+                        # This is a one-way stream: EOF or incoming bytes retire only this client.
+                        if select.select([connection], [], [], 0)[0]:
+                            break
+                        frame = stream.take()
+                        if frame is not None:
+                            header, payload = frame
+                            if header.received_at_monotonic_s <= connected_at:
+                                continue
+                            connection.sendall(pack_header(header))
+                            connection.sendall(payload)
+                            stream.sent += 1
+                except (BrokenPipeError, ConnectionResetError, TimeoutError):
+                    stream.client_failures += 1
+
     finally:
         listener.close()
         stream.stop()
@@ -224,7 +240,8 @@ def main():
         node.unsubscribe(info_topic)
         node.unsubscribe(args.image_topic)
         print(json.dumps(dict(frames_received=stream.frame_id, frames_sent=stream.sent,
-                              pending_frames_replaced=stream.replaced)), flush=True)
+                              pending_frames_replaced=stream.replaced, connections=stream.connections,
+                              client_failures=stream.client_failures)), flush=True)
 
 
 if __name__ == '__main__':

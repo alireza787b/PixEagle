@@ -173,8 +173,11 @@ the firmware entrypoint with Python; it never starts another PX4. It shares the
 original simulator network namespace and Gazebo partition. Pixels and the
 original simulation acquisition stamp travel in one bounded private Unix stream;
 the original callback's host monotonic receipt is retained separately. There is
-one latest pending image, one same-user receiver, and no automatic reconnect or
-source-clock reset recovery. No encoder timestamp or guessed delay becomes an
+one latest pending image and one active same-user receiver. A stalled or closed
+receiver is disconnected; a replacement receives only callbacks newer than its
+accept time. The valid Gazebo source incarnation persists, while the backend
+creates a fresh capture epoch. Source-clock reset or calibration change remains
+fatal; there is no automatic source-reset recovery. No encoder timestamp or guessed delay becomes an
 acquisition stamp.
 
 The private profile selects `GAZEBO_CAMERA`, and QGC displays the backend's normal

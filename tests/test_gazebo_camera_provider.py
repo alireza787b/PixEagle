@@ -107,7 +107,7 @@ def test_listener_is_private_and_does_not_accept_shared_parent(tmp_path):
         path.unlink()
 
 
-def test_socket_stream_preserves_header_and_pixels_and_single_peer(tmp_path):
+def test_socket_stream_preserves_header_and_pixels_for_one_active_peer(tmp_path):
     import json
     import struct
     import threading
@@ -131,6 +131,16 @@ def test_socket_stream_preserves_header_and_pixels_and_single_peer(tmp_path):
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as receiver:
             receiver.settimeout(2)
             receiver.connect(str(path))
+            with source.condition:
+                assert source.condition.wait_for(lambda: source.connections == 1, timeout=1)
+            # A callback that began before accept may commit after the pending slot was cleared.
+            source.clock = lambda: 7.0
+            source.image(image(0))
+            receiver.settimeout(.05)
+            with pytest.raises(socket.timeout):
+                receiver.recv(1)
+            receiver.settimeout(2)
+            source.clock = lambda: 7.5
             source.image(image())
             def read(count):
                 data = b''
@@ -139,11 +149,13 @@ def test_socket_stream_preserves_header_and_pixels_and_single_peer(tmp_path):
                 return data
             header = json.loads(read(struct.unpack('!I', read(4))[0]))
             assert header['header_simtime_us'] == 1000123
-            assert header['received_at_monotonic_s'] == 7.25
+            assert header['received_at_monotonic_s'] == 7.5
             assert read(header['payload_length']) == b'abcdef'
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as other:
-                with pytest.raises(ConnectionRefusedError):
-                    other.connect(str(path))
+                other.settimeout(.05)
+                other.connect(str(path))
+                with pytest.raises(socket.timeout):
+                    other.recv(1)  # A queued peer cannot consume the active client's stream.
     finally:
         source.stop()
         thread.join(2)
@@ -195,3 +207,77 @@ def test_camera_info_confirmation_is_original_and_later_change_retires_source(tm
     changed.width = 42
     callback(changed)
     assert source.error is not None and path.read_bytes() == original
+
+
+@pytest.mark.parametrize('stalled', [False, True])
+def test_receiver_reconnect_requires_new_image_without_restarting_source(tmp_path, stalled):
+    import json
+    import struct
+    import threading
+    import time
+    from tools.gazebo_camera_provider import serve
+    tmp_path.chmod(0o700)
+    path = tmp_path / 'camera.sock'
+    source = stream()
+    source.clock = time.monotonic
+    source.image(image(1))  # Pending image from before the first connection must never replay.
+    failures = []
+    def server():
+        try:
+            serve(source, path)
+        except Exception as error:
+            failures.append(error)
+    thread = threading.Thread(target=server)
+    thread.start()
+    first = second = None
+    try:
+        deadline = time.monotonic() + 2
+        while not path.is_socket() and time.monotonic() < deadline:
+            threading.Event().wait(.005)
+        first = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        first.settimeout(.05)
+        first.connect(str(path))
+        with source.condition:
+            assert source.condition.wait_for(lambda: source.connections == 1, timeout=1)
+        with pytest.raises(socket.timeout):
+            first.recv(1)
+        if stalled:
+            # Larger than the socket send buffer; the receiver intentionally consumes nothing.
+            source.image(image(2, width=1024, height=1024, step=3072, data=b'x' * (3072 * 1024)))
+            deadline = time.monotonic() + 2
+            while source.client_failures == 0 and time.monotonic() < deadline:
+                threading.Event().wait(.01)
+            assert source.client_failures == 1
+        first.close()
+        source.image(image(3))  # Pending between connections must also be discarded.
+        second = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        second.settimeout(.05)
+        second.connect(str(path))
+        with source.condition:
+            assert source.condition.wait_for(lambda: source.connections == 2, timeout=1)
+        with pytest.raises(socket.timeout):
+            second.recv(1)
+        source.image(image(4, data=b'newest'))
+        second.settimeout(1)
+        def read(count):
+            value = b''
+            while len(value) < count:
+                part = second.recv(count - len(value))
+                assert part
+                value += part
+            return value
+        header = json.loads(read(struct.unpack('!I', read(4))[0]))
+        assert header['header_simtime_us'] == 4000123
+        assert header['provider_incarnation'] == source.incarnation
+        assert header['source_clock_id'] == 'world-clock'
+        assert read(header['payload_length']) == b'newest'
+        assert thread.is_alive() and source.error is None
+        source.image(image(1))  # Source reset remains fatal even after a successful reconnect.
+        thread.join(2)
+        assert failures and not thread.is_alive()
+    finally:
+        source.stop()
+        if first: first.close()
+        if second: second.close()
+        thread.join(2)
+    assert not path.exists()
