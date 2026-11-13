@@ -393,7 +393,8 @@ async def test_readonly_post_transition_rejects_reacquisition_and_unconfirmed_re
 async def test_readonly_post_capture_settles_from_actual_progress_and_keeps_world_target(monkeypatch):
     state = aircraft_state(phase=AirframePhase.FIXED_WING, is_vtol=True)
     context = acquisition(GuidanceSessionIdentity('case', state.binding, 1))
-    packets = [transition_packet(replace(state, sequence=i, observed_at_monotonic_s=100.+(i-1)*.5), context)
+    packets = [transition_packet(replace(state, sequence=i, observed_at_monotonic_s=100.+(i-1)*.5,
+                   airspeed=replace(state.airspeed, observed_at_monotonic_s=100.+(i-1)*.5)), context)
                for i in range(1, 8)]
     client = SimpleNamespace(observe=AsyncMock(side_effect=packets))
     monkeypatch.setattr(tool, 'observed_pose_record', Mock(return_value=None))
@@ -1202,6 +1203,7 @@ def test_initial_image_evidence_qualifies_prepared_real_session_before_any_mode_
 def flight_window():
     sample = aircraft_state(phase=AirframePhase.FIXED_WING, is_vtol=False, is_tailsitter=False)
     return [replace(sample, observed_at_monotonic_s=100. + n * .5, sequence=n,
+                    airspeed=replace(sample.airspeed, observed_at_monotonic_s=100. + n * .5),
                     relative_altitude_m=30., velocity_ned_m_s=replace(sample.velocity_ned_m_s, z=0.))
             for n in range(7)]
 
@@ -1212,6 +1214,71 @@ def test_fw_stable_gate_requires_seven_consecutive_airborne_native_samples():
     assert not stable_window(states[:-1])
     assert not stable_window([replace(s, observed_at_monotonic_s=100. + n * .01)
                               for n, s in enumerate(states)])
+
+
+def sensorless_flight_window():
+    return [replace(state, airspeed=replace(state.airspeed, source="unavailable", valid=False,
+                                            equivalent_m_s=None, true_m_s=None))
+            for state in flight_window()]
+
+
+def test_sensorless_stability_requires_explicit_matching_native_control_feedback():
+    states = sensorless_flight_window()
+    assert not stable_window(states)
+    assert stable_window(states, native_airspeed_control_enabled=[False] * len(states))
+    for flags in ([False] * 6, [False] * 6 + [True], [False] * 6 + [None], [0] * 7):
+        assert not stable_window(states, native_airspeed_control_enabled=flags)
+    assert all(state.airspeed.equivalent_m_s is None and not state.airspeed.valid for state in states)
+
+
+def test_sensorless_stability_never_bypasses_a_valid_low_or_stale_airspeed():
+    states = flight_window()
+    for airspeed in (replace(states[-1].airspeed, equivalent_m_s=1.),
+                     replace(states[-1].airspeed, observed_at_monotonic_s=100.)):
+        assert not stable_window(states[:-1] + [replace(states[-1], airspeed=airspeed)],
+                                 native_airspeed_control_enabled=[False] * 7)
+    states = sensorless_flight_window()
+    for airspeed in (replace(states[-1].airspeed, source="sensor"),
+                     replace(states[-1].airspeed, equivalent_m_s=20.),
+                     replace(states[-1].airspeed, true_m_s=20.),
+                     replace(states[-1].airspeed, observed_at_monotonic_s=100.)):
+        assert not stable_window(states[:-1] + [replace(states[-1], airspeed=airspeed)],
+                                 native_airspeed_control_enabled=[False] * 7)
+
+
+def test_qualified_wind_estimate_is_not_relabelled_sensorless_or_groundspeed():
+    states = [replace(state, airspeed=replace(state.airspeed, source="ground_minus_wind"))
+              for state in flight_window()]
+    assert stable_window(states)
+    assert stable_window(states, native_airspeed_control_enabled=[True] * 7)
+    assert all(state.airspeed.source == "ground_minus_wind" for state in states)
+
+
+@pytest.mark.parametrize("sensorless", [False, True])
+def test_independent_airspeed_receipt_may_be_newer_than_aggregate_state_receipt(sensorless):
+    states = sensorless_flight_window() if sensorless else flight_window()
+    controls = [False] * len(states) if sensorless else None
+    newer = [replace(state, airspeed=replace(state.airspeed,
+               observed_at_monotonic_s=state.observed_at_monotonic_s + .05)) for state in states]
+    assert stable_window(newer, native_airspeed_control_enabled=controls)
+    distant = replace(newer[-1], airspeed=replace(newer[-1].airspeed,
+                       observed_at_monotonic_s=newer[-1].observed_at_monotonic_s + 2.))
+    assert not stable_window(newer[:-1] + [distant], native_airspeed_control_enabled=controls)
+
+
+@pytest.mark.parametrize("change", ["sequence", "clock", "gap", "binding", "source", "altitude_reference"])
+def test_stability_cannot_bridge_missing_progress_or_changed_aircraft_context(change):
+    states = flight_window()
+    last = states[-1]
+    replacements = {
+        "sequence": {"sequence": states[-2].sequence},
+        "clock": {"observed_at_monotonic_s": states[-2].observed_at_monotonic_s},
+        "gap": {"observed_at_monotonic_s": last.observed_at_monotonic_s + 2.},
+        "binding": {"binding": replace(last.binding, connection_generation=last.binding.connection_generation + "-new")},
+        "source": {"source": "replaced_native_source"},
+        "altitude_reference": {"altitude_reference_generation": last.altitude_reference_generation + 1},
+    }
+    assert not stable_window(states[:-1] + [replace(last, **replacements[change])])
 
 
 @pytest.mark.parametrize("changes", [

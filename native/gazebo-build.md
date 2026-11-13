@@ -102,8 +102,14 @@ ownership release and fresh explicit Start after each transition.
 
 A separate no-pitot-from-start case must remove the simulated sensor explicitly
 and record native sensorless configuration and selected source. Existing FW
-stable-window logic requires valid EAS and needs a distinct honest sensorless
-predicate. Groundspeed must not masquerade as measured airspeed or stall margin.
+stable-window default requires valid EAS. The shared predicate now supports
+explicit, per-sample native airspeed-control feedback: fresh unavailable
+observations qualify only with disabled native airspeed control; a valid low
+measurement cannot be bypassed. It also checks progressing samples, aircraft
+identity, altitude reference and bounded receipt association. Callers still own
+absolute packet freshness and matching feedback. This helper is unit tested,
+not a completed no-pitot-from-start flight case. Groundspeed must not masquerade
+as measured airspeed or stall margin.
 The Gazebo airspeed callback does not currently use the SIH failure-injection
 hook, so an accepted `failure airspeed off` command alone is not evidence of
 sensor absence. No-pitot behavior, pursuit, S7 admission, S8 steep descent,

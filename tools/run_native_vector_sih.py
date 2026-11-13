@@ -822,19 +822,45 @@ print(json.dumps(out))
                 initial_native_status=status, firmware_build=baseline)
 
 
-def stable_window(states: list[AircraftState], *, minimum_relative_altitude_m=15., expected_altitude_m=None) -> bool:
+def stable_window(states: list[AircraftState], *, minimum_relative_altitude_m=15., expected_altitude_m=None,
+                  native_airspeed_control_enabled: list[bool] | None = None) -> bool:
+    """Sensorless admission needs native control feedback paired with each state.
+
+    Callers check packet freshness and retain matching native feedback. State
+    time is the oldest constituent receipt, so independent airspeed receipt may
+    be newer; this predicate bounds their association, not absolute packet age.
+    Unavailable airspeed never becomes a measurement or stall-margin estimate.
+    """
     if len(states) < 7:
+        return False
+    if native_airspeed_control_enabled is not None and (
+            len(native_airspeed_control_enabled) != len(states)
+            or any(type(value) is not bool for value in native_airspeed_control_enabled)):
         return False
     phase = states[0].phase
     if phase not in (AirframePhase.FIXED_WING, AirframePhase.MULTICOPTER):
         return False
     if any(s.phase is not phase or s.rescue_active or s.fixed_wing_envelope is None
+           or s.binding != states[0].binding or s.source != states[0].source
+           or s.altitude_reference_generation != states[0].altitude_reference_generation
            or s.relative_altitude_m < minimum_relative_altitude_m for s in states):
         return False
-    if phase is AirframePhase.FIXED_WING and any(
-            not s.airspeed.valid or s.airspeed.equivalent_m_s is None
-            or s.airspeed.equivalent_m_s < s.fixed_wing_envelope.minimum_eas_m_s for s in states):
+    if any(current.sequence <= previous.sequence
+           or not 0. < current.observed_at_monotonic_s - previous.observed_at_monotonic_s <= .75
+           for previous, current in zip(states, states[1:])):
         return False
+    if phase is AirframePhase.FIXED_WING:
+        for index, state in enumerate(states):
+            airspeed = state.airspeed
+            if abs(state.observed_at_monotonic_s - airspeed.observed_at_monotonic_s) > .75:
+                return False
+            if airspeed.valid:
+                if airspeed.equivalent_m_s is None or airspeed.equivalent_m_s < state.fixed_wing_envelope.minimum_eas_m_s:
+                    return False
+            elif (native_airspeed_control_enabled is None or native_airspeed_control_enabled[index]
+                    or airspeed.source != "unavailable" or airspeed.equivalent_m_s is not None
+                    or airspeed.true_m_s is not None):
+                return False
     if phase is AirframePhase.MULTICOPTER and any(
             not s.is_vtol or s.velocity_ned_m_s.horizontal_magnitude > .5
             or abs(math.remainder(s.navigation_heading_rad - states[0].navigation_heading_rad, 2 * math.pi)) > math.radians(5)

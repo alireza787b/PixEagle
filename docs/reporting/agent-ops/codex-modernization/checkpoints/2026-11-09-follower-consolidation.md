@@ -1846,6 +1846,15 @@ safe defaults and explicit capability/configuration gates. No identity or privat
 address grants authority. Gazebo's existing four-motor quad-tailsitter will be a
 separate native/sensorless comparison; failed Duo SIH evidence remains intact.
 
+The Gazebo build-only recipe is committed with pinned model/runtime resources.
+Root renews 123 tooling/docs tests. The stable-flight helper separately gains
+explicit native sensorless-feedback support, receipt association and sample/
+identity progression checks; all 232 native-harness tests pass. Independent
+review corrects a receipt-order assumption before adoption: aggregate state time
+is the oldest constituent receipt, so a newer airspeed receipt is legitimate.
+Absolute packet freshness remains the caller's responsibility. No actual
+sensorless flight or new VTOL application admission is claimed.
+
 Continue the sparse-axis native regression and separate tailsitter performance investigation, then remaining ownership,
 abort/rescue/takeover, fault, mount and full-application matrix. Do not tune a
 follower to conceal a native-only failure or relax the 2 m/100 ms gates.
