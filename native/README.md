@@ -289,6 +289,13 @@ attempted external download fails the build; no manifest is accepted as a
 replacement for a successful compilation. BuildKit can reuse matching layers,
 but the cached development executable is never imported into the build context.
 
+The canonical source lock also pins the authentic upstream release-tag object,
+its peeled commit and the normal `git describe` result. New source snapshots
+need that reachable ancestry: a hash-only shallow checkout must not silently
+compile PX4's `v0.0.0` fallback. The generated firmware version remains derived
+by upstream CMake; the base commit and reviewed local patch set remain separate
+provenance. Metadata enrichment never changes or relabels archived builds.
+
 The builder extracts `bin/` and `etc/` from a stopped compiler container without
 starting it, preserving command aliases. It packages a separate minimal runtime
 image and emits `sih-build-manifest.json`, its matching `packaged/` artifacts,

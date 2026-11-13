@@ -124,6 +124,8 @@ def authority(repository: Path = ROOT, *, simulator: str = "sih",
             raise ValueError(f"{simulator} {key} requires an immutable image pin; prepare and lock dependencies first")
     firmware = {"commit": lock["reference_px4_commit"], "extension_sha256": digest(extension_path),
                 "patches": extension["patches"]}
+    if "reference_px4_version" in lock:
+        firmware["version"] = lock["reference_px4_version"]
     return firmware, spec
 
 
@@ -132,6 +134,31 @@ def recipe_fingerprint(firmware: dict, spec: dict, *, repository: Path | None = 
     if builder.is_symlink() or not builder.is_file():
         raise ValueError("A regular builder source is required in the selected build authority")
     return json_digest({"firmware": firmware, "build": spec, "builder_sha256": digest(builder)})
+
+
+def verify_version_metadata(source: Path, expected: dict) -> dict:
+    """Use pinned upstream tag ancestry, never a fabricated firmware version."""
+    fields = {"describe", "tag", "tag_object", "tag_commit"}
+    if (not isinstance(expected, dict) or set(expected) != fields
+            or any(not isinstance(expected[key], str) or not expected[key] for key in fields)
+            or not re.fullmatch(r"v\d+\.\d+\.\d+(?:-[A-Za-z0-9.]+)?", expected["tag"])
+            or re.match(r"v0\.0\.0(?:$|-)", expected["tag"])
+            or any(not re.fullmatch(r"[0-9a-f]{40}", expected[key]) for key in ("tag_object", "tag_commit"))):
+        raise ValueError("Pinned PX4 release metadata is missing or unknown")
+    prefix = ("git", "-C", str(source))
+    try:
+        actual = {
+            "describe": command(*prefix, "describe", "--exclude", "ext/*", "--tags", "--match", "v[0-9]*"),
+            "tag": command(*prefix, "describe", "--exclude", "ext/*", "--abbrev=0", "--tags", "--match", "v[0-9]*"),
+            "tag_object": command(*prefix, "rev-parse", "refs/tags/" + expected["tag"]),
+            "tag_commit": command(*prefix, "rev-parse", "refs/tags/" + expected["tag"] + "^{commit}"),
+        }
+        command(*prefix, "merge-base", "--is-ancestor", expected["tag_commit"], "HEAD")
+    except subprocess.CalledProcessError as error:
+        raise ValueError("PX4 release ancestry is unavailable; refusing v0.0.0 fallback") from error
+    if actual != expected:
+        raise ValueError("PX4 release metadata differs from the pinned upstream ancestry")
+    return actual
 
 
 def verify_source(source: Path, repository: Path, verify_extension, *, simulator: str = "sih") -> dict:
@@ -151,7 +178,7 @@ def verify_source(source: Path, repository: Path, verify_extension, *, simulator
     if unexpected:
         raise ValueError("Unreviewed SIH source changes: " + ", ".join(sorted(unexpected)))
     submodules = command("git", "-C", str(source), "submodule", "status", "--recursive")
-    spec = authority(repository, simulator=simulator)[1]
+    firmware, spec = authority(repository, simulator=simulator)
     required = spec.get("submodules", [])
     initialized = []
     missing = set(required)
@@ -169,6 +196,8 @@ def verify_source(source: Path, repository: Path, verify_extension, *, simulator
     if missing:
         raise ValueError("Missing SIH submodules: " + ", ".join(sorted(missing)))
     provenance = {"submodules": initialized}
+    if "version" in firmware:
+        provenance["version"] = verify_version_metadata(source, firmware["version"])
     if simulator == "gazebo":
         resources = source / "Tools/simulation/gz"
         for relative in ("models/quadtailsitter/model.sdf", "models/airspeed/model.sdf", "worlds/default.sdf"):
