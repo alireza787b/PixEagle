@@ -1,5 +1,6 @@
 """Inert desktop preparation: no X11, Docker, flight or network dependencies."""
 import configparser
+import json
 from pathlib import Path
 import subprocess
 from unittest.mock import Mock
@@ -42,3 +43,21 @@ def test_relay_exit_during_escalation_does_not_skip_remaining_cleanup(monkeypatc
     monkeypatch.setattr(training.os, 'killpg', kill)
     training.stop_relay(relay)
     assert relay.wait.call_count == 2
+
+
+def test_startup_authentication_uses_only_the_typed_login_fields(tmp_path, monkeypatch):
+    (tmp_path / 'logs').mkdir()
+    (tmp_path / 'profile-manifest.json').write_text(json.dumps({'instance_id': 'training'}))
+    (tmp_path / 'credentials.json').write_text(json.dumps(dict(username='test-account', password='test-secret',
+        endpoint='http://127.0.0.1:5077', purpose='Private training only')))
+    client = Mock(headers={})
+    client.get.side_effect = [Mock(json=lambda: dict(instance_id='training', video=dict(width=640, height=480))),
+                             Mock(json=lambda: dict(active=True)), Mock(json=lambda: dict(following_active=False))]
+    import requests
+    session = Mock()
+    session.return_value.__enter__ = Mock(return_value=client)
+    session.return_value.__exit__ = Mock(return_value=None)
+    monkeypatch.setattr(requests, 'Session', session)
+    training.wait_backend(tmp_path)
+    client.post.assert_called_once_with('http://127.0.0.1:5077/api/v1/auth/login',
+        json=dict(username='test-account', password='test-secret'), timeout=3)

@@ -99,7 +99,8 @@ def wait_backend(runtime, *, timeout=75):
         while time.monotonic() < deadline:
             try:
                 if not authenticated:
-                    client.post(endpoint + '/api/v1/auth/login', json=credentials, timeout=3).raise_for_status()
+                    client.post(endpoint + '/api/v1/auth/login',
+                        json={key: credentials[key] for key in ('username', 'password')}, timeout=3).raise_for_status()
                     authenticated = True
                 context = client.get(endpoint + '/api/v1/integration/context', timeout=3).json()
                 safety = client.get(endpoint + '/api/v1/integration/safety', timeout=3).json()
