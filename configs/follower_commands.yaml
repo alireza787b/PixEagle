@@ -180,7 +180,7 @@ follower_profiles:
     family: external
     visibility: advanced
     display_name: "GM Velocity Vector"
-    description: "Direct vector pursuit using gimbal angles and body frame velocity"
+    description: "Pursues a gimbal-designated target with multicopter or native fixed-wing guidance"
     control_type: "velocity_body_offboard"
     live_qualified_phases: [multicopter, fixed_wing]
     airframe_phase: "multicopter"           # Gimbal is the evidence source, not the vehicle type

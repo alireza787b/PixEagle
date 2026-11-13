@@ -3744,7 +3744,7 @@ sections:
           description: PID-based pursuit control with coordinated turn guidance from gimbal angles
         - value: gm_velocity_vector
           label: GM Velocity Vector
-          description: Direct vector pursuit using gimbal angles and body frame velocity
+          description: Pursues a gimbal-designated target with multicopter or native fixed-wing guidance
         - value: fw_navigation_chase
           label: FW Navigation Chase
           description: Calibrated image pursuit through native PX4 course, airspeed and vertical-path control; live qualification

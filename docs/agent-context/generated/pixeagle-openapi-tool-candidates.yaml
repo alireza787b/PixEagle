@@ -55,7 +55,7 @@ source:
   - file: src/classes/follower_catalog.py
     sha256: be87886759b2afb31235c7a63af5dce843b48a47931ca36140a70ffa2bc5fd05
   - file: configs/follower_commands.yaml
-    sha256: aeb7f6d762175d701d0ecff676f8bd8757f5384f77710ca40ada778274d4e7f1
+    sha256: f64832712e9abf02b6606ef67070c7d1ce1f9e66a9c81eab5f95e182ff56d8bf
   - file: configs/tracker_schemas.yaml
     sha256: b1bcab0c5e44427d8f45a7a2a83b6c78c9dcd19c2ad51152de38399653e56ac1
   - file: src/classes/api_v1_native_models.py

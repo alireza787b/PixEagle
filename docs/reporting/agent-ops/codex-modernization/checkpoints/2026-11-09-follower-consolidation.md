@@ -1950,3 +1950,37 @@ Exact evidence under that run root:
 Earlier failures, source-barrier and ANSI archive repairs retain their original
 scope in the preceding history. No saved public/private defaults, hardware,
 QGC, installed services or remote publication changed in this renewal.
+
+The later vertical Gazebo capture exercises actual following on `02c0a9d57`.
+Its first attempt fails before acquisition when setup ages a retained sample;
+one fresh bound read fixes that harness sequence without changing the 500 ms
+fixture guard. The second attempt verifies MC following, original-owner release
+at transition, a new explicit FW acquisition and final correlated Hold. The
+independent lifecycle audit confirms no control writes after the transition
+witness and publication-counter plateaus after both releases. This does not
+qualify the whole case: active FW altitude error is 2.1956 m, corroborated by
+2.1868 m simulator truth, against the unchanged 2 m requirement. Its 290 commands
+retain the correct constant engagement altitude. Native course-capture/height
+response remains under review; no follower reference fix or gain tuning is
+supported yet. This is an active-pursuit failure, separate from the excluded
+native pilot-transition excursion.
+
+The new log audit also needs source-supported timing corrections: distinct
+attitude samples may share a publication tick, and independently stamped FW
+lateral/longitudinal messages need not have equal timestamps. SDK publication
+calls and logged uORB records are different quantities. The MC discrepancy of
+333 calls versus 331 records remains unresolved; no lossless-delivery claim is
+made. The original failed result is retained. Actual 3D replays and CSV/PNG
+exports are under `software-gates-s7-guidance-vertical-r2-review-r1/` in the run
+root; source, timing and lifecycle audits accompany them. Live VTOL application
+admission remains closed.
+
+Backend revision `3023d351e` passes 6,670 unit, 196 integration and 155 Phase 0
+tests plus inventory/schema/fatal lint; the later harness-only repair passes
+617 affected checks. QGC candidate `89d39998e` separately builds and passes its
+client suite, 98 integration tests and changed-file hooks. Two host inotify Unit
+failures and baseline full-lint/generated-QML import failures remain explicitly
+recorded. The candidate is local and unpublished; original QGC worktrees and
+saved public/private settings remain unchanged. The Vector catalog description
+is clarified to cover both declared command strategies instead of implying
+body velocity in FW.
