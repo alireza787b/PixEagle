@@ -1663,7 +1663,8 @@ class MCVelocityChaseFollower(BaseFollower):
         control = self._requested_speed_control()
         if control is None or control.revision == 0:
             return dict(fields)
-        return self._limit_translation_speed(fields, acceleration=self.forward_ramp_rate, ramp_increase=True)
+        return self._limit_translation_speed(fields, acceleration=self.forward_ramp_rate,
+                                              update_rate_hz=self.ramp_update_rate, ramp_increase=True)
 
     def on_command_submitted(self, fields: Dict[str, float]) -> None:
         self.record_submitted_command(fields)

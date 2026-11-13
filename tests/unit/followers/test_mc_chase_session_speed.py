@@ -39,9 +39,9 @@ def chase(mock_px4, monkeypatch):
     monkeypatch.setattr(SafetyManager, '_instance', safety)
     monkeypatch.setattr(Parameters, 'MC_VELOCITY_CHASE', {
         **Parameters.MC_VELOCITY_CHASE, 'INITIAL_FORWARD_VELOCITY': 0., 'FORWARD_RAMP_RATE': .5,
+        'RAMP_UPDATE_RATE': 20.,
     })
     follower = MCVelocityChaseFollower(mock_px4, (0., 0.))
-    follower.update_rate = 20.
     return follower
 
 
@@ -51,6 +51,18 @@ def command(forward=.5, right=.4, down=.3, yaw=10.):
 
 def magnitude(fields):
     return math.hypot(*(fields[name] for name in ('vel_body_fwd', 'vel_body_right', 'vel_body_down')))
+
+
+def test_normal_chase_constructor_can_shape_session_speed_without_vector_attributes(mock_px4):
+    follower = MCVelocityChaseFollower(mock_px4, (0., 0.))
+    assert not hasattr(follower, 'update_rate')
+    for requested in (2., .5, 0., None):
+        control, = follower.session_controls()
+        follower.update_session_control('requested_speed', requested, control['revision'])
+        shaped = follower.prepare_authorized_command(command(), loss_decay=False)
+        assert all(math.isfinite(value) for value in shaped.values())
+        follower.on_command_submitted(shaped)
+    follower.release_session_controls()
 
 
 def test_declared_chase_control_preserves_saved_forward_target_before_adjustment(chase):
@@ -174,7 +186,7 @@ def test_chase_zero_to_increase_bounds_real_pid_translation_without_gimbal_slew(
     nominal = chase.get_last_command_intent().fields
     assert nominal['vel_body_right'] > 0. and nominal['vel_body_down'] < 0.
     limited = chase.prepare_authorized_command(nominal, loss_decay=False)
-    assert magnitude(limited) == pytest.approx(chase.forward_ramp_rate / chase.update_rate)
+    assert magnitude(limited) == pytest.approx(chase.forward_ramp_rate / chase.ramp_update_rate)
     assert limited['vel_body_right'] / nominal['vel_body_right'] == pytest.approx(
         limited['vel_body_down'] / nominal['vel_body_down'])
     assert limited['yawspeed_deg_s'] == nominal['yawspeed_deg_s']

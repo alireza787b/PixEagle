@@ -80,6 +80,10 @@ not promise geographic position Hold. Restore reapplies the saved limits without
 raising a lower request. Stop/new Start restores the configured startup state.
 No image coordinate is converted into a fabricated physical 3D ray.
 
+The shared speed limiter receives each follower's own timing explicitly:
+Chase uses `RAMP_UPDATE_RATE`; Vector uses `CONTROL_UPDATE_RATE`. Neither
+follower depends on timing attributes supplied by the other implementation.
+
 Altitude is the backend's **relative altitude**, referenced to the estimator/home
 reference. It is not terrain clearance. Existing minimum/maximum altitude and
 warning-band rules apply after smoothing and continuity blending. Blocking a

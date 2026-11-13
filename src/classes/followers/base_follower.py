@@ -810,13 +810,13 @@ class BaseFollower(ABC):
         return max(control.value, current_magnitude, speed)
 
     def _limit_translation_speed(self, fields: Dict[str, float], *, acceleration: float,
-                                 ramp_increase: bool = False) -> Dict[str, float]:
+                                 update_rate_hz: float, ramp_increase: bool = False) -> Dict[str, float]:
         control = self._requested_speed_control()
         if control is None:
             return dict(fields)
         names = ('vel_body_fwd', 'vel_body_right', 'vel_body_down')
         previous = getattr(self, '_submitted_command_fields', None) or dict.fromkeys(names, 0.0)
-        rate = float(self.update_rate)
+        rate = float(update_rate_hz)
         now = time.monotonic()
         timestamp = getattr(self, '_submitted_command_timestamp', None)
         _, dt = self.bounded_control_delta(timestamp if timestamp is not None else now - 1 / rate,

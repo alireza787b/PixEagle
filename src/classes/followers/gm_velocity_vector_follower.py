@@ -760,7 +760,8 @@ class GMVelocityVectorFollower(BaseFollower):
         self._synchronize_native_phase()
         if getattr(self, '_airframe_session', None) is not None and self.get_control_type() != 'velocity_body_offboard':
             return dict(fields)
-        return self._limit_translation_speed(fields, acceleration=self.authorized_command_acceleration)
+        return self._limit_translation_speed(fields, acceleration=self.authorized_command_acceleration,
+                                              update_rate_hz=self.update_rate)
 
     @property
     def authorized_command_acceleration(self) -> float:
