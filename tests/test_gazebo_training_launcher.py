@@ -277,3 +277,25 @@ def test_provider_overrides_firmware_entrypoint_and_owns_original_cleanup(tmp_pa
     finally:
         for sock in bound:
             sock.close()
+
+
+@pytest.mark.parametrize('clock', [None, 'a' * 32 + ':courtyard'])
+def test_adapter_clock_parameter_is_only_the_current_declared_world(tmp_path, clock):
+    from tools.native_adapter_runtime import adapter_launch_args
+    adapter_launch_args(tmp_path, tmp_path / 'bundle', {'adapter_image': 'image'}, token='a' * 32,
+        primary='original', label='owner', name='adapter', simulator_clock_id=clock)
+    script = (tmp_path / 'adapter.sh').read_text()
+    if clock is None:
+        assert 'simulator_clock_id' not in script
+    else:
+        assert f'-p simulator_clock_id:={clock}' in script
+    assert '-p socket_path:=/runtime/private/guidance.sock' in script
+
+
+@pytest.mark.parametrize('clock', ['b' * 32 + ':courtyard', 'a' * 32 + ':world;exit', '', True])
+def test_wrong_or_nonliteral_clock_parameter_refuses_before_adapter_scripts(tmp_path, clock):
+    from tools.native_adapter_runtime import adapter_launch_args
+    with pytest.raises(ValueError, match='Simulator clock'):
+        adapter_launch_args(tmp_path, tmp_path / 'bundle', {'adapter_image': 'image'}, token='a' * 32,
+            primary='original', label='owner', name='adapter', simulator_clock_id=clock)
+    assert list(tmp_path.iterdir()) == []

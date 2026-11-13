@@ -26,13 +26,19 @@ def dds_session_ready(result):
                for field, value in expected.items())
 
 
-def adapter_launch_args(work, bundle, assets, *, token, primary, label, name):
+def adapter_launch_args(work, bundle, assets, *, token, primary, label, name, simulator_clock_id=None):
+    clock_option = ''
+    if simulator_clock_id is not None:
+        if (not isinstance(simulator_clock_id, str) or not re.fullmatch(r'[a-f0-9]{32}:[a-z][a-z0-9_]*', simulator_clock_id)
+                or simulator_clock_id.split(':', 1)[0] != token or len(simulator_clock_id) > 256):
+            raise ValueError('Simulator clock must identify this original token and declared world')
+        clock_option = ' -p simulator_clock_id:=' + simulator_clock_id
     script = work / "adapter.sh"
     script.write_text('set -eo pipefail\nsource /work/ws/install/setup.bash\n'
         'source /output/ros/install/local_setup.bash\n'
         'export LD_LIBRARY_PATH=/opt/pixeagle/agent/lib:${LD_LIBRARY_PATH:-}\n'
-        'exec /output/adapter/pixeagle-native-guidance --ros-args -p socket_path:=/runtime/private/guidance.sock '
-        '> /runtime/adapter.log 2>&1\n')
+        'exec /output/adapter/pixeagle-native-guidance --ros-args -p socket_path:=/runtime/private/guidance.sock'
+        + clock_option + ' > /runtime/adapter.log 2>&1\n')
     (work / "agent.sh").write_text('set -eo pipefail\nsource /work/ws/install/setup.bash\n'
         'source /output/ros/install/local_setup.bash\n'
         'export LD_LIBRARY_PATH=/opt/pixeagle/agent/lib:${LD_LIBRARY_PATH:-}\n'

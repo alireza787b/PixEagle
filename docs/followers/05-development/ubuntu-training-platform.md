@@ -202,3 +202,11 @@ structurally identical. It is staged read-only and included in actual runtime
 resource verification. The old v1 descriptor and packaged build remain unchanged.
 The first disarmed bench must independently confirm continuing stamped images
 and absent unused RTP output; software/source checks alone are not that proof.
+
+For the reviewed native adapter that advertises the raw simulator-clock seam,
+the launcher forwards the exact same fresh `token:world` identifier as the camera
+source through `simulator_clock_id`. The shared bootstrap rejects a different
+token or nonliteral identifier before writing scripts. Legacy/default baseline
+startup omits the parameter. Forwarding a tag is not clock qualification: the
+application must require the matching native observation capability and raw
+source sample timestamps before aligned image guidance is available.

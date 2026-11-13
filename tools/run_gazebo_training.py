@@ -286,8 +286,9 @@ class TrainingAdapter:
     sidecar_info = native_runtime.Runtime.sidecar_info
     bootstrap = native_runtime.Runtime.bootstrap
 
-    def __init__(self, args, output, token, primary, network_id, baseline, assets, containers):
+    def __init__(self, args, output, token, primary, network_id, baseline, assets, containers, *, source_clock_id=None):
         self.args, self.output, self.token = args, output, token
+        self.source_clock_id = source_clock_id
         self.primary, self.network_id, self.baseline, self.assets = primary, network_id, baseline, assets
         self.created, self.sidecar, self.adapter_requested = containers, None, False
         self.socket = output / 'simulator/private/guidance.sock'
@@ -320,7 +321,7 @@ class TrainingAdapter:
         (work / 'private').mkdir(mode=0o700)
         name = 'pixeagle-training-adapter-' + self.token[:12]
         argv = adapter_launch_args(work, self.args.adapter_bundle, self.assets,
-            token=self.token, primary=self.primary, label=host.LABEL, name=name)
+            token=self.token, primary=self.primary, label=host.LABEL, name=name, simulator_clock_id=self.source_clock_id)
         self.sidecar = self.launch(argv, name)
         asyncio.run(self.bootstrap(time.monotonic() + 45.))
         self.sidecar_info()
@@ -328,7 +329,7 @@ class TrainingAdapter:
             adapter_image=self.assets['adapter_image'], adapter_sha256=self.assets['adapter_sha256'],
             file_manifest_sha256=self.assets['file_manifest_sha256'], socket='/run/pixeagle/guidance.sock',
             assets_sha256=native_runtime.digest(native_runtime.ASSETS),
-            following_qualification=False, scope='DDS and private socket startup only'))
+            source_clock_id=self.source_clock_id, following_qualification=False, scope='DDS and private socket startup only'))
 
 
 def run(args):
@@ -403,7 +404,8 @@ def run(args):
             raise TimeoutError('Gazebo startup: ' + str(last))
         native_mounts = []
         if assets is not None:
-            adapter = TrainingAdapter(args, runtime, token, primary, network_id, baseline, assets, containers)
+            adapter = TrainingAdapter(args, runtime, token, primary, network_id, baseline, assets, containers,
+                source_clock_id=camera_source['config']['source_clock_id'] if camera_source else None)
             adapter.start()
             native_mounts = [(runtime / 'simulator/private', Path('/run/pixeagle'), False)]
             write(runtime / 'run.json', receipt)
