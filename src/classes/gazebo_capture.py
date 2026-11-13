@@ -38,7 +38,7 @@ class GazeboCameraSettings:
                 raise ValueError("gazebo_camera_source_identity_invalid")
         if not self.image_topic.startswith("/"):
             raise ValueError("gazebo_camera_topic_invalid")
-        if (type(self.max_attitude_skew_s) not in (int, float)
+        if (isinstance(self.max_attitude_skew_s, bool) or not isinstance(self.max_attitude_skew_s, (int, float))
                 or not math.isfinite(self.max_attitude_skew_s) or self.max_attitude_skew_s <= 0):
             raise ValueError("gazebo_camera_skew_invalid")
 

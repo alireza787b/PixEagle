@@ -7,9 +7,28 @@ import struct
 import time
 
 import pytest
+from ruamel.yaml import YAML
 
 from classes.gazebo_camera_protocol import GazeboFrameHeader, pack_header, read_header_length
 from classes.gazebo_capture import GazeboCameraSettings, GazeboCapture
+
+
+def test_settings_accept_numeric_yaml_wrappers_from_the_configuration_service():
+    config = YAML().load('''
+socket_path: /run/camera.sock
+source_clock_id: world-clock
+world: training
+image_topic: /camera/image
+max_attitude_skew_s: 0.05
+''')
+    assert type(config['max_attitude_skew_s']) is not float
+    assert GazeboCameraSettings.from_mapping(config).max_attitude_skew_s == .05
+
+
+@pytest.mark.parametrize('value', [True, False, '0.05', 0., -.1, float('inf'), float('nan')])
+def test_settings_still_reject_non_numeric_or_nonpositive_timing(value):
+    with pytest.raises(ValueError, match='gazebo_camera_skew_invalid'):
+        GazeboCameraSettings('/run/camera.sock', 'world-clock', 'training', '/camera/image', value)
 
 
 def header(**changes):
