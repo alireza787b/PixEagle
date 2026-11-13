@@ -372,6 +372,12 @@ def _log_performance(self, start_time: float) -> None:
 
 ## Visualization
 
+An overlay uses one captured bbox, center and display scale for the whole draw.
+Clearing or replacing a target during an OpenCV call cannot mix the replacement
+geometry into that image or dereference a cleared center. This display snapshot
+does not restore tracker state or authorize following; target/source generations
+remain governed by the tracking and command contracts.
+
 ```python
 def draw_tracking(self, frame: np.ndarray, tracking_successful: bool) -> np.ndarray:
     """Draw bounding box and center on frame."""
