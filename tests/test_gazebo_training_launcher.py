@@ -11,7 +11,8 @@ from tools import run_gazebo_training as training
 
 
 def test_private_qgc_profile_disables_unrelated_autoconnect(tmp_path):
-    destination = training.qgc_settings(tmp_path, 'http://127.0.0.1:5077')
+    identity = dict(application='Test GCS Daily', organization='Test organization', version='13')
+    destination = training.qgc_settings(tmp_path, 'http://127.0.0.1:5077', identity=identity)
     config = configparser.ConfigParser()
     config.read(destination)
     assert set(config['AutoConnect'].values()) == {'false'}
@@ -21,7 +22,20 @@ def test_private_qgc_profile_disables_unrelated_autoconnect(tmp_path):
     assert config['PixEagle']['companionendpoint'] == 'http://127.0.0.1:5077'
     assert not destination.stat().st_mode & 0o077
     with pytest.raises(FileExistsError):
-        training.qgc_settings(tmp_path, 'http://127.0.0.1:5078')
+        training.qgc_settings(tmp_path, 'http://127.0.0.1:5078', identity=identity)
+    assert destination == tmp_path / 'Test organization/Test GCS Daily.ini'
+    assert config['General']['settingsversion'] == '13'
+
+
+@pytest.mark.parametrize('stable', [True, False])
+def test_settings_channel_comes_from_the_actual_generated_build(tmp_path, stable):
+    (tmp_path / 'Debug').mkdir()
+    (tmp_path / 'qgc_version.h').write_text('#define QGC_APP_NAME "Test GCS"\n'
+        '#define QGC_ORG_NAME "Test organization"\n#define QGC_SETTINGS_VERSION 13\n')
+    (tmp_path / 'CMakeCache.txt').write_text('QGC_STABLE_BUILD:BOOL=' + ('ON' if stable else 'OFF') + '\n')
+    identity = training.qgc_build_identity(tmp_path / 'Debug/TestGCS')
+    assert identity == dict(application='Test GCS' + ('' if stable else ' Daily'),
+                            organization='Test organization', version='13')
 
 
 def test_container_plan_is_unprivileged_and_namespace_scoped(tmp_path):
@@ -41,7 +55,7 @@ def test_relay_exit_during_escalation_does_not_skip_remaining_cleanup(monkeypatc
     relay.wait.side_effect = [subprocess.TimeoutExpired('socat', 5), 0]
     kill = Mock(side_effect=[None, ProcessLookupError()])
     monkeypatch.setattr(training.os, 'killpg', kill)
-    training.stop_relay(relay)
+    training.stop_child_group(relay)
     assert relay.wait.call_count == 2
 
 

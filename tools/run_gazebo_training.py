@@ -12,6 +12,7 @@ import ipaddress
 import json
 import os
 from pathlib import Path
+import re
 import signal
 import socket
 import subprocess
@@ -33,13 +34,32 @@ def write(path, value):
     path.write_text(json.dumps(value, indent=2) + '\n', encoding='utf-8')
 
 
-def qgc_settings(directory: Path, endpoint: str) -> Path:
+def qgc_build_identity(binary: Path) -> dict:
+    """Use this build's generated identity, including its separate Daily settings."""
+    build = binary.parent.parent
+    header = (build / 'qgc_version.h').read_text(encoding='utf-8')
+    cache = (build / 'CMakeCache.txt').read_text(encoding='utf-8')
+    values = {}
+    for name in ('QGC_APP_NAME', 'QGC_ORG_NAME'):
+        matches = re.findall(rf'^#define {name} "([^"/\\]+)"$', header, re.M)
+        if len(matches) != 1:
+            raise ValueError('QGC generated application identity is unavailable')
+        values[name] = matches[0]
+    version = re.findall(r'^#define QGC_SETTINGS_VERSION ([0-9]+)$', header, re.M)
+    stable = re.findall(r'^QGC_STABLE_BUILD:BOOL=(ON|OFF)$', cache, re.M)
+    if len(version) != 1 or len(stable) != 1:
+        raise ValueError('QGC generated settings version/build channel is unavailable')
+    return dict(application=values['QGC_APP_NAME'] + (' Daily' if stable[0] == 'OFF' else ''),
+                organization=values['QGC_ORG_NAME'], version=version[0])
+
+
+def qgc_settings(directory: Path, endpoint: str, *, identity: dict) -> Path:
     """Private QSettings: a single simulation UDP link, no physical auto-connect."""
-    destination = directory / 'PixEagle/PixEagle-QGroundControl.ini'
+    destination = directory / identity['organization'] / (identity['application'] + '.ini')
     destination.parent.mkdir(parents=True)
     config = configparser.ConfigParser(interpolation=None)
     config.optionxform = str
-    config['General'] = {'SettingsVersion': '9'}
+    config['General'] = {'SettingsVersion': identity['version']}
     config['AutoConnect'] = {name: 'false' for name in (
         'autoConnectUDP', 'autoConnectPixhawk', 'autoConnectSiKRadio', 'autoConnectLibrePilot', 'autoConnectZeroConf')}
     config['LinkConfigurations'] = {'count': '1', 'Link0\\name': 'PixEagle simulated aircraft',
@@ -122,8 +142,8 @@ def wait_backend(runtime, *, timeout=75):
     raise TimeoutError(last)
 
 
-def stop_relay(relay):
-    """Reap the owned relay even if it exits during signal escalation."""
+def stop_child_group(relay):
+    """Reap an owned child group even if it exits during signal escalation."""
     try:
         os.killpg(relay.pid, signal.SIGTERM)
         relay.wait(timeout=5)
@@ -141,12 +161,14 @@ def run(args):
     runtime = args.runtime.absolute()
     if runtime.exists():
         raise ValueError('Choose a fresh runtime directory; existing evidence is never overwritten')
+    if bool(args.dashboard_build) != bool(args.dashboard_server):
+        raise ValueError('Dashboard build and installed serve executable must be supplied together')
     display_mounts()
     for dependency in (args.python, args.router, args.qgc, args.bin_dir / 'mavlink2rest',
                        args.bin_dir / 'mavsdk_server_bin', args.qgc.parent / 'qt.conf', args.tcp_relay):
         if not dependency.is_file():
             raise ValueError(f'Training dependency is unavailable: {dependency}')
-    for port in (args.port,):
+    for port in ((args.port, args.dashboard_port) if args.dashboard_build else (args.port,)):
         with socket.socket() as probe:
             probe.bind(('127.0.0.1', port))
     simulator, baseline, manifest = host.verified_simulation_build(args.build_manifest, repository=ROOT)
@@ -157,17 +179,20 @@ def run(args):
     profile = runtime / 'backend'
     prepare(profile, udp_url=f'udp://127.0.0.1:{scenario["descriptor"]["camera"]["udp_port"]}',
         follower_mode='mc_velocity_chase', tracking_engine='local', backend_port=args.port,
+        dashboard_port=args.dashboard_port if args.dashboard_build else None,
         enable_altitude_control=True, username='admin', password='admin')
-    qgc_settings(runtime / 'qgc/config', f'http://127.0.0.1:{args.port}')
+    qgc_identity = qgc_build_identity(args.qgc)
+    qgc_settings(runtime / 'qgc/config', f'http://127.0.0.1:{args.port}', identity=qgc_identity)
     for part in ('home', 'cache', 'data', 'runtime'):
         (runtime / 'qgc' / part).mkdir(parents=True, mode=0o700)
     token = uuid.uuid4().hex
     network_id = None
     relay = None
+    frontend = None
     containers = []
     receipt = dict(kind='isolated-gazebo-training-v1', source_commit=host.command('git', '-C', str(ROOT), 'rev-parse', 'HEAD'),
         scenario=scenario, firmware_build=baseline, commands_blocked_at_start=True,
-        token=token, containers=containers, started_at=time.time())
+        token=token, containers=containers, qgc_identity=qgc_identity, started_at=time.time())
     write(runtime / 'run.json', receipt)
     try:
         network_id = host.create_owned_internal_network('pixeagle-training-' + token[:12], token)
@@ -230,6 +255,15 @@ def run(args):
                                    executable=str(args.tcp_relay))
         write(runtime / 'run.json', receipt)
         wait_backend(profile)
+        if args.dashboard_build:
+            if (not (args.dashboard_build / 'index.html').is_file() or not args.dashboard_server.is_file()):
+                raise ValueError('Built Dashboard or installed production serve executable is missing')
+            with (runtime / 'dashboard.log').open('xb') as log:
+                frontend = subprocess.Popen([str(args.dashboard_server), '-s', str(args.dashboard_build),
+                    '-l', f'tcp://127.0.0.1:{args.dashboard_port}', '--no-clipboard'],
+                    env=os.environ | {'NO_UPDATE_NOTIFIER': '1'}, stdout=log, stderr=subprocess.STDOUT,
+                    start_new_session=True)
+            receipt['dashboard'] = dict(pid=frontend.pid, build=str(args.dashboard_build), port=args.dashboard_port)
         qt = args.qt.absolute()
         gst = args.gstreamer_lib.absolute()
         qgc_environment = dict(HOME=runtime / 'qgc/home', XDG_CONFIG_HOME=runtime / 'qgc/config',
@@ -250,13 +284,18 @@ def run(args):
                      'gz', 'sim', '-g')
         print(f'QGC opened. Backend: http://127.0.0.1:{args.port} · isolated simulation only', flush=True)
         print(f'Credentials and logs: {profile} · Ctrl-C closes this owned stack', flush=True)
-        while relay.poll() is None and all(host.owned_container_info(cid, token)['State']['Running'] for cid in containers):
+        while (relay.poll() is None and (frontend is None or frontend.poll() is None)
+                and all(host.owned_container_info(cid, token)['State']['Running'] for cid in containers)):
             time.sleep(1)
         raise RuntimeError('A training component stopped; inspect retained logs')
     finally:
         closed = []
-        if relay is not None:
-            stop_relay(relay)
+        for child in (frontend, relay):
+            if child is not None:
+                try:
+                    stop_child_group(child)
+                except (OSError, subprocess.SubprocessError) as error:
+                    receipt.setdefault('child_cleanup_errors', []).append(str(error))
         for cid in reversed(containers):
             try:
                 info = host.stop_owned_container(cid, token)
@@ -289,6 +328,9 @@ def main():
     parser.add_argument('--qt', type=Path, required=True)
     parser.add_argument('--gstreamer-lib', type=Path, required=True)
     parser.add_argument('--tcp-relay', type=Path, required=True, help='Installed socat executable')
+    parser.add_argument('--dashboard-build', type=Path)
+    parser.add_argument('--dashboard-server', type=Path, help='Installed Dashboard serve executable')
+    parser.add_argument('--dashboard-port', type=int, default=3040)
     parser.add_argument('--port', type=int, default=5077)
     args = parser.parse_args()
     if not args.execute:
