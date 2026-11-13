@@ -1,6 +1,8 @@
 """Inert desktop preparation: no X11, Docker, flight or network dependencies."""
 import configparser
 from pathlib import Path
+import subprocess
+from unittest.mock import Mock
 
 import pytest
 
@@ -31,3 +33,12 @@ def test_container_plan_is_unprivileged_and_namespace_scoped(tmp_path):
     with pytest.raises(ValueError, match='missing'):
         training.container_args('training', 'owner', 'original-cid',
             [(Path('/missing/training/dependency'), '/runtime', False)], {}, 'pinned-image')
+
+
+def test_relay_exit_during_escalation_does_not_skip_remaining_cleanup(monkeypatch):
+    relay = Mock(pid=123)
+    relay.wait.side_effect = [subprocess.TimeoutExpired('socat', 5), 0]
+    kill = Mock(side_effect=[None, ProcessLookupError()])
+    monkeypatch.setattr(training.os, 'killpg', kill)
+    training.stop_relay(relay)
+    assert relay.wait.call_count == 2

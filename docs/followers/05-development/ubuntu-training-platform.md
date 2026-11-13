@@ -119,7 +119,7 @@ normal operator actions. The MC Chase session-speed row uses the same capability
 and action as Vector; other followers show it only after implementing that contract.
 
 PX4, the normal backend sidecars and QGC share one owned internal Docker network
-namespace. Only the authenticated API TCP port is published to host loopback;
+namespace. A standard `socat` TCP relay exposes only the authenticated API to host loopback;
 camera and MAVLink UDP are never published. QGC has separate settings/cache and
 one simulated UDP link; physical serial auto-connect is disabled. No saved user
 profile is changed. Ctrl-C closes only the original token-bound containers,

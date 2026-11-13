@@ -78,23 +78,15 @@ def _simulation_model(simulator: str, manifest: dict | None, requested: str | No
 def simulation_launch_args(simulator: str, baseline: dict, manifest: dict | None, *,
                            runtime: Path, token: str, name: str, model: str | None = None,
                            startup_parameters: dict[str, str] | None = None,
-                           gazebo_scenario: str | None = None, desktop_network_id: str | None = None,
-                           published_tcp_ports: tuple[int, ...] = ()) -> list[str]:
+                           gazebo_scenario: str | None = None, desktop_network_id: str | None = None) -> list[str]:
     """Stage a private rootfs and plan the owned primary; never launch it.
 
     Callers own the fixture parameter allowlist and native bounds. Values here
     are literal finite numbers consumed by the pinned rcS before Navigator.
     """
     network = "none"
-    publications = []
     if desktop_network_id is not None:
         network = owned_internal_network_info(desktop_network_id, token)["Id"]
-    if (published_tcp_ports and desktop_network_id is None
-            or any(type(port) is not int or not 1024 <= port <= 65535 for port in published_tcp_ports)
-            or len(set(published_tcp_ports)) != len(published_tcp_ports)):
-        raise ValueError("Desktop TCP ports require an owned internal network and unique unprivileged ports")
-    for port in published_tcp_ports:
-        publications.extend(["--publish", f"127.0.0.1:{port}:{port}/tcp"])
     scenario = None
     if gazebo_scenario is not None:
         from tools.gazebo_scenario import verified_scenario
@@ -145,7 +137,7 @@ def simulation_launch_args(simulator: str, baseline: dict, manifest: dict | None
     for key, value in sorted((startup_parameters or {}).items()):
         options.extend(["--env", f"PX4_PARAM_{key}={value}"])
     return ["docker", "run", "-d", "-i", "--name", name, "--label", f"{LABEL}={token}",
-            "--network", network, *publications, "-e", f"PX4_SIM_MODEL={model}", *options, image,
+            "--network", network, "-e", f"PX4_SIM_MODEL={model}", *options, image,
             *(["-i", "0", "-w", "/work/rootfs", "/opt/px4/etc"] if source_build else [])]
 
 

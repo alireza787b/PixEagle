@@ -30,27 +30,18 @@ def test_unowned_or_external_network_is_rejected_before_staging(tmp_path, monkey
     monkeypatch.setattr(host, 'command', command)
     with pytest.raises(RuntimeError):
         host.simulation_launch_args('sih', {}, None, runtime=tmp_path / 'run', token=TOKEN,
-            name='training', desktop_network_id=NETWORK, published_tcp_ports=(5077,))
+            name='training', desktop_network_id=NETWORK)
     assert not (tmp_path / 'run').exists()
     command.assert_called_once_with('docker', 'network', 'inspect', NETWORK)
 
 
-def test_loopback_tcp_access_does_not_expose_mavlink_or_video_udp(tmp_path, monkeypatch):
+def test_internal_network_does_not_publish_flight_or_api_ports(tmp_path, monkeypatch):
     monkeypatch.setattr(host, 'command', Mock(return_value=json.dumps([network()])))
     args = host.simulation_launch_args('sih', {'image_id': 'synthetic-image'}, None, runtime=tmp_path, token=TOKEN,
-        name='training', desktop_network_id=NETWORK, published_tcp_ports=(5077, 3040))
+        name='training', desktop_network_id=NETWORK)
     assert args[args.index('--network') + 1] == NETWORK
-    assert [args[i + 1] for i, arg in enumerate(args) if arg == '--publish'] == [
-        '127.0.0.1:5077:5077/tcp', '127.0.0.1:3040:3040/tcp']
+    assert '--publish' not in args and '-p' not in args
     assert not any('/udp' in arg for arg in args)
-
-
-@pytest.mark.parametrize('ports', [(True,), (80,), (65536,), (5077, 5077), ('5077',)])
-def test_invalid_publication_refuses(tmp_path, monkeypatch, ports):
-    monkeypatch.setattr(host, 'command', Mock(return_value=json.dumps([network()])))
-    with pytest.raises(ValueError):
-        host.simulation_launch_args('sih', {}, None, runtime=tmp_path, token=TOKEN,
-            name='training', desktop_network_id=NETWORK, published_tcp_ports=ports)
 
 
 def test_network_cleanup_requires_no_attached_containers(monkeypatch):
@@ -66,6 +57,3 @@ def test_network_cleanup_requires_no_attached_containers(monkeypatch):
 def test_network_none_remains_the_default(tmp_path):
     args = host.simulation_launch_args('sih', {}, None, runtime=tmp_path, token=TOKEN, name='training')
     assert args[args.index('--network') + 1] == 'none'
-    with pytest.raises(ValueError):
-        host.simulation_launch_args('sih', {}, None, runtime=tmp_path, token=TOKEN,
-                                    name='training', published_tcp_ports=(5077,))

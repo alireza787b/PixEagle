@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import configparser
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -120,13 +121,28 @@ def wait_backend(runtime, *, timeout=75):
     raise TimeoutError(last)
 
 
+def stop_relay(relay):
+    """Reap the owned relay even if it exits during signal escalation."""
+    try:
+        os.killpg(relay.pid, signal.SIGTERM)
+        relay.wait(timeout=5)
+    except ProcessLookupError:
+        relay.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(relay.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        relay.wait(timeout=5)
+
+
 def run(args):
     runtime = args.runtime.absolute()
     if runtime.exists():
         raise ValueError('Choose a fresh runtime directory; existing evidence is never overwritten')
     display_mounts()
     for dependency in (args.python, args.router, args.qgc, args.bin_dir / 'mavlink2rest',
-                       args.bin_dir / 'mavsdk_server_bin', args.qgc.parent / 'qt.conf'):
+                       args.bin_dir / 'mavsdk_server_bin', args.qgc.parent / 'qt.conf', args.tcp_relay):
         if not dependency.is_file():
             raise ValueError(f'Training dependency is unavailable: {dependency}')
     for port in (args.port,):
@@ -146,6 +162,7 @@ def run(args):
         (runtime / 'qgc' / part).mkdir(parents=True, mode=0o700)
     token = uuid.uuid4().hex
     network_id = None
+    relay = None
     containers = []
     receipt = dict(kind='isolated-gazebo-training-v1', source_commit=host.command('git', '-C', str(ROOT), 'rev-parse', 'HEAD'),
         scenario=scenario, firmware_build=baseline, commands_blocked_at_start=True,
@@ -156,7 +173,7 @@ def run(args):
         receipt['network_id'] = network_id
         launch = host.simulation_launch_args(simulator, baseline, manifest, runtime=runtime, token=token,
             name='pixeagle-training-px4-' + token[:12], gazebo_scenario=args.scenario,
-            desktop_network_id=network_id, published_tcp_ports=(args.port,))
+            desktop_network_id=network_id)
         image_index = launch.index(baseline['image_id'])
         launch[image_index:image_index] = display_mounts()
         primary = host.command(*launch)
@@ -175,7 +192,7 @@ def run(args):
                     baseline=baseline, manifest=manifest, scenario=scenario)
                 checked = verify_gazebo_runtime(primary, 0, os.getuid(), process, manifest,
                     packaged=args.build_manifest.parent / 'packaged', scenario=scenario)
-                write(runtime / 'simulator-ready.json', dict(process=process, gazebo=checked))
+                write(runtime / 'simulator-ready.json', dict(process=process, gazebo=checked, container=info))
                 break
             except (subprocess.SubprocessError, ValueError) as error:
                 last = str(error)
@@ -194,6 +211,22 @@ def run(args):
                 GST_PLUGIN_SCANNER='/mnt/hostlibs/gstreamer1.0/gstreamer-1.0/gst-plugin-scanner'),
             host.WORKER_IMAGE, workdir=profile), 'bash', '/entry.sh')
         containers.append(worker)
+        write(runtime / 'run.json', receipt)
+        network = host.owned_internal_network_info(network_id, token)
+        info = host.owned_container_info(primary, token)
+        address = ipaddress.ip_address(info['NetworkSettings']['Networks'][network['Name']]['IPAddress'])
+        if not address.is_private or address.is_loopback or address.version != 4:
+            raise RuntimeError('Owned internal IPv4 address is unavailable')
+        relay_log = (runtime / 'api-relay.log').open('xb')
+        try:
+            relay = subprocess.Popen([str(args.tcp_relay),
+                f'TCP4-LISTEN:{args.port},bind=127.0.0.1,reuseaddr,fork',
+                f'TCP4:{address}:{args.port}'], stdout=relay_log, stderr=subprocess.STDOUT,
+                start_new_session=True)
+        finally:
+            relay_log.close()
+        receipt['api_relay'] = dict(pid=relay.pid, address=str(address), port=args.port,
+                                   executable=str(args.tcp_relay))
         write(runtime / 'run.json', receipt)
         wait_backend(profile)
         qt = args.qt.absolute()
@@ -216,11 +249,13 @@ def run(args):
                      'gz', 'sim', '-g')
         print(f'QGC opened. Backend: http://127.0.0.1:{args.port} · isolated simulation only', flush=True)
         print(f'Credentials and logs: {profile} · Ctrl-C closes this owned stack', flush=True)
-        while all(host.owned_container_info(cid, token)['State']['Running'] for cid in containers):
+        while relay.poll() is None and all(host.owned_container_info(cid, token)['State']['Running'] for cid in containers):
             time.sleep(1)
         raise RuntimeError('A training component stopped; inspect retained logs')
     finally:
         closed = []
+        if relay is not None:
+            stop_relay(relay)
         for cid in reversed(containers):
             try:
                 info = host.stop_owned_container(cid, token)
@@ -252,6 +287,7 @@ def main():
     parser.add_argument('--qgc', type=Path, required=True)
     parser.add_argument('--qt', type=Path, required=True)
     parser.add_argument('--gstreamer-lib', type=Path, required=True)
+    parser.add_argument('--tcp-relay', type=Path, required=True, help='Installed socat executable')
     parser.add_argument('--port', type=int, default=5077)
     args = parser.parse_args()
     if not args.execute:
