@@ -1,4 +1,9 @@
-"""Real local protocol reproductions of the actual observe/intent phase-exit race."""
+"""Synthetic current-protocol projection of a recorded observe/intent race.
+
+The immutable R5 fixture records protocol 3. Only this local test server's
+capabilities and reply envelopes use the current protocol; acquisition receipts,
+identities and race evidence remain recorded values. This is not a new PX4 capture.
+"""
 import asyncio
 from copy import deepcopy
 from dataclasses import replace
@@ -12,7 +17,9 @@ import pytest
 from classes.aircraft_state import AircraftState, AircraftStateOwner
 from classes.command_dispatch_guard import DispatchRefused, DispatchRefusalKind
 from classes.native_follow_binding import NativeFollowBinding
-from classes.native_guidance import NativeBackendRefusal, NativeCapabilities, NativeGuidanceClient, NativeGuidanceError
+from classes.native_guidance import (
+    PROTOCOL_VERSION, NativeBackendRefusal, NativeCapabilities, NativeGuidanceClient, NativeGuidanceError,
+)
 from classes.offboard_commander import OffboardCommander
 from classes.target_continuity import ContinuityContext, ContinuityPolicy, TargetContinuitySupervisor
 from tests.unit.core_app.test_fixed_wing_continuity import evidence
@@ -20,6 +27,7 @@ from tests.unit.core_app.test_native_follow_binding import CONFIG
 from tests.unit.followers.test_vector_guidance_session import session
 
 FIXTURE = json.loads((Path(__file__).parents[2] / 'fixtures/native/transition-intent-refusal-r5.json').read_text())
+PROJECTED_CAPABILITIES = FIXTURE['capabilities'] | {'multicopter_altitude_hold_supported': True}
 
 
 @pytest.fixture
@@ -36,7 +44,7 @@ async def race_server():
                 requests.append(request)
                 operation = request['operation']
                 if operation == 'hello':
-                    payload = FIXTURE['capabilities'] | (behavior['capabilities_changes'] if behavior['exited'] else {})
+                    payload = PROJECTED_CAPABILITIES | (behavior['capabilities_changes'] if behavior['exited'] else {})
                 elif operation == 'bind':
                     payload = {'bound': True}
                 elif operation == 'engage':
@@ -48,7 +56,8 @@ async def race_server():
                     if behavior['refusal_delay_s']:
                         await asyncio.sleep(behavior['refusal_delay_s'])
                     behavior['exited'] = True
-                    reply = {**FIXTURE['refusal']['value'], 'request_id': request['request_id'],
+                    reply = {**FIXTURE['refusal']['value'], 'protocol_version': PROTOCOL_VERSION,
+                             'request_id': request['request_id'],
                              'generation': request['generation']} | behavior['reply_changes']
                     for key in list(reply):
                         if reply[key] == '__missing__':
@@ -68,7 +77,7 @@ async def race_server():
                             await behavior['release'].wait()
                 else:
                     raise AssertionError('Unexpected write: ' + operation)
-                reply = dict(protocol_version=3, request_id=request['request_id'], generation=request['generation'],
+                reply = dict(protocol_version=PROTOCOL_VERSION, request_id=request['request_id'], generation=request['generation'],
                              success=True, payload=payload)
                 writer.write(json.dumps(reply).encode() + b'\n')
                 await writer.drain()
@@ -98,7 +107,7 @@ async def binding_for_race(race_server, monkeypatch):
     context = FIXTURE['released_observation']['value']['payload']['release_receipt']['acquisition']
     guidance, now, _ = session(state=state, session_id=context['identity']['follow_session_id'])
     now[0] = FIXTURE['released_observation']['value']['payload']['attitude_timing']['publication_received_at_monotonic_s'] + .001
-    guidance.phase_owner.capabilities = NativeCapabilities.from_payload(FIXTURE['capabilities'])
+    guidance.phase_owner.capabilities = NativeCapabilities.from_payload(PROJECTED_CAPABILITIES)
     states = AircraftStateOwner(clock=lambda: now[0])
     states.bind(state.binding)
     states.commit(state)
@@ -118,7 +127,7 @@ async def binding_for_race(race_server, monkeypatch):
     return binding, client, requests, behavior, intent, now
 
 
-async def test_actual_fw_observe_then_native_phase_exit_is_terminal_without_false_publication_failure(race_server, monkeypatch):
+async def test_recorded_fw_race_projected_to_current_protocol_is_terminal_without_false_publication_failure(race_server, monkeypatch):
     binding, client, requests, behavior, intent, now = await binding_for_race(race_server, monkeypatch)
     monkeypatch.setattr('classes.offboard_commander.time', SimpleNamespace(monotonic=lambda: now[0]))
     events = []
@@ -161,7 +170,7 @@ async def test_actual_fw_observe_then_native_phase_exit_is_terminal_without_fals
     {'error_code': '__missing__'}, {'error_code': ''}, {'error_code': False},
     {'error_code': 'contains spaces'}, {'error_code': 'x' * 129},
     {'request_id': True}, {'request_id': 999}, {'generation': True}, {'generation': 999},
-    {'protocol_version': 2}, {'payload': {}},
+    {'protocol_version': 2}, {'protocol_version': 3}, {'payload': {}},
 ])
 async def test_malformed_refusal_never_starts_reconciliation(race_server, monkeypatch, changes):
     binding, client, requests, behavior, intent, _ = await binding_for_race(race_server, monkeypatch)
