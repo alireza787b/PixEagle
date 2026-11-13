@@ -3,8 +3,10 @@
 `tools/build_native_guidance.py --target gazebo` uses the existing simulator
 builder, source verification and artifact/image binding. It prepares or compiles
 firmware only; it never starts PX4, Gazebo or an adapter. SIH remains the default
-for existing callers. This recipe has software contract tests, not an actual
-Gazebo build or flight qualification.
+for existing callers. The initial 0001–0007 build and disarmed startup checks
+passed in `reports/native-guidance/gazebo-quadtailsitter-control-20261113-r1`
+and `reports/sitl/follower-consolidation-20261111/s7-gazebo-disarmed-runtime-r1`.
+These are build/startup evidence, not flight qualification.
 
 ## Inputs
 
@@ -86,14 +88,60 @@ The recipe fingerprint continues to include the shared builder source hash:
 old manifests remain bound to their original builder version, with no
 compatibility bypass or retroactive adoption.
 
+## Runtime verification
+
+The canonical native vector and ownership runners, and the shared isolated host,
+now use `simulation_build_manifest` / `--simulation-build-manifest` instead of
+`sih_build_manifest` / `--sih-build-manifest`. Update developer invocations of
+these tools together; historical report-owned scripts and their evidence remain
+bound to their original version. The separate SIH evidence gallery is unchanged.
+
+The manifest discriminant selects the existing strict SIH or Gazebo validator.
+There is no second model selector or transport configuration. Unknown kinds and
+Gazebo without a verified manifest are rejected. The builder and its fingerprint
+are unchanged; historical builds still require their exact reviewed authority.
+Explicit `build_repository` in the native verifier/source-contract helpers must
+identify that authority, never a fallback when current validation fails.
+
+For Gazebo, verification requires the exact packaged image ID and actual running
+PX4 executable hash, the isolated container, mapped native socket and aircraft
+UID. Read-only scene-info, topic-list and parameter probes must agree on
+`default`, `quadtailsitter_<instance>` and airframe 4018. Expected rotor/surface,
+VTOL-type and bridge-enable values come from unique unconditional literal
+`param set-default` declarations in the verified packaged airframe, not controller
+constants. Missing, inherited, computed or ambiguous values are refused. The
+packaged and runtime airframe hashes must also agree. The current declarations
+specify four motors and zero control surfaces. The full runtime model/world/server/plugin tree must match the build
+manifest, with the packaged resource paths in the PX4 process environment.
+The process transport partition must be nonempty; probes use that same partition.
+The source contract and pre-transition recheck use the same manifest kind.
+These probes publish no flight or scene-modification commands.
+
+SIH preserves its existing verified-binary contract for isolated composite
+ROS/adapter images, recording their actual runtime image separately. Gazebo's
+packaged image requirement also owns its model/plugin dependencies. The shared
+host derives Gazebo startup from that manifest, with a private writable workdir,
+operator UID, isolated network, transport partition and existing owned cleanup.
+`simulation_launch_args` is the same primary launch seam used by the host and
+native baseline tools. An explicit requested model must agree with the verified
+Gazebo manifest; conflicts are rejected before staging or launch. Omitting the
+model selects the manifest-derived Gazebo model or the existing SIH quad default.
+This keeps callers that explicitly require SIH quad from launching a VTOL model.
+Verified SIH builds also receive a private writable
+rootfs and operator UID; the compatibility-image launch is unchanged. Optional
+literal `PX4_PARAM_*` startup values are validated as finite numbers here; the
+caller must restrict fixture parameter names/bounds and read back the values.
+The pinned rcS applies them before Navigator, with no mid-flight parameter write.
+Shared `owned_container_info` and `stop_owned_container` helpers verify the
+original full container ID and ownership token; stopping rechecks identity and
+stopped state without removing the container or prescribing log policy.
+This does not qualify the legacy MC worker on a VTOL model or bypass App admission.
+
 ## Next gates
 
-No flight runner is changed here. It still rejects non-SIH models. Before any
-Gazebo qualification, extend the existing verifier to bind the actual Gazebo
-process/world/model and packaged resources while retaining network isolation,
-no hardware/published ports, aircraft UID/socket/binary checks and owned cleanup.
-Keep actual PX4 pose and independent Gazebo truth with measured clock/frame
-alignment, and seal ULogs before cleanup.
+No simulator launch or flight was performed for this verifier extension. Keep
+actual PX4 pose and independent Gazebo truth with measured clock/frame alignment,
+and seal ULogs before cleanup.
 
 First establish native MC Hold, front transition, FW Hold, back transition and
 MC Hold without follower ownership. Preserve the Duo failure evidence and

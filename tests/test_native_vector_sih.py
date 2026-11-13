@@ -4,6 +4,7 @@ from copy import deepcopy
 from dataclasses import asdict, replace
 import asyncio
 import json
+import hashlib
 import math
 import socket
 import subprocess
@@ -244,6 +245,7 @@ def test_pilot_source_contract_reads_attested_constants_not_numeric_guesses(tmp_
     message.write_text('uint8 VEHICLE_TYPE_ROTARY_WING = 21\nuint8 VEHICLE_TYPE_FIXED_WING = 22\n')
     verify = Mock()
     monkeypatch.setattr('tools.sih_baseline.verify_source', verify)
+    monkeypatch.setattr(tool, 'verified_simulation_build', lambda path, **_: ('sih', {'manifest': str(path)}, {}))
     authority = {'build_repository': tmp_path/'authority'} if explicit_authority else {}
     contract = tool.transition_source_contract({'firmware_build': {'manifest': str(tmp_path/'sih-build-manifest.json')}}, **authority)
     assert contract['vehicle_types'] == {'multicopter': 21, 'fixed_wing': 22}
@@ -276,7 +278,7 @@ def test_pilot_cli_rechecks_exact_runtime_and_opposite_actual_phase_once(tmp_pat
     authority = {'build_repository': tmp_path/'authority'} if explicit_authority else {}
     result = tool.native_pilot_transition(path, isolation, event, AirframePhase.MULTICOPTER, contract, **authority)
     verifier.assert_called_once_with('verified-container', 7, path,
-        sih_build_manifest=tmp_path/'sih-build-manifest.json', **authority)
+        simulation_build_manifest=tmp_path/'sih-build-manifest.json', **authority)
     assert cli.call_args.args[0] == ('docker', 'exec', '--user', str(path.stat().st_uid), 'verified-container',
         '/firmware/bin/px4-commander', '--instance', '7', 'transition')
     assert cli.call_count == 1 and result['before_vehicle_status'] == status
@@ -1492,7 +1494,9 @@ def test_source_build_verifies_actual_process_bytes_without_a_checkout_path_conv
     path = tmp_path / 'native.sock'
     with socket.socket(socket.AF_UNIX) as listener:
         listener.bind(str(path))
-        baseline = {'binary_sha256': 'a'*64, 'kind': 'verified_source_build'}
+        (tmp_path/'manifest.json').write_text(json.dumps({'kind': 'pixeagle_sih_build'}))
+        baseline = {'binary_sha256': 'a'*64, 'kind': 'verified_source_build',
+                    'manifest_sha256': hashlib.sha256((tmp_path/'manifest.json').read_bytes()).hexdigest()}
         validator = Mock(return_value=baseline)
         monkeypatch.setattr('tools.sih_baseline.validate_build_manifest', validator)
         authority = {'build_repository': tmp_path/'authority'} if explicit_authority else {}
@@ -1513,12 +1517,12 @@ def test_source_build_verifies_actual_process_bytes_without_a_checkout_path_conv
 
         monkeypatch.setattr('tools.run_native_vector_sih.command', read_command)
         if matching:
-            result = verify_simulator('sim', 0, path, sih_build_manifest=tmp_path/'manifest.json', **authority)
+            result = verify_simulator('sim', 0, path, simulation_build_manifest=tmp_path/'manifest.json', **authority)
             assert result['firmware_build'] is baseline
             assert result['native_socket'] == '/runtime/native.sock'
         else:
             with pytest.raises(ValueError, match='differs from the verified source build'):
-                verify_simulator('sim', 0, path, sih_build_manifest=tmp_path/'manifest.json', **authority)
+                verify_simulator('sim', 0, path, simulation_build_manifest=tmp_path/'manifest.json', **authority)
         validator.assert_called_once_with(tmp_path/'manifest.json',
             **({'repository': authority['build_repository']} if explicit_authority else {}))
 
@@ -1564,15 +1568,15 @@ def test_real_derived_manifest_requires_explicit_context_without_changing_defaul
             listener.bind(str(path))
             for supplied in [{}, {'build_repository':ROOT}]:
                 with pytest.raises(ValueError, match='reviewed build recipe'):
-                    verify_simulator('sim',0,path,sih_build_manifest=manifest_path,**supplied)
+                    verify_simulator('sim',0,path,simulation_build_manifest=manifest_path,**supplied)
             assert not any('python3' in call for call in calls)
-            checked = verify_simulator('sim',0,path,sih_build_manifest=manifest_path,build_repository=authority)
+            checked = verify_simulator('sim',0,path,simulation_build_manifest=manifest_path,build_repository=authority)
             assert checked['firmware_build']['firmware']['extension_sha256'] == manifest['firmware']['extension_sha256']
             assert checked['image_id'] != checked['firmware_build']['image_id']
             assert checked['process']['binary_sha256'] == manifest['artifacts']['binary_sha256']
             assert tool.ROOT == original_root
             with pytest.raises(ValueError, match='reviewed build recipe'):
-                verify_simulator('sim',0,path,sih_build_manifest=manifest_path)
+                verify_simulator('sim',0,path,simulation_build_manifest=manifest_path)
 
 
 def test_vtol_component_group_requires_settled_strategies_without_transition_pursuit():

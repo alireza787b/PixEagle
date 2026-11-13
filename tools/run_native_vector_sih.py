@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Exercise production native guidance components on an already airborne SIH.
+"""Exercise production native guidance on an already airborne isolated simulator.
 
 Dry-run by default. This tool never arms, takes off or flashes. An explicitly
-declared pilot_transition stimulus toggles only the verified isolated SIH.
-It verifies an isolated Docker SIH process before acquiring native authority.
+declared pilot_transition stimulus toggles only the verified isolated simulator.
+It verifies the Docker SIH/Gazebo process before acquiring native authority.
 The HTTP/App startup path is outside this component-level qualification.
 """
 
@@ -49,6 +49,7 @@ from classes.tracker_output import TrackerDataType, TrackerOutput  # noqa: E402
 from tools.fixed_camera_bearing_fixture import FixedCameraBearingFixture  # noqa: E402
 from tools.gimbal_bearing_fixture import GimbalBearingFixture  # noqa: E402
 from tools.fixed_camera_world_target import FixedCamera  # noqa: E402
+from tools.sih_isolated_host import verified_simulation_build  # noqa: E402
 from tools.native_sih_wire import WireRecorder, archive_wire_helper  # noqa: E402
 
 
@@ -416,7 +417,11 @@ def transition_source_contract(isolation, *, build_repository: Path | None = Non
     if not build:
         raise ValueError("native_component_transition_requires_verified_source_build")
     source = Path(build["manifest"]).resolve().parent / "context/source"
-    verify_source(source, ROOT if build_repository is None else build_repository, verify_extension)
+    simulator, checked, _ = verified_simulation_build(Path(build["manifest"]), repository=build_repository)
+    if checked != build:
+        raise ValueError("native_component_transition_build_changed")
+    verify_source(source, ROOT if build_repository is None else build_repository, verify_extension,
+                  **({} if simulator == "sih" else {"simulator": simulator}))
     message = source / "msg/versioned/VehicleStatus.msg"
     fields = {}
     for phase, name in (("multicopter", "VEHICLE_TYPE_ROTARY_WING"), ("fixed_wing", "VEHICLE_TYPE_FIXED_WING")):
@@ -430,11 +435,12 @@ def transition_source_contract(isolation, *, build_repository: Path | None = Non
 def native_pilot_transition(socket, isolation, event, initial_phase, contract, *, build_repository: Path | None = None):
     """One opposite-phase simulator CLI request; a zero exit is not phase proof."""
     if build_repository is not None and not (isolation.get("firmware_build") or {}).get("manifest"):
-        raise ValueError("An explicit SIH build repository requires a verified build manifest")
+        raise ValueError("An explicit simulation build repository requires a verified build manifest")
     authority = {} if build_repository is None else {"build_repository": build_repository}
     checked = verify_simulator(isolation["container_id"], isolation["instance"], socket,
-        sih_build_manifest=Path(isolation["firmware_build"]["manifest"]), **authority)
-    if any(checked[key] != isolation[key] for key in ("container_id", "image_id", "aircraft_uid")):
+        simulation_build_manifest=Path(isolation["firmware_build"]["manifest"]), **authority)
+    if (any(checked[key] != isolation[key] for key in ("container_id", "image_id", "aircraft_uid"))
+            or checked.get("firmware_build") != isolation.get("firmware_build")):
         raise ValueError("native_component_transition_simulator_changed")
     executable = Path(isolation["process"]["args"][0])
     prefix = ("docker", "exec", "--user", str(socket.stat().st_uid), isolation["container_id"])
@@ -768,20 +774,103 @@ async def cleanup_component_run(commander, binding, fault_injection, result):
                 result["fault_events"] = fault_injection.events
 
 
-def verify_simulator(container: str, instance: int, socket: Path, *, sih_build_manifest: Path | None = None,
+def gazebo_airframe_identity(manifest: dict, packaged: Path) -> tuple[dict, str, str]:
+    """Read only literal identity declarations from the attested packaged airframe."""
+    airframe_id = manifest["build"]["airframe_id"]
+    names = [name for name in manifest["artifacts"]["etc"]
+             if re.fullmatch(rf"init\.d-posix/airframes/{airframe_id}_[A-Za-z0-9_]+", name)]
+    if len(names) != 1:
+        raise ValueError("Gazebo packaged airframe identity is ambiguous")
+    name = names[0]
+    path = packaged / "etc" / name
+    checksum = manifest["artifacts"]["etc"][name].get("sha256")
+    if path.is_symlink() or hashlib.sha256(path.read_bytes()).hexdigest() != checksum:
+        raise ValueError("Gazebo packaged airframe differs from the verified manifest")
+    lines = [line.split("#", 1)[0].strip() for line in path.read_text().splitlines()]
+    if any(re.match(r"^(?:if|elif|else|fi|case|esac|for|while|until|do|done|function)\b", line) for line in lines):
+        raise ValueError("Gazebo airframe identity requires unconditional literal declarations")
+    expected = {"SYS_AUTOSTART": airframe_id}
+    for key in ("CA_ROTOR_COUNT", "CA_SV_CS_COUNT", "VT_TYPE", "SIM_GZ_EN"):
+        declarations = [line for line in lines if re.search(rf"\b{key}\b", line)]
+        match = (re.fullmatch(rf"param\s+set-default\s+{key}\s+([+-]?[0-9]+)", declarations[0])
+                 if len(declarations) == 1 else None)
+        if match is None:
+            raise ValueError(f"Gazebo airframe identity declaration is missing or ambiguous: {key}")
+        expected[key] = int(match.group(1))
+    return expected, name, checksum
+
+
+def verify_gazebo_runtime(container, instance, uid, process, manifest, *, packaged: Path):
+    """Read the locked scene, resource bytes and allocator identity; send no control."""
+    spec = manifest["build"]
+    expected_parameters, airframe, airframe_sha256 = gazebo_airframe_identity(manifest, packaged)
+    model, world = f'{spec["model"]}_{instance}', spec["world"]
+    environment = process.get("environment", {})
+    required_environment = {
+        "PX4_GZ_WORLD": world,
+        "PX4_GZ_MODELS": "/opt/px4/gazebo/models",
+        "PX4_GZ_WORLDS": "/opt/px4/gazebo/worlds",
+        "GZ_SIM_RESOURCE_PATH": "/opt/px4/gazebo/models:/opt/px4/gazebo/worlds",
+        "GZ_SIM_SYSTEM_PLUGIN_PATH": "/opt/px4/gazebo/plugins",
+        "GZ_SIM_SERVER_CONFIG_PATH": "/opt/px4/gazebo/server.config",
+    }
+    if any(environment.get(key) != value for key, value in required_environment.items()):
+        raise ValueError("Gazebo process resource paths differ from the packaged build")
+    partition = environment.get("GZ_PARTITION")
+    if not isinstance(partition, str) or not partition.strip():
+        raise ValueError("Gazebo requires a nonempty process transport partition")
+    prefix = ("docker", "exec", "--user", str(uid), "-e", "GZ_PARTITION=" + partition, container)
+    # Inspect the container filesystem, including symlink targets and file modes.
+    script = """import hashlib,json,pathlib,sys
+base=pathlib.Path('/opt/px4/gazebo'); result={}
+for p in sorted(base.rglob('*')):
+ if p.is_symlink(): result[str(p.relative_to(base))]={'link':str(p.readlink())}
+ elif p.is_file(): result[str(p.relative_to(base))]={'sha256':hashlib.sha256(p.read_bytes()).hexdigest(),'executable':bool(p.stat().st_mode&0o111)}
+airframe=pathlib.Path('/opt/px4/etc')/sys.argv[1]
+print(json.dumps({'gazebo':result,'airframe_sha256':hashlib.sha256(airframe.read_bytes()).hexdigest()}))
+"""
+    observed = json.loads(command(*prefix, "python3", "-c", script, airframe))
+    resources = observed.get("gazebo")
+    if resources != manifest["artifacts"]["gazebo"] or observed.get("airframe_sha256") != airframe_sha256:
+        raise ValueError("Gazebo runtime resources differ from the verified build")
+    scene = command(*prefix, "gz", "service", "-s", f"/world/{world}/scene/info",
+                    "--reqtype", "gz.msgs.Empty", "--reptype", "gz.msgs.Scene", "--timeout", "2000", "--req", "")
+    models = re.findall(r'(?m)^model \{\n  name: "([^"\n]+)"\n', scene)
+    if sorted(models) != sorted(["ground_plane", model]):
+        raise ValueError("Gazebo scene does not contain only the locked aircraft and ground plane")
+    topics = command(*prefix, "gz", "topic", "-l")
+    observed_topics = set(topics.splitlines())
+    required_topics = {f"/world/{world}/pose/info", f"/world/{world}/dynamic_pose/info",
+                       f"/model/{model}/odometry_with_covariance",
+                       f"/world/{world}/model/{model}/link/base_link/sensor/imu_sensor/imu"}
+    if (not required_topics <= observed_topics
+            or set(re.findall(r"(?m)^/world/([^/]+)/", topics)) != {world}
+            or set(re.findall(r"/model/([^/]+)/", topics)) != {model}):
+        raise ValueError("Gazebo topics do not identify the locked world and model")
+    parameter_executable = str(Path(process["args"][0]).with_name("px4-param"))
+    parameters = command(*prefix, parameter_executable, "--instance", str(instance), "show")
+    for name, value in expected_parameters.items():
+        found = re.findall(rf"(?m)^\s*[x+* ]*{name}(?:\s+\[[^]\n]+\])?\s*:\s*(\S+)\s*$", parameters)
+        if found != [str(value)]:
+            raise ValueError(f"Gazebo aircraft parameter differs from the locked quad tailsitter: {name}")
+    return dict(model=model, world=world, parameters=parameters, scene=scene, topics=topics,
+                airframe=airframe, airframe_sha256=airframe_sha256, expected_parameters=expected_parameters,
+                resources_sha256=hashlib.sha256(json.dumps(resources, sort_keys=True).encode()).hexdigest())
+
+
+def verify_simulator(container: str, instance: int, socket: Path, *, simulation_build_manifest: Path | None = None,
                      build_repository: Path | None = None) -> dict:
-    if build_repository is not None and sih_build_manifest is None:
-        raise ValueError("An explicit SIH build repository requires a verified build manifest")
+    if build_repository is not None and simulation_build_manifest is None:
+        raise ValueError("An explicit simulation build repository requires a verified build manifest")
     info = json.loads(command("docker", "inspect", container))[0]
     if (info["HostConfig"]["NetworkMode"] != "none" or info["HostConfig"]["Privileged"]
             or info["HostConfig"].get("Devices") or info["NetworkSettings"]["Ports"]):
-        raise ValueError("SIH requires an isolated container without hardware or published ports")
-    baseline = None
-    if sih_build_manifest is not None:
-        from tools.sih_baseline import validate_build_manifest
-
-        baseline = (validate_build_manifest(sih_build_manifest) if build_repository is None
-                    else validate_build_manifest(sih_build_manifest, repository=build_repository))
+        raise ValueError("Simulation requires an isolated container without hardware or published ports")
+    simulator, baseline, manifest = "sih", None, None
+    if simulation_build_manifest is not None:
+        simulator, baseline, manifest = verified_simulation_build(simulation_build_manifest, repository=build_repository)
+        if simulator == "gazebo" and info["Image"] != baseline["image_id"]:
+            raise ValueError("Running simulator image differs from the verified source build")
     # Inspect the real process and inherited model, not an operator-supplied label.
     script = """import hashlib, json, pathlib, sys
 out=[]
@@ -790,7 +879,9 @@ for p in pathlib.Path('/proc').iterdir():
   args=(p/'cmdline').read_bytes().split(b'\\0'); args=[x.decode() for x in args if x]
   env=dict(x.split('=',1) for x in (p/'environ').read_bytes().decode().split('\\0') if '=' in x)
   if args and pathlib.Path(args[0]).name=='px4':
-   value=dict(args=args, model=env.get('PX4_SIM_MODEL'), cwd=str((p/'cwd').resolve()))
+   value=dict(args=args, model=env.get('PX4_SIM_MODEL'), cwd=str((p/'cwd').resolve()),
+              environment={k: env.get(k) for k in ('PX4_GZ_WORLD', 'PX4_GZ_MODELS', 'PX4_GZ_WORLDS',
+               'GZ_SIM_RESOURCE_PATH', 'GZ_SIM_SYSTEM_PLUGIN_PATH', 'GZ_SIM_SERVER_CONFIG_PATH', 'GZ_PARTITION')})
    if sys.argv[1]=='verify':
     value['binary_sha256']=hashlib.sha256((p/'exe').read_bytes()).hexdigest()
    out.append(value)
@@ -802,15 +893,21 @@ print(json.dumps(out))
                if "-i" in p["args"] and p["args"].index("-i") + 1 < len(p["args"])
                and p["args"][p["args"].index("-i") + 1] == str(instance)
                and (baseline is not None or p["args"][0].endswith('/build/px4_sitl_sih/bin/px4'))]
-    if len(matches) != 1 or not str(matches[0]["model"]).startswith("sihsim_"):
-        raise ValueError("An unambiguous running PX4 SIH instance is required")
+    if len(matches) != 1:
+        raise ValueError("An unambiguous running PX4 SIH or Gazebo instance is required")
     process = matches[0]
+    expected_model = "gz_" + manifest["build"]["model"] if simulator == "gazebo" else None
+    if (process["model"] != expected_model if expected_model else not str(process["model"]).startswith("sihsim_")):
+        raise ValueError("Running simulator model requires its matching verified build manifest")
     if baseline is not None and process.get("binary_sha256") != baseline["binary_sha256"]:
-        raise ValueError("Running SIH binary differs from the verified source build")
+        raise ValueError("Running simulator binary differs from the verified source build")
     mapped = [str(Path(m["Destination"]) / socket.resolve().relative_to(Path(m["Source"])))
               for m in info["Mounts"] if socket.resolve().is_relative_to(Path(m["Source"]))]
     if len(mapped) != 1 or not socket.is_socket():
         raise ValueError("Native socket must be in the verified simulation container bind mount")
+    gazebo = (verify_gazebo_runtime(container, instance, socket.stat().st_uid, process, manifest,
+                                    packaged=Path(baseline["manifest"]).parent / "packaged")
+              if simulator == "gazebo" else None)
     listener = str(Path(process["args"][0]).with_name("px4-listener"))
     status = command("docker", "exec", "--user", str(socket.stat().st_uid), container, listener, "--instance", str(instance),
                      "fixed_wing_guidance_status", "-n", "1")
@@ -819,7 +916,7 @@ print(json.dumps(out))
         raise ValueError("Simulator aircraft UID is unavailable")
     return dict(container_id=info["Id"], image_id=info["Image"], instance=instance,
                 process=process, aircraft_uid=uid.group(1), native_socket=mapped[0],
-                initial_native_status=status, firmware_build=baseline)
+                initial_native_status=status, firmware_build=baseline, simulator=simulator, gazebo=gazebo)
 
 
 def stable_window(states: list[AircraftState], *, minimum_relative_altitude_m=15., expected_altitude_m=None,
@@ -1467,7 +1564,7 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--follower", default="gm_velocity_vector", help="Registered native FW profile; input follows its declared contract")
     parser.add_argument("--config", type=Path, default=ROOT / "configs/config_default.yaml")
-    parser.add_argument("--sih-build-manifest", type=Path, help="Verify the running executable against a pinned source-built SIH bundle")
+    parser.add_argument("--simulation-build-manifest", type=Path, help="Verify the running executable against a pinned source-built SIH or Gazebo bundle")
     parser.add_argument("--scenario", type=Path, help="Version-2 world-target YAML; must match mount, altitude and actual airframe")
     parser.add_argument("--target-clock", type=Path, help="Immutable original YAML/target/host-clock artifact shared across explicit Starts")
     parser.add_argument("--expect-handoff", help="Expected production reason code; an absent or different handoff fails the test")
@@ -1494,7 +1591,7 @@ def main():
             target_clock.require_matching_target(yaml.safe_load(args.scenario.read_text()))
     except ValueError as error:
         parser.error(str(error))
-    isolation = verify_simulator(args.container, args.instance, args.socket, sih_build_manifest=args.sih_build_manifest)
+    isolation = verify_simulator(args.container, args.instance, args.socket, simulation_build_manifest=args.simulation_build_manifest)
     if not args.execute:
         print(json.dumps(dict(execute=False, isolation=isolation), indent=2))
         return

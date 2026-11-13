@@ -366,7 +366,7 @@ def main() -> int:
     modes.add_argument("--validate-existing", action="store_true", help="Read captured scenario and regenerate its validated report without running SIH")
     parser.add_argument("--enable-altitude-control", action="store_true")
     parser.add_argument("--scenario", type=Path, help="Explicit supported world-target YAML for this profile")
-    parser.add_argument("--sih-build-manifest", type=Path,
+    parser.add_argument("--simulation-build-manifest", type=Path,
                         help="Verified source-build manifest for isolated MC SIH; omission retains compatibility baseline")
     parser.add_argument("--telemetry-source", choices=("mavlink2rest", "mavsdk"), default="mavlink2rest",
                         help="Stage the existing MC follower telemetry setting; independent evidence still uses REST")
@@ -379,7 +379,7 @@ def main() -> int:
     if args.validate_existing:
         if args.evidence_root is None or not args.evidence_root.is_dir():
             parser.error("--validate-existing requires --evidence-root pointing to an existing run directory")
-        if (args.scenario is not None or args.enable_altitude_control or args.sih_build_manifest is not None
+        if (args.scenario is not None or args.enable_altitude_control or args.simulation_build_manifest is not None
                 or args.telemetry_source != "mavlink2rest"):
             parser.error("--validate-existing uses the captured scenario; run/configuration overrides are unavailable")
         scenario = VisualizationScenario.from_yaml(args.evidence_root / "scenario.yaml")
@@ -413,12 +413,12 @@ def main() -> int:
             parser.error("--enable-altitude-control requires an altitude-enabled velocity scenario with vertical stimulus")
     elif args.scenario is not None:
         parser.error("Custom scenarios are supported by the MC runner only; use the native FW runner separately")
-    if args.sih_build_manifest is not None and mc_input_family(args.follower) is None:
-        parser.error("--sih-build-manifest is supported by the isolated MC runner only")
+    if args.simulation_build_manifest is not None and mc_input_family(args.follower) is None:
+        parser.error("--simulation-build-manifest is supported by the isolated MC runner only")
     if args.telemetry_source != "mavlink2rest" and mc_input_family(args.follower) is None:
         parser.error("--telemetry-source is supported by the isolated MC runner only")
-    if args.execute and mc_input_family(args.follower) == 'angles' and args.sih_build_manifest is None:
-        parser.error('Gimbal MC renewal requires --sih-build-manifest before execution')
+    if args.execute and mc_input_family(args.follower) == 'angles' and args.simulation_build_manifest is None:
+        parser.error('Gimbal MC renewal requires --simulation-build-manifest before execution')
     if args.enable_altitude_control:
         scenario = replace(scenario, altitude_control=True)
     plan = validate_scenario(scenario)

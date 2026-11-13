@@ -270,14 +270,16 @@ def test_host_refuses_an_explicit_invalid_manifest_before_creating_evidence(tmp_
         raise ValueError("invalid SIH build")
 
     monkeypatch.setattr(sih_baseline, "validate_build_manifest", invalid)
+    (tmp_path / "wrong.json").write_text(json.dumps({"kind": "pixeagle_sih_build"}))
     args = argparse.Namespace(execute=True, backend_repo=tmp_path, output=tmp_path / "evidence",
-                              sih_build_manifest=tmp_path / "wrong.json")
+                              simulation_build_manifest=tmp_path / "wrong.json")
     with pytest.raises(ValueError, match="invalid SIH"):
         sih_isolated_host.host(args, driver_path=tmp_path / "driver.py")
     assert not args.output.exists()
 
 
-def test_host_launches_explicit_verified_immutable_id_and_records_selection(tmp_path, monkeypatch):
+@pytest.mark.parametrize("simulator", ["sih", "gazebo"])
+def test_host_launches_explicit_verified_immutable_id_and_records_selection(tmp_path, monkeypatch, simulator):
     repo = tmp_path / "source"
     for name in ("src/classes/app_controller.py", "tools/sitl_gimbal_geometry_fixture.py"):
         path = repo / name
@@ -290,8 +292,11 @@ def test_host_launches_explicit_verified_immutable_id_and_records_selection(tmp_
     bin_dir.mkdir()
     for name in ("mavsdk_server_bin", "mavlink2rest"):
         (bin_dir / name).write_text("sidecar fixture")
-    selected = {"kind": "verified_source_build", "image_id": IMAGE_ID, "manifest_sha256": PIN}
-    monkeypatch.setattr(sih_baseline, "validate_build_manifest", lambda path: selected)
+    spec = json.loads((sih_baseline.ROOT / "native/dependencies.lock.json").read_text())[simulator + "_build"]
+    (tmp_path / "verified.json").write_text(json.dumps({"kind": f"pixeagle_{simulator}_build", "build": spec}))
+    selected = {"kind": "verified_source_build" if simulator == "sih" else "verified_gazebo_source_build",
+                "image_id": IMAGE_ID, "manifest_sha256": sih_baseline.digest(tmp_path / "verified.json")}
+    monkeypatch.setattr(sih_baseline, "validate_build_manifest", lambda path, **kwargs: selected)
 
     def host_command(*args):
         if args[0] == "git":
@@ -301,21 +306,31 @@ def test_host_launches_explicit_verified_immutable_id_and_records_selection(tmp_
         if args[:3] == ("docker", "image", "inspect"):
             return json.dumps([{"Id": IMAGE_ID}])
         if args[:2] == ("docker", "run"):
-            assert args[-1] == IMAGE_ID
+            assert IMAGE_ID in args
             assert args[args.index("--network") + 1] == "none"
+            assert not {"--privileged", "--device", "--publish", "-p"} & set(args)
+            if simulator == "gazebo":
+                assert args[args.index(IMAGE_ID) + 1:] == ("-i", "0", "-w", "/work/rootfs", "/opt/px4/etc")
+                assert "PX4_SIM_MODEL=gz_quadtailsitter" in args and "PX4_GZ_WORLD=default" in args
+                assert "--user" in args and "GZ_IP=127.0.0.1" in args
+                assert any(arg.startswith("GZ_PARTITION=") for arg in args)
+            else:
+                assert args[args.index(IMAGE_ID) + 1:] == ("-i", "0", "-w", "/work/rootfs", "/opt/px4/etc")
+                assert "PX4_SIM_MODEL=sihsim_quadx" in args and "--user" in args
             raise RuntimeError("fixture stops before launching any process")
         raise AssertionError(args)
 
     monkeypatch.setattr(sih_isolated_host, "command", host_command)
     monkeypatch.setattr(sih_isolated_host.subprocess, "run", lambda *args, **kwargs: SimpleNamespace(returncode=1))
     args = argparse.Namespace(execute=True, backend_repo=repo, output=tmp_path / "evidence",
-                              sih_build_manifest=tmp_path / "verified.json", python=Path(sys.executable),
+                              simulation_build_manifest=tmp_path / "verified.json", python=Path(sys.executable),
                               bin_dir=bin_dir, follower="mc_velocity_position", mount="HORIZONTAL")
     with pytest.raises(RuntimeError, match="fixture stops"):
         sih_isolated_host.host(args, driver_path=repo / "src/classes/app_controller.py")
     retained = json.loads((args.output / "manifest.json").read_text())
     assert retained["sih_baseline"] == selected
     assert retained["px4_image"] == IMAGE_ID
+    assert retained["simulator"] == simulator
 
 
 @pytest.fixture

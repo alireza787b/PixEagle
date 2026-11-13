@@ -111,6 +111,7 @@ def test_source_contract_reads_verified_constants_not_runtime_guesses(tmp_path, 
     (root / 'OwnedModeStatus.msg').write_text('uint8 STATE_ACQUIRED = 41\nuint8 STATE_SUPERSEDED = 42\n')
     verify = Mock()
     monkeypatch.setattr(tool, 'verify_source', verify)
+    monkeypatch.setattr(tool, 'verified_simulation_build', lambda _: ('sih', {}, {}))
     result = tool.source_contract(tmp_path / 'sih-build-manifest.json')
     assert result['external1'] == 31
     assert result['hold'] == 43
@@ -125,7 +126,7 @@ async def test_dry_run_never_opens_owner_or_creates_output(tmp_path, monkeypatch
     monkeypatch.setattr(tool, 'NativeGuidanceClient', acquire)
     output = tmp_path / 'evidence'
     assert tool.main(['--case', 'normal_stop', '--container', 'isolated', '--instance', '1',
-                      '--socket', str(tmp_path / 'native.sock'), '--sih-build-manifest', str(tmp_path / 'build.json'),
+                      '--socket', str(tmp_path / 'native.sock'), '--simulation-build-manifest', str(tmp_path / 'build.json'),
                       '--output', str(output)]) == 0
     assert json.loads(capsys.readouterr().out)['execute'] is False
     assert not output.exists()
@@ -139,7 +140,7 @@ def test_execute_is_required_for_every_case(case, tmp_path, monkeypatch):
     run = Mock(side_effect=AssertionError('no execution without --execute'))
     monkeypatch.setattr(tool, 'run', run)
     assert tool.main(['--case', case, '--container', 'isolated', '--instance', '1',
-                      '--socket', str(tmp_path / 'native.sock'), '--sih-build-manifest', str(tmp_path / 'build.json'),
+                      '--socket', str(tmp_path / 'native.sock'), '--simulation-build-manifest', str(tmp_path / 'build.json'),
                       '--output', str(tmp_path / case)]) == 0
     run.assert_not_called()
 
@@ -405,6 +406,7 @@ def test_pinned_enum_inline_comment_keeps_integer_validation(tmp_path, monkeypat
     (root / 'VehicleStatus.msg').write_text('uint8 NAVIGATION_STATE_EXTERNAL1 = 23\n' + hold_line + '\n')
     (root / 'OwnedModeStatus.msg').write_text('uint8 STATE_ACQUIRED = 2 # acquired\nuint8 STATE_SUPERSEDED = 8\n')
     monkeypatch.setattr(tool, 'verify_source', Mock())
+    monkeypatch.setattr(tool, 'verified_simulation_build', lambda _: ('sih', {}, {}))
     if accepted:
         assert tool.source_contract(tmp_path / 'sih-build-manifest.json')['hold'] == 4
     else:
@@ -705,7 +707,7 @@ def test_restart_dry_run_pins_helper_but_never_creates_a_backend(tmp_path, monke
     output = tmp_path / 'capture'
     assert tool.main(['--case', 'adapter_process_restart', '--airframe', 'settled_vtol_mc',
         '--restart-plan', str(args.restart_plan), '--socket', str(args.socket), '--container', 'owned-container',
-        '--instance', '0', '--sih-build-manifest', str(tmp_path / 'build.json'), '--output', str(output)]) == 0
+        '--instance', '0', '--simulation-build-manifest', str(tmp_path / 'build.json'), '--output', str(output)]) == 0
     assert json.loads(capsys.readouterr().out)['execute'] is False
     forbidden.assert_not_called()
     assert not output.exists()
@@ -849,7 +851,7 @@ async def test_restart_separates_unknown_a_from_clean_backend_c_without_an_extra
     monkeypatch.setattr(tool, 'stale_original_probes', AsyncMock())
     monkeypatch.setattr(tool.subprocess, 'run', child)
     args = SimpleNamespace(output=tmp_path, container='owned', instance=0, socket=tmp_path / 'native.sock',
-        sih_build_manifest=tmp_path / 'build.json', config=tmp_path / 'config.yaml', follower='gm_velocity_vector',
+        simulation_build_manifest=tmp_path / 'build.json', config=tmp_path / 'config.yaml', follower='gm_velocity_vector',
         duration=3., test_altitude=30., stable_timeout=90., case='adapter_process_restart')
     progress = {'original_cleanup_read_only': False}
     call = tool.process_restart(args, {}, session, accepted_wire(original), lambda *args: 1., progress,
@@ -1209,7 +1211,7 @@ def test_restart_cli_still_refuses_every_non_mc_airframe_before_external_operati
         tool.main(['--case', 'adapter_process_restart', '--airframe', airframe,
             '--restart-plan', str(tmp_path / 'plan.json'), '--socket', str(tmp_path / 'native.sock'),
             '--container', 'synthetic-fixture', '--instance', '0',
-            '--sih-build-manifest', str(tmp_path / 'manifest.json'), '--output', str(tmp_path / 'output')])
+            '--simulation-build-manifest', str(tmp_path / 'manifest.json'), '--output', str(tmp_path / 'output')])
     assert error.value.code == 2
     assert 'adapter_process_restart requires --airframe settled_vtol_mc' in capsys.readouterr().err
     forbidden.assert_not_called()

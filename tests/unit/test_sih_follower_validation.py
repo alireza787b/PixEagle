@@ -98,7 +98,7 @@ def test_readonly_cli_rejects_optional_profile_mismatch_without_changing_capture
 
 
 @pytest.mark.parametrize("extra", [["--execute"], ["--enable-altitude-control"], ["--scenario", "other.yaml"],
-                                   ["--sih-build-manifest", "other.json"], ["--telemetry-source", "mavsdk"]])
+                                   ["--simulation-build-manifest", "other.json"], ["--telemetry-source", "mavsdk"]])
 def test_readonly_cli_excludes_execution_and_capture_overrides(tmp_path, monkeypatch, readonly_cli, extra):
     native_case(tmp_path)
     before = raw_capture_bytes(tmp_path)
@@ -149,7 +149,7 @@ def test_gimbal_dryrun_uses_declared_family_without_profile_dispatch_list(
     scenario = ROOT / f'tools/sih_visualization_scenarios/{profile}-qualification-{mount}-{altitude}.yaml'
     monkeypatch.setattr(readonly_cli, 'PROFILE_SCENARIOS', {})
     monkeypatch.setattr(sys, 'argv', ['runner', '--follower', profile, '--scenario', str(scenario),
-        '--sih-build-manifest', 'not-read-in-dryrun.json', '--evidence-root', str(tmp_path / 'new')])
+        '--simulation-build-manifest', 'not-read-in-dryrun.json', '--evidence-root', str(tmp_path / 'new')])
     assert readonly_cli.main() == 0
     plan = json.loads(capsys.readouterr().out)
     assert plan['mode'] == 'dry_run'
@@ -186,7 +186,7 @@ def test_gimbal_fault_dry_run_is_validated_without_any_host_or_container_launch(
     scenario = tmp_path / 'fault.yaml'
     scenario.write_text(yaml.safe_dump(raw))
     monkeypatch.setattr(sys, 'argv', ['runner', '--follower', profile, '--scenario', str(scenario),
-        '--sih-build-manifest', 'not-read-before-scenario-validation.json', '--evidence-root', str(tmp_path / 'new')])
+        '--simulation-build-manifest', 'not-read-before-scenario-validation.json', '--evidence-root', str(tmp_path / 'new')])
     assert readonly_cli.main() == 0
     assert json.loads(capsys.readouterr().out)['mode'] == 'dry_run'
     readonly_cli.run_external.assert_not_called()

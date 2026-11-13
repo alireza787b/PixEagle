@@ -1,4 +1,4 @@
-"""Pinned, network-isolated SIH host lifecycle extracted from the historical QGC harness.
+"""Pinned, network-isolated simulator host lifecycle extracted from the historical QGC harness.
 
 S10 cleanup debt: consolidate remaining QGC/native launchers on this host boundary.
 This module owns only isolated processes/artifacts, never follower calculations.
@@ -9,6 +9,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
+import re
 import os
 from pathlib import Path
 import shlex
@@ -39,6 +41,116 @@ def write_json(path: Path, data: object) -> None:
     path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def verified_simulation_build(path: Path, *, repository: Path | None = None) -> tuple[str, dict, dict]:
+    """Select one strict builder from the manifest; no caller-supplied simulator kind."""
+    from tools.sih_baseline import validate_build_manifest
+
+    raw = Path(path).read_bytes()
+    manifest = json.loads(raw)
+    kinds = {"pixeagle_sih_build": "sih", "pixeagle_gazebo_build": "gazebo"}
+    kind = manifest.get("kind") if isinstance(manifest, dict) else None
+    simulator = kinds.get(kind) if isinstance(kind, str) else None
+    if simulator is None:
+        raise ValueError("Unknown simulation build manifest kind")
+    selection = {} if simulator == "sih" else {"simulator": simulator}
+    if repository is not None:
+        selection["repository"] = repository
+    verified = validate_build_manifest(path, **selection)
+    if verified["manifest_sha256"] != hashlib.sha256(raw).hexdigest():
+        raise ValueError("Simulation manifest changed during verification")
+    return simulator, verified, manifest
+
+
+def _simulation_model(simulator: str, manifest: dict | None, requested: str | None) -> str:
+    if simulator == "gazebo":
+        if not isinstance(manifest, dict) or not isinstance(manifest.get("build"), dict):
+            raise ValueError("Gazebo requires a verified Gazebo build manifest")
+        expected = "gz_" + manifest["build"]["model"]
+        if requested is not None and requested != expected:
+            raise ValueError("Requested simulator model differs from the verified Gazebo manifest")
+        return expected
+    model = "sihsim_quadx" if requested is None else requested
+    if simulator != "sih" or not isinstance(model, str) or not model.startswith("sihsim_"):
+        raise ValueError("Gazebo requires a verified Gazebo build manifest")
+    return model
+
+
+def simulation_launch_args(simulator: str, baseline: dict, manifest: dict | None, *,
+                           runtime: Path, token: str, name: str, model: str | None = None,
+                           startup_parameters: dict[str, str] | None = None) -> list[str]:
+    """Stage a private rootfs and plan the owned primary; never launch it.
+
+    Callers own the fixture parameter allowlist and native bounds. Values here
+    are literal finite numbers consumed by the pinned rcS before Navigator.
+    """
+    model = _simulation_model(simulator, manifest, model)
+    options = []
+    source_build = baseline.get("kind") in {"verified_source_build", "verified_gazebo_source_build"}
+    if startup_parameters and not source_build:
+        raise ValueError("Startup parameters require a verified source build")
+    for key, value in (startup_parameters or {}).items():
+        if (not isinstance(key, str) or re.fullmatch(r"[A-Z][A-Z0-9_]{0,31}", key) is None
+                or not isinstance(value, str) or re.fullmatch(r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?", value) is None
+                or not math.isfinite(float(value))):
+            raise ValueError("Startup parameter requires a literal name and finite numeric value")
+    if simulator == "gazebo":
+        if baseline.get("kind") != "verified_gazebo_source_build" or manifest is None:
+            raise ValueError("Gazebo requires a verified Gazebo build manifest")
+        spec = manifest["build"]
+        image = baseline["image_id"]
+        for key, value in {"GZ_IP": "127.0.0.1", "GZ_PARTITION": token,
+                           "GZ_DISTRO": spec["distribution"], "PX4_GZ_WORLD": spec["world"],
+                           "PX4_GZ_NO_FOLLOW": "1", "HEADLESS": "1"}.items():
+            options.extend(["-e", f"{key}={value}"])
+    elif simulator == "sih" and model.startswith("sihsim_"):
+        image = baseline.get("image_id", baseline.get("reference"))
+    else:
+        raise ValueError("Unsupported simulator launch plan")
+    if source_build:
+        work = runtime.resolve() / "simulator"
+        for directory in ("home", "rootfs"):
+            (work / directory).mkdir(parents=True, mode=0o700, exist_ok=True)
+        options.extend(["--user", f"{os.getuid()}:{os.getgid()}",
+            "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+            "--mount", f"type=bind,src={work},dst=/work", "--workdir", "/work/rootfs",
+            "-e", "HOME=/work/home"])
+    for key, value in sorted((startup_parameters or {}).items()):
+        options.extend(["--env", f"PX4_PARAM_{key}={value}"])
+    return ["docker", "run", "-d", "-i", "--name", name, "--label", f"{LABEL}={token}",
+            "--network", "none", "-e", f"PX4_SIM_MODEL={model}", *options, image,
+            *(["-i", "0", "-w", "/work/rootfs", "/opt/px4/etc"] if source_build else [])]
+
+
+def _require_owned_container(info: dict, token: str, container_id: str | None = None) -> dict:
+    if (not token or (info.get("Config", {}).get("Labels") or {}).get(LABEL) != token
+            or (container_id is not None and info.get("Id") != container_id)):
+        raise RuntimeError("Refusing cleanup: container ownership changed")
+    return info
+
+
+def owned_container_info(container_id: str, token: str) -> dict:
+    """Inspect only the original immutable container ID and its ownership token."""
+    if not isinstance(container_id, str) or re.fullmatch(r"[0-9a-f]{64}", container_id) is None:
+        raise ValueError("Owned container requires its original full container ID")
+    records = json.loads(command("docker", "inspect", container_id))
+    if len(records) != 1:
+        raise RuntimeError("Refusing cleanup: container identity is ambiguous")
+    return _require_owned_container(records[0], token, container_id)
+
+
+def stop_owned_container(container_id: str, token: str, *, timeout: int = 10) -> dict:
+    """Stop an original owned container; retain it and return verified final state."""
+    if type(timeout) is not int or not 1 <= timeout <= 45:
+        raise ValueError("Owned container stop timeout must be between 1 and 45 seconds")
+    before = owned_container_info(container_id, token)
+    if before["State"]["Running"]:
+        command("docker", "stop", "--time", str(timeout), container_id, timeout=timeout + 5)
+    after = owned_container_info(container_id, token)
+    if after["State"]["Running"]:
+        raise RuntimeError("Owned container did not stop")
+    return after
+
+
 def host(args: argparse.Namespace, *, driver_path: Path, configure=None) -> None:
     if not args.execute:
         raise SystemExit("Use --execute only for this isolated simulated-aircraft qualification.")
@@ -46,15 +158,15 @@ def host(args: argparse.Namespace, *, driver_path: Path, configure=None) -> None
     runtime = args.output.resolve()
     if runtime.exists():
         raise SystemExit("Use a new output directory; existing evidence is never overwritten.")
-    baseline_manifest = getattr(args, "sih_build_manifest", None)
+    baseline_manifest = getattr(args, "simulation_build_manifest", None)
     if baseline_manifest is not None:
-        from tools.sih_baseline import validate_build_manifest
-
-        baseline = validate_build_manifest(Path(baseline_manifest))
+        simulator, baseline, build_manifest = verified_simulation_build(Path(baseline_manifest))
         px4_image = baseline["image_id"]
     else:
+        simulator, build_manifest = "sih", None
         px4_image = PX4_IMAGE
         baseline = {"kind": "compatibility_image", "reference": px4_image}
+    simulator_model = _simulation_model(simulator, build_manifest, getattr(args, "simulator_model", None))
     for path in (
         repo / "src/classes/app_controller.py",
         args.python,
@@ -129,7 +241,8 @@ def host(args: argparse.Namespace, *, driver_path: Path, configure=None) -> None
         ).hexdigest(),
         "config_sha256": hashlib.sha256((runtime / "configs/config.yaml").read_bytes()).hexdigest(),
         "driver_sha256": hashlib.sha256((driver_path or Path(__file__)).read_bytes()).hexdigest(),
-        "simulator_model": getattr(args, "simulator_model", "sihsim_quadx"),
+        "simulator_model": simulator_model,
+        "simulator": simulator,
         "binary_checksums": {
             name: hashlib.sha256((args.bin_dir / name).read_bytes()).hexdigest()
             for name in ("mavsdk_server_bin", "mavlink2rest")
@@ -163,21 +276,8 @@ def host(args: argparse.Namespace, *, driver_path: Path, configure=None) -> None
         encoding="utf-8",
     )
     try:
-        command(
-            "docker",
-            "run",
-            "-d",
-            "-i",
-            "--name",
-            names[0],
-            "--label",
-            f"{LABEL}={token}",
-            "--network",
-            "none",
-            "-e",
-            f"PX4_SIM_MODEL={getattr(args, 'simulator_model', 'sihsim_quadx')}",
-            px4_image,
-        )
+        command(*simulation_launch_args(simulator, baseline, build_manifest,
+            runtime=runtime, token=token, name=names[0], model=simulator_model))
         python_root = args.python.absolute().parent.parent
         command(
             "docker",
@@ -253,9 +353,7 @@ def host(args: argparse.Namespace, *, driver_path: Path, configure=None) -> None
             )
             if probe.returncode != 0:
                 continue
-            info = json.loads(probe.stdout)[0]
-            if info["Config"]["Labels"].get(LABEL) != token:
-                raise RuntimeError(f"Refusing cleanup: container ownership changed for {name}")
+            info = _require_owned_container(json.loads(probe.stdout)[0], token)
             if name == names[0]:
                 try:
                     collect_px4_artifacts(name, runtime)
@@ -282,7 +380,7 @@ def collect_px4_artifacts(container: str, output: Path) -> None:
     """Retain actual simulator logs before the owned container is removed."""
     paths = command(
         "docker", "exec", container, "sh", "-c",
-        "find /root /home /tmp /workspace /PX4-Autopilot /src/PX4-Autopilot -type f -name '*.ulg' 2>/dev/null | head -20",
+        "find /work /root /home /tmp /workspace /PX4-Autopilot /src/PX4-Autopilot -type f -name '*.ulg' 2>/dev/null | head -20",
     ).splitlines()
     if not paths:
         raise RuntimeError("No PX4 ULog was retained by the isolated simulator")

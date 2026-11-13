@@ -74,6 +74,7 @@ from tools.run_native_vector_sih import (
     verify_simulator,
 )
 from tools.sih_baseline import verify_source
+from tools.sih_isolated_host import verified_simulation_build
 
 CASES = ('normal_stop', 'confirmed_owner_eof', 'same_mode_reselection', 'stale_cleanup_new_acquisition',
          'adapter_process_restart')
@@ -126,7 +127,8 @@ async def restart_step(args, isolation, log, operation):
 def source_contract(manifest_path: Path) -> dict:
     """Use constants from the exact verified source, never an assumed registration."""
     source = manifest_path.resolve().parent / 'context/source'
-    verify_source(source, ROOT, verify_extension)
+    simulator, _, _ = verified_simulation_build(manifest_path)
+    verify_source(source, ROOT, verify_extension, **({} if simulator == "sih" else {"simulator": simulator}))
     message = source / 'msg/versioned/VehicleStatus.msg'
     values = re.findall(r'(?m)^uint8 NAVIGATION_STATE_EXTERNAL1\s*=\s*(\d+)\s*(?:#[^\n]*)?$', message.read_text())
     hold = re.findall(r'(?m)^uint8 NAVIGATION_STATE_AUTO_LOITER\s*=\s*(\d+)\s*(?:#[^\n]*)?$', message.read_text())
@@ -676,7 +678,7 @@ async def process_restart(args, isolation, session, wire, log, progress, *, cont
     child_output = args.output.resolve() / 'fresh-backend-c'
     argv = [sys.executable, str(Path(__file__).resolve()), '--execute', '--case', 'normal_stop',
             '--airframe', 'settled_vtol_mc', '--container', args.container, '--instance', str(args.instance),
-            '--socket', str(args.socket), '--sih-build-manifest', str(args.sih_build_manifest),
+            '--socket', str(args.socket), '--simulation-build-manifest', str(args.simulation_build_manifest),
             '--output', str(child_output), '--config', str(args.config), '--follower', args.follower,
             '--duration', str(args.duration), '--test-altitude', str(args.test_altitude),
             '--stable-timeout', str(args.stable_timeout)]
@@ -926,7 +928,7 @@ def main(argv=None):
     parser.add_argument('--container', required=True)
     parser.add_argument('--instance', type=int, required=True)
     parser.add_argument('--socket', type=Path, required=True)
-    parser.add_argument('--sih-build-manifest', type=Path, required=True)
+    parser.add_argument('--simulation-build-manifest', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--follower', default='gm_velocity_vector')
     parser.add_argument('--config', type=Path, default=ROOT / 'configs/config_default.yaml')
@@ -941,8 +943,8 @@ def main(argv=None):
     component_profile(args.follower)
     if args.case == 'adapter_process_restart' and (args.airframe != 'settled_vtol_mc' or args.restart_plan is None):
         parser.error('adapter_process_restart requires --airframe settled_vtol_mc and --restart-plan')
-    isolation = verify_simulator(args.container, args.instance, args.socket, sih_build_manifest=args.sih_build_manifest)
-    contract = source_contract(args.sih_build_manifest)
+    isolation = verify_simulator(args.container, args.instance, args.socket, simulation_build_manifest=args.simulation_build_manifest)
+    contract = source_contract(args.simulation_build_manifest)
     if args.case == 'adapter_process_restart':
         restart_plan(args, isolation)
     if not args.execute:

@@ -237,11 +237,13 @@ the recipe, firmware/extension pins, executable and ROMFS hashes to the immutabl
 image ID and image labels. It declares response and hardware qualification false.
 
 The shared `tools.sih_isolated_host.host()` accepts an explicitly supplied
-`args.sih_build_manifest` path. It verifies the bundle and locally available
+`args.simulation_build_manifest` path. It verifies the bundle and locally available
 image before creating run evidence, then launches that immutable ID. Run evidence
 records the selected manifest checksum and firmware provenance. Callers must
 forward this optional argument; no environment override or monkeypatch is needed.
-An invalid supplied manifest fails closed. Without it, the existing pinned image
+An invalid supplied manifest fails closed. The same boundary accepts the
+[verified Gazebo runtime](gazebo-build.md#runtime-verification), with its exact
+packaged image and resource authority. Without a manifest, the existing pinned image
 remains the explicitly labeled `compatibility_image` baseline.
 
 This recipe and its deterministic mock build/manifest tests do not establish

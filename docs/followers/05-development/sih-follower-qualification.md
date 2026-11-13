@@ -58,12 +58,14 @@ the scenario trajectory. Continuity events/reasons retain their authoritative
 state-trace values separately from tracker classification.
 
 For native guidance component checks, `tools/run_native_vector_sih.py` verifies an
-already-running isolated Docker SIH instance and its UID before control. It
+already-running isolated Docker SIH or verified Gazebo instance and its UID before control. It
 requires Docker network mode `none`, no devices, no privilege and no published
-ports. With `--sih-build-manifest PATH`, it verifies the reviewed packaged build
+ports. With `--simulation-build-manifest PATH`, it verifies the reviewed packaged build
 and hashes the actual running executable through `/proc`; a relocated firmware
 bundle need not imitate a compiler checkout path. The runtime image and firmware
-build identities are recorded separately. A mismatch refuses before control.
+build identities are recorded separately. A mismatch refuses before control. Gazebo additionally requires the exact packaged
+runtime image, model/world/plugin resources and read-only scene/topic/airframe
+witnesses; see the [runtime contract](../../../native/gazebo-build.md#runtime-verification).
 Without that argument, the historical compiler-path check remains compatibility
 verification, not source-build attestation. It
 defaults to read-only verification; `--execute` waits for seven stable airborne
@@ -233,7 +235,7 @@ running executable, container isolation and aircraft UID must agree.
 PYTHONPATH=src .venv/bin/python tools/run_native_ownership_sih.py \
   --container <isolated-container> --instance 0 \
   --socket <private-guidance.sock> \
-  --sih-build-manifest <build>/sih-build-manifest.json \
+  --simulation-build-manifest <build>/sih-build-manifest.json \
   --case same_mode_reselection --output reports/sitl/<new-run>
 ```
 
@@ -338,7 +340,7 @@ inventing zero commands or treating the deliberate shutdown as a publication gap
 Missing active commands or pose remain failures, as does any successful publication
 after the recorded owner release.
 
-For a separately verified source build, pass `--sih-build-manifest PATH` to the
+For a separately verified source build, pass `--simulation-build-manifest PATH` to the
 MC runner. The host verifies the manifest, packaged executable/ROMFS and immutable
 image binding before staging an experiment. See the [native build guide](../../../native/README.md).
 Omitting it retains the historical compatibility image; it is not evidence that
@@ -410,7 +412,7 @@ For example, this command remains read-only until that flag is added:
 PYTHONPATH=src .venv/bin/python tools/run_sih_follower_validation.py \
   --follower gm_velocity_chase \
   --scenario tools/sih_visualization_scenarios/gm_velocity_chase-qualification-vertical-off.yaml \
-  --sih-build-manifest reports/native-guidance/sih-canonical-build-20261109-r1/sih-build-manifest.json
+  --simulation-build-manifest reports/native-guidance/sih-canonical-build-20261109-r1/sih-build-manifest.json
 ```
 
 FW direct-rate legacy infrastructure remains separate. Use the native component
