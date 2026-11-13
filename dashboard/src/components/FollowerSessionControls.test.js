@@ -63,6 +63,23 @@ test('native envelope can change around a retained acknowledged airspeed request
   expect(validSessionControls([{ ...airspeed, speed_basis: 'unknown' }])).toBe(false);
 });
 
+test.each([true, 3, {}, []])('rejects malformed optional speed description %p', (description) => {
+  expect(validSessionControls([{ ...control, description }])).toBe(false);
+});
+
+test.each([undefined, null, ''])('keeps old capabilities without description %p compatible', (description) => {
+  expect(validSessionControls([{ ...control, description }])).toBe(true);
+});
+
+test('shows the declared speed meaning as plain text without inferring a follower', async () => {
+  const description = '<b>Total 3D translation ceiling</b>; image guidance may command less.';
+  axios.get.mockResolvedValue({ data: snapshot([{ ...control, description }]) });
+  render(<FollowerSessionControls active />);
+  fireEvent.click(await screen.findByRole('button', { name: /Requested 3D speed 3.0/ }));
+  expect(screen.getByText(/Total 3D translation ceiling/)).toHaveTextContent(description);
+  expect(axios.post).not.toHaveBeenCalled();
+});
+
 test('recovery permits reductions but blocks increases', async () => {
   axios.get.mockResolvedValue({ data: snapshot([{ ...control, increase_allowed: false, limiting_reason: 'target_recovery' }]) });
   render(<FollowerSessionControls active />);

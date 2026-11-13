@@ -14,6 +14,7 @@ export const validSessionControls = (controls) => Array.isArray(controls) && con
     && ['minimum', 'step', 'value', 'revision'].every((field) => Number.isFinite(control[field]))
     && (control.maximum === null || Number.isFinite(control.maximum))
     && [undefined, 'translation_3d', 'equivalent_airspeed'].includes(control.speed_basis)
+    && (control.description === undefined || control.description === null || typeof control.description === 'string')
     && (control.speed_basis !== 'equivalent_airspeed' || (control.aircraft_phase === 'fixed_wing'
       && Number.isInteger(control.guidance_generation) && control.guidance_generation >= 0 && control.minimum > 0 && control.value > 0))
     && control.minimum >= 0 && control.step > 0 && control.value >= 0
@@ -296,6 +297,7 @@ export default function FollowerSessionControls({ active, showStop = false }) {
           </Stack>
           {!editorCurrent && <Typography variant="caption" role="status">Speed or session changed. Close and reopen the editor.</Typography>}
           <Typography variant="caption" component="p" sx={{ whiteSpace: 'pre-line' }}>{speedBasisText(control)} · this following session.
+            {control.description ? `\n${control.description}` : ''}
             {control.reset_supported ? `\n${control.override_active ? 'Saved speed limits are overridden. Restore reapplies them and keeps or lowers this request.' : 'Saved speed limits apply.'}\nSaved ceiling: ${control.configured_maximum} ${control.unit}.`
               : control.maximum === null ? ' No configured velocity ceiling.' : ` Maximum ${control.maximum} ${control.unit}.`}
             {'\n'}{control.speed_basis === 'equivalent_airspeed'
