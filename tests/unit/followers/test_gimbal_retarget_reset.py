@@ -137,7 +137,8 @@ def bind_native(follower, now, phase=AirframePhase.FIXED_WING):
     pair = [None]
     if phase is AirframePhase.FIXED_WING:
         follower.bind_guidance_input_resolver(lambda *_: pair[0])
-    session = follower.create_airframe_session(identity, NativeCapabilities('native', 'fixture', 2, True, True, False),
+    session = follower.create_airframe_session(identity, NativeCapabilities('native', 'fixture', 2, True, True, False,
+        multicopter_altitude_hold_supported=True),
         confirmation_s=0., observation_timeout_s=.75, clock=lambda: now[0])
     assert session.observe(state, owner_confirmed=True, target_confirmed=True).pursuit_allowed
     follower.bind_airframe_session(session)

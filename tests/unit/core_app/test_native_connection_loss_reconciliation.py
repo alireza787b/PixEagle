@@ -8,6 +8,7 @@ import pytest
 
 from classes.aircraft_state import AircraftStateOwner, AirframePhase
 from classes.airframe_session_controls import AirframeSessionControls
+from classes.command_intent import AltitudeHoldReference
 from classes.gimbal_guidance import GimbalGuidancePolicy
 from classes.native_follow_binding import NativeFollowBinding
 from classes.native_guidance import NativeGuidanceClient
@@ -158,7 +159,10 @@ async def test_connection_loss_does_not_abort_or_release_a_current_replacement_a
         ownership_token=original.token, mode_id=original.mode_id, acquisition=original)
     await native.client.connect()
     await native.client.bind(native.original.binding)
-    await native.client.engage(native.original, circuit_breaker_active=False, ownership_token="e" * 32)
+    state = binding.connection.get_aircraft_state()
+    reference = AltitudeHoldReference(state.altitude_amsl_m, state.altitude_reference_generation)
+    await native.client.engage(native.original, circuit_breaker_active=False, ownership_token="e" * 32,
+                               altitude_reference=reference)
     replacement = native.client.acquisition_context
     assert replacement != original
     before = len(native.requests)

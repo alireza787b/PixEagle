@@ -18,9 +18,10 @@ from typing import Callable
 from classes.aircraft_state import AircraftBinding, AircraftState, AirframePhase, GuidanceSessionIdentity, Vector3, finite_number
 from classes.fixed_wing_vector_guidance import FixedWingCommand, UpperSpeedPolicy
 from classes.command_dispatch_guard import validate_before_dispatch
+from classes.command_intent import AltitudeHoldReference
 
 
-PROTOCOL_VERSION = 3
+PROTOCOL_VERSION = 4
 MAX_MESSAGE_BYTES = 65536
 DEFAULT_SOCKET_PATH = Path("/run/pixeagle/guidance.sock")
 
@@ -176,6 +177,7 @@ class NativeCapabilities:
     unrestricted_speed_supported: bool
     owned_mode_supported: bool = False
     owned_mode_id: int | None = None
+    multicopter_altitude_hold_supported: bool = False
 
     @classmethod
     def from_payload(cls, payload: dict) -> NativeCapabilities:
@@ -187,7 +189,8 @@ class NativeCapabilities:
                 raise NativeGuidanceError("native_identity_missing")
         if type(payload["external_mode_api_version"]) is not int or payload["external_mode_api_version"] != 2:
             raise NativeGuidanceError("native_external_mode_api_unsupported")
-        for name in ("fixed_wing_supported", "multicopter_supported", "unrestricted_speed_supported", "owned_mode_supported"):
+        for name in ("fixed_wing_supported", "multicopter_supported", "unrestricted_speed_supported", "owned_mode_supported",
+                     "multicopter_altitude_hold_supported"):
             if type(payload[name]) is not bool:
                 raise NativeGuidanceError("native_capabilities_invalid")
         if not _unsigned(payload["owned_mode_id"], 8):
@@ -199,16 +202,26 @@ class NativeCapabilities:
 class NativeMulticopterCommand:
     velocity_ned_m_s: Vector3
     yaw_rate_rad_s: float
+    altitude_hold: AltitudeHoldReference | None = None
 
     def __post_init__(self):
         if not isinstance(self.velocity_ned_m_s, Vector3):
             raise ValueError("native_velocity_invalid")
         finite_number(self.yaw_rate_rad_s, "native_yaw_rate")
+        if self.altitude_hold is not None:
+            if not isinstance(self.altitude_hold, AltitudeHoldReference) or self.velocity_ned_m_s.z != 0.:
+                raise ValueError("native_vertical_contract_invalid")
 
     def wire_payload(self) -> dict:
         velocity = self.velocity_ned_m_s
-        return dict(velocity_north_m_s=velocity.x, velocity_east_m_s=velocity.y,
-                    velocity_down_m_s=velocity.z, yaw_rate_rad_s=self.yaw_rate_rad_s)
+        result = dict(velocity_north_m_s=velocity.x, velocity_east_m_s=velocity.y,
+                      yaw_rate_rad_s=self.yaw_rate_rad_s)
+        if self.altitude_hold is None:
+            result['velocity_down_m_s'] = velocity.z
+        else:
+            result.update(altitude_amsl_m=self.altitude_hold.altitude_amsl_m,
+                          altitude_reference_generation=self.altitude_hold.reference_generation)
+        return result
 
 
 @dataclass(frozen=True)
@@ -437,6 +450,7 @@ class NativeGuidanceClient:
 
     async def engage(self, identity: GuidanceSessionIdentity, *, circuit_breaker_active: bool,
                      ownership_token: str | None = None,
+                     altitude_reference: AltitudeHoldReference | None = None,
                      before_dispatch: Callable[[], None] | None = None,
                      on_mode_dispatch: Callable[[], None] | None = None) -> dict:
         async with self._lock:
@@ -450,6 +464,8 @@ class NativeGuidanceClient:
                 raise NativeGuidanceError("native_fixed_wing_unavailable")
             if not self.capabilities.owned_mode_supported:
                 raise NativeGuidanceError("native_ownership_contract_unavailable")
+            if not isinstance(altitude_reference, AltitudeHoldReference):
+                raise NativeGuidanceError("native_engagement_reference_required")
             token = make_ownership_token() if ownership_token is None else validate_ownership_token(ownership_token)
             runtime_id = self.capabilities.runtime_id
             mode_id = self.capabilities.owned_mode_id
@@ -468,6 +484,7 @@ class NativeGuidanceClient:
             now = self._clock()
             result = await self._exchange("engage", {"identity": asdict(identity),
                                                      "token": token, "runtime_id": runtime_id,
+                                                     "altitude_reference": asdict(altitude_reference),
                                                      "expires_at_monotonic_s": now + self.request_timeout_s},
                                           before_dispatch=before_dispatch, on_dispatch=dispatched)
             try:
@@ -508,6 +525,9 @@ class NativeGuidanceClient:
                 raise NativeGuidanceError("unrestricted_speed_not_supported")
             if intent.phase is AirframePhase.MULTICOPTER and not self.capabilities.multicopter_supported:
                 raise NativeGuidanceError("native_multicopter_contract_unavailable")
+            if (isinstance(intent.command, NativeMulticopterCommand) and intent.command.altitude_hold is not None
+                    and not self.capabilities.multicopter_altitude_hold_supported):
+                raise NativeGuidanceError("native_mc_altitude_hold_unavailable")
             result = await self._exchange("intent", {
                 "identity": asdict(intent.identity), "token": token, "sequence": intent.sequence,
                 "created_at_monotonic_s": intent.created_at_monotonic_s,

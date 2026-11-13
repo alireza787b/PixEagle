@@ -68,7 +68,8 @@ class FixedWingCommand:
 
     @classmethod
     def from_intent(cls, intent: CommandIntent) -> FixedWingCommand:
-        if intent.control_type != "fixed_wing_external" or intent.guidance_identity is None:
+        if (intent.control_type != "fixed_wing_external" or intent.guidance_identity is None
+                or intent.altitude_hold is not None):
             raise ValueError("native_fixed_wing_intent_invalid")
         fields = intent.fields
         if set(fields) not in cls.field_variants().values():

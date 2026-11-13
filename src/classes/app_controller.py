@@ -1406,6 +1406,7 @@ class AppController:
                 source="target_continuity",
                 reason=reason,
                 guidance_identity=previous_intent.guidance_identity,
+                altitude_hold=previous_intent.altitude_hold,
             )
             if not prepare_follower(reason):
                 raise RuntimeError("follower rejected target-transition preparation")

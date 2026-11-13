@@ -11,7 +11,7 @@ import time
 from typing import Awaitable, Callable
 
 from classes.aircraft_state import AircraftState, AirframePhase, Vector3, heading_frame_to_ned
-from classes.command_intent import CommandIntent
+from classes.command_intent import AltitudeHoldReference, CommandIntent
 from classes.command_dispatch_guard import DispatchRefused, DispatchRefusalKind
 from classes.fixed_wing_vector_guidance import FixedWingCommand
 from classes.native_guidance import (
@@ -106,7 +106,14 @@ class NativeCommandTransport:
                 raise ValueError("native_mc_command_contract_invalid")
             velocity = heading_frame_to_ned(Vector3(fields["vel_body_fwd"], fields["vel_body_right"],
                                                      fields["vel_body_down"]), state.navigation_heading_rad)
-            return NativeMulticopterCommand(velocity, math.radians(fields["yawspeed_deg_s"]))
+            hold = intent.altitude_hold
+            if hold is not None:
+                if (not isinstance(hold, AltitudeHoldReference)
+                        or not self.client.capabilities.multicopter_altitude_hold_supported):
+                    raise ValueError("native_mc_altitude_hold_unavailable")
+                if hold.reference_generation != state.altitude_reference_generation:
+                    raise ValueError("altitude_reference_changed")
+            return NativeMulticopterCommand(velocity, math.radians(fields["yawspeed_deg_s"]), hold)
         raise ValueError("native_phase_contract_unavailable")
 
     def accept_intent(self, intent: CommandIntent) -> CommandIntent:

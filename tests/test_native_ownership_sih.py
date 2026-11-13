@@ -158,7 +158,7 @@ async def test_wire_recorder_preserves_real_production_client_protocol_and_eof(n
     async with tool.WireRecorder(frontend, backend, log):
         client = NativeGuidanceClient(frontend, clock=lambda: 100.)
         await client.connect()
-        await client.engage(identity(), circuit_breaker_active=False, ownership_token=TOKEN)
+        await client.engage(identity(), circuit_breaker_active=False, ownership_token=TOKEN, altitude_reference=native_protocol_cases.ALTITUDE_REFERENCE)
         original = client.acquisition_context
         assert original is not None
         assert any(row.get('direction') == 'actual_backend_reply'
@@ -227,9 +227,11 @@ async def test_baseline_uses_production_binding_and_only_publisher_without_a_tar
 
     mc = airframe == 'settled_vtol_mc'
     is_vtol = airframe != 'pure_fixed_wing'
-    capabilities = NativeCapabilities('test-adapter', 'synthetic-fixture', 2, True, is_vtol, False, True, 23)
+    capabilities = NativeCapabilities('test-adapter', 'synthetic-fixture', 2, True, is_vtol, False, True, 23,
+                                      multicopter_altitude_hold_supported=True)
     aircraft = identity().binding
-    client = SimpleNamespace(session_identity=None, acquisition_context=None, acquisition_token=None)
+    client = SimpleNamespace(session_identity=None, acquisition_context=None, acquisition_token=None,
+                             capabilities=capabilities)
     sequence = [0]
 
     async def engage(owner, **kwargs):
@@ -271,6 +273,9 @@ async def test_baseline_uses_production_binding_and_only_publisher_without_a_tar
     assert session.binding._target_evidence().state is TargetEvidenceState.ABSENT
     try:
         await tool.activate_session(session, log)
+        reference = client.engage.call_args.kwargs['altitude_reference']
+        assert reference.altitude_amsl_m == first['aircraft_state']['altitude_amsl_m']
+        assert reference.reference_generation == first['aircraft_state']['altitude_reference_generation']
         await tool.drive(session, config['Follower']['AIRFRAME_PHASE_CONFIRMATION_S'] + .1, log)
         assert not session.guidance.phase_owner._decision().pursuit_allowed
         assert session.commander.successful_publishes > 0
@@ -759,7 +764,7 @@ async def test_original_probes_use_real_client_runtime_fence_then_local_identity
     backend, requests, behavior = native_server
     client = NativeGuidanceClient(backend, clock=lambda: 100.)
     await client.connect()
-    await client.engage(identity(), circuit_breaker_active=False, ownership_token=TOKEN)
+    await client.engage(identity(), circuit_breaker_active=False, ownership_token=TOKEN, altitude_reference=native_protocol_cases.ALTITUDE_REFERENCE)
     actual = client.acquisition_context
     client.abort()
     behavior['capabilities'] = native_protocol_cases.CAPABILITIES | {'runtime_id': 'new-adapter'}
@@ -1084,7 +1089,8 @@ async def test_replacement_run_keeps_selected_airframe_at_both_session_boundarie
 
     mc = airframe == 'settled_vtol_mc'
     is_vtol = airframe != 'pure_fixed_wing'
-    capabilities = NativeCapabilities('test-adapter', 'synthetic-fixture', 2, True, is_vtol, False, True, 23)
+    capabilities = NativeCapabilities('test-adapter', 'synthetic-fixture', 2, True, is_vtol, False, True, 23,
+                                      multicopter_altitude_hold_supported=True)
     client = SimpleNamespace(acquisition_context=None)
     client.connect = AsyncMock(return_value=capabilities)
 

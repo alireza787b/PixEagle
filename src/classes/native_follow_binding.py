@@ -121,8 +121,13 @@ class NativeFollowBinding:
             def dispatched():
                 validate_before_dispatch(on_mode_dispatch)
                 self.acquire_dispatched = True
+            state = self.connection.get_aircraft_state()
+            if state is None:
+                raise NativeGuidanceError("native_aircraft_state_unavailable")
+            altitude_reference = self.guidance.prepare_engagement_reference(state)
             result = await self.client.engage(
                 self._acquisition_identity, ownership_token=self._ownership_token,
+                altitude_reference=altitude_reference,
                 circuit_breaker_active=self._circuit_breaker(),
                 before_dispatch=may_engage, on_mode_dispatch=dispatched)
             self._acquisition = NativeAcquisitionContext.from_payload(result.get("acquisition"))

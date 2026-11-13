@@ -18,7 +18,7 @@ actual transition-preserving authority release remains S7 work.
 | --- | --- |
 | Backend → adapter | Private, same-UID Unix socket; versioned JSON; one session and expiring command lease |
 | FW → PX4 | Course in NED, equivalent airspeed, and either AMSL altitude or upward-positive height rate |
-| VTOL MC → PX4 | NED velocity and yaw rate |
+| VTOL MC → PX4 | Horizontal NED velocity and yaw rate, with either vertical velocity or an explicit engagement-altitude position target |
 | Transition release drain → PX4 | Neutral native FW/MC setpoints for the coherently observed transition; no transition request or pursuit |
 | PX4 → backend | Observed phase, full physical-body quaternion, velocity, relative/home altitude, qualified airspeed and native envelope |
 | Acquire/release → PX4 | Optional atomic owned-mode request/receipt; original token, firmware incarnation, intention revision, registration and actual activation epoch |
@@ -37,7 +37,7 @@ be replaced by MC yaw. No camera mount is changed during a VTOL transition.
 
 ## Correlated ownership contract
 
-Private RPC protocol 3 requires the optional `OwnedModeRequest`/`OwnedModeStatus`
+Private RPC protocol 4 requires the optional `OwnedModeRequest`/`OwnedModeStatus`
 firmware extension; there is no raw mode-command fallback. An engagement ACK
 contains the original causal acquisition receipt, not merely an accepted
 intention. The adapter advertises its actual registered `owned_mode_id`.
@@ -45,12 +45,31 @@ Intent and release writes require that acquisition's token. Stop, EOF
 and lost-reply reconciliation retain the same context; a same-ID replacement,
 reused registration or firmware restart cannot become the old owner.
 
-Protocol 2 peers are refused during hello, before acquisition. The separate
+Protocol 3 and older peers are refused during hello, before acquisition. The separate
 PX4 ROS external-mode API remains version 2 and the owned-mode firmware contract
 remains version 1. The `multicopter_supported` capability advertises settled
 native MC commands; it does not authorize transition pursuit. There is no
 phase-advance RPC or external transition-command payload. Observed phase remains
 available, and the adapter retains its internal neutral transition drain.
+
+Protocol 4 requires one finite AMSL engagement-altitude reference and its native
+reference generation before acquisition. Startup and the first follower objective
+use the same reference; receiving the engagement ACK never recaptures the height.
+For native MC pursuit with target-altitude guidance disabled, horizontal velocity
+and yaw rate are retained while PX4's position controller holds that altitude.
+Explicit target-altitude guidance uses vertical velocity instead. The two command
+variants are exclusive; no application PID or vertical-to-horizontal redistribution
+is added. The `multicopter_altitude_hold_supported` capability advertises this
+native contract, not support on the ordinary MAVSDK body-velocity path.
+
+Retargeting and bounded recovery retain the original height. Each native hold
+publication checks fresh bound observations and the reference generation, then
+converts AMSL to local NED height. A source/home/local-reference reset ends pursuit
+through the original owner's release path. Terminal neutral draining still uses
+zero vertical velocity and cannot reuse a pursuit anchor. This implementation
+requires new simulator qualification; the earlier altitude-drift failure remains
+recorded. Ordinary MAVSDK MC altitude-off behavior remains zero vertical velocity
+pending a separately qualified compatible position/velocity transport.
 
 The Python client supports Python 3.10 and newer without an extra async runtime
 dependency. Drain and reply share one monotonic RPC budget; read-only release

@@ -32,6 +32,7 @@ def fixture(*, phase=AirframePhase.FIXED_WING, is_vtol=True):
     connection = SimpleNamespace(get_aircraft_state=lambda: states.snapshot(timeout_s=.75),
                                  commit_aircraft_state=states.commit)
     client = SimpleNamespace(session_identity=None, acquisition_token=None, acquisition_context=None,
+                             capabilities=guidance.phase_owner.capabilities,
                              abort=Mock(), submit=AsyncMock(), handoff=AsyncMock())
 
     async def engage(identity, **kwargs):

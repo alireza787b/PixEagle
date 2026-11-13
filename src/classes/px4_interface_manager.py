@@ -2232,6 +2232,8 @@ class PX4InterfaceManager:
                 or command_intent.control_type != control_type
                 or command_intent.profile_name != self.setpoint_handler.profile_name):
             raise ValueError("command_dispatch_snapshot_mismatch")
+        if command_intent.altitude_hold is not None:
+            raise ValueError("altitude_hold_transport_unsupported")
         return dict(command_intent.fields)
 
     async def send_velocity_body_offboard_commands(

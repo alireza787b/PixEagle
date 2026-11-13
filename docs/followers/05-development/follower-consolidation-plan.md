@@ -274,9 +274,13 @@ Valid low airspeed is not bypassed by a groundspeed proxy. Missing sensors canno
 establish real stall margin. Reconcile the older rate profile's proxy semantics
 explicitly before sharing policy; do not silently reinterpret legacy values.
 
-Altitude guidance off means no target-directed climb/descent. MC velocity
-profiles suppress the vertical component without horizontal redistribution;
-native FW holds engagement altitude. Direct-rate profiles need their own proved
+Altitude guidance off means no target-directed climb/descent. The operator
+selected explicit engagement-altitude hold on 2026-11-13. Native MC combines
+horizontal velocity/yaw rate with a frozen vertical position target; native FW
+holds engagement altitude. Both require actual response qualification. Ordinary
+MAVSDK MC still suppresses vertical velocity without horizontal redistribution
+until a compatible position/velocity transport is separately qualified; this
+legacy behavior is not an altitude-hold claim. Direct-rate profiles need their own proved
 altitude behavior; disabling target guidance is not a guarantee of altitude hold.
 Altitude safety remains separate and uses the declared estimator/home-relative
 reference, not terrain clearance. FW boundary tests must include finite vertical

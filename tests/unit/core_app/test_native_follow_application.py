@@ -171,7 +171,7 @@ async def test_read_only_native_preparation_failure_cannot_send_mavsdk_hold(app)
 
 @pytest.mark.parametrize("phase", ["multicopter", "fixed_wing"])
 @pytest.mark.parametrize("mc_supported", [False, True])
-async def test_native_preparation_uses_protocol3_mc_capability_before_acquisition(app, monkeypatch, phase, mc_supported):
+async def test_native_preparation_uses_declared_mc_capability_before_acquisition(app, monkeypatch, phase, mc_supported):
     from dataclasses import replace
 
     from classes.aircraft_state import AirframePhase

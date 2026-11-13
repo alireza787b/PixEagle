@@ -9,6 +9,7 @@ import pytest
 from classes.aircraft_state import AircraftStateOwner, AirframePhase
 from classes.airframe_session_controls import AirframeSessionControls
 from classes.command_dispatch_guard import DispatchRefusalKind, DispatchRefused
+from classes.command_intent import AltitudeHoldReference
 from classes.gimbal_guidance import GimbalGuidancePolicy
 from classes.guidance_phase_session import PhaseSessionState
 from classes.native_follow_binding import NativeFollowBinding
@@ -180,7 +181,9 @@ async def test_original_transport_does_not_abort_replacement_acquisition(compone
         ownership_token=original.token, mode_id=original.mode_id, acquisition=original)
     await c.client.connect()
     await c.client.bind(c.original.binding)
-    await c.client.engage(c.original, circuit_breaker_active=False, ownership_token="e" * 32)
+    reference = AltitudeHoldReference(c.initial.altitude_amsl_m, c.initial.altitude_reference_generation)
+    await c.client.engage(c.original, circuit_breaker_active=False, ownership_token="e" * 32,
+                         altitude_reference=reference)
     replacement = c.client.acquisition_context
     c.behavior["release_receipt"] = None
     c.behavior["owner_confirmed"] = True
@@ -326,7 +329,9 @@ async def test_replacement_between_reply_and_binding_callback_preserves_new_clie
             ownership_token=original.token, mode_id=original.mode_id, acquisition=original)
         await c.client.connect()
         await c.client.bind(c.original.binding)
-        await c.client.engage(c.original, circuit_breaker_active=False, ownership_token="e" * 32)
+        reference = AltitudeHoldReference(c.initial.altitude_amsl_m, c.initial.altitude_reference_generation)
+        await c.client.engage(c.original, circuit_breaker_active=False, ownership_token="e" * 32,
+                             altitude_reference=reference)
         c.behavior["release_receipt"] = None
         return await original_observer(*args)
 

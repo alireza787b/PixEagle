@@ -13,7 +13,7 @@ from typing import Callable
 from classes.aircraft_state import AircraftLayout, AircraftState, AirframePhase, GuidanceSessionIdentity, Vector3, body_ray_to_heading_frame
 from classes.airframe_session_controls import AirframeSessionControls
 from classes.bearing_geometry_policy import BearingGeometryPolicy
-from classes.command_intent import CommandIntent
+from classes.command_intent import AltitudeHoldReference, CommandIntent
 from classes.fixed_wing_vector_guidance import FixedWingCommand, FixedWingVectorGuidance
 from classes.fixed_wing_guidance_policy import FixedWingGuidancePolicy, UpperSpeedPolicy
 from classes.gimbal_guidance import GimbalObservationLimits
@@ -65,6 +65,33 @@ class VectorGuidanceSession:
         return {AirframePhase.MULTICOPTER: "velocity_body_offboard",
                 AirframePhase.FIXED_WING: "fixed_wing_external"}.get(self.phase, "unknown")
 
+    def prepare_engagement_reference(self, state: AircraftState) -> AltitudeHoldReference:
+        """Freeze before acquisition; later observations cannot ratchet this target."""
+        if self.phase_owner.state is PhaseSessionState.ENDED:
+            raise ValueError("guidance_session_ended")
+        if (state.binding != self.identity.binding or state.rescue_active
+                or not state.fresh(self.clock(), self.phase_owner.observation_timeout_s)
+                or state.phase not in self.supported_phases):
+            raise ValueError("native_engagement_state_unavailable")
+        if state.phase is AirframePhase.MULTICOPTER and not self.phase_owner.capabilities.multicopter_altitude_hold_supported:
+            raise ValueError("native_mc_altitude_hold_unavailable")
+        if self._engagement_altitude_reference is None:
+            self._engagement_altitude_reference = state
+        reference = self._engagement_altitude_reference
+        if (reference.binding != state.binding
+                or reference.altitude_reference_generation != state.altitude_reference_generation):
+            raise ValueError("altitude_reference_changed")
+        return AltitudeHoldReference(reference.altitude_amsl_m, reference.altitude_reference_generation)
+
+    def _multicopter_intent(self, intent: CommandIntent, state: AircraftState) -> CommandIntent:
+        hold = None
+        if (not self.fixed_wing.enable_altitude_control
+                or self.phase_owner.state is not PhaseSessionState.PURSUIT):
+            if intent.fields.get("vel_body_down") != 0.:
+                raise ValueError("native_vertical_contract_invalid")
+            hold = self.prepare_engagement_reference(state)
+        return replace(intent, profile_name=self.profile_name, guidance_identity=self.identity, altitude_hold=hold)
+
     def observe(self, state: AircraftState, *, owner_confirmed: bool, target_confirmed: bool):
         decision = self.phase_owner.observe(state, now=self.clock(), owner_confirmed=owner_confirmed,
                                             target_confirmed=target_confirmed)
@@ -76,8 +103,7 @@ class VectorGuidanceSession:
         if self._state is not None and state.sequence <= self._state.sequence:
             return decision
         try:
-            if self._engagement_altitude_reference is None:
-                self._engagement_altitude_reference = state
+            self.prepare_engagement_reference(state)
             if self._state is None:
                 self.controls.enter_phase(self.identity, state, now=self.clock(),
                                           timeout_s=self.phase_owner.observation_timeout_s,
@@ -120,9 +146,10 @@ class VectorGuidanceSession:
                            reason="phase_confirmation_pending", created_at_monotonic_s=self.clock())
         else:
             raise ValueError("aircraft_phase_unknown")
-        return CommandIntent(self.profile_name, self.control_type, fields, type(self).__name__,
-                             reason="phase_confirmation_pending", created_at_monotonic_s=self.clock(),
-                             guidance_identity=self.identity)
+        intent = CommandIntent(self.profile_name, self.control_type, fields, type(self).__name__,
+                               reason="phase_confirmation_pending", created_at_monotonic_s=self.clock(),
+                               guidance_identity=self.identity)
+        return self._multicopter_intent(intent, state)
 
     def calculate(self, physical_body_ray: Vector3, *, observation_limits: GimbalObservationLimits,
                   multicopter_calculate: Callable[[Vector3], CommandIntent]) -> CommandIntent:
@@ -145,7 +172,7 @@ class VectorGuidanceSession:
         intent = multicopter_calculate(ray)
         if intent.control_type != "velocity_body_offboard":
             raise ValueError("multicopter_command_contract_invalid")
-        return replace(intent, profile_name=self.profile_name, guidance_identity=self.identity)
+        return self._multicopter_intent(intent, state)
 
     def calculate_ned(self, ray: Vector3, *, frame: str) -> CommandIntent:
         """Accept an already associated world ray; never infer camera/attitude timing."""
