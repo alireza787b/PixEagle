@@ -17,7 +17,7 @@ from classes.parameters import Parameters
 from classes.camera_runtime import CameraLifecycleBusy, camera_lifecycle
 from classes.logging_manager import logging_manager
 from classes.runtime_logging import redact_text
-from classes.follower import Follower
+from classes.follower import Follower, resolve_initial_target_coords
 from classes.command_intent import CommandIntent
 from classes.command_dispatch_guard import DispatchRefused, DispatchRefusalKind, validate_before_dispatch
 from classes.following_observation_source import (
@@ -3693,16 +3693,11 @@ class AppController:
                         f"({publication['applied_count']} paths)"
                     )
 
-                if Parameters.TARGET_POSITION_MODE == "initial":
-                    normalized_center = getattr(self.tracker, "normalized_center", None)
-                    initial_target_coords = (
-                        tuple(normalized_center)
-                        if isinstance(normalized_center, (tuple, list))
-                        and len(normalized_center) == 2
-                        else tuple(Parameters.DESIRE_AIM)
-                    )
-                else:
-                    initial_target_coords = tuple(Parameters.DESIRE_AIM)
+                initial_target_coords = resolve_initial_target_coords(
+                    Parameters.FOLLOWER_MODE, self.get_tracker_output(),
+                    target_position_mode=Parameters.TARGET_POSITION_MODE,
+                    desired_aim=Parameters.DESIRE_AIM,
+                )
 
                 preview_controller = CommandPreviewController()
                 preview_controller.active_mode = True
@@ -3920,11 +3915,10 @@ class AppController:
                         expected_layout=AircraftLayout(getattr(Parameters, "AIRFRAME_LAYOUT", "AUTO")),
                     )
 
-                # Determine initial target coordinates
-                initial_target_coords = (
-                    tuple(self.tracker.normalized_center)
-                    if Parameters.TARGET_POSITION_MODE == 'initial'
-                    else tuple(Parameters.DESIRE_AIM)
+                initial_target_coords = resolve_initial_target_coords(
+                    Parameters.FOLLOWER_MODE, self.get_tracker_output(),
+                    target_position_mode=Parameters.TARGET_POSITION_MODE,
+                    desired_aim=Parameters.DESIRE_AIM,
                 )
 
                 # Create follower using enhanced factory

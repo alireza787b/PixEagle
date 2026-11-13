@@ -141,13 +141,13 @@ class GMVelocityVectorFollower(BaseFollower):
     mount-aware geometric transformations, eliminating PID tuning requirements.
     """
 
-    def __init__(self, px4_controller, initial_target_coords: Tuple[float, float]):
+    def __init__(self, px4_controller, initial_target_coords: Optional[Tuple[float, float]]):
         """
         Initialize GMVelocityVectorFollower.
 
         Args:
             px4_controller: PX4 interface for drone control
-            initial_target_coords: Initial target coordinates (required by factory interface)
+            initial_target_coords: Unused image aim; the factory supplies None for angle input.
         """
         self.setpoint_profile = "gm_velocity_vector"
         self.follower_name = "GMVelocityVectorFollower"

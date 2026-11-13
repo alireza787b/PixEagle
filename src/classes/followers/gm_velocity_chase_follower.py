@@ -67,13 +67,13 @@ class GMVelocityChaseFollower(BaseFollower):
 
     SUPPORTED_FORWARD_VELOCITY_MODES = frozenset({"CONSTANT", "PITCH_BASED"})
 
-    def __init__(self, px4_controller, initial_target_coords: Tuple[float, float]):
+    def __init__(self, px4_controller, initial_target_coords: Optional[Tuple[float, float]]):
         """
         Initialize GMVelocityChaseFollower with new architecture.
 
         Args:
             px4_controller: PX4 interface for drone control
-            initial_target_coords: Initial target coordinates (required by factory interface)
+            initial_target_coords: Unused image aim; the factory supplies None for angle input.
         """
         self.setpoint_profile = "gm_velocity_chase"  # GMVelocityChaseFollower always uses gm_velocity_chase profile
         self.follower_name = "GMVelocityChaseFollower"
