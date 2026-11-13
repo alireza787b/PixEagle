@@ -213,3 +213,19 @@ token or nonliteral identifier before writing scripts. Legacy/default baseline
 startup omits the parameter. Forwarding a tag is not clock qualification: the
 application must require the matching native observation capability and raw
 source sample timestamps before aligned image guidance is available.
+
+### Native training wire evidence
+
+When the verified native adapter is selected, a private token-owned recorder
+container relays the normal App's sole native connection. The App keeps
+`/run/pixeagle/guidance.sock`; its mount points at the recorder's front socket,
+and only the recorder mounts the original adapter endpoint behind it. The
+existing `WireRecorder` forwards original bytes and records attempts, actual
+replies and EOF; reconnecting cannot replay a command.
+
+`native-wire/logs/wire.jsonl` is private (0600 within 0700 directories), with
+original host-monotonic receipt times, connection IDs and archived helper hashes.
+The recorder's original CID joins the launcher's existing cleanup list. Its
+image, UID, namespace and exact bind mounts are checked before App startup.
+These are distinct training artifacts, not canonical network-none Runtime
+authority or a claim of following, phase, altitude or delivery qualification.

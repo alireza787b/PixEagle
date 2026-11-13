@@ -275,6 +275,58 @@ def start_camera_provider(args, runtime, token, primary, baseline, source, conta
     raise TimeoutError('Camera provider did not create its private endpoint')
 
 
+def start_native_wire_recorder(args, runtime, profile, token, primary, containers):
+    """Retain ordinary App traffic without changing the adapter or admission policy."""
+    private = runtime / 'native-wire'
+    private.mkdir(mode=0o700)
+    front, logs = private / 'front', private / 'logs'
+    front.mkdir(mode=0o700)
+    logs.mkdir(mode=0o700)
+    helpers = {}
+    for name in ('native_sih_wire.py', 'run_native_guidance_wire.py'):
+        source = ROOT / 'tools' / name
+        data = source.read_bytes()
+        (private / name).write_bytes(data)
+        helpers[name] = native_runtime.digest(source)
+    mounts = [(args.python.parent.parent, args.python.parent.parent, True),
+        (profile / 'src', Path('/app/src'), True),
+        ('/usr/lib/x86_64-linux-gnu', '/mnt/hostlibs', True),
+        (front, Path('/run/pixeagle'), False),
+        (runtime / 'simulator/private', Path('/run/native-backend'), True),
+        (logs, Path('/wire'), False),
+        *[(private / name, Path('/app/tools') / name, True) for name in helpers]]
+    name = 'pixeagle-training-wire-' + token[:12]
+    argv = container_args(name, token, primary, mounts,
+        dict(LD_LIBRARY_PATH='/mnt/hostlibs', HOME='/tmp', PYTHONDONTWRITEBYTECODE='1'), host.WORKER_IMAGE)
+    argv[-1:-1] = ['--entrypoint', str(args.python)]
+    argv += ['/app/tools/run_native_guidance_wire.py', '--frontend', '/run/pixeagle/guidance.sock',
+        '--backend', '/run/native-backend/guidance.sock', '--output', '/wire']
+    owner = OwnedContainerLaunch(runtime, token, containers, host.owned_container_info)
+    cid = owner.launch(argv, name)
+    expected_mounts = {str(destination): (str(Path(source).resolve()), not readonly)
+                       for source, destination, readonly in mounts}
+    deadline = time.monotonic() + 10.
+    while time.monotonic() < deadline:
+        info = host.owned_container_info(cid, token)
+        actual_mounts = {item['Destination']: (str(Path(item['Source']).resolve()), item['RW'])
+                         for item in info['Mounts'] if item['Type'] == 'bind'}
+        if (not info['State']['Running'] or info['Image'] != host.WORKER_IMAGE
+                or info['HostConfig']['NetworkMode'] != 'container:' + primary
+                or info['Config']['User'] != f'{os.getuid()}:{os.getgid()}'
+                or info['HostConfig']['Privileged'] or info['HostConfig'].get('Devices')
+                or not info['HostConfig']['ReadonlyRootfs'] or info['NetworkSettings']['Ports']
+                or actual_mounts != expected_mounts):
+            raise ValueError('Original native recorder identity or isolation changed')
+        if (front / 'guidance.sock').is_socket():
+            write(private / 'manifest.json', dict(kind='training_native_wire', container_id=cid,
+                primary=primary, owner_token=token, image_id=host.WORKER_IMAGE, helpers=helpers,
+                frontend='/run/pixeagle/guidance.sock', backend='/run/native-backend/guidance.sock',
+                wire_path='logs/wire.jsonl', canonical_runtime_qualified=False, following_qualified=False))
+            return [(front, Path('/run/pixeagle'), False)]
+        time.sleep(.05)
+    raise TimeoutError('Native wire recorder did not create its private endpoint')
+
+
 class TrainingAdapter:
     """Desktop caller of the canonical adapter bootstrap, with its own network authority."""
     @staticmethod
@@ -407,7 +459,7 @@ def run(args):
             adapter = TrainingAdapter(args, runtime, token, primary, network_id, baseline, assets, containers,
                 source_clock_id=camera_source['config']['source_clock_id'] if camera_source else None)
             adapter.start()
-            native_mounts = [(runtime / 'simulator/private', Path('/run/pixeagle'), False)]
+            native_mounts = start_native_wire_recorder(args, runtime, profile, token, primary, containers)
             write(runtime / 'run.json', receipt)
         if camera_source is not None:
             native_mounts += start_camera_provider(args, runtime, token, primary, baseline, camera_source, containers)
