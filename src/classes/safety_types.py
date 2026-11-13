@@ -85,6 +85,19 @@ class AltitudeLimits(NamedTuple):
         """Require a finite relative altitude inside the configured bounds."""
         return self.below(altitude, self.max_altitude, inclusive=True) and altitude >= self.min_altitude
 
+    def require_hold_target(self, target_amsl_m: float, *, current_amsl_m: float,
+                            current_relative_m: float) -> None:
+        """Check an absolute hold using the current native AMSL-to-relative offset."""
+        if not self.safety_enabled:
+            return
+        if not self.contains(current_relative_m):
+            raise ValueError("altitude_hard_limit")
+        if not self.is_valid_altitude(current_amsl_m) or not self.is_valid_altitude(target_amsl_m):
+            raise ValueError("altitude_hold_target_invalid")
+        target_relative = target_amsl_m - (current_amsl_m - current_relative_m)
+        if not self.contains(target_relative):
+            raise ValueError("altitude_hold_target_outside_limits")
+
 
 class RateLimits(NamedTuple):
     """Rate limits in rad/s (converted from deg/s in config)."""

@@ -54,7 +54,7 @@ class NativeFollowBinding:
         self.clock = clock
         self.transport = NativeCommandTransport(
             client, connection, guidance.identity, circuit_breaker=circuit_breaker,
-            clock=clock, on_observation=self.on_observation,
+            clock=clock, on_observation=self.on_observation, altitude_limits=guidance.altitude_limits,
         )
         self._engage_attempted = False
         self._engage_in_progress = False

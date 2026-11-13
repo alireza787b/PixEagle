@@ -292,9 +292,8 @@ class FixedWingVectorGuidance:
         altitude = self._hold_altitude_amsl
         if limits.safety_enabled:
             self._guard_altitude(0.0, state, limits)
-            target_relative = altitude - (state.altitude_amsl_m - state.relative_altitude_m)
-            if not limits.contains(target_relative):
-                raise ValueError("altitude_hold_target_outside_limits")
+        limits.require_hold_target(altitude, current_amsl_m=state.altitude_amsl_m,
+                                   current_relative_m=state.relative_altitude_m)
         return altitude
 
     def level_command(self, state: AircraftState, *, identity: GuidanceSessionIdentity,

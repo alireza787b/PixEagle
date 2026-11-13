@@ -14,6 +14,7 @@ from classes.aircraft_state import AircraftState, AirframePhase, Vector3, headin
 from classes.command_intent import AltitudeHoldReference, CommandIntent
 from classes.command_dispatch_guard import DispatchRefused, DispatchRefusalKind
 from classes.fixed_wing_vector_guidance import FixedWingCommand
+from classes.safety_types import AltitudeLimits
 from classes.native_guidance import (
     ExternalModeIntent, NativeAcquisitionContext, NativeBackendRefusal, NativeMulticopterCommand, NativeReleaseReceipt,
 )
@@ -23,13 +24,15 @@ class NativeCommandTransport:
     publication_source = "px4_native_external_mode"
 
     def __init__(self, client, connection, identity, *, circuit_breaker, clock=time.monotonic,
-                 on_observation: Callable[[AircraftState | None, dict, CommandIntent], Awaitable[CommandIntent]] | None = None):
+                 on_observation: Callable[[AircraftState | None, dict, CommandIntent], Awaitable[CommandIntent]] | None = None,
+                 altitude_limits: AltitudeLimits | None = None):
         self.client = client
         self.connection = connection
         self.identity = identity
         self.circuit_breaker = circuit_breaker
         self.clock = clock
         self.on_observation = on_observation
+        self.altitude_limits = altitude_limits
         self._sequence = 0
         self._last_created = None
         self.last_feedback = None
@@ -109,10 +112,14 @@ class NativeCommandTransport:
             hold = intent.altitude_hold
             if hold is not None:
                 if (not isinstance(hold, AltitudeHoldReference)
-                        or not self.client.capabilities.multicopter_altitude_hold_supported):
+                        or not self.client.capabilities.multicopter_altitude_hold_supported
+                        or not isinstance(self.altitude_limits, AltitudeLimits)):
                     raise ValueError("native_mc_altitude_hold_unavailable")
                 if hold.reference_generation != state.altitude_reference_generation:
                     raise ValueError("altitude_reference_changed")
+                self.altitude_limits.require_hold_target(
+                    hold.altitude_amsl_m, current_amsl_m=state.altitude_amsl_m,
+                    current_relative_m=state.relative_altitude_m)
             return NativeMulticopterCommand(velocity, math.radians(fields["yawspeed_deg_s"]), hold)
         raise ValueError("native_phase_contract_unavailable")
 

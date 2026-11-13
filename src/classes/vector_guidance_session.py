@@ -75,12 +75,14 @@ class VectorGuidanceSession:
             raise ValueError("native_engagement_state_unavailable")
         if state.phase is AirframePhase.MULTICOPTER and not self.phase_owner.capabilities.multicopter_altitude_hold_supported:
             raise ValueError("native_mc_altitude_hold_unavailable")
-        if self._engagement_altitude_reference is None:
-            self._engagement_altitude_reference = state
-        reference = self._engagement_altitude_reference
+        reference = self._engagement_altitude_reference or state
         if (reference.binding != state.binding
                 or reference.altitude_reference_generation != state.altitude_reference_generation):
             raise ValueError("altitude_reference_changed")
+        self.altitude_limits.require_hold_target(
+            reference.altitude_amsl_m, current_amsl_m=state.altitude_amsl_m,
+            current_relative_m=state.relative_altitude_m)
+        self._engagement_altitude_reference = reference
         return AltitudeHoldReference(reference.altitude_amsl_m, reference.altitude_reference_generation)
 
     def _multicopter_intent(self, intent: CommandIntent, state: AircraftState) -> CommandIntent:
