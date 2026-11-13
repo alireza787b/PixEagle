@@ -84,6 +84,7 @@ class AirframeSessionControls:
                 raise ValueError("session_control_phase_unavailable")
             minimum, ceiling = 0., self._mc_ceiling
             value, label = retained.value, "3D speed"
+            description = retained.description
         elif state.phase is AirframePhase.FIXED_WING:
             envelope = state.fixed_wing_envelope
             if envelope is None:
@@ -91,6 +92,7 @@ class AirframeSessionControls:
             minimum, ceiling = envelope.minimum_eas_m_s, envelope.maximum_eas_m_s
             initial, _ = FixedWingVectorGuidance.startup_speed(state, now=now, timeout_s=timeout_s)
             value, label = initial, "Airspeed"
+            description = "Equivalent-airspeed reference for native PX4 guidance; not measured speed."
         else:
             raise ValueError("aircraft_phase_unknown")
         self.identity, self._phase = identity, state.phase
@@ -102,6 +104,7 @@ class AirframeSessionControls:
             "requested_speed", label, "m/s", minimum, None if override_allowed else ceiling,
             self._step, acknowledged,
             self._revision, ceiling if override_allowed else None, override_active,
+            description=description,
         )}
         self._unrestricted_verified = unrestricted_verified
         self._envelope = state.fixed_wing_envelope if state.phase is AirframePhase.FIXED_WING else None

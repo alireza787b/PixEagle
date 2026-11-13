@@ -126,6 +126,10 @@ VTOL admission remains gated; exposing phase-aware status does not qualify it.
 maximum, step, acknowledged value, revision, availability, increase permission,
 effective submitted-command magnitude and limiting reason. Missing controls mean
 unsupported; clients must not infer support from a follower name.
+Optional `description` explains the declared guidance meaning: Chase's total
+translation ceiling, Vector's requested translation magnitude, or the native FW
+airspeed reference. It is display metadata, not a new speed basis or policy.
+Older rows can omit it; clients can show it in the existing expanded explanation.
 `maximum: null` means no configured adjustment ceiling. `configured_maximum`
 describes the saved startup ceiling; `override_active` and `reset_supported`
 advertise the restore affordance. Clients show acknowledged values only.

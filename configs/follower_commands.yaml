@@ -154,6 +154,7 @@ follower_profiles:
     session_controls:
       requested_speed:
         label: Requested speed
+        description: "Total 3D translation ceiling for image-guided chase; commands may be smaller. The saved forward target applies until adjustment. Zero ramps translation down; yaw guidance may continue."
         unit: m/s
         step: 0.5
     airframe_phase: "multicopter"
@@ -200,6 +201,7 @@ follower_profiles:
     session_controls:
       requested_speed:
         label: Requested speed
+        description: "Requested 3D translation magnitude along the observed target direction; ramps, guidance and safety may reduce the submitted command."
         unit: m/s
         step: 0.5
 

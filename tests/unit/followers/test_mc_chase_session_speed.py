@@ -1,20 +1,32 @@
 """MC Chase shares session speed ownership without changing image guidance."""
 
+import asyncio
 import json
 import math
 import time
+from dataclasses import replace
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+from pydantic import ValidationError
 
+from classes.aircraft_state import AirframePhase, GuidanceSessionIdentity
+from classes.airframe_session_controls import AirframeSessionControls
+from classes.api_v1_contracts import APIFollowingSessionControl, APINativeFollowingStatus
+from classes.api_v1_native_following import following_snapshot
 from classes.followers.base_follower import BaseFollower
 from classes.followers.mc_velocity_chase_follower import MCVelocityChaseFollower
 from classes.command_safety import validate_and_clamp_command_values
 from classes.parameters import Parameters
 from classes.safety_manager import SafetyManager
+from classes.setpoint_handler import SetpointHandler, validate_follower_command_schema
 from classes.tracker_output import TrackerDataType, TrackerOutput
 from tests.unit.core_app.test_following_session_controls import active_owner, body, invoke
 from tests.unit.core_app.test_native_following import owner
 from tests.unit.core_app.test_native_target_operations import owner as target_owner
+from tests.unit.drone_interface.test_aircraft_state import aircraft_state
+from tests.unit.followers.test_session_speed import follower_with_control
 
 
 @pytest.fixture
@@ -230,3 +242,110 @@ async def test_real_chase_action_cannot_cross_stop_or_replacement(chase, active_
     assert result.status_code == 409
     assert chase.session_controls()[0]['revision'] == 0
     assert chase.safety_manager._session_velocity_binding is None
+
+
+async def test_chase_description_is_exposed_by_the_actual_status_and_action(chase, active_owner):
+    app = active_owner.app_controller
+    app.follower.follower = chase
+    status = APINativeFollowingStatus.model_validate(following_snapshot(active_owner, active_owner.principal_test))
+    row, = status.session_controls
+    assert row.speed_basis == 'translation_3d'
+    assert 'ceiling' in row.description
+    assert 'image' in row.description
+    assert row.value == 1. and chase._update_forward_velocity(1.) == .5
+    adjusted = await invoke(active_owner, body(value=3.))
+    assert adjusted['result']['session_controls'][0]['description'] == row.description
+    assert adjusted['result']['session_controls'][0]['revision'] == 1
+    zero = await invoke(active_owner, body(value=0., expected_revision=1, idempotency_key='zero'))
+    assert zero['result']['session_controls'][0]['value'] == 0.
+    restored = await invoke(active_owner, body(value=None, expected_revision=2, idempotency_key='restore'))
+    reset, = restored['result']['session_controls']
+    assert reset['description'] == row.description
+    assert reset['value'] == 0. and reset['revision'] == 3 and not reset['override_active']
+    assert chase.velocity_limits.forward == .5
+
+
+@pytest.mark.parametrize('phase', [AirframePhase.MULTICOPTER, AirframePhase.FIXED_WING])
+def test_vector_description_survives_the_native_phase_binding_without_changing_speed_basis(phase):
+    vector = follower_with_control()
+    vector.config = {}
+    vector.setpoint_handler = SimpleNamespace(profile_config=SetpointHandler.get_profile_info('gm_velocity_vector'))
+    vector.safety_manager.get_velocity_limits = lambda _: SimpleNamespace(forward=1., max_magnitude=1.)
+    vector._session_controls = vector.create_session_controls()
+    declared, = vector.session_controls()
+    assert 'magnitude' in declared['description']
+    assert 'ceiling' not in declared['description']
+    state = replace(aircraft_state(), phase=phase)
+    identity = GuidanceSessionIdentity('follow', state.binding, 1)
+    controls = AirframeSessionControls.from_multicopter_control(identity, vector._requested_speed_control())
+    controls.enter_phase(identity, state, now=100., timeout_s=.5)
+    row = APIFollowingSessionControl.model_validate(dict(
+        controls.snapshot(client_contract_version=2), available=True, increase_allowed=True))
+    if phase is AirframePhase.MULTICOPTER:
+        assert row.description == declared['description']
+        assert row.speed_basis == 'translation_3d'
+    else:
+        assert 'airspeed reference' in row.description
+        assert 'magnitude' not in row.description
+        assert row.speed_basis == 'equivalent_airspeed'
+        assert row.minimum > 0.
+
+
+@pytest.mark.parametrize('description', [True, 5, {'text': 'ceiling'}])
+def test_description_remains_typed_optional_display_metadata(chase, description):
+    row, = chase.session_controls()
+    with pytest.raises(ValidationError):
+        APIFollowingSessionControl.model_validate(dict(
+            row, description=description, available=True, increase_allowed=True))
+
+
+@pytest.mark.parametrize('description', ['', None, True, 5])
+def test_control_declaration_rejects_a_nonmeaningful_description(description):
+    schema = SetpointHandler.load_and_validate_schema(Path(__file__).resolve().parents[3]
+                                                     / 'configs/follower_commands.yaml')
+    schema['follower_profiles']['mc_velocity_chase']['session_controls']['requested_speed']['description'] = description
+    with pytest.raises(ValueError, match='requested_speed.description'):
+        validate_follower_command_schema(schema)
+
+
+@pytest.mark.parametrize('change', ['missing_required', 'unknown_field'])
+def test_optional_description_does_not_loosen_other_control_declaration_fields(change):
+    schema = SetpointHandler.load_and_validate_schema(Path(__file__).resolve().parents[3]
+                                                     / 'configs/follower_commands.yaml')
+    declaration = schema['follower_profiles']['mc_velocity_chase']['session_controls']['requested_speed']
+    if change == 'missing_required':
+        declaration.pop('label')
+    else:
+        declaration['unrecognized'] = 'unexpected'
+    with pytest.raises(ValueError, match='Session controls must declare'):
+        validate_follower_command_schema(schema)
+
+
+@pytest.mark.parametrize('change', ['stop', 'replacement'])
+async def test_queued_chase_action_cannot_mutate_a_stopped_or_replaced_owner(
+        chase, active_owner, mock_px4, change):
+    app = active_owner.app_controller
+    app.follower.follower = chase
+    chase.update_session_control('requested_speed', 3., 0)
+    replacement = None
+    async with app._follower_state_lock:
+        pending = asyncio.create_task(invoke(active_owner, body(value=2., expected_revision=1)))
+        await asyncio.sleep(0)
+        chase.release_session_controls()
+        if change == 'stop':
+            app._following_stopping = True
+        else:
+            replacement = MCVelocityChaseFollower(mock_px4, (0., 0.))
+            replacement.update_session_control('requested_speed', 4., 0)
+            app.follower.follower = replacement
+            app._following_session_id = 'b' * 32
+    result = await pending
+    assert result.status_code == 409
+    assert chase.session_controls()[0]['revision'] == 1
+    chase.release_session_controls()
+    if replacement is not None:
+        assert replacement.session_controls()[0]['value'] == 4.
+        assert replacement.session_controls()[0]['revision'] == 1
+        assert replacement.velocity_limits.forward == 4.
+    else:
+        assert chase.safety_manager._session_velocity_binding is None

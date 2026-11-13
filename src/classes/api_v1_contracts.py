@@ -255,6 +255,7 @@ class APIFollowingSessionControl(BaseModel):
     configured_maximum: Optional[float] = None
     override_active: bool = False
     reset_supported: bool = False
+    description: Optional[str] = None
     guidance_generation: Optional[int] = Field(default=None, strict=True, ge=0)
     aircraft_phase: Optional[Literal["multicopter", "fixed_wing", "vtol_transition"]] = None
     speed_basis: Literal["translation_3d", "equivalent_airspeed"] = "translation_3d"

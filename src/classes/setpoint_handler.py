@@ -270,10 +270,13 @@ def validate_follower_command_schema(schema: Any) -> Dict[str, Any]:
         for control_id, metadata in controls.items():
             if not isinstance(control_id, str) or not _SCHEMA_NAME_RE.fullmatch(control_id):
                 raise ValueError('Invalid session control identifier')
-            if not isinstance(metadata, dict) or set(metadata) != {'label', 'unit', 'step'}:
+            if (not isinstance(metadata, dict) or not {'label', 'unit', 'step'} <= set(metadata)
+                    or set(metadata) - {'label', 'unit', 'step', 'description'}):
                 raise ValueError('Session controls must declare label, unit and step')
             _require_nonempty_string(metadata['label'], f'{control_id}.label')
             _require_nonempty_string(metadata['unit'], f'{control_id}.unit')
+            if 'description' in metadata:
+                _require_nonempty_string(metadata['description'], f'{control_id}.description')
             step = metadata['step']
             if isinstance(step, bool) or not isinstance(step, (int, float)) or not math.isfinite(step) or step <= 0:
                 raise ValueError('Session control step must be finite and positive')

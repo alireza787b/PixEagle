@@ -9,7 +9,7 @@ source:
   - file: src/classes/fastapi_api_v1_routes.py
     sha256: 443428b48fc3a3989c6d3f08ee52289377b0ebc6a06225e6f87ae97c0e4d844e
   - file: src/classes/api_v1_contracts.py
-    sha256: 5a38b008dbb53229bfd778b33bedb5196b42e9013b9af97290d467db3fd48425
+    sha256: 76b202e54ed92659742d8fd52a9b241097ab5d7e6802ee67c5c593bb77c50930
   - file: src/classes/api_v1_paths.py
     sha256: 31a380c59a8783f77ba2ee771f72251ae997ba356195c7d96d3682c37c58dffe
   - file: src/classes/api_v1_actions.py
@@ -55,7 +55,7 @@ source:
   - file: src/classes/follower_catalog.py
     sha256: be87886759b2afb31235c7a63af5dce843b48a47931ca36140a70ffa2bc5fd05
   - file: configs/follower_commands.yaml
-    sha256: 0c4176b9c74ac8aa9f366249bbe3a917ef5780424ba2317351dafacee444b956
+    sha256: 8d8da2918a1552d6baa16f6ac1afb1df74cb92b2b02378e0f468c2feb213ede2
   - file: configs/tracker_schemas.yaml
     sha256: b1bcab0c5e44427d8f45a7a2a83b6c78c9dcd19c2ad51152de38399653e56ac1
   - file: src/classes/api_v1_native_models.py

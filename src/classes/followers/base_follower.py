@@ -782,7 +782,8 @@ class BaseFollower(ABC):
                                     0.0, ceiling, declaration['step'], float(value))
         configured.updated(value, configured.revision)
         control = SessionControl('requested_speed', declaration['label'], declaration['unit'],
-                                 0.0, None, declaration['step'], float(value), configured_maximum=ceiling)
+                                 0.0, None, declaration['step'], float(value), configured_maximum=ceiling,
+                                 description=declaration.get('description'))
         return {control.control_id: control}
 
     def _requested_speed_control(self):
