@@ -46,6 +46,14 @@ def test_healthy_payload_reads_do_not_churn_id_or_require_pose_fields():
         context.require_match(identity().binding, context.runtime_id, phase=AirframePhase.MULTICOPTER)
 
 
+def test_non_vtol_mc_may_have_no_phase_history_without_inventing_vtol_identity():
+    original = start_context(identity(), phase='multicopter')
+    context = replace(original, phase_source_instance=0, phase_revision=0)
+    assert NativeStartContext.from_payload(context.wire_payload()) == context
+    context.require_match(identity().binding, context.runtime_id, phase=AirframePhase.MULTICOPTER)
+    assert context.context_id != original.context_id
+
+
 async def test_missing_original_context_refuses_before_any_engage_rpc(native_server):
     path, requests, _ = native_server
     client = NativeGuidanceClient(path)

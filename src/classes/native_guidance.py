@@ -93,8 +93,7 @@ class NativeStartContext:
         if (not _unsigned(self.mode_id, 8) or not 23 <= self.mode_id <= 30
                 or not _unsigned(self.source_nav_state, 8) or self.source_nav_state == self.mode_id
                 or self.registration_id == 0 or self.source_nav_state_timestamp == 0
-                or (self.phase_source_instance == 0) != (self.phase_revision == 0)
-                or self.phase == 'multicopter' and self.phase_source_instance == 0):
+                or (self.phase_source_instance == 0) != (self.phase_revision == 0)):
             raise NativeGuidanceError('native_start_context_invalid')
 
     @classmethod

@@ -109,8 +109,7 @@ inline NativeStartContext decodeStartContext(const Json& value) {
         phase == "multicopter" ? Phase::Multicopter : phase == "fixed_wing" ? Phase::FixedWing : Phase::Unknown};
     if (unsignedInteger(value.at("version")) != 1 || mode < 23 || mode > 30 || source_mode > 255 || mode == source_mode
             || result.registration == 0 || result.source_epoch == 0 || result.phase == Phase::Unknown
-            || ((result.phase_instance == 0) != (result.phase_revision == 0))
-            || (result.phase == Phase::Multicopter && result.phase_instance == 0))
+            || ((result.phase_instance == 0) != (result.phase_revision == 0)))
         throw std::invalid_argument("native_start_context_invalid");
     return result;
 }

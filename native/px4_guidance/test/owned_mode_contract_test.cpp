@@ -38,6 +38,16 @@ TEST(OwnedModeContract, TokensAreFiniteExact128BitValuesWithoutWeakFallback) {
     }
 }
 
+TEST(OwnedModeContract, ZeroHistoryDoesNotInferWhetherMulticopterIsVtol) {
+    auto source = *context().start_context;
+    source.phase = Phase::Multicopter;
+    EXPECT_EQ(decodeStartContext(source.wire()).wire(), source.wire());
+    source.phase_instance = 7;
+    EXPECT_THROW(decodeStartContext(source.wire()), std::invalid_argument);
+    source.phase_revision = 1;
+    EXPECT_EQ(decodeStartContext(source.wire()).wire(), source.wire());
+}
+
 TEST(OwnedModeContract, SourceClockDeadlineUsesOnlyTheRemainingRequestBudget) {
     EXPECT_EQ(ownershipDeadline(1000000, 10., 10.5), 1500000);
     EXPECT_LE(ownershipDeadline(1000000, 10.4, 10.5), 1100000);
