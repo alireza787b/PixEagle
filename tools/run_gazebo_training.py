@@ -315,7 +315,9 @@ def start_native_wire_recorder(args, runtime, profile, token, primary, container
                 or info['Config']['User'] != f'{os.getuid()}:{os.getgid()}'
                 or info['HostConfig']['Privileged'] or info['HostConfig'].get('Devices')
                 or not info['HostConfig']['ReadonlyRootfs'] or info['NetworkSettings']['Ports']
-                or actual_mounts != expected_mounts):
+                or actual_mounts != expected_mounts
+                or any(item['Type'] != 'bind' and not (item['Type'] == 'tmpfs' and item['Destination'] == '/tmp')
+                       for item in info['Mounts'])):
             raise ValueError('Original native recorder identity or isolation changed')
         if (front / 'guidance.sock').is_socket():
             write(private / 'manifest.json', dict(kind='training_native_wire', container_id=cid,

@@ -119,7 +119,7 @@ def test_launch_retains_original_cid_and_exact_mounts_for_cleanup(tmp_path, monk
         for sock in sockets: sock.close()
 
 
-@pytest.mark.parametrize('bad', ['image', 'uid', 'stopped', 'namespace', 'mount', 'port', 'privileged', 'device', 'rootfs'])
+@pytest.mark.parametrize('bad', ['image', 'uid', 'stopped', 'namespace', 'mount', 'extra_volume', 'port', 'privileged', 'device', 'rootfs'])
 def test_proxy_inspection_refusal_keeps_original_cleanup_id(tmp_path, monkeypatch, bad):
     runtime, profile, venv = tmp_path / 'run', tmp_path / 'profile', tmp_path / 'venv'
     (runtime / 'simulator/private').mkdir(parents=True)
@@ -137,6 +137,8 @@ def test_proxy_inspection_refusal_keeps_original_cleanup_id(tmp_path, monkeypatc
         elif bad == 'stopped': info['State']['Running'] = False
         elif bad == 'namespace': info['HostConfig']['NetworkMode'] = 'host'
         elif bad == 'mount': info['Mounts'][0]['RW'] = True
+        elif bad == 'extra_volume':
+            info['Mounts'].append(dict(Type='volume', Destination='/app/extra', Source='volume', RW=True))
         elif bad == 'port': info['NetworkSettings']['Ports'] = {'14550/udp': {}}
         elif bad == 'privileged': info['HostConfig']['Privileged'] = True
         elif bad == 'device': info['HostConfig']['Devices'] = ['/dev/ttyUSB0']
