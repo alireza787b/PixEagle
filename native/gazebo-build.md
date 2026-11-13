@@ -179,6 +179,60 @@ original full container ID and ownership token; stopping rechecks identity and
 stopped state without removing the container or prescribing log policy.
 This does not qualify the legacy MC worker on a VTOL model or bypass App admission.
 
+## Explicit MC camera runtime scenario
+
+`native/gazebo/scenarios/x500-mono-camera-aruco-v1.json` selects the stock
+`4010_gz_x500_mono_cam` airframe and `aruco` world from the unchanged, verified
+stock package (`3d4eb66f…` manifest, `656d044f…` image, `0c6f6557…` firmware ELF).
+Its runtime selection is separate from that build's recorded 4018/default
+selection. The original build manifest, image, firmware and resource files are
+not rewritten. `tools/sih_baseline.py` and its recipe fingerprint are unchanged;
+historical builds still require their matching build authority.
+
+After `verified_simulation_build` succeeds, callers can explicitly pass
+`gazebo_scenario="x500-mono-camera-aruco-v1"` to `simulation_launch_args` and
+`verify_simulator`. The former only stages the private rootfs and returns argv;
+the latter only probes an already running simulator. Omitting this argument
+preserves the existing SIH/quad-tailsitter defaults. A conflicting explicit
+model is refused before staging. This helper slice adds no flight runner or
+public configuration setting. The existing full-App startup and aircraft
+admission contracts still apply.
+
+The descriptor pins the complete selected model directories, textures, world,
+server config, packaged plugins and the exact 4010 → 4001 → `rc.mc_defaults`
+include chain. Only literal, unconditional identity declarations are read;
+shell is never executed by the validator. Runtime checks retain the exact image,
+binary and full Gazebo resource tree, and additionally require the selected
+airframe-chain hashes, MC identity parameters, declared scene objects and single
+camera topic. The result records `gazebo.runtime_scenario` beside the unchanged
+`firmware_build`. Descriptor changes produce a new scenario hash, not a new or
+retroactively qualified firmware build. No-pitot packages cannot use this stock
+descriptor.
+
+The proposed bench spawn is Gazebo **ENU** `[-6, 0, 0, 0, 0, 0]` (metres/radians),
+facing the marker at the origin. The existing camera sits 0.12 m forward,
+0.03 m sideways and 0.242 m above its base link. It emits 1280×960 images at
+30 Hz with horizontal FOV 1.74 rad (99.6947°). Total modeled vehicle mass is
+2.1143076923 kg, including the 0.05 kg camera. The static ground marker is only
+0.5×0.5 m. Visible pixel area and perspective through the intended altitude
+range must be measured before a demo; no tracker success is implied by a topic.
+
+For instance 0 the expected Gazebo image topic is
+`/world/aruco/model/x500_mono_cam_0/link/camera_link/sensor/camera/image`.
+The pinned `GstCameraSystem` automatically sends the single camera as RTP/H.264
+to `127.0.0.1:5600` inside the isolated network namespace. A normal PixEagle
+GStreamer input in that namespace can use `udp://0.0.0.0:5600`. Routing that video
+to the custom QGC, authentication, App startup and optional GUI rendering belong
+to the separately reviewed lab topology. Do not loop the processed output back
+into its input port. `HEADLESS=1` suppresses Gazebo's GUI; OGRE2 camera rendering,
+H.264 decoding and advancing image frames remain actual bench gates.
+
+The separate stock `moving_platform` world is available for later motion tests,
+but is not selected here: its 5×5 m deck starts 2 m above ground and applies
+force/torque noise even at requested zero speed. No new target physics,
+controller, native parameter tuning, public defaults or flight permission is
+introduced by this scenario.
+
 ## Next gates
 
 No simulator launch or flight was performed for this verifier extension. Keep

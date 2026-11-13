@@ -61,11 +61,11 @@ def verified_simulation_build(path: Path, *, repository: Path | None = None) -> 
     return simulator, verified, manifest
 
 
-def _simulation_model(simulator: str, manifest: dict | None, requested: str | None) -> str:
+def _simulation_model(simulator: str, manifest: dict | None, requested: str | None, *, scenario=None) -> str:
     if simulator == "gazebo":
         if not isinstance(manifest, dict) or not isinstance(manifest.get("build"), dict):
             raise ValueError("Gazebo requires a verified Gazebo build manifest")
-        expected = "gz_" + manifest["build"]["model"]
+        expected = "gz_" + (scenario["descriptor"] if scenario else manifest["build"])["model"]
         if requested is not None and requested != expected:
             raise ValueError("Requested simulator model differs from the verified Gazebo manifest")
         return expected
@@ -77,13 +77,20 @@ def _simulation_model(simulator: str, manifest: dict | None, requested: str | No
 
 def simulation_launch_args(simulator: str, baseline: dict, manifest: dict | None, *,
                            runtime: Path, token: str, name: str, model: str | None = None,
-                           startup_parameters: dict[str, str] | None = None) -> list[str]:
+                           startup_parameters: dict[str, str] | None = None,
+                           gazebo_scenario: str | None = None) -> list[str]:
     """Stage a private rootfs and plan the owned primary; never launch it.
 
     Callers own the fixture parameter allowlist and native bounds. Values here
     are literal finite numbers consumed by the pinned rcS before Navigator.
     """
-    model = _simulation_model(simulator, manifest, model)
+    scenario = None
+    if gazebo_scenario is not None:
+        from tools.gazebo_scenario import verified_scenario
+        if simulator != "gazebo" or manifest is None:
+            raise ValueError("A runtime scenario requires a verified Gazebo build")
+        scenario = verified_scenario(gazebo_scenario, baseline, manifest)
+    model = _simulation_model(simulator, manifest, model, scenario=scenario)
     options = []
     source_build = baseline.get("kind") in {"verified_source_build", "verified_gazebo_source_build"}
     if startup_parameters and not source_build:
@@ -98,10 +105,17 @@ def simulation_launch_args(simulator: str, baseline: dict, manifest: dict | None
             raise ValueError("Gazebo requires a verified Gazebo build manifest")
         spec = manifest["build"]
         image = baseline["image_id"]
+        world = scenario["descriptor"]["world"] if scenario else spec["world"]
         for key, value in {"GZ_IP": "127.0.0.1", "GZ_PARTITION": token,
-                           "GZ_DISTRO": spec["distribution"], "PX4_GZ_WORLD": spec["world"],
+                           "GZ_DISTRO": spec["distribution"], "PX4_GZ_WORLD": world,
                            "PX4_GZ_NO_FOLLOW": "1", "HEADLESS": "1"}.items():
             options.extend(["-e", f"{key}={value}"])
+        if scenario:
+            from tools.gazebo_scenario import scenario_environment
+            if set(startup_parameters or {}) & scenario["expected_parameters"].keys():
+                raise ValueError("Startup parameters cannot override Gazebo scenario identity")
+            for key, value in scenario_environment(scenario).items():
+                options.extend(["-e", f"{key}={value}"])
     elif simulator == "sih" and model.startswith("sihsim_"):
         image = baseline.get("image_id", baseline.get("reference"))
     else:

@@ -805,10 +805,15 @@ def gazebo_airframe_identity(manifest: dict, packaged: Path) -> tuple[dict, str,
     return expected, name, checksum
 
 
-def verify_gazebo_runtime(container, instance, uid, process, manifest, *, packaged: Path):
+def verify_gazebo_runtime(container, instance, uid, process, manifest, *, packaged: Path, scenario=None):
     """Read the locked scene, resource bytes and allocator identity; send no control."""
-    spec = manifest["build"]
-    expected_parameters, airframe, airframe_sha256 = gazebo_airframe_identity(manifest, packaged)
+    spec = scenario["descriptor"] if scenario else manifest["build"]
+    if scenario:
+        expected_parameters = scenario["expected_parameters"]
+        airframe = spec["airframe_chain"][0].removeprefix("etc/")
+        airframe_sha256 = spec["resources"]["etc/" + airframe]["sha256"]
+    else:
+        expected_parameters, airframe, airframe_sha256 = gazebo_airframe_identity(manifest, packaged)
     model, world = f'{spec["model"]}_{instance}', spec["world"]
     environment = process.get("environment", {})
     required_environment = {
@@ -821,6 +826,10 @@ def verify_gazebo_runtime(container, instance, uid, process, manifest, *, packag
     }
     if any(environment.get(key) != value for key, value in required_environment.items()):
         raise ValueError("Gazebo process resource paths differ from the packaged build")
+    if scenario:
+        from tools.gazebo_scenario import scenario_environment
+        if any(environment.get(key) != value for key, value in scenario_environment(scenario).items()):
+            raise ValueError("Gazebo process environment differs from the runtime scenario")
     partition = environment.get("GZ_PARTITION")
     if not isinstance(partition, str) or not partition.strip():
         raise ValueError("Gazebo requires a nonempty process transport partition")
@@ -832,41 +841,60 @@ for p in sorted(base.rglob('*')):
  if p.is_symlink(): result[str(p.relative_to(base))]={'link':str(p.readlink())}
  elif p.is_file(): result[str(p.relative_to(base))]={'sha256':hashlib.sha256(p.read_bytes()).hexdigest(),'executable':bool(p.stat().st_mode&0o111)}
 airframe=pathlib.Path('/opt/px4/etc')/sys.argv[1]
-print(json.dumps({'gazebo':result,'airframe_sha256':hashlib.sha256(airframe.read_bytes()).hexdigest()}))
+out={'gazebo':result,'airframe_sha256':hashlib.sha256(airframe.read_bytes()).hexdigest()}
+if len(sys.argv)>2:
+ out['scenario_airframes']={name:hashlib.sha256((pathlib.Path('/opt/px4')/name).read_bytes()).hexdigest()
+                           for name in json.loads(sys.argv[2])}
+print(json.dumps(out))
 """
-    observed = json.loads(command(*prefix, "python3", "-c", script, airframe))
+    extra = [json.dumps(spec["airframe_chain"])] if scenario else []
+    observed = json.loads(command(*prefix, "python3", "-c", script, airframe, *extra))
     resources = observed.get("gazebo")
     if resources != manifest["artifacts"]["gazebo"] or observed.get("airframe_sha256") != airframe_sha256:
         raise ValueError("Gazebo runtime resources differ from the verified build")
+    if scenario and observed.get("scenario_airframes") != {
+            name: spec["resources"][name]["sha256"] for name in spec["airframe_chain"]}:
+        raise ValueError("Gazebo runtime airframe chain differs from the scenario")
     scene = command(*prefix, "gz", "service", "-s", f"/world/{world}/scene/info",
                     "--reqtype", "gz.msgs.Empty", "--reptype", "gz.msgs.Scene", "--timeout", "2000", "--req", "")
     models = re.findall(r'(?m)^model \{\n  name: "([^"\n]+)"\n', scene)
-    if sorted(models) != sorted(["ground_plane", model]):
+    scene_models = [*(spec["scene_models"] if scenario else ["ground_plane"]), model]
+    if sorted(models) != sorted(scene_models):
         raise ValueError("Gazebo scene does not contain only the locked aircraft and ground plane")
     topics = command(*prefix, "gz", "topic", "-l")
     observed_topics = set(topics.splitlines())
     required_topics = {f"/world/{world}/pose/info", f"/world/{world}/dynamic_pose/info",
                        f"/model/{model}/odometry_with_covariance",
                        f"/world/{world}/model/{model}/link/base_link/sensor/imu_sensor/imu"}
+    if scenario:
+        camera = spec["camera"]
+        required_topics.add(f'/world/{world}/model/{model}/link/{camera["link"]}/sensor/{camera["sensor"]}/image')
+    allowed_topic_models = set(scene_models) if scenario else {model}
     if (not required_topics <= observed_topics
             or set(re.findall(r"(?m)^/world/([^/]+)/", topics)) != {world}
-            or set(re.findall(r"/model/([^/]+)/", topics)) != {model}):
+            or not set(re.findall(r"/model/([^/]+)/", topics)) <= allowed_topic_models):
         raise ValueError("Gazebo topics do not identify the locked world and model")
+    if scenario and {topic for topic in observed_topics if topic.endswith("/image")} != {
+            topic for topic in required_topics if topic.endswith("/image")}:
+        raise ValueError("Gazebo scenario requires its single declared camera image topic")
     parameter_executable = str(Path(process["args"][0]).with_name("px4-param"))
     parameters = command(*prefix, parameter_executable, "--instance", str(instance), "show")
     for name, value in expected_parameters.items():
         found = re.findall(rf"(?m)^\s*[x+* ]*{name}(?:\s+\[[^]\n]+\])?\s*:\s*(\S+)\s*$", parameters)
         if found != [str(value)]:
-            raise ValueError(f"Gazebo aircraft parameter differs from the locked quad tailsitter: {name}")
+            raise ValueError(f"Gazebo aircraft parameter differs from the locked declaration: {name}")
     return dict(model=model, world=world, parameters=parameters, scene=scene, topics=topics,
                 airframe=airframe, airframe_sha256=airframe_sha256, expected_parameters=expected_parameters,
-                resources_sha256=hashlib.sha256(json.dumps(resources, sort_keys=True).encode()).hexdigest())
+                resources_sha256=hashlib.sha256(json.dumps(resources, sort_keys=True).encode()).hexdigest(),
+                **({"runtime_scenario": scenario} if scenario else {}))
 
 
 def verify_simulator(container: str, instance: int, socket: Path, *, simulation_build_manifest: Path | None = None,
-                     build_repository: Path | None = None) -> dict:
+                     build_repository: Path | None = None, gazebo_scenario: str | None = None) -> dict:
     if build_repository is not None and simulation_build_manifest is None:
         raise ValueError("An explicit simulation build repository requires a verified build manifest")
+    if gazebo_scenario is not None and simulation_build_manifest is None:
+        raise ValueError("A runtime scenario requires a verified Gazebo build")
     info = json.loads(command("docker", "inspect", container))[0]
     if (info["HostConfig"]["NetworkMode"] != "none" or info["HostConfig"]["Privileged"]
             or info["HostConfig"].get("Devices") or info["NetworkSettings"]["Ports"]):
@@ -876,6 +904,12 @@ def verify_simulator(container: str, instance: int, socket: Path, *, simulation_
         simulator, baseline, manifest = verified_simulation_build(simulation_build_manifest, repository=build_repository)
         if simulator == "gazebo" and info["Image"] != baseline["image_id"]:
             raise ValueError("Running simulator image differs from the verified source build")
+    scenario = None
+    if gazebo_scenario is not None:
+        from tools.gazebo_scenario import verified_scenario
+        if simulator != "gazebo":
+            raise ValueError("A runtime scenario requires a verified Gazebo build")
+        scenario = verified_scenario(gazebo_scenario, baseline, manifest)
     # Inspect the real process and inherited model, not an operator-supplied label.
     script = """import hashlib, json, pathlib, sys
 out=[]
@@ -886,7 +920,8 @@ for p in pathlib.Path('/proc').iterdir():
   if args and pathlib.Path(args[0]).name=='px4':
    value=dict(args=args, model=env.get('PX4_SIM_MODEL'), cwd=str((p/'cwd').resolve()),
               environment={k: env.get(k) for k in ('PX4_GZ_WORLD', 'PX4_GZ_MODELS', 'PX4_GZ_WORLDS',
-               'GZ_SIM_RESOURCE_PATH', 'GZ_SIM_SYSTEM_PLUGIN_PATH', 'GZ_SIM_SERVER_CONFIG_PATH', 'GZ_PARTITION')})
+               'GZ_SIM_RESOURCE_PATH', 'GZ_SIM_SYSTEM_PLUGIN_PATH', 'GZ_SIM_SERVER_CONFIG_PATH', 'GZ_PARTITION',
+               'PX4_GZ_MODEL_POSE', 'PX4_VIDEO_HOST_IP')})
    if sys.argv[1]=='verify':
     value['binary_sha256']=hashlib.sha256((p/'exe').read_bytes()).hexdigest()
    out.append(value)
@@ -901,7 +936,7 @@ print(json.dumps(out))
     if len(matches) != 1:
         raise ValueError("An unambiguous running PX4 SIH or Gazebo instance is required")
     process = matches[0]
-    expected_model = "gz_" + manifest["build"]["model"] if simulator == "gazebo" else None
+    expected_model = "gz_" + (scenario["descriptor"] if scenario else manifest["build"])["model"] if simulator == "gazebo" else None
     if (process["model"] != expected_model if expected_model else not str(process["model"]).startswith("sihsim_")):
         raise ValueError("Running simulator model requires its matching verified build manifest")
     if baseline is not None and process.get("binary_sha256") != baseline["binary_sha256"]:
@@ -911,7 +946,7 @@ print(json.dumps(out))
     if len(mapped) != 1 or not socket.is_socket():
         raise ValueError("Native socket must be in the verified simulation container bind mount")
     gazebo = (verify_gazebo_runtime(container, instance, socket.stat().st_uid, process, manifest,
-                                    packaged=Path(baseline["manifest"]).parent / "packaged")
+                                    packaged=Path(baseline["manifest"]).parent / "packaged", scenario=scenario)
               if simulator == "gazebo" else None)
     listener = str(Path(process["args"][0]).with_name("px4-listener"))
     status = command("docker", "exec", "--user", str(socket.stat().st_uid), container, listener, "--instance", str(instance),
