@@ -284,15 +284,21 @@ async def test_read_only_discovery_precedes_specialized_input_validation(app):
     ctrl.video_handler = SimpleNamespace(get_frame_status=lambda: {"usable_for_following": True})
     ctrl._get_follow_start_readiness = lambda: readiness(ctrl)
 
-    async def prepare():
+    async def discover(_socket_path):
         assert current_state[0] is None
-        binding = await original()
         current_state[0] = app.f.state
-        return binding
+        return app.f.guidance.phase_owner.capabilities
 
+    async def prepare():
+        assert current_state[0] is app.f.state
+        return await original()
+
+    ctrl.px4_interface.prepare_native_guidance.side_effect = discover
     ctrl._prepare_native_follow_binding.side_effect = prepare
     assert not (await ctrl._connect_px4_on_flight_loop())["errors"]
     assert ctrl.following_active
+    ctrl.px4_interface.prepare_native_guidance.assert_awaited_once()
+    ctrl._prepare_native_follow_binding.assert_awaited_once()
 
 
 @pytest.mark.parametrize("failure_stage", ["discovery", "engage", "publisher"])

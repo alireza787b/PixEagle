@@ -17,7 +17,7 @@ before the pilot transition request. Zero requested vertical velocity and
 explicit engagement-altitude hold are different command contracts; the current
 velocity/height discrepancy is not a demonstrated estimator root cause.
 Earlier measured-airspeed FW altitude failures at 2.09–2.26 m are retained.
-The latest full backend checkpoint passes 6,670/196/155 checks on `3023d351e`;
+The recorded full backend baseline passes 6,670/196/155 checks on `3023d351e`;
 later narrow harness and client checks have their own scopes below. QGC candidate
 `89d39998e` is built locally with retained host/baseline gate limitations.
 Input-contract initialization and passive native-readiness fixes are committed
