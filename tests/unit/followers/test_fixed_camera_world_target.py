@@ -210,6 +210,17 @@ def response_inputs():
     return scenario, observations, publications, kwargs
 
 
+@pytest.mark.parametrize("altitude", [float("nan"), float("inf"), -float("inf")])
+@pytest.mark.parametrize("ceiling", [120., None])
+def test_measured_altitude_envelope_rejects_nonfinite_height(altitude, ceiling):
+    scenario, observations, publications, kwargs = response_inputs()
+    scenario = replace(scenario, visual=replace(scenario.visual,
+        limits={**scenario.visual.limits, "altitude_max": ceiling}))
+    observations[-1]["altitude_m"] = altitude
+    report = evaluate_response(scenario, observations, publications, **kwargs)
+    assert not report["checks"]["altitude_envelope"]
+
+
 def test_response_requires_observed_alignment_not_just_successful_commands():
     scenario, observations, publications, kwargs = response_inputs()
     assert evaluate_response(scenario, observations, publications, **kwargs)["passed"]

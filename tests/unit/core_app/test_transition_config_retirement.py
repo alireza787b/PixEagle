@@ -39,7 +39,7 @@ def service(tmp_path, monkeypatch):
 
 def test_transition_timeout_is_inert_without_a_saved_config_rewrite(service):
     config, saved, before = service
-    assert config.get_schema()["schema_version"] == "1.9.0"
+    assert config.get_schema()["schema_version"] == "1.10.0"
     assert "VTOL_TRANSITION_TIMEOUT_S" not in config.get_schema("Follower")["parameters"]
     assert "VTOL_TRANSITION_TIMEOUT_S" not in config.get_effective_defaults()["Follower"]
     assert "VTOL_TRANSITION_TIMEOUT_S" not in config.get_config("Follower")

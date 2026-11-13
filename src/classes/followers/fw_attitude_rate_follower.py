@@ -8,6 +8,7 @@ PX4's internal L1/TECS implementation and requires airframe-specific validation.
 from classes.followers.base_follower import BaseFollower
 from classes.followers.custom_pid import CustomPID
 from classes.parameters import Parameters
+from classes.safety_types import AltitudeLimits
 from classes.follower_config_manager import get_follower_config_manager
 from classes.tracker_output import TrackerOutput
 from classes.airspeed_readiness import get_follower_speed_observation
@@ -663,14 +664,17 @@ class FWAttitudeRateFollower(BaseFollower):
         if not self.is_altitude_safety_enabled():
             return True
 
+        current_altitude = getattr(self.px4_controller, 'current_altitude', None)
+        if not AltitudeLimits.is_valid_altitude(current_altitude):
+            logger.warning("Aircraft altitude is unavailable")
+            return False
+
         current_time = time.time()
         if current_time - self.last_altitude_check_time < self.altitude_check_interval:
             return True
         self.last_altitude_check_time = current_time
 
-        current_altitude = getattr(self.px4_controller, 'current_altitude', 0.0)
-
-        if current_altitude < self.min_altitude_limit or current_altitude > self.max_altitude_limit:
+        if current_altitude < self.min_altitude_limit or AltitudeLimits.above(current_altitude, self.max_altitude_limit):
             self.altitude_violation_count += 1
             logger.critical(f"ALTITUDE VIOLATION: {current_altitude:.1f}m "
                           f"(limits: [{self.min_altitude_limit}-{self.max_altitude_limit}]m)")
@@ -834,7 +838,6 @@ class FWAttitudeRateFollower(BaseFollower):
 
             # Check altitude safety
             if not self._check_altitude_safety():
-                # RTL triggered - skip normal control
                 return False
 
             # Calculate and apply control commands

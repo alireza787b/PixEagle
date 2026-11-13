@@ -160,6 +160,12 @@ def _run_control(follower: MCVelocityPositionFollower,
 # Tests: yaw error sign
 # ---------------------------------------------------------------------------
 
+def test_absent_ceiling_allows_climb_but_preserves_vertical_command_cap():
+    follower = _build_position_stub(max_climb_height=None, max_vertical_velocity=.5)
+    follower.px4_controller.current_altitude = 1000.
+    assert follower._calculate_altitude_command(-1.) == .5
+
+
 def test_yaw_command_follows_signed_image_error():
     """
     The signed image error is target_x - pid_setpoint.
@@ -320,7 +326,8 @@ def test_altitude_error_negative_means_target_above_setpoint():
     )
 
 
-def test_altitude_disabled_sends_zero_vel_body_down():
+@pytest.mark.parametrize("altitude", [50., None, float("nan"), float("inf"), -float("inf")])
+def test_altitude_disabled_sends_zero_vel_body_down(altitude):
     """
     When altitude_control_enabled=False, vel_body_down must be 0.0 regardless of
     where the target appears vertically.
@@ -328,7 +335,10 @@ def test_altitude_disabled_sends_zero_vel_body_down():
     follower = _build_position_stub(setpoint_y=0.0, altitude_control_enabled=False,
                                     yaw_control_threshold=1.0,
                                     command_smoothing_enabled=False)
+    follower.px4_controller.current_altitude = altitude
+    follower._calculate_altitude_command = MagicMock(side_effect=AssertionError("Altitude guidance is disabled"))
     _run_control(follower, target_x=0.0, target_y=0.9)
+    follower._calculate_altitude_command.assert_not_called()
 
     down_command = _last_command_fields(follower)['vel_body_down']
     assert down_command == 0.0, (

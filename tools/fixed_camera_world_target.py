@@ -13,6 +13,7 @@ from pathlib import Path
 import yaml
 
 from classes.aircraft_state import Quaternion, Vector3, finite_number
+from classes.safety_types import AltitudeLimits
 from classes.follower_catalog import get_follower_profile
 from classes.sih_visualization import VisualizationScenario, VisualizationValidationError
 
@@ -315,10 +316,9 @@ def evaluate_response(scenario, records, publications, *, velocity_limits, rate_
                    range_start_m=range_start, range_end_m=range_end)
     metrics['bearing_response_work_rad2' if scenario.camera is None else 'camera_response_work'] = work
     checks['observed_bearing_response' if scenario.camera is None else 'observed_image_response'] = work > 1e-4
-    checks["altitude_envelope"] = all(
-        scenario.visual.limits["altitude_min"] <= row["altitude_m"] <= scenario.visual.limits["altitude_max"]
-        for row in records
-    )
+    altitude_limits = AltitudeLimits(scenario.visual.limits["altitude_min"],
+                                     scenario.visual.limits["altitude_max"], 0.)
+    checks["altitude_envelope"] = all(altitude_limits.contains(row["altitude_m"]) for row in records)
     if not scenario.visual.altitude_control:
         checks["observed_altitude_hold"] = altitude_error <= scenario.altitude_tolerance_m
     elif mode != "mc_attitude_rate":

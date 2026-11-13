@@ -270,6 +270,11 @@ reference, not terrain clearance. FW boundary tests must include finite vertical
 response: requesting zero descent is not proof that altitude will stop changing.
 Use the native response/performance envelope and measure the approach margin;
 do not claim floor protection from a single instantaneous command check.
+The same physical-response qualification is required for fast MC descent:
+session speed overrides retain altitude authority, but a zero command at the
+warning band alone does not prove braking before the floor. Test observed
+stopping height with fresh vertical velocity and qualified aircraft response;
+do not invent braking performance from a configured guidance acceleration.
 
 ## 6. Public and private configurations
 
@@ -288,9 +293,10 @@ operator changed the requested relative-altitude floor from 5 m to **3 m** and
 requested no additional application ceiling on altitude or target-directed
 climb/descent. These are pending private-profile requirements, not changes to
 the retained 5–120 m installation or permission to remove native feasibility
-constraints. Explicitly absent ceilings need typed schema/resolver support;
-neither infinity nor a fabricated large maximum represents that choice. Preserve
-legacy inheritance and show the change in Config Sync before adoption.
+constraints. Schema 1.10 and the canonical resolver support an explicitly absent
+global ceiling as `MAX_ALTITUDE: null`, preserving existing inheritance and
+finite defaults. Preview the private change through Config Sync before adoption;
+neither infinity nor a fabricated large maximum represents that choice.
 Session speed may replace the saved velocity cap through its declared
 control, while altitude/rate/authority protections retain their own semantics.
 Verify the physical installation against PX4 FRD before adoption. Add explicit

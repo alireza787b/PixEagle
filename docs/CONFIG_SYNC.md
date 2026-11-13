@@ -290,6 +290,17 @@ Native FW/VTOL engagement requires an explicit `bounded_flight` FW continuity
 policy. A saved legacy policy is not silently upgraded during engagement; use
 the existing migration preview/apply to adopt the phase override first.
 
+## Optional mission altitude ceiling
+
+Schema 1.10 permits explicit `Safety.GlobalLimits.MAX_ALTITUDE: null` for no
+application ceiling. Numeric saved limits keep their meaning; missing values
+still inherit the 120 m factory default. No migration automatically removes a
+ceiling. Preview/apply preserves explicit null and the existing floor. Follower
+overrides remain finite or omitted; follower null cannot remove a global limit.
+See [altitude limit semantics](followers/06-safety/limits-configuration.md#optional-upper-mission-ceiling).
+Older backends reject this new value, so restore a numeric ceiling before rolling
+back to a schema older than 1.10. Native aircraft performance limits are separate.
+
 ## Gimbal guidance migration
 
 Schema 1.8 retires `GimbalTracker.GUIDANCE.CAPABILITIES`. Runtime reads only

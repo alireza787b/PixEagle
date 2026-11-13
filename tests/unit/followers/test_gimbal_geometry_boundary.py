@@ -82,6 +82,27 @@ def test_vertical_guard_respects_canonical_disabled_altitude_policy(follower_typ
         follower.guard_gimbal_vertical_velocity(.4)
 
 
+@pytest.mark.parametrize("follower_type", [GMVelocityChaseFollower, GMVelocityVectorFollower])
+def test_absent_camera_mission_ceiling_keeps_floor_and_freshness_guards(follower_type):
+    follower = follower_type.__new__(follower_type)
+    follower._safety_checks_bypassed_for_testing = lambda: False
+    follower._follower_config_name = follower_type.__name__
+    aircraft = SimpleNamespace(current_altitude=1000., is_command_connection_ready=lambda **_: True)
+    follower.px4_controller = aircraft
+    follower.safety_manager = SimpleNamespace(get_altitude_limits=lambda _: SimpleNamespace(
+        min_altitude=3., max_altitude=None, warning_buffer=2., safety_enabled=True,
+    ))
+    assert follower.guard_gimbal_vertical_velocity(-.4) == -.4
+    aircraft.current_altitude = 5.
+    assert follower.guard_gimbal_vertical_velocity(.4) == 0.
+    aircraft.current_altitude = 2.99
+    with pytest.raises(ValueError, match="outside"):
+        follower.guard_gimbal_vertical_velocity(-.4)
+    aircraft.current_altitude = None
+    with pytest.raises(ValueError, match="unavailable"):
+        follower.guard_gimbal_vertical_velocity(-.4)
+
+
 @pytest.mark.parametrize("angles", [None, 0, (1.0,), (math.nan, 0, 0), (0, math.inf, 0), ("0", 0, 0)])
 def test_nonfinite_or_malformed_body_angles_are_rejected(angles):
     with pytest.raises(InvalidGimbalGeometry):

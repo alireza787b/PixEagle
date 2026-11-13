@@ -65,6 +65,19 @@ test('renders touch-friendly cards on tablet', () => {
   expect(screen.getByRole('spinbutton')).toBeInTheDocument();
 });
 
+test('edits an explicit absent global ceiling without substituting the default', () => {
+  const change = jest.fn();
+  const schema = { type: 'object', required: ['MAX_ALTITUDE'], properties: {
+    MAX_ALTITUDE: { type: 'float', nullable: true, null_label: 'No mission ceiling', default: 120 },
+  } };
+  render(<SafetyLimitsEditor type="GlobalLimits" value={{ MAX_ALTITUDE: null }} onChange={change} schema={schema} />);
+  expect(screen.getByText('No mission ceiling')).toBeInTheDocument();
+  expect(screen.queryByRole('spinbutton')).not.toBeInTheDocument();
+  expect(change).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Set value' }));
+  expect(change).toHaveBeenCalledWith({ MAX_ALTITUDE: 120 });
+});
+
 test('keeps undeclared safety followers visible but read-only', async () => {
   const globalSchema = {
     type: 'object',

@@ -69,6 +69,7 @@ from classes.followers.base_follower import BaseFollower
 from classes.followers.custom_pid import CustomPID
 from classes.followers.yaw_rate_smoother import YawRateSmoother  # WP9: canonical import
 from classes.parameters import Parameters
+from classes.safety_types import AltitudeLimits
 from classes.follower_config_manager import get_follower_config_manager
 from classes.tracker_output import TrackerOutput
 import logging
@@ -1247,6 +1248,11 @@ class MCVelocityChaseFollower(BaseFollower):
             return True
 
         try:
+            current_altitude = getattr(self.px4_controller, 'current_altitude', None)
+            if not AltitudeLimits.is_valid_altitude(current_altitude):
+                logger.warning("Aircraft altitude is unavailable")
+                return False
+
             # Cache safety behavior for this method (avoids repeated lookups)
             safety = self.safety_manager.get_safety_behavior(self._follower_config_name)
 
@@ -1259,17 +1265,15 @@ class MCVelocityChaseFollower(BaseFollower):
 
             self.last_altitude_check_time = current_time
 
-            # Get current altitude from PX4 controller
-            current_altitude = getattr(self.px4_controller, 'current_altitude', 0.0)
             min_altitude = self.min_altitude_limit
             max_altitude = self.max_altitude_limit
             warning_buffer = self.altitude_warning_buffer
 
             # Check for violations
-            altitude_violation = (current_altitude < min_altitude or current_altitude > max_altitude)
+            altitude_violation = (current_altitude < min_altitude or AltitudeLimits.above(current_altitude, max_altitude))
             altitude_warning = (
                 current_altitude < (min_altitude + warning_buffer) or
-                current_altitude > (max_altitude - warning_buffer)
+                AltitudeLimits.above(current_altitude, max_altitude, buffer=warning_buffer)
             )
 
             if altitude_violation:
@@ -1624,7 +1628,7 @@ class MCVelocityChaseFollower(BaseFollower):
             chase_report += f"  Max Forward Speed: {config.get('max_forward_velocity', 0.0):.1f} m/s\n"
             chase_report += f"  Ramp Rate: {config.get('ramp_rate', 0.0):.1f} m/s²\n"
             chase_report += f"  Altitude Control: {'✓' if config.get('altitude_control_enabled', False) else '✗'}\n"
-            chase_report += f"  Altitude Limits: {config.get('min_altitude_limit', 0.0):.0f}-{config.get('max_altitude_limit', 0.0):.0f}m\n"
+            chase_report += f"  Altitude Limits: {config.get('min_altitude_limit', 0.0):.0f}-{config.get('max_altitude_limit') if config.get('max_altitude_limit') is not None else 'none'}m\n"
             
             return base_report + chase_report
             

@@ -81,7 +81,7 @@ class VisualizationScenario:
     evidence_provenance: str
     stable_flight: dict[str, Any]
     acceptance: tuple[str, ...]
-    limits: dict[str, float]
+    limits: dict[str, float | None]
     target_waypoints: tuple[ScenarioWaypoint, ...]
     continuity_policy: dict[str, Any]
     faults: tuple[dict[str, Any], ...]
@@ -290,8 +290,8 @@ class VisualizationSample:
         }
 
 
-def _read_limits(raw: Mapping[str, Any]) -> dict[str, float]:
-    limits: dict[str, float] = {}
+def _read_limits(raw: Mapping[str, Any]) -> dict[str, float | None]:
+    limits: dict[str, float | None] = {}
     for group_name, keys in {
         "velocity": ("forward", "right", "down"),
         "rate": ("yaw",),
@@ -312,6 +312,9 @@ def _read_limits(raw: Mapping[str, Any]) -> dict[str, float]:
         raise VisualizationValidationError("constraints.altitude must be an object")
     for key in ("min", "max"):
         if key in altitude:
+            if key == "max" and altitude[key] is None:
+                limits['altitude_max'] = None
+                continue
             value = float(altitude[key])
             if not math.isfinite(value):
                 raise VisualizationValidationError(f"constraints.altitude.{key} must be finite")

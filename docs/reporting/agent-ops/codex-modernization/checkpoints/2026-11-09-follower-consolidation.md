@@ -1844,8 +1844,13 @@ vertical limits. Public defaults and the tested private MC profile stay unchange
 The subsequent clarification supersedes the private requested floor of 5 m with
 3 m relative altitude and requests no extra application ceiling on altitude or
 target-directed climb/descent. These requirements are not yet applied: the
-retained private configuration remains 5–120 m. Canonical optional-ceiling
-support, migration and native feasibility/pull-out qualification are required;
+retained private configuration remains 5–120 m. Schema 1.10 now supports an
+explicit `Safety.GlobalLimits.MAX_ALTITUDE: null` through the single resolver,
+API and Dashboard; omission still inherits 120 m and saved values are unchanged.
+Independent review caught nonfinite-height escapes in the first candidate;
+the repaired direct-consumer suite passes 92 checks, and root renews 532 combined
+guidance, limit, API/configuration and native-harness checks. Private profile
+migration and native feasibility/pull-out qualification are still required;
 no fabricated large limit or blanket safety bypass will stand in for them.
 Reusable experimental implementation and scenarios belong in public source with
 safe defaults and explicit capability/configuration gates. No identity or private
@@ -1870,7 +1875,13 @@ The initial recipe's `-j2` did not constrain PX4's Ninja child; about 24 compile
 workers were observed. A future bounded recipe needs PX4's `j=2` forwarding;
 the completed first build and its original inputs remain intact.
 
-Continue the sparse-axis native regression and separate tailsitter performance investigation, then remaining ownership,
+The generic simulator verifier now shares manifest, binary/resource, launch and
+two-container cleanup authority between SIH and Gazebo. Root renews 608 related
+tests. The next native-only transition runner will retain actual PX4 pose and
+ground truth under the unchanged 2 m gate; its default is a no-launch preview.
+No following owner or target is involved in this baseline.
+
+Continue actual sparse-axis and separate tailsitter performance qualification, then remaining ownership,
 abort/rescue/takeover, fault, mount and full-application matrix. Do not tune a
 follower to conceal a native-only failure or relax the 2 m/100 ms gates.
 The original report-owned replay remains historical evidence; the ten-test

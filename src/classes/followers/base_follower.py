@@ -27,7 +27,7 @@ from classes.aircraft_state import AircraftState
 from classes.circuit_breaker import FollowerCircuitBreaker
 from classes.follower_logger import FollowerLogger
 from classes.safety_manager import get_safety_manager
-from classes.safety_types import SafetyAction, SafetyStatus
+from classes.safety_types import AltitudeLimits, SafetyAction, SafetyStatus
 from classes.schema_manager import get_schema_manager
 from classes.setpoint_handler import SetpointHandler
 from classes.tracker_output import TrackerOutput, TrackerDataType
@@ -646,17 +646,17 @@ class BaseFollower(ABC):
         if not callable(ready) or not ready(require_fresh_telemetry=True):
             raise ValueError("Fresh aircraft altitude is unavailable")
         altitude = getattr(self.px4_controller, "current_altitude", None)
-        if altitude is None or not math.isfinite(float(altitude)):
+        if not AltitudeLimits.is_valid_altitude(altitude):
             raise ValueError("Aircraft altitude is unavailable")
         limits = self.altitude_limits
         if not getattr(limits, 'safety_enabled', True):
             return requested
-        if altitude < limits.min_altitude or altitude > limits.max_altitude:
+        if altitude < limits.min_altitude or AltitudeLimits.above(altitude, limits.max_altitude):
             raise ValueError("Aircraft altitude is outside the follower safety envelope")
         if requested > 0.0 and altitude <= limits.min_altitude + limits.warning_buffer:
             self._vertical_limit_status = "descent_limited"
             return 0.0
-        if requested < 0.0 and altitude >= limits.max_altitude - limits.warning_buffer:
+        if requested < 0.0 and AltitudeLimits.above(altitude, limits.max_altitude, buffer=limits.warning_buffer, inclusive=True):
             self._vertical_limit_status = "climb_limited"
             return 0.0
         return requested

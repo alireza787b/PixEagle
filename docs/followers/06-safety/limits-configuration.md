@@ -42,6 +42,32 @@ Safety:
 
 ---
 
+### Optional upper mission ceiling
+
+From schema 1.10, `Safety.GlobalLimits.MAX_ALTITUDE: null` explicitly removes the application
+mission ceiling. The checked-in default remains `120.0`; omitting the key from
+a sparse overlay or import inherits that default, while a complete validated
+`GlobalLimits` section must include the key. Existing numeric settings retain
+their meaning. Export, import, API summaries, and configuration editors preserve
+explicit `null`.
+
+`Safety.FollowerOverrides` may supply a finite `MAX_ALTITUDE` to tighten an
+unbounded global envelope. Omit the follower key to inherit; explicit follower
+`null` remains invalid and cannot remove a finite global ceiling. No existing
+saved configuration is automatically migrated to an unbounded setting.
+
+The lower bound and warning buffer remain active. With `MIN_ALTITUDE: 3.0` and
+`ALTITUDE_WARNING_BUFFER: 2.0`, the hard floor is 3 m and following starts at or
+above 5 m; native FW descent lookahead can intervene earlier. Fast MC descent
+needs its own measured braking qualification. These heights are relative
+to the estimator's home reference, not terrain clearance. Removing a mission
+ceiling changes no native climb/sink, acceleration, underspeed, attitude,
+actuator, or speed limits. Sensorless operation still depends on native
+estimation and its declared airspeedless capability; it does not establish a
+measured airspeed or a physical operating envelope.
+
+---
+
 ## Per-Follower Overrides (Advanced Feature)
 
 Use `Safety.FollowerOverrides` when one profile needs tighter limits.

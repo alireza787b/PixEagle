@@ -31,7 +31,7 @@ from ruamel.yaml import YAML as RuamelYAML
 from ruamel.yaml.comments import CommentedMap as RuamelCommentedMap
 
 
-CONFIG_SCHEMA_VERSION = '1.9.0'
+CONFIG_SCHEMA_VERSION = '1.10.0'
 
 
 # Define categories for sections
@@ -699,10 +699,12 @@ SCHEMA_OVERRIDES = {
         'description': 'Absolute minimum permitted altitude above the configured reference',
     },
     'Safety.GlobalLimits.MAX_ALTITUDE': {
+        'nullable': True,
+        'null_label': 'No mission ceiling',
         'min': 0.000001,
         'max': 500.0,
         'unit': 'm',
-        'description': 'Absolute maximum permitted altitude above the configured reference',
+        'description': 'Maximum permitted relative altitude; null means no mission ceiling, while omission inherits the default',
     },
     'Safety.GlobalLimits.ALTITUDE_WARNING_BUFFER': {
         'min': 0.0,
@@ -2316,6 +2318,11 @@ def apply_safety_follower_override_contract(
         for property_schema in override_properties.values():
             if isinstance(property_schema, dict):
                 property_schema.pop('default', None)
+        override_properties['MAX_ALTITUDE'].pop('nullable', None)
+        override_properties['MAX_ALTITUDE'].pop('null_label', None)
+        override_properties['MAX_ALTITUDE']['description'] = (
+            'Optional finite ceiling that tightens the global envelope; omission inherits'
+        )
         follower_properties[follower_name] = {
             'type': 'object',
             'default': copy.deepcopy(configured_overrides.get(follower_name, {})),

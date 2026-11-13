@@ -1,4 +1,4 @@
-schema_version: 1.9.0
+schema_version: 1.10.0
 meta:
   project: PixEagle
   generated_from: configs/config_default.yaml
@@ -9096,12 +9096,14 @@ sections:
           MAX_ALTITUDE:
             type: float
             default: 120.0
-            description: Absolute maximum permitted altitude above the configured reference
+            description: Maximum permitted relative altitude; null means no mission ceiling, while omission inherits the default
             reload_tier: follower_restart
             reboot_required: false
             min: 1.0e-06
             max: 500.0
             step: 0.1
+            nullable: true
+            null_label: No mission ceiling
             unit: m
           ALTITUDE_WARNING_BUFFER:
             type: float
@@ -9243,7 +9245,7 @@ sections:
                 unit: m
               MAX_ALTITUDE:
                 type: float
-                description: Absolute maximum permitted altitude above the configured reference
+                description: Optional finite ceiling that tightens the global envelope; omission inherits
                 reload_tier: follower_restart
                 reboot_required: false
                 min: 1.0e-06
@@ -9366,7 +9368,7 @@ sections:
                 unit: m
               MAX_ALTITUDE:
                 type: float
-                description: Absolute maximum permitted altitude above the configured reference
+                description: Optional finite ceiling that tightens the global envelope; omission inherits
                 reload_tier: follower_restart
                 reboot_required: false
                 min: 1.0e-06
@@ -9489,7 +9491,7 @@ sections:
                 unit: m
               MAX_ALTITUDE:
                 type: float
-                description: Absolute maximum permitted altitude above the configured reference
+                description: Optional finite ceiling that tightens the global envelope; omission inherits
                 reload_tier: follower_restart
                 reboot_required: false
                 min: 1.0e-06
@@ -9611,7 +9613,7 @@ sections:
                 unit: m
               MAX_ALTITUDE:
                 type: float
-                description: Absolute maximum permitted altitude above the configured reference
+                description: Optional finite ceiling that tightens the global envelope; omission inherits
                 reload_tier: follower_restart
                 reboot_required: false
                 min: 1.0e-06
@@ -9733,7 +9735,7 @@ sections:
                 unit: m
               MAX_ALTITUDE:
                 type: float
-                description: Absolute maximum permitted altitude above the configured reference
+                description: Optional finite ceiling that tightens the global envelope; omission inherits
                 reload_tier: follower_restart
                 reboot_required: false
                 min: 1.0e-06
@@ -9855,7 +9857,7 @@ sections:
                 unit: m
               MAX_ALTITUDE:
                 type: float
-                description: Absolute maximum permitted altitude above the configured reference
+                description: Optional finite ceiling that tightens the global envelope; omission inherits
                 reload_tier: follower_restart
                 reboot_required: false
                 min: 1.0e-06
@@ -9977,7 +9979,7 @@ sections:
                 unit: m
               MAX_ALTITUDE:
                 type: float
-                description: Absolute maximum permitted altitude above the configured reference
+                description: Optional finite ceiling that tightens the global envelope; omission inherits
                 reload_tier: follower_restart
                 reboot_required: false
                 min: 1.0e-06
@@ -10101,7 +10103,7 @@ sections:
                 unit: m
               MAX_ALTITUDE:
                 type: float
-                description: Absolute maximum permitted altitude above the configured reference
+                description: Optional finite ceiling that tightens the global envelope; omission inherits
                 reload_tier: follower_restart
                 reboot_required: false
                 min: 1.0e-06
@@ -10223,7 +10225,7 @@ sections:
                 unit: m
               MAX_ALTITUDE:
                 type: float
-                description: Absolute maximum permitted altitude above the configured reference
+                description: Optional finite ceiling that tightens the global envelope; omission inherits
                 reload_tier: follower_restart
                 reboot_required: false
                 min: 1.0e-06

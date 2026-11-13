@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import json
 from pathlib import Path
 
 import pytest
@@ -238,6 +239,30 @@ def test_nested_safety_write_validates_the_resolved_envelope(nested_service):
     assert not result.valid
     assert any("Safety semantic validation" in error for error in result.errors)
     assert nested_service.get_config() == before
+
+
+def test_optional_mission_ceiling_survives_edit_import_export_and_sync(nested_service):
+    service = nested_service
+    path = ["Safety", "GlobalLimits", "MAX_ALTITUDE"]
+    assert service.set_path(path, None).valid
+    assert service.get_path_value(path) is None
+    exported = service.export_config(changes_only=True)
+    assert exported["Safety"]["GlobalLimits"]["MAX_ALTITUDE"] is None
+    report = build_defaults_sync_report(service)
+    assert path not in [row["path"] for row in report["new_parameters"]]
+    assert service.set_path(path, 90.0).valid
+    wire_config = json.loads(json.dumps(exported))
+    ok, _ = service.import_config(yaml.safe_load(yaml.safe_dump(wire_config)))
+    assert ok
+    assert service.get_sync_config()["Safety"]["GlobalLimits"]["MAX_ALTITUDE"] is None
+    assert service.set_path(["Safety", "FollowerOverrides", "MC_VELOCITY_CHASE", "MAX_ALTITUDE"], 75.0).valid
+    assert not service.set_path(["Safety", "FollowerOverrides", "MC_VELOCITY_CHASE", "MAX_ALTITUDE"], None).valid
+
+
+def test_missing_mission_ceiling_in_replace_import_uses_checked_in_default(nested_service):
+    ok, _ = nested_service.import_config({"Safety": {"GlobalLimits": {"MIN_ALTITUDE": 3.0}}}, "replace")
+    assert ok
+    assert nested_service.get_path_value(["Safety", "GlobalLimits", "MAX_ALTITUDE"]) == 120.0
 
 
 def test_nested_resolver_supports_explicit_typed_extension_children(nested_service):

@@ -287,44 +287,45 @@ class SafetyManager:
         return FOLLOWER_VEHICLE_TYPE.get(follower_name, VehicleType.MULTICOPTER)
 
     def _resolve_limit(self, limit_name: str, follower_name: Optional[str] = None) -> Any:
-        """
-        Resolve a limit value through the simplified hierarchy.
+        return self._resolve_limit_info(limit_name, follower_name)['effective_value']
 
-        Order: tightening Follower Override -> hard GlobalLimits -> Fallback
-
-        Note: Follower names are normalized to uppercase for case-insensitive lookup.
-        """
+    def _resolve_limit_info(self, limit_name: str, follower_name: Optional[str] = None) -> Dict[str, Any]:
+        """Resolve value and provenance through the same tightening hierarchy."""
         global_value = self._resolve_global_limit(limit_name)
+        normalized_name = follower_name.upper() if follower_name else None
+        override = self._follower_overrides.get(normalized_name, {}) if normalized_name else {}
+        candidate = override.get(limit_name)
+        applied = (
+            limit_name in override
+            and self._is_usable_limit(limit_name, candidate)
+            and self._is_non_weakening_override(limit_name, candidate, global_value, normalized_name)
+        )
+        if limit_name in override and not applied:
+            logger.error(
+                "Ignoring invalid or weakening Safety.FollowerOverrides.%s.%s value",
+                normalized_name, limit_name,
+            )
+        configured = limit_name in self._global_limits and self._is_usable_global_limit(
+            limit_name, self._global_limits[limit_name],
+        )
+        return {
+            'effective_value': candidate if applied else global_value,
+            'source': f'FollowerOverrides.{normalized_name}' if applied else ('GlobalLimits' if configured else 'Fallback'),
+            'global_value': self._global_limits.get(limit_name),
+            'override_value': candidate,
+            'fallback_value': self._FALLBACKS.get(limit_name),
+            'is_overridden': applied,
+        }
 
-        # 1. Use only follower overrides that preserve the hard global envelope.
-        if follower_name:
-            normalized_name = follower_name.upper()
-            override = self._follower_overrides.get(normalized_name, {})
-            if limit_name in override:
-                candidate = override[limit_name]
-                if (
-                    self._is_usable_limit(limit_name, candidate)
-                    and self._is_non_weakening_override(
-                        limit_name,
-                        candidate,
-                        global_value,
-                        normalized_name,
-                    )
-                ):
-                    return candidate
-                logger.error(
-                    "Ignoring invalid or weakening Safety.FollowerOverrides.%s.%s value",
-                    normalized_name,
-                    limit_name,
-                )
-
-        return global_value
+    @classmethod
+    def _is_usable_global_limit(cls, limit_name: str, value: Any) -> bool:
+        return (limit_name == 'MAX_ALTITUDE' and value is None) or cls._is_usable_limit(limit_name, value)
 
     def _resolve_global_limit(self, limit_name: str) -> Any:
         """Resolve one hard-envelope value, falling back only when unusable."""
         if limit_name in self._global_limits:
             candidate = self._global_limits[limit_name]
-            if self._is_usable_limit(limit_name, candidate):
+            if self._is_usable_global_limit(limit_name, candidate):
                 return candidate
             logger.error(
                 "Ignoring invalid Safety.GlobalLimits.%s value; using fail-safe fallback",
@@ -342,6 +343,8 @@ class SafetyManager:
         follower_name: Optional[str] = None,
     ) -> bool:
         """Return whether a follower value is at least as strict as global."""
+        if limit_name == 'MAX_ALTITUDE' and global_value is None:
+            return cls._is_usable_limit(limit_name, candidate)
         if not cls._is_usable_limit(limit_name, global_value):
             return False
         if limit_name in cls._MAXIMUM_ENVELOPE_LIMITS:
@@ -370,7 +373,7 @@ class SafetyManager:
         return limit_name == 'MIN_ALTITUDE'
 
     @manager_runtime_config_reader
-    def get_limit(self, limit_name: str, follower_name: Optional[str] = None) -> float:
+    def get_limit(self, limit_name: str, follower_name: Optional[str] = None) -> Optional[float]:
         """
         Get an effective limit value with caching.
 
@@ -507,6 +510,9 @@ class SafetyManager:
         if not self.is_altitude_safety_enabled(follower_name):
             return SafetyStatus(safe=True, reason='altitude_safety_disabled')
 
+        if not AltitudeLimits.is_valid_altitude(current_altitude):
+            return SafetyStatus.violation('altitude_unavailable', SafetyAction.EMERGENCY_STOP)
+
         limits = self.get_altitude_limits(follower_name)
 
         # Check minimum altitude
@@ -518,7 +524,7 @@ class SafetyManager:
             )
 
         # Check maximum altitude
-        if current_altitude > limits.max_altitude:
+        if limits.above_maximum(current_altitude):
             return SafetyStatus.violation(
                 reason=f'altitude_too_high:{current_altitude:.1f}m > {limits.max_altitude:.1f}m',
                 action=SafetyAction.RTL if self.get_safety_behavior(follower_name).rtl_on_violation else SafetyAction.CLAMP,
@@ -534,7 +540,7 @@ class SafetyManager:
                 details={'current': current_altitude, 'warning_threshold': limits.min_altitude + limits.warning_buffer}
             )
 
-        if current_altitude > limits.max_altitude - limits.warning_buffer:
+        if limits.above_maximum(current_altitude, buffer=limits.warning_buffer):
             return SafetyStatus(
                 safe=True,
                 reason='altitude_warning_high',
@@ -652,50 +658,13 @@ class SafetyManager:
         ]
 
         result = {}
-        # Normalize follower name to uppercase for consistent lookup
-        normalized_name = follower_name.upper() if follower_name else None
-        override = self._follower_overrides.get(normalized_name, {}) if normalized_name else {}
-
         for param in LIMIT_PARAMS:
-            global_value = self._global_limits.get(param)
-            override_value = override.get(param) if follower_name else None
-            fallback_value = self._FALLBACKS.get(param)
-
-            effective_global = self._resolve_global_limit(param)
-            override_applied = (
-                override_value is not None
-                and self._is_usable_limit(param, override_value)
-                and self._is_non_weakening_override(
-                    param,
-                    override_value,
-                    effective_global,
-                    normalized_name,
-                )
-            )
-
-            if override_applied:
-                effective_value = override_value
-                source = f'FollowerOverrides.{normalized_name}'
-            else:
-                effective_value = effective_global
-                source = 'GlobalLimits' if self._is_usable_limit(
-                    param,
-                    global_value,
-                ) else 'Fallback'
-
-            result[param] = {
-                'effective_value': effective_value,
-                'source': source,
-                'global_value': global_value,
-                'override_value': override_value,
-                'fallback_value': fallback_value,
-                'is_overridden': override_applied
-            }
+            result[param] = self._resolve_limit_info(param, follower_name)
             if param in {'MAX_VELOCITY', 'MAX_VELOCITY_FORWARD', 'MAX_VELOCITY_LATERAL', 'MAX_VELOCITY_VERTICAL'}:
                 session = self._session_velocity(follower_name)
                 if session is not None:
                     result[param].update(effective_value=session, source='FollowSession',
-                                         configured_value=effective_value, is_overridden=True)
+                                         configured_value=result[param]['effective_value'], is_overridden=True)
 
         return result
 
@@ -711,6 +680,6 @@ def get_safety_manager() -> SafetyManager:
     return SafetyManager.get_instance()
 
 
-def get_limit(limit_name: str, follower_name: Optional[str] = None) -> float:
+def get_limit(limit_name: str, follower_name: Optional[str] = None) -> Optional[float]:
     """Convenience function to get a limit value."""
     return get_safety_manager().get_limit(limit_name, follower_name)

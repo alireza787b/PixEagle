@@ -83,14 +83,21 @@ the native response and stopping-height margin must constrain descent earlier.
 Numerical bounds require simulated evidence and later installation acceptance;
 none is selected for hardware by this planning decision.
 
+Fast MC descent requires its own measured stopping-height check too. A temporary
+speed override does not remove altitude authority, and a zero vertical request
+cannot stop physical motion instantly. The existing warning band and native
+response remain separate from the requested floor; neither a configured guidance
+acceleration nor a command plot proves actual braking performance.
+
 The same clarification requests no extra application altitude ceiling or
 mission-specific climb/descent restriction for that private experiment. This
 does not make an infeasible vertical FW path possible or remove native load,
 attitude, rate, actuator and recovery constraints. Public limits stay unchanged.
-An explicitly absent mission ceiling must be represented by the canonical typed
-resolver and migration preview, preserving existing per-follower inheritance;
-the current finite maximum cannot be bypassed by a large placeholder value.
-This remains pending implementation and qualification, not an available setting.
+Schema 1.10 supports an explicitly absent application ceiling through the
+canonical `Safety.GlobalLimits.MAX_ALTITUDE: null` value and Config Sync preview,
+preserving finite defaults and per-follower inheritance. The saved private
+configuration is unchanged. This setting does not implement or enable the
+separate native experimental vertical envelope, which remains unqualified.
 
 Lost target evidence must command a bounded exit toward level flight while
 retaining feasible course and airspeed. Reuse the existing FW recovery deadline;

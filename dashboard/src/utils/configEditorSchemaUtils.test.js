@@ -80,6 +80,15 @@ test('keeps closed enums closed unless custom values are explicitly allowed', ()
   expect(open.allowCustomValues).toBe(true);
 });
 
+test('preserves the explicit nullable ceiling contract without changing the numeric default', () => {
+  expect(normalizePropertySchema('MAX_ALTITUDE', {
+    type: 'float', nullable: true, null_label: 'No mission ceiling', default: 120,
+  })).toEqual(expect.objectContaining({
+    type: 'number', nullable: true, nullLabel: 'No mission ceiling', default: 120,
+  }));
+  expect(normalizePropertySchema('MAX_ALTITUDE', { type: 'float' }).nullable).not.toBe(true);
+});
+
 test('catalogues undeclared current followers as migration entries', () => {
   const catalog = buildFollowerCatalog({
     type: 'object',

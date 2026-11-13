@@ -662,7 +662,7 @@ class Parameters(metaclass=_ParametersMeta):
         return getattr(cls, section_name, {})
 
     @classmethod
-    def get_effective_limit(cls, limit_name: str, follower_name: Optional[str] = None) -> float:
+    def get_effective_limit(cls, limit_name: str, follower_name: Optional[str] = None) -> Optional[float]:
         """
         Get the effective safety limit for a given parameter.
 
@@ -677,7 +677,7 @@ class Parameters(metaclass=_ParametersMeta):
             follower_name: Optional follower section name (e.g., 'MC_VELOCITY_CHASE')
 
         Returns:
-            float: The effective limit value
+            The effective limit value; None means no MAX_ALTITUDE mission ceiling.
 
         Example:
             >>> Parameters.get_effective_limit('MIN_ALTITUDE', 'MC_VELOCITY_CHASE')
@@ -692,6 +692,8 @@ class Parameters(metaclass=_ParametersMeta):
             value = safety_manager.get_limit(limit_name, follower_name)
             if value is not None:
                 return float(value)
+            if limit_name == 'MAX_ALTITUDE':
+                return None
         except Exception as e:
             logger.error(f"SafetyManager error for {limit_name}: {e}")
 
@@ -725,7 +727,7 @@ class Parameters(metaclass=_ParametersMeta):
         return cls.get_effective_limit(limit_name, follower_name)
 
     @classmethod
-    def get_altitude_limits(cls, follower_name: Optional[str] = None) -> tuple:
+    def get_altitude_limits(cls, follower_name: Optional[str] = None) -> tuple[float, Optional[float]]:
         """
         Convenience method to get both altitude limits at once.
 
@@ -733,7 +735,7 @@ class Parameters(metaclass=_ParametersMeta):
             follower_name: Optional follower section name
 
         Returns:
-            tuple: (min_altitude, max_altitude) in meters
+            (min_altitude, max_altitude) in meters; max_altitude may be None.
 
         Example:
             >>> Parameters.get_altitude_limits('MC_VELOCITY_CHASE')

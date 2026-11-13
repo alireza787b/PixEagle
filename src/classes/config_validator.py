@@ -97,7 +97,7 @@ class GlobalLimitsModel(BaseModel):
     """Complete canonical ``Safety.GlobalLimits`` contract."""
 
     MIN_ALTITUDE: MinimumAltitude
-    MAX_ALTITUDE: MaximumAltitude
+    MAX_ALTITUDE: Optional[MaximumAltitude]
     ALTITUDE_WARNING_BUFFER: AltitudeWarningBuffer
     ALTITUDE_SAFETY_ENABLED: StrictBool
     MAX_VELOCITY: VelocityLimit
@@ -116,9 +116,9 @@ class GlobalLimitsModel(BaseModel):
     @model_validator(mode="after")
     def validate_altitude_envelope(self) -> "GlobalLimitsModel":
         """Reject contradictory altitude limits before publication."""
-        if self.MIN_ALTITUDE >= self.MAX_ALTITUDE:
+        if self.MAX_ALTITUDE is not None and self.MIN_ALTITUDE >= self.MAX_ALTITUDE:
             raise ValueError("MIN_ALTITUDE must be lower than MAX_ALTITUDE")
-        if self.ALTITUDE_WARNING_BUFFER >= (
+        if self.MAX_ALTITUDE is not None and self.ALTITUDE_WARNING_BUFFER >= (
             self.MAX_ALTITUDE - self.MIN_ALTITUDE
         ):
             raise ValueError(
@@ -186,6 +186,7 @@ class SafetySectionModel(BaseModel):
                 global_value = global_values[field_name]
                 weakens = (
                     field_name in _MAXIMUM_ENVELOPE_FIELDS
+                    and global_value is not None
                     and override_value > global_value
                 ) or (
                     field_name in _MINIMUM_ENVELOPE_FIELDS
@@ -263,6 +264,7 @@ def normalize_safety_config(
         mode="python",
         exclude_none=True,
     )
+    normalized["Safety"]["GlobalLimits"]["MAX_ALTITUDE"] = validated.GlobalLimits.MAX_ALTITUDE
     return normalized
 
 

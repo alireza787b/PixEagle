@@ -22,6 +22,7 @@ from classes.followers.yaw_rate_smoother import YawRateSmoother  # noqa: F401
 
 from classes.tracker_output import TrackerOutput, TrackerDataType
 from classes.parameters import Parameters
+from classes.safety_types import AltitudeLimits
 from classes.follower_config_manager import get_follower_config_manager
 from classes.followers.custom_pid import CustomPID
 from classes.aircraft_state import Vector3, body_ray_to_heading_frame
@@ -1113,7 +1114,9 @@ class GMVelocityChaseFollower(BaseFollower):
 
         try:
             # Get current altitude using same pattern as other followers
-            current_altitude = getattr(self.px4_controller, 'current_altitude', 0.0)
+            current_altitude = getattr(self.px4_controller, 'current_altitude', None)
+            if not AltitudeLimits.is_valid_altitude(current_altitude):
+                return {'safe': False, 'violation_type': 'status_unavailable'}
 
             # Check altitude bounds
             if current_altitude < self.min_altitude_safety:
@@ -1123,7 +1126,7 @@ class GMVelocityChaseFollower(BaseFollower):
                     'current_altitude': current_altitude,
                     'threshold': self.min_altitude_safety
                 }
-            elif current_altitude > self.max_altitude_safety:
+            elif AltitudeLimits.above(current_altitude, self.max_altitude_safety):
                 return {
                     'safe': False,
                     'violation_type': 'too_high',

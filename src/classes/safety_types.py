@@ -21,7 +21,7 @@ Design Philosophy:
 
 from typing import NamedTuple, Optional, Dict, Any
 from enum import Enum
-from math import radians
+from math import isfinite, radians
 
 
 class VehicleType(Enum):
@@ -51,9 +51,39 @@ class VelocityLimits(NamedTuple):
 class AltitudeLimits(NamedTuple):
     """Altitude limits in meters."""
     min_altitude: float        # MIN_ALTITUDE
-    max_altitude: float        # MAX_ALTITUDE
+    max_altitude: Optional[float]  # None means no mission ceiling
     warning_buffer: float      # ALTITUDE_WARNING_BUFFER
     safety_enabled: bool = True
+
+    def above_maximum(self, altitude: float, *, buffer: float = 0.0,
+                      inclusive: bool = False) -> bool:
+        """Check a configured upper boundary; an absent ceiling is never reached."""
+        return self.above(altitude, self.max_altitude, buffer=buffer, inclusive=inclusive)
+
+    @staticmethod
+    def above(altitude: float, maximum: Optional[float], *, buffer: float = 0.0,
+              inclusive: bool = False) -> bool:
+        """Compare against the same optional ceiling in legacy cached consumers."""
+        if maximum is None:
+            return False
+        boundary = maximum - buffer
+        return altitude >= boundary if inclusive else altitude > boundary
+
+    @staticmethod
+    def is_valid_altitude(altitude: Any) -> bool:
+        """An absent ceiling does not make missing or nonfinite height valid."""
+        return isinstance(altitude, (int, float)) and not isinstance(altitude, bool) and isfinite(altitude)
+
+    @staticmethod
+    def below(altitude: float, maximum: Optional[float], *, inclusive: bool = False) -> bool:
+        """Require a finite height below the ceiling, when one is configured."""
+        if not AltitudeLimits.is_valid_altitude(altitude):
+            return False
+        return maximum is None or (altitude <= maximum if inclusive else altitude < maximum)
+
+    def contains(self, altitude: float) -> bool:
+        """Require a finite relative altitude inside the configured bounds."""
+        return self.below(altitude, self.max_altitude, inclusive=True) and altitude >= self.min_altitude
 
 
 class RateLimits(NamedTuple):

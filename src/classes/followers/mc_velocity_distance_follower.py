@@ -10,6 +10,7 @@ not estimate or hold target range.
 from classes.followers.base_follower import BaseFollower
 from classes.followers.custom_pid import CustomPID
 from classes.parameters import Parameters
+from classes.safety_types import AltitudeLimits
 from classes.follower_config_manager import get_follower_config_manager
 from classes.followers.yaw_rate_smoother import YawRateSmoother
 from classes.tracker_output import TrackerOutput
@@ -241,13 +242,13 @@ class MCVelocityDistanceFollower(BaseFollower):
         """
         try:
             current_altitude = self.px4_controller.current_altitude
-            if current_altitude is None:
+            if not AltitudeLimits.is_valid_altitude(current_altitude):
                 logger.warning("Unable to get current altitude - halting altitude control")
                 return 0.0
             
             logger.debug(f"Altitude control - Current: {current_altitude:.1f}m, "
                         f"Min: {self.min_descent_height:.1f}m, "
-                        f"Max: {self.max_climb_height:.1f}m")
+                        f"Max: {self.max_climb_height if self.max_climb_height is not None else 'none'}m")
             
             # Calculate PID-controlled vertical command
             command = self.positive_image_axis_pid_command(
@@ -264,7 +265,7 @@ class MCVelocityDistanceFollower(BaseFollower):
                     logger.debug("At minimum descent height - descent halted")
                     return 0.0
             else:  # Climbing (negative command)
-                if current_altitude < self.max_climb_height:
+                if AltitudeLimits.below(current_altitude, self.max_climb_height):
                     logger.debug(f"Climb command: {command:.3f} m/s")
                     return command
                 else:

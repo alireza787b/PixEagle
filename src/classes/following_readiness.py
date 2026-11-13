@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 import inspect
 import re
 from typing import Any, Dict, Mapping, Optional
@@ -14,6 +13,7 @@ from classes.command_preview import (
     normalize_follower_execution_mode,
 )
 from classes.parameters import Parameters
+from classes.safety_types import AltitudeLimits
 from classes.safety_manager import SafetyManager
 from classes.tracker_runtime_status import (
     evaluate_tracker_runtime_status,
@@ -77,15 +77,15 @@ def evaluate_following_start_altitude(app_controller: Any, *, limits: Any = None
     if not limits.safety_enabled:
         return {"ready": True}
     value = getattr(getattr(app_controller, "px4_interface", None), "current_altitude", None)
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+    if not AltitudeLimits.is_valid_altitude(value):
         return {"ready": False, "code": "following_altitude_unavailable",
                 "message": "Fresh relative altitude is required before aircraft following."}
     lower = limits.min_altitude + limits.warning_buffer
-    upper = limits.max_altitude - limits.warning_buffer
     if value < lower:
         return {"ready": False, "code": "following_altitude_below_start_margin",
                 "message": f"Climb above {lower:.1f} m before aircraft following (currently {value:.1f} m)."}
-    if value > upper:
+    if AltitudeLimits.above(value, limits.max_altitude, buffer=limits.warning_buffer):
+        upper = limits.max_altitude - limits.warning_buffer
         return {"ready": False, "code": "following_altitude_above_start_margin",
                 "message": f"Descend below {upper:.1f} m before aircraft following (currently {value:.1f} m)."}
     return {"ready": True}

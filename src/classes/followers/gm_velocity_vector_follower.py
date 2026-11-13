@@ -94,6 +94,7 @@ from classes.gimbal_guidance import (
 )
 from classes.tracker_output import TrackerOutput, TrackerDataType
 from classes.parameters import Parameters
+from classes.safety_types import AltitudeLimits
 from classes.follower_session_controls import SessionControl
 from classes.follower_config_manager import get_follower_config_manager
 from classes.aircraft_state import AircraftState, AirframePhase
@@ -1053,6 +1054,10 @@ class GMVelocityVectorFollower(BaseFollower):
             return {'safe': True, 'reason': 'altitude_safety_disabled'}
 
         try:
+            current_altitude = getattr(self.px4_controller, 'current_altitude', None)
+            if not AltitudeLimits.is_valid_altitude(current_altitude):
+                return {'safe': False, 'violation_type': 'status_unavailable'}
+
             current_time = time.time()
 
             # Only check at specified intervals to avoid excessive processing
@@ -1060,8 +1065,6 @@ class GMVelocityVectorFollower(BaseFollower):
                 return {'safe': True, 'reason': 'check_interval_not_reached'}
 
             self.last_altitude_check_time = current_time
-            current_altitude = getattr(self.px4_controller, 'current_altitude', 0.0)
-
             # Check for violations
             if current_altitude < self.min_altitude_safety:
                 self.altitude_violation_count += 1
@@ -1074,7 +1077,7 @@ class GMVelocityVectorFollower(BaseFollower):
                     'threshold': self.min_altitude_safety,
                     'violation_count': self.altitude_violation_count
                 }
-            elif current_altitude > self.max_altitude_safety:
+            elif AltitudeLimits.above(current_altitude, self.max_altitude_safety):
                 self.altitude_violation_count += 1
                 logger.warning(f"Altitude safety violation: {current_altitude:.1f}m > {self.max_altitude_safety:.1f}m "
                              f"(violation #{self.altitude_violation_count})")

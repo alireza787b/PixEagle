@@ -292,7 +292,7 @@ class FixedWingVectorGuidance:
         if limits.safety_enabled:
             self._guard_altitude(0.0, state, limits)
             target_relative = altitude - (state.altitude_amsl_m - state.relative_altitude_m)
-            if not limits.min_altitude <= target_relative <= limits.max_altitude:
+            if not limits.contains(target_relative):
                 raise ValueError("altitude_hold_target_outside_limits")
         return altitude
 
@@ -337,11 +337,11 @@ class FixedWingVectorGuidance:
         if not limits.safety_enabled:
             return height_rate, None
         altitude = state.relative_altitude_m
-        if not limits.min_altitude <= altitude <= limits.max_altitude:
+        if not limits.contains(altitude):
             raise ValueError("altitude_hard_limit")
         if altitude <= limits.min_altitude + limits.warning_buffer and height_rate < 0:
             return 0.0, "altitude_lower_warning_band"
-        if altitude >= limits.max_altitude - limits.warning_buffer and height_rate > 0:
+        if limits.above_maximum(altitude, buffer=limits.warning_buffer, inclusive=True) and height_rate > 0:
             return 0.0, "altitude_upper_warning_band"
         envelope = state.fixed_wing_envelope
         acceleration = envelope.vertical_acceleration_limit_m_s2
@@ -357,6 +357,6 @@ class FixedWingVectorGuidance:
         upward_margin = up * response + up * up / (2 * acceleration)
         if altitude - downward_margin <= limits.min_altitude + limits.warning_buffer and height_rate < 0:
             return 0., "altitude_descent_response_limited"
-        if altitude + upward_margin >= limits.max_altitude - limits.warning_buffer and height_rate > 0:
+        if limits.above_maximum(altitude + upward_margin, buffer=limits.warning_buffer, inclusive=True) and height_rate > 0:
             return 0., "altitude_climb_response_limited"
         return height_rate, None

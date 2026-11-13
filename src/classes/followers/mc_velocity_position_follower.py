@@ -53,6 +53,7 @@ Technical Details:
 from classes.followers.base_follower import BaseFollower
 from classes.followers.custom_pid import CustomPID
 from classes.parameters import Parameters
+from classes.safety_types import AltitudeLimits
 from classes.follower_config_manager import get_follower_config_manager
 from classes.followers.yaw_rate_smoother import YawRateSmoother
 from classes.tracker_output import TrackerOutput
@@ -401,7 +402,7 @@ class MCVelocityPositionFollower(BaseFollower):
             current_altitude = getattr(self.px4_controller, 'current_altitude', None)
 
             # Safety check: Ensure altitude data is available
-            if current_altitude is None:
+            if not AltitudeLimits.is_valid_altitude(current_altitude):
                 logger.warning("Unable to get current altitude - halting altitude control for safety")
                 return 0.0
 
@@ -413,7 +414,7 @@ class MCVelocityPositionFollower(BaseFollower):
                 logger.warning(f"Altitude safety limit reached: {current_altitude:.1f}m <= {self.min_descent_height:.1f}m")
                 return 0.0  # Stop descent
 
-            if current_altitude >= self.max_climb_height and vertical_velocity_up_raw_m_s > 0:
+            if AltitudeLimits.above(current_altitude, self.max_climb_height, inclusive=True) and vertical_velocity_up_raw_m_s > 0:
                 logger.warning(f"Altitude safety: Current {current_altitude:.1f}m at maximum, preventing climb")
                 return 0.0  # Stop climb
 
