@@ -61,9 +61,9 @@ def test_identity_change_and_disconnect_cannot_relabel_retained_pose(connection)
 @pytest.mark.asyncio
 async def test_native_preparation_is_observation_only_and_reconnect_revokes_its_owner(connection, monkeypatch):
     state = aircraft_state(binding=connection.get_aircraft_state_binding())
-    client = SimpleNamespace(session_identity=None, connect=AsyncMock(return_value="capabilities"),
+    client = SimpleNamespace(session_identity=None, capabilities=None, connect=AsyncMock(return_value="capabilities"),
                              bind=AsyncMock(), observe=AsyncMock(return_value={
-                                 "fresh": True, "rescue_active": False, "aircraft_state": asdict(state),
+                                 "fresh": True, "rescue_active": False, "owner_confirmed": False, "aircraft_state": asdict(state),
                              }), close=AsyncMock(), abort=Mock())
     monkeypatch.setattr("classes.px4_interface_manager.NativeGuidanceClient", lambda path: client)
     assert await connection.prepare_native_guidance(Path("/private/guidance.sock")) == "capabilities"
@@ -82,8 +82,8 @@ async def test_native_preparation_refuses_aircraft_changed_during_status_read(co
     state = aircraft_state(binding=connection.get_aircraft_state_binding())
     async def changed_aircraft():
         connection._aircraft_identity_revision += 1
-        return {"fresh": True, "rescue_active": False, "aircraft_state": asdict(state)}
-    client = SimpleNamespace(session_identity=None, connect=AsyncMock(), bind=AsyncMock(),
+        return {"fresh": True, "rescue_active": False, "owner_confirmed": False, "aircraft_state": asdict(state)}
+    client = SimpleNamespace(session_identity=None, capabilities=None, connect=AsyncMock(), bind=AsyncMock(),
                              observe=changed_aircraft, close=AsyncMock())
     monkeypatch.setattr("classes.px4_interface_manager.NativeGuidanceClient", lambda path: client)
     with pytest.raises(RuntimeError, match="connection_changed"):

@@ -3282,8 +3282,15 @@ class AppController:
 
         descriptor = FollowerProfile.from_info(str(Parameters.FOLLOWER_MODE), profile)
         kind = self.px4_interface.get_aircraft_kind()
+        state = None
+        if descriptor.native_phase_contracts and kind in (AircraftKind.FIXED_WING, AircraftKind.VTOL):
+            state = self.px4_interface.get_aircraft_state()
+            if state is None:
+                result["precondition"] = {"code": "native_aircraft_state_unavailable"}
+                raise ValueError("native_aircraft_state_unavailable")
         decision = evaluate_aircraft(
             descriptor, kind.value if isinstance(kind, AircraftKind) else "unknown",
+            observed_phase=None if state is None else state.phase.value,
         )
         if not decision.eligible:
             result["precondition"] = {"code": decision.reason_code}
@@ -3291,7 +3298,10 @@ class AppController:
 
     async def _prepare_native_follow_binding(self):
         """Prepare one owner; only the existing explicit start may engage it."""
-        capabilities = await self.px4_interface.prepare_native_guidance(DEFAULT_SOCKET_PATH)
+        client = self.px4_interface.native_guidance_client
+        capabilities = None if client is None else client.capabilities
+        if capabilities is None:
+            raise RuntimeError("native_aircraft_state_unavailable")
         state = self.px4_interface.get_aircraft_state()
         if state is None:
             raise RuntimeError("native_aircraft_state_unavailable")
@@ -3326,6 +3336,37 @@ class AppController:
         )
         self._native_follow_binding = binding
         return binding
+
+    async def refresh_native_following_state(self, selected_mode: str) -> None:
+        """Refresh passive native telemetry on the existing flight owner only."""
+        from classes.follower_catalog import get_follower_profile
+
+        profile = get_follower_profile(selected_mode)
+        if (not profile.native_phase_contracts or not profile.live_eligibility.eligible
+                or self._is_command_preview_configured()
+                or self.px4_interface.get_aircraft_kind() not in (AircraftKind.FIXED_WING, AircraftKind.VTOL)):
+            return
+        owner_loop = self._get_flight_event_loop()
+        if owner_loop is None or owner_loop.is_closed() or not owner_loop.is_running():
+            raise RuntimeError("Native observation requires the existing flight owner loop")
+
+        async def refresh():
+            async with self._follower_state_lock:
+                if (getattr(self, "shutdown_flag", False) or self.following_active
+                        or getattr(self, "_native_follow_binding", None) is not None
+                        or getattr(self, "_following_stopping", False)
+                        or getattr(self, "_following_offboard_cleanup_required", False)
+                        or self._is_command_preview_configured()
+                        or not self.px4_interface.get_connection_status().get("connected")):
+                    return
+                kind = self.px4_interface.get_aircraft_kind()
+                if kind not in (AircraftKind.FIXED_WING, AircraftKind.VTOL):
+                    return
+                if requires_native_guidance({"native_phase_contracts": dict(profile.native_phase_contracts)}, kind,
+                        expected_layout=AircraftLayout(getattr(Parameters, "AIRFRAME_LAYOUT", "AUTO"))):
+                    await self.px4_interface.prepare_native_guidance(DEFAULT_SOCKET_PATH)
+
+        await self._run_on_flight_event_loop(refresh)
 
     async def _stop_native_follow_binding(self, result, *, reason, allow_handoff=True):
         binding = self._native_follow_binding
@@ -3907,13 +3948,17 @@ class AppController:
                     "Complete follower telemetry confirmed "
                     f"({telemetry_readiness.get('source', 'unknown')})"
                 )
-                self._require_live_aircraft_profile(configured_profile, result)
                 native_required = False
-                if configured_profile.get("native_phase_contracts"):
+                kind = self.px4_interface.get_aircraft_kind()
+                if (configured_profile.get("native_phase_contracts") and isinstance(kind, AircraftKind)
+                        and kind is not AircraftKind.UNKNOWN):
                     native_required = requires_native_guidance(
-                        configured_profile, self.px4_interface.get_aircraft_kind(),
+                        configured_profile, kind,
                         expected_layout=AircraftLayout(getattr(Parameters, "AIRFRAME_LAYOUT", "AUTO")),
                     )
+                if native_required:
+                    await self.px4_interface.prepare_native_guidance(DEFAULT_SOCKET_PATH)
+                self._require_live_aircraft_profile(configured_profile, result)
 
                 initial_target_coords = resolve_initial_target_coords(
                     Parameters.FOLLOWER_MODE, self.get_tracker_output(),

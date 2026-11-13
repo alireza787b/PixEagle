@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
@@ -22,6 +23,7 @@ from classes.api_v1_paths import (API_V1_NATIVE_FOLLOWING_PATH,
 from classes.api_v1_paths import API_V1_ACTION_NATIVE_FOLLOWER_SELECT_PATH
 from classes.follower_catalog import evaluate_aircraft, evaluate_input, get_follower_catalog
 from classes.airspeed_readiness import evaluate_following_start_airspeed
+from classes.native_guidance import NativeGuidanceError
 from classes.parameters import Parameters
 from classes.runtime_identity import INSTANCE_ID, RUNTIME_ID
 from classes.api_v1_following_controls import session_control_snapshot
@@ -43,6 +45,11 @@ def _following_scopes(*, start):
     if start:
         required.add("media:read")
     return required
+
+
+def _native_observation_reason(error):
+    code = str(error)
+    return code if re.fullmatch(r"[a-z][a-z0-9_]{0,127}", code) else "native_aircraft_state_unavailable"
 
 
 def following_snapshot(owner, principal, *, client_control_contract_version: int = 1):
@@ -120,7 +127,13 @@ def following_snapshot(owner, principal, *, client_control_contract_version: int
     if context["association"]["verified"] and flight.get("fresh"):
         profile = next((item for item in catalog if item.mode == configured), None)
         if profile is not None:
-            aircraft = evaluate_aircraft(profile, flight.get("aircraft_kind"))
+            state = None
+            if profile.native_phase_contracts and flight.get("aircraft_kind") in {"fixed_wing", "vtol"}:
+                state = owner.app_controller.px4_interface.get_aircraft_state()
+                if state is None:
+                    reasons.append("native_aircraft_state_unavailable")
+            aircraft = evaluate_aircraft(profile, flight.get("aircraft_kind"),
+                                        observed_phase=None if state is None else state.phase.value)
             if not aircraft.eligible:
                 reasons.append(aircraft.reason_code)
     if not _following_scopes(start=True).issubset(principal.scopes):
@@ -212,8 +225,16 @@ async def get_native_following(owner, request, *, client_control_contract_versio
             path=API_V1_NATIVE_FOLLOWING_PATH,
         )
     try:
+        native_error = None
+        try:
+            await owner.app_controller.refresh_native_following_state(_get_persisted_follower_mode(owner))
+        except NativeGuidanceError as error:
+            native_error = _native_observation_reason(error)
         payload = await run_in_threadpool(following_snapshot, owner, principal,
                                          client_control_contract_version=client_control_contract_version)
+        if native_error is not None:
+            payload["start_allowed"] = False
+            payload["start_reason_codes"] = list(dict.fromkeys([native_error, *payload["start_reason_codes"]]))
         return JSONResponse(payload, headers={"Cache-Control": "no-store"})
     except Exception:
         return owner._api_v1_error_response(
@@ -282,6 +303,11 @@ async def native_follow_action(owner, request, response, http_request, *, start)
 
         app = owner.app_controller
         if start:
+            try:
+                await app.refresh_native_following_state(_get_persisted_follower_mode(owner))
+            except NativeGuidanceError as error:
+                raise NativeTargetError(_native_observation_reason(error),
+                    "Native aircraft observations are not ready. Refresh following status.") from error
             _check_start(owner, request, principal, "before_request")
         else:
             teardown = getattr(app, "_following_teardown_context", None) or {}

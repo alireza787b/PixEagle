@@ -584,25 +584,38 @@ class PX4InterfaceManager:
             binding = self.get_aircraft_state_binding()
             if binding is None:
                 raise NativeGuidanceError("native_aircraft_connection_unverified")
-            if previous is not None:
-                await previous.close()
-            self._native_guidance_client = None
-            client = NativeGuidanceClient(socket_path)
+            client = previous
             try:
-                capabilities = await client.connect()
-                await client.bind(binding)
+                if client is None or client.capabilities is None:
+                    if client is not None:
+                        await client.close()
+                    client = NativeGuidanceClient(socket_path)
+                    self._native_guidance_client = client
+                    capabilities = await client.connect()
+                    await client.bind(binding)
+                else:
+                    capabilities = client.capabilities
                 observation = await client.observe()
-                if observation.get("fresh") is not True or observation.get("rescue_active") is not False:
+                if (observation.get("fresh") is not True or observation.get("rescue_active") is not False
+                        or observation.get("owner_confirmed") is not False):
                     raise NativeGuidanceError("native_aircraft_state_unavailable")
                 state = AircraftState.from_payload(observation["aircraft_state"])
                 if state.binding != binding or self.get_aircraft_state_binding() != binding:
                     raise NativeGuidanceError("native_aircraft_connection_changed")
-                if not self.commit_aircraft_state(state) and self.get_aircraft_state() != state:
+                self.commit_aircraft_state(state)
+                if self.get_aircraft_state() != state:
                     raise NativeGuidanceError("native_aircraft_state_rejected")
                 self._native_guidance_client = client
                 return capabilities
-            except BaseException:
-                await client.close()
+            except BaseException as error:
+                if self._native_guidance_client is client:
+                    self._native_guidance_client = None
+                if self.get_aircraft_state_binding() == binding:
+                    self._aircraft_state_owner.bind(None)
+                if client is not None:
+                    await client.close()
+                if isinstance(error, (KeyError, TypeError, ValueError)):
+                    raise NativeGuidanceError("native_aircraft_state_unavailable") from error
                 raise
 
     def _advance_telemetry_generation(self, connection_generation: int) -> int:

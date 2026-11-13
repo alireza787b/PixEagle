@@ -40,6 +40,9 @@ def app(monkeypatch):
         wait_for_telemetry_ready=AsyncMock(return_value={"ready": True, "source": "fixture"}),
         get_connection_status=Mock(return_value={"connected": True}),
         get_aircraft_kind=Mock(return_value=AircraftKind.FIXED_WING),
+        prepare_native_guidance=AsyncMock(return_value=f.guidance.phase_owner.capabilities),
+        get_aircraft_state=Mock(return_value=f.state),
+        get_telemetry_stale_timeout_s=Mock(return_value=.75),
         get_aircraft_identity=Mock(return_value={"autopilot_uid": f.state.binding.aircraft_uid,
                                                 "connection_generation": f.state.binding.connection_generation}),
         is_command_connection_ready=Mock(return_value=True),
@@ -82,6 +85,7 @@ async def test_native_session_seeds_one_publisher_and_preserves_its_phase_contro
     result = await ctrl._connect_px4_on_flight_loop()
     assert result["errors"] == []
     assert ctrl.following_active
+    ctrl.px4_interface.prepare_native_guidance.assert_awaited_once()
     ctrl.px4_interface.start_offboard_mode.assert_not_called()
     app.commander_factory.assert_called_once()
     assert app.commander_factory.call_args.kwargs["command_transport"] is app.f.binding.transport
@@ -95,6 +99,40 @@ async def test_native_session_seeds_one_publisher_and_preserves_its_phase_contro
     assert continuity.policy_mode == "bounded_flight"
     assert continuity.configuration_origin.startswith("phase_override:fixed_wing/")
     assert continuity.effective_policy["max_coast_time_s"] == 8.
+
+
+async def test_start_refreshes_native_phase_before_catalog_then_uses_one_prepared_client(app):
+    from dataclasses import replace
+    from classes.aircraft_state import AirframePhase
+    ctrl = app.ctrl
+    ctrl.px4_interface.get_aircraft_state.return_value = replace(app.f.state, phase=AirframePhase.MULTICOPTER)
+    async def refresh(_socket):
+        ctrl.px4_interface.get_aircraft_state.return_value = app.f.state
+        return app.f.guidance.phase_owner.capabilities
+    ctrl.px4_interface.prepare_native_guidance.side_effect = refresh
+    result = await ctrl._connect_px4_on_flight_loop()
+    assert result['errors'] == [] and ctrl.following_active
+    ctrl.px4_interface.prepare_native_guidance.assert_awaited_once()
+    ctrl._prepare_native_follow_binding.assert_awaited_once()
+
+
+async def test_passive_poll_queued_during_real_start_does_not_observe_active_publisher(app):
+    ctrl = app.ctrl;ctrl._flight_event_loop = asyncio.get_running_loop()
+    entered, release = asyncio.Event(), asyncio.Event()
+    async def refresh(_socket):
+        entered.set();await release.wait()
+        return app.f.guidance.phase_owner.capabilities
+    ctrl.px4_interface.prepare_native_guidance.side_effect = refresh
+    startup = asyncio.create_task(ctrl._connect_px4_on_flight_loop())
+    await entered.wait()
+    poll = asyncio.create_task(ctrl.refresh_native_following_state('gm_velocity_vector'))
+    await asyncio.sleep(0)
+    assert not poll.done()
+    release.set()
+    result = await startup;await poll
+    assert result['errors'] == [] and ctrl.following_active
+    ctrl.px4_interface.prepare_native_guidance.assert_awaited_once()
+    assert ctrl._native_follow_binding is app.f.binding
 
 
 async def test_ordinary_mc_vector_retains_existing_mavsdk_owner(app):
@@ -145,6 +183,7 @@ async def test_native_preparation_uses_protocol3_mc_capability_before_acquisitio
     ctrl.px4_interface.get_aircraft_state = Mock(return_value=state)
     ctrl.px4_interface.get_telemetry_stale_timeout_s = Mock(return_value=.75)
     ctrl.px4_interface.native_guidance_client = app.f.client
+    app.f.client.capabilities = capabilities
     ctrl._following_session_id = "prepared-session"
     ctrl._following_continuity_config = CONFIG
     create = Mock(return_value=app.f.guidance)
@@ -166,6 +205,7 @@ async def test_native_preparation_uses_protocol3_mc_capability_before_acquisitio
         create.assert_not_called()
         construct.assert_not_called()
     app.f.client.engage.assert_not_called()
+    ctrl.px4_interface.prepare_native_guidance.assert_not_awaited()
     ctrl.px4_interface.start_offboard_mode.assert_not_called()
 
 

@@ -472,3 +472,27 @@ Obsolete MAVLink Offboard-exit notifications cannot revoke a newer native mode;
 native observations remain authoritative for takeover/rescue/expiry.
 See the [active checkpoint](../docs/reporting/agent-ops/codex-modernization/checkpoints/2026-11-06-gimbal-vector-airframes.md)
 for precise gates and evidence locations.
+
+Authenticated following-status polling can now refresh native observations for
+an operator-selected, live-qualified native profile on an already verified FW
+or VTOL connection. The existing flight loop and follower lifecycle lock own
+this read-only work. One healthy unowned client is reused for hello/bind and
+later observations; there is no new background worker. Active or pending native
+following retains sole observation ownership. Pure MC, preview and ordinary
+MAVSDK profiles do not start the adapter.
+
+Readiness snapshots remain cached reads. Native Start refreshes before its
+initial action guard, then prepares before aircraft admission and consumes the
+same client's capabilities when constructing the binding. Errors retire the
+affected passive client and invalidate its current native snapshot; expected
+adapter absence keeps the choices visible with a not-ready reason. Connection
+and telemetry generation changes revoke the client and cannot relabel an old
+reply. No observation path acquires a mode or resumes a session.
+
+VTOL admission remains closed. Initial HTTP Start guards do not yet pin native
+phase/navigation intention across all work before binding creation; that is a
+separate pre-promotion race case. A binding's existing initial-phase pin still
+ends a changed phase before pursuit. Same-App simulation qualification must
+also provide the real MAVSDK/MAVLink identity route and isolated access to the
+unchanged `/run/pixeagle/guidance.sock`. These software changes do not qualify
+that application path, a private airframe or hardware.
