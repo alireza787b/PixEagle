@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from classes.aircraft_state import AirframePhase, GuidanceSessionIdentity, Quaternion
+from classes.aircraft_state import AircraftStateOwner, AirframePhase, GuidanceSessionIdentity, Quaternion
 from classes.capture_timing import SourceSampleStamp
 from classes.fixed_camera_calibration import (
     ActiveImageGeometry, FixedCameraCalibration, bind_fixed_camera_calibration, selected_source_signature,
@@ -130,6 +130,45 @@ def test_stale_raw_attitude_does_not_become_fresh_when_pose_advances(case):
         case.resolver(case.output, state)
 
 
+def advancing_sample_at_same_publication(case):
+    state = replace(case.state, sequence=2, observed_at_monotonic_s=100.02,
+        attitude_body_to_ned=Quaternion(math.cos(math.pi / 4 + .01), 0., 0., math.sin(math.pi / 4 + .01)),
+        attitude_timing=replace(case.state.attitude_timing,
+            sample_timestamp_us=case.state.attitude_timing.publication_timestamp_us,
+            publication_received_at_monotonic_s=100.02, sample_received_at_monotonic_s=100.02))
+    raw = replace(case.raw, sample_timestamp_us=case.raw.publication_timestamp_us,
+        quaternion_wxyz=(math.cos(.01), 0., 0., math.sin(.01)), received_at_monotonic_s=100.02)
+    source = replace(case.measurement.provenance.capture.source_sample, sequence=2, timestamp_us=1_021_000)
+    capture = replace(case.measurement.provenance.capture, capture_id='2', captured_at=100.02, source_sample=source)
+    measurement = replace(case.measurement, provenance=replace(case.measurement.provenance, capture=capture))
+    return state, raw, measurement
+
+
+def test_real_resolver_accepts_new_sample_at_same_publication_without_rewriting_old_ray(case):
+    first = case.resolver(case.output, case.state)
+    state, raw, measurement = advancing_sample_at_same_publication(case)
+    assert state.attitude_timing.publication_timestamp_us == case.state.attitude_timing.publication_timestamp_us
+    assert state.attitude_timing.sample_timestamp_us > case.state.attitude_timing.sample_timestamp_us
+    assert case.history.commit(asdict(raw), state, runtime_id='native', source_clock_id='clock-world')
+    second = case.resolver(SimpleNamespace(image_measurement=measurement), state)
+    assert second.source_time.attitude == raw
+    assert second.direction_ned != first.direction_ned
+    assert first.source_time.attitude == case.raw and first.attitude_state is case.state
+    rewritten = replace(state, sequence=3, attitude_body_to_ned=Quaternion(1., 0., 0., 0.))
+    with pytest.raises(ValueError, match='guidance_aircraft_state_reordered_or_rewritten'):
+        case.resolver(SimpleNamespace(image_measurement=measurement), rewritten)
+
+
+def test_state_owner_accepts_same_publication_only_with_real_sample_progress(case):
+    owner = AircraftStateOwner(clock=lambda: case.now[0])
+    owner.bind(case.state.binding)
+    assert owner.commit(case.state)
+    state, _, _ = advancing_sample_at_same_publication(case)
+    assert owner.accepts(state) and owner.commit(state)
+    assert owner.snapshot(timeout_s=.5) == state
+    assert not owner.commit(replace(state, sequence=3, attitude_body_to_ned=Quaternion(1., 0., 0., 0.)))
+
+
 @pytest.fixture
 def runtime_case(case, monkeypatch):
     receipt = time.monotonic()
@@ -241,9 +280,21 @@ async def test_pair_returned_after_original_deadline_cannot_bind(runtime_case):
 async def test_refresh_timeout_is_a_not_ready_result_without_binding(runtime_case):
     run = runtime_case
     run.history.clear()
-    run.connection.prepare_native_guidance.side_effect = TimeoutError()
+    run.client.request_timeout_s = .03
+    cancelled = []
+
+    async def stalled_refresh(_):
+        try:
+            await asyncio.Future()
+        finally:
+            cancelled.append(True)
+
+    run.connection.prepare_native_guidance.side_effect = stalled_refresh
     with pytest.raises(ValueError, match='^source_attitude_alignment_unavailable$'):
-        await bind_native_image_resolver(run.app, run.concrete, run.state, run.capabilities)
+        await asyncio.wait_for(
+            bind_native_image_resolver(run.app, run.concrete, run.state, run.capabilities), timeout=.25)
+    assert cancelled == [True]
+    run.connection.prepare_native_guidance.assert_awaited_once_with(run.client.socket_path)
     run.concrete.bind_guidance_input_resolver.assert_not_called()
 
 

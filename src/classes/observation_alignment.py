@@ -265,6 +265,7 @@ def _result(bearing, state, binding, kind, evidence, skew, bounds, previous, sou
                 or new.publication_received_at_monotonic_s < old.publication_received_at_monotonic_s
                 or new.sample_received_at_monotonic_s < old.sample_received_at_monotonic_s
                 or (new.publication_timestamp_us == old.publication_timestamp_us
+                    and new.sample_timestamp_us == old.sample_timestamp_us
                     and (new != old or state.attitude_body_to_ned != old_state.attitude_body_to_ned))
                 or not preserves_attitude_sample(old, old_state.attitude_body_to_ned,
                                                  new, state.attitude_body_to_ned)):

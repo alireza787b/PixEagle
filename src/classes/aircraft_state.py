@@ -449,6 +449,7 @@ class AircraftStateOwner:
                     or timing.publication_received_at_monotonic_s < before.publication_received_at_monotonic_s
                     or timing.sample_received_at_monotonic_s < before.sample_received_at_monotonic_s
                     or (timing.publication_timestamp_us == before.publication_timestamp_us
+                        and timing.sample_timestamp_us == before.sample_timestamp_us
                         and (timing != before or state.attitude_body_to_ned != attitude))
                     or not preserves_attitude_sample(before, attitude, timing, state.attitude_body_to_ned)):
                 return False
