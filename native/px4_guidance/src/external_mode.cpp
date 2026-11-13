@@ -1,4 +1,5 @@
 #include <pixeagle/external_mode.hpp>
+#include <pixeagle/multicopter_setpoint.hpp>
 #include <pixeagle/phase_observation.hpp>
 #include <px4_ros2/utils/message_version.hpp>
 #include <chrono>
@@ -401,7 +402,10 @@ void ExternalMode::updateSetpoint(float /*dt_s*/) {
     // this subscriber or main acquires the lease. Waiting never authorizes output.
     if (_activation_hold && _ownership_context) {
         if (startupActivationMayWait(*_ownership_context, activationEvidence(), now, _activation_expires)) {
-            if (observedOwner() && phaseOf(*_activation_hold) == phase) publish(*_activation_hold);
+            if (!observedOwner()) return;
+            if (phaseOf(*_activation_hold) == phase && publish(*_activation_hold)) return;
+            stopOwnedMode();
+            drainNeutral();
             return;
         }
         stopOwnedMode();
@@ -414,8 +418,21 @@ void ExternalMode::updateSetpoint(float /*dt_s*/) {
     drainNeutral();
 }
 
+std::optional<float> ExternalMode::altitudeHoldDown(double altitude_amsl, std::uint64_t generation) const noexcept {
+    if (!_ownership_context || !_altitude_hold_provider) return {};
+    try {
+        return _altitude_hold_provider(_ownership_context->identity, altitude_amsl, generation, monotonicSeconds());
+    } catch (const std::exception&) {
+        // A reference failure ends this original pursuit through the normal
+        // conditional release path; it must never escape a ROS timer callback.
+        return {};
+    }
+}
+
 bool ExternalMode::publish(const Objective& objective) {
     if (const auto* fw = std::get_if<FixedWingObjective>(&objective)) {
+        if (fw->altitude_reference_generation
+                && !altitudeHoldDown(*fw->altitude_amsl, *fw->altitude_reference_generation)) return false;
         px4_ros2::FwLateralLongitudinalSetpoint setpoint;
         setpoint.withCourse(static_cast<float>(fw->course)).withEquivalentAirspeed(static_cast<float>(fw->equivalent_airspeed));
         if (fw->height_rate) setpoint.withHeightRate(static_cast<float>(*fw->height_rate));
@@ -425,7 +442,13 @@ bool ExternalMode::publish(const Objective& objective) {
         _fixed_wing->update(setpoint);
     } else if (const auto* mc = std::get_if<MulticopterObjective>(&objective)) {
         if (!_trajectory) { revoke(); return false; }
-        _trajectory->update(Eigen::Vector3f(mc->north, mc->east, mc->down), {}, {}, static_cast<float>(mc->yaw_rate));
+        if (mc->altitude_amsl) {
+            const auto down = altitudeHoldDown(*mc->altitude_amsl, *mc->altitude_reference_generation);
+            if (!down) return false;
+            _trajectory->update(multicopterAltitudeSetpoint(*mc, *down));
+        } else {
+            _trajectory->update(Eigen::Vector3f(mc->north, mc->east, *mc->down), {}, {}, static_cast<float>(mc->yaw_rate));
+        }
     } else {
         if (!_trajectory || !_vtol || !transitionDirectionConfirmed()) return false;
         const auto& transition = std::get<TransitionObjective>(objective);

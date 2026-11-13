@@ -22,6 +22,8 @@ public:
     Json snapshot(const px4_msgs::msg::VehicleStatus& status, Phase phase, bool rescue,
                   double phase_received, double now) const;
     bool bindingMatches(const Identity& identity) const;
+    std::optional<float> altitudeHoldDown(const Identity& identity, double altitude_amsl,
+                                         std::uint64_t generation, double now) const;
     std::string firmware(double now) const;
     Json health(double now) const;
     Json pose(double now) const;
@@ -30,6 +32,8 @@ public:
     std::optional<NativeNeutralInput> neutralFlightData(
         const px4_msgs::msg::VehicleStatus& status, double now) const;
 private:
+    friend class AircraftObservationsTest;
+    std::optional<std::uint64_t> altitudeReferenceGeneration(double now) const;
     template<class Message> void subscribe(rclcpp::Node& node, const std::string& topic, SourceSample<Message>& sample) {
         subscribe(node, topic, sample, [](const Message& message) { return message.timestamp; });
     }

@@ -5,6 +5,7 @@
 #include <chrono>
 #include <iomanip>
 #include <sstream>
+#include <limits>
 
 namespace pixeagle {
 
@@ -36,6 +37,34 @@ bool AircraftObservations::bindingMatches(const Identity& identity) const {
     return !_binding.is_null() && _binding.at("aircraft_uid") == identity.aircraft
         && _binding.at("connection_generation") == identity.connection
         && _binding.at("telemetry_generation") == identity.telemetry_generation;
+}
+
+std::optional<std::uint64_t> AircraftObservations::altitudeReferenceGeneration(double now) const {
+    if (_binding.is_null() || !_position.fresh(now, _timeout) || !_envelope.fresh(now, _timeout)) return {};
+    const auto& p = *_position.value();
+    const auto& e = *_envelope.value();
+    if (!(p.xy_valid && p.z_valid && p.v_xy_valid && p.v_z_valid && p.z_global && e.home_altitude_valid)
+            || std::to_string(e.autopilot_uid) != _binding.at("aircraft_uid").get<std::string>()) return {};
+    for (double value : {double(p.vx), double(p.vy), double(p.vz), double(p.z), double(p.ref_alt),
+                         double(e.home_altitude_amsl)})
+        if (!std::isfinite(value)) return {};
+    const auto reference = std::make_tuple(p.ref_timestamp, e.home_update_count, p.z_reset_counter);
+    if (!_reference || *_reference != reference) {
+        if (_reference_generation == std::numeric_limits<std::uint64_t>::max()) return {};
+        _reference = reference;
+        ++_reference_generation;
+    }
+    return _reference_generation;
+}
+
+std::optional<float> AircraftObservations::altitudeHoldDown(const Identity& identity, double altitude_amsl,
+                                                          std::uint64_t generation, double now) const {
+    if (!bindingMatches(identity) || !nativeFloatRepresentable(altitude_amsl)) return {};
+    const auto current = altitudeReferenceGeneration(now);
+    if (!current || *current != generation) return {};
+    const double down = double(_position.value()->ref_alt) - altitude_amsl;
+    if (!nativeFloatRepresentable(down)) return {};
+    return static_cast<float>(down);
 }
 
 Json AircraftObservations::health(double now) const {
@@ -157,8 +186,8 @@ Json AircraftObservations::snapshot(const px4_msgs::msg::VehicleStatus& status, 
     }
     const auto phase_name = phase == Phase::Multicopter ? "multicopter" : phase == Phase::FixedWing ? "fixed_wing" : "vtol_transition";
     const double altitude = double(p.ref_alt) - p.z;
-    const auto reference = std::make_tuple(p.ref_timestamp, e.home_update_count, p.z_reset_counter);
-    if (!_reference || *_reference != reference) { _reference = reference; ++_reference_generation; }
+    const auto reference_generation = altitudeReferenceGeneration(now);
+    if (!reference_generation) return nullptr;
     const auto sequence = _progress.observe(std::max({phase_received, _position.received(), _attitude.received(),
         _envelope.received(), _airspeed.received()}));
     return {{"binding", _binding}, {"sequence", sequence}, {"source", "px4_dds_native"},
@@ -168,7 +197,7 @@ Json AircraftObservations::snapshot(const px4_msgs::msg::VehicleStatus& status, 
         {"velocity_ned_m_s", {{"x", p.vx}, {"y", p.vy}, {"z", p.vz}}},
         {"relative_altitude_m", altitude - e.home_altitude_amsl}, {"altitude_amsl_m", altitude},
         {"navigation_heading_rad", *heading}, {"airspeed", air}, {"fixed_wing_envelope", envelope},
-        {"altitude_reference_generation", _reference_generation}};
+        {"altitude_reference_generation", *reference_generation}};
 }
 
 } // namespace pixeagle

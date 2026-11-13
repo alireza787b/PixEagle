@@ -1,6 +1,7 @@
 #include <pixeagle/local_server.hpp>
 #include <gtest/gtest.h>
 #include <array>
+#include <limits>
 #include <filesystem>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -54,10 +55,10 @@ TEST(LocalProtocol, AllCommandContractsAndNoSilentSpeedPolicyDowngrade) {
 
 TEST(LocalProtocol, RequestReplyAndErrorShareOnePrivateVersion) {
     const auto request = decodeRequest(requestJson().dump());
-    EXPECT_EQ(kProtocolVersion, 3u);
+    EXPECT_EQ(kProtocolVersion, 4u);
     EXPECT_EQ(Json::parse(encodeReply(request, Json::object())).at("protocol_version"), kProtocolVersion);
     EXPECT_EQ(Json::parse(encodeError(request, "refused")).at("protocol_version"), kProtocolVersion);
-    for (const auto old_version : {1u, 2u}) {
+    for (const auto old_version : {1u, 2u, 3u}) {
         auto old = requestJson(); old["protocol_version"] = old_version;
         EXPECT_THROW(decodeRequest(old.dump()), std::invalid_argument);
     }
@@ -165,4 +166,42 @@ TEST_F(LocalServerTest, NeverOverwritesAnExistingSocketOrFile) {
     EXPECT_THROW((LocalServer{path, [](const Request&) -> std::optional<Json> { return {}; }, [] {}, .5}), std::runtime_error);
     connectPeer(); sendRequest(requestJson()); server.poll(10.);
     EXPECT_TRUE(receive().at("success").get<bool>());
+}
+
+TEST(LocalProtocol, AltitudeHoldUsesAnExclusiveTypedCommandVariant) {
+    const Json valid{{"velocity_north_m_s", 2.}, {"velocity_east_m_s", -3.},
+        {"altitude_amsl_m", 517.5}, {"altitude_reference_generation", 7u}, {"yaw_rate_rad_s", .2}};
+    const auto decoded = decodeObjective(valid, Phase::Multicopter);
+    ASSERT_NO_THROW(validate(decoded));
+    const auto& hold = std::get<MulticopterObjective>(decoded);
+    EXPECT_FALSE(hold.down);
+    EXPECT_EQ(hold.altitude_amsl, 517.5);
+    EXPECT_EQ(hold.altitude_reference_generation, 7u);
+    for (const auto& key : {"altitude_amsl_m", "altitude_reference_generation", "yaw_rate_rad_s"}) {
+        auto malformed = valid; malformed.erase(key);
+        EXPECT_THROW(decodeObjective(malformed, Phase::Multicopter), std::invalid_argument);
+    }
+    auto mixed = valid; mixed["velocity_down_m_s"] = 0.;
+    EXPECT_THROW(decodeObjective(mixed, Phase::Multicopter), std::invalid_argument);
+    for (const Json invalid : {Json(true), Json(-1), Json(7.), Json(nullptr), Json("7")}) {
+        auto malformed = valid; malformed["altitude_reference_generation"] = invalid;
+        EXPECT_THROW(decodeObjective(malformed, Phase::Multicopter), std::invalid_argument);
+    }
+    for (const Json invalid : {Json(true), Json(nullptr), Json("517")}) {
+        auto malformed = valid; malformed["altitude_amsl_m"] = invalid;
+        EXPECT_THROW(decodeObjective(malformed, Phase::Multicopter), std::invalid_argument);
+    }
+    auto oversized = valid; oversized["altitude_amsl_m"] = std::numeric_limits<double>::max();
+    EXPECT_THROW(validate(decodeObjective(oversized, Phase::Multicopter)), std::invalid_argument);
+}
+
+TEST(LocalProtocol, EngagementReferenceIsRequiredTypedAndFloatRepresentable) {
+    const Json valid{{"altitude_amsl_m", 517.5}, {"reference_generation", 7u}};
+    EXPECT_EQ(decodeAltitudeReference(valid).generation, 7u);
+    for (const Json malformed : {Json(nullptr), Json::object(), Json{{"altitude_amsl_m", 517.5}},
+            Json{{"altitude_amsl_m", 517.5}, {"reference_generation", -1}},
+            Json{{"altitude_amsl_m", 517.5}, {"reference_generation", true}},
+            Json{{"altitude_amsl_m", 517.5}, {"reference_generation", 7.}},
+            Json{{"altitude_amsl_m", std::numeric_limits<double>::max()}, {"reference_generation", 7u}}})
+        EXPECT_THROW(decodeAltitudeReference(malformed), std::invalid_argument);
 }

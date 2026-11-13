@@ -1,11 +1,12 @@
 {
-  "protocol_version": 3,
+  "protocol_version": 4,
   "capabilities": {
     "runtime_id": "test-adapter",
     "px4_firmware": "test-firmware",
     "external_mode_api_version": 2,
     "fixed_wing_supported": true,
     "multicopter_supported": true,
+    "multicopter_altitude_hold_supported": true,
     "unrestricted_speed_supported": false,
     "owned_mode_supported": true,
     "owned_mode_id": 23

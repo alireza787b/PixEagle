@@ -46,6 +46,8 @@ public:
     std::uint64_t publications() const { return _publications; }
     using NeutralProvider = std::function<std::optional<NativeNeutralInput>()>;
     void setNeutralProvider(NeutralProvider provider) { _neutral_provider = std::move(provider); }
+    using AltitudeHoldProvider = std::function<std::optional<float>(const Identity&, double, std::uint64_t, double)>;
+    void setAltitudeHoldProvider(AltitudeHoldProvider provider) { _altitude_hold_provider = std::move(provider); }
     bool releasePending() const { return _ownership_context && _ownership_context->releasePending(); }
     bool neutralDrainActive() const { return _neutral_drain_active; }
     const std::string& neutralDrainFailure() const { return _neutral_drain_failure; }
@@ -56,6 +58,7 @@ private:
     void observeOwnership();
     bool ownedStatusFresh() const;
     bool publish(const Objective& objective);
+    std::optional<float> altitudeHoldDown(double altitude_amsl, std::uint64_t generation) const noexcept;
     void stopOwnedMode();
     NativeActivationEvidence activationEvidence() const;
     void endPursuitOnPhaseExit();
@@ -83,6 +86,7 @@ private:
     const bool _is_vtol;
     CommandLease _lease;
     NeutralProvider _neutral_provider;
+    AltitudeHoldProvider _altitude_hold_provider;
     Phase _engagement_phase{Phase::Unknown};
     bool _neutral_drain_active{};
     std::string _neutral_drain_failure;

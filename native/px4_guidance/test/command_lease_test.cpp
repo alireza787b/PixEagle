@@ -89,3 +89,27 @@ TEST(CommandLease, RejectsReorderingAndContractMismatch) {
         EXPECT_NE(lease.current(10.2, Phase::FixedWing, true, true, false), nullptr);
     }
 }
+
+TEST(CommandLease, AltitudeHoldCannotCombineVerticalVelocityOrOmitGeneration) {
+    EXPECT_NO_THROW(validate(MulticopterObjective{1., 2., 3., .4}));
+    EXPECT_NO_THROW(validate(MulticopterObjective{1., 2., std::nullopt, .4, 517., 3u}));
+    EXPECT_THROW(validate(MulticopterObjective{1., 2., 0., .4, 517., 3u}), std::invalid_argument);
+    EXPECT_THROW(validate(MulticopterObjective{1., 2., std::nullopt, .4, 517., {}}), std::invalid_argument);
+    EXPECT_THROW(validate(MulticopterObjective{1., 2., std::nullopt, .4}), std::invalid_argument);
+    EXPECT_THROW(validate(MulticopterObjective{1., 2., 0., .4, {}, 3u}), std::invalid_argument);
+    for (const double invalid : {double(NAN), double(INFINITY), double(-INFINITY), std::numeric_limits<double>::max()}) {
+        EXPECT_THROW(validate(MulticopterObjective{1., 2., std::nullopt, .4, invalid, 3u}), std::invalid_argument);
+        EXPECT_THROW(validate(MulticopterObjective{1., 2., invalid, .4}), std::invalid_argument);
+    }
+}
+
+TEST(CommandLease, RevocationRemovesHeldAltitudeAndCannotBeReopenedByLateIntent) {
+    CommandLease lease;
+    lease.acquire(identity(), 10., 11.);
+    Intent hold{identity(), 1, 10., 10.3, MulticopterObjective{1., 2., std::nullopt, .4, 517., 3u}};
+    lease.submit(hold, 10.01, Phase::Multicopter);
+    ASSERT_NE(lease.current(10.02, Phase::Multicopter, true, true, false), nullptr);
+    lease.revoke();
+    EXPECT_EQ(lease.current(10.03, Phase::Multicopter, true, true, false), nullptr);
+    EXPECT_THROW(lease.submit(hold, 10.04, Phase::Multicopter), std::invalid_argument);
+}
