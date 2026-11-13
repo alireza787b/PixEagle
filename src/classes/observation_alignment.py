@@ -11,6 +11,7 @@ import math
 from classes.aircraft_state import AircraftBinding, AircraftState, Vector3, finite_number, preserves_attitude_sample
 from classes.gimbal_types import GimbalAngleObservation
 from classes.guidance_observation import CalibratedBearing, ObservationProvenance, bearing_receipt
+from classes.source_time_alignment import SourceTimeAssociation
 
 
 def _identity(value: str) -> None:
@@ -121,6 +122,7 @@ class AlignedBearing:
     evidence_revision: str
     worst_case_skew_s: float | None
     receive_bounds: ReceiveTimeBounds | None
+    source_time: SourceTimeAssociation | None = None
 
     def __post_init__(self):
         if (not isinstance(self.binding, AlignmentBinding) or not isinstance(self.bearing, CalibratedBearing)
@@ -140,7 +142,19 @@ class AlignedBearing:
             raise ValueError("aligned_bearing_tracking_invalid")
         if not math.isclose(self.direction_ned.magnitude, 1., rel_tol=0., abs_tol=1e-9):
             raise ValueError("aligned_bearing_direction_not_unit")
-        expected = state.attitude_body_to_ned.rotate(self.bearing.direction_body_frd).normalized()
+        source_time = self.source_time
+        if self.association_kind == 'bounded_source_time':
+            if (not isinstance(source_time, SourceTimeAssociation)
+                    or not isinstance(self.bearing.provenance, ObservationProvenance)
+                    or self.bearing.provenance.capture.source_sample != source_time.source_sample
+                    or source_time.attitude.quat_reset_counter != binding.quat_reset_counter):
+                raise ValueError('aligned_bearing_source_time_invalid')
+            quaternion = source_time.attitude.quaternion
+        else:
+            if source_time is not None:
+                raise ValueError('aligned_bearing_unexpected_source_time')
+            quaternion = state.attitude_body_to_ned
+        expected = quaternion.rotate(self.bearing.direction_body_frd).normalized()
         if any(not math.isclose(getattr(self.direction_ned, name), getattr(expected, name),
                                 rel_tol=0., abs_tol=1e-9) for name in ("x", "y", "z")):
             raise ValueError("aligned_bearing_direction_mismatch")
@@ -158,6 +172,9 @@ class AlignedBearing:
         elif self.association_kind == "sih_projection_pair":
             if self.receive_bounds is not None or self.worst_case_skew_s is not None:
                 raise ValueError("aligned_bearing_sih_qualification_invalid")
+        elif self.association_kind == 'bounded_source_time':
+            if (self.receive_bounds is not None or self.worst_case_skew_s != source_time.skew_s):
+                raise ValueError('aligned_bearing_source_time_invalid')
         else:
             raise ValueError("aligned_bearing_kind_invalid")
 
@@ -198,13 +215,23 @@ def _validate_pair(
         raise ValueError("alignment_attitude_stale")
 
 
-def _result(bearing, state, binding, kind, evidence, skew, bounds, previous) -> AlignedBearing:
+def _result(bearing, state, binding, kind, evidence, skew, bounds, previous, source_time=None) -> AlignedBearing:
     if previous is not None:
         if not isinstance(previous, AlignedBearing) or previous.binding != binding:
             raise ValueError("alignment_binding_changed")
         if (kind != previous.association_kind or evidence != previous.evidence_revision
                 or bounds != previous.receive_bounds):
             raise ValueError("alignment_qualification_changed")
+        if source_time is not None:
+            old_time = previous.source_time
+            if (old_time is None or source_time.declared_clock_id != old_time.declared_clock_id
+                    or source_time.maximum_skew_s != old_time.maximum_skew_s
+                    or source_time.source_sample.source_incarnation != old_time.source_sample.source_incarnation
+                    or source_time.attitude.sample_timestamp_us < old_time.attitude.sample_timestamp_us
+                    or source_time.attitude.received_at_monotonic_s < old_time.attitude.received_at_monotonic_s
+                    or (source_time.attitude.sample_timestamp_us == old_time.attitude.sample_timestamp_us
+                        and source_time.attitude != old_time.attitude)):
+                raise ValueError('alignment_source_time_changed_or_reordered')
         before = bearing_receipt(previous.bearing.provenance)
         current = bearing_receipt(bearing.provenance)
         if isinstance(bearing.provenance, GimbalAngleObservation):
@@ -219,7 +246,8 @@ def _result(bearing, state, binding, kind, evidence, skew, bounds, previous) -> 
                 comparable = replace(bearing, provenance=replace(bearing.provenance,
                     tracking_state=old.tracking_state,
                     tracking_received_at_monotonic_s=old.tracking_received_at_monotonic_s))
-            if comparable != previous.bearing or state != previous.attitude_state:
+            if (comparable != previous.bearing or state != previous.attitude_state
+                    or source_time != previous.source_time):
                 raise ValueError("alignment_capture_rewritten")
             return previous if bearing == previous.bearing else replace(previous, bearing=bearing)
         if current.received_at_monotonic_s <= before.received_at_monotonic_s:
@@ -241,8 +269,9 @@ def _result(bearing, state, binding, kind, evidence, skew, bounds, previous) -> 
                 or not preserves_attitude_sample(old, old_state.attitude_body_to_ned,
                                                  new, state.attitude_body_to_ned)):
             raise ValueError("alignment_attitude_reordered_or_rewritten")
-    direction = state.attitude_body_to_ned.rotate(bearing.direction_body_frd).normalized()
-    return AlignedBearing(binding, bearing, state, direction, kind, evidence, skew, bounds)
+    quaternion = state.attitude_body_to_ned if source_time is None else source_time.attitude.quaternion
+    direction = quaternion.rotate(bearing.direction_body_frd).normalized()
+    return AlignedBearing(binding, bearing, state, direction, kind, evidence, skew, bounds, source_time)
 
 
 def _receive_intervals(bearing, attitude_state, bounds) -> tuple[tuple, tuple, float]:
@@ -294,6 +323,28 @@ def associate_received_bearing(
                    skew, bounds, previous)
 
 
+def associate_source_timed_bearing(
+    bearing: CalibratedBearing, attitude_state: AircraftState, *, native_runtime_id: str,
+    binding: AlignmentBinding, now_monotonic_s: float, max_observation_age_s: float,
+    max_attitude_age_s: float, source_time: SourceTimeAssociation, evidence_revision: str,
+    previous: AlignedBearing | None,
+) -> AlignedBearing:
+    """Associate actual pixels to a raw source-clock sample within explicit skew.
+
+    The caller establishes the common simulator clock from verified deployment
+    evidence. This never aliases DDS-adjusted time to source time or substitutes
+    receipt time for exposure. The reported mismatch remains visible.
+    """
+    if not isinstance(source_time, SourceTimeAssociation):
+        raise ValueError('source_time_association_invalid')
+    _validate_pair(bearing, attitude_state, native_runtime_id, binding, now_monotonic_s,
+                   max_observation_age_s, max_attitude_age_s)
+    if not source_time.attitude.fresh(now_monotonic_s, max_attitude_age_s):
+        raise ValueError('alignment_source_attitude_stale')
+    return _result(bearing, attitude_state, binding, 'bounded_source_time', evidence_revision,
+                   source_time.skew_s, None, previous, source_time)
+
+
 def associate_sih_bearing(
     bearing: CalibratedBearing, sample: ExactSihSample, *, binding: AlignmentBinding,
     now_monotonic_s: float, max_observation_age_s: float, max_attitude_age_s: float,
@@ -337,9 +388,13 @@ def require_current_bearing_association(
         if aligned.association_kind == "bounded_receive_time":
             _validate_receive_bounds(aligned.bearing, aligned.attitude_state, aligned.binding,
                 aligned.receive_bounds, now_monotonic_s, max_observation_age_s, max_attitude_age_s)
+        if (aligned.source_time is not None
+                and not aligned.source_time.attitude.fresh(now_monotonic_s, max_attitude_age_s)):
+            raise ValueError('alignment_source_attitude_stale')
     except ValueError as error:
         if str(error) in {"alignment_observation_receipt_stale_or_future", "alignment_attitude_stale",
-                          "alignment_camera_acquisition_stale", "alignment_attitude_acquisition_stale"}:
+                          "alignment_camera_acquisition_stale", "alignment_attitude_acquisition_stale",
+                          "alignment_source_attitude_stale"}:
             raise ValueError("guidance_input_stale") from error
         raise
     if (current_state.binding != aligned.binding.aircraft_binding
@@ -375,7 +430,7 @@ def bearing_intent_requires_update(
     if previous is not None:
         expected = _result(aligned.bearing, aligned.attitude_state, aligned.binding,
             aligned.association_kind, aligned.evidence_revision, aligned.worst_case_skew_s,
-            aligned.receive_bounds, previous)
+            aligned.receive_bounds, previous, aligned.source_time)
         if expected != aligned:
             raise ValueError("guidance_association_rewritten")
     if previous_state is not None and (

@@ -28,3 +28,10 @@ Camera calibration and camera-to-aircraft time association are separate gates.
 Receiving an image does not authorize fixed-wing following. Never pair an
 unrelated decoded RTP frame with a metadata FIFO or label host receipt as camera
 exposure time. Public camera/tracker/follower and safety defaults stay unchanged.
+
+For native FW image guidance, the matching adapter exposes the original PX4
+attitude sample and the launcher's verified common-clock identity. The resolver
+uses an actual retained sample within `max_attitude_skew_s`; it never substitutes
+the latest DDS-adjusted quaternion. Diagnostics report `bounded_source_time` and
+the measured mismatch. Missing, stale or cross-clock evidence remains unavailable.
+Retargeting resets the image association without resetting flight recovery budgets.
