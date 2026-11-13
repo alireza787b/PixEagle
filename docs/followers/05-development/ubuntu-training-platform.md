@@ -31,6 +31,16 @@ angle and tracking-status receipts, source lifecycle and mount identity using
 the [existing provider contract](../../trackers/05-development/external-gimbal-providers.md).
 Moving a slider or target never starts aircraft following.
 
+The planned desktop entry opens one **PixEagle Simulator** window. Choose the
+input mode and a compatible scenario, then use **Prepare aircraft** to run the
+declared airborne preparation. Show readiness as observed, with a short reason
+when unavailable. **Open QGC** opens the ordinary operator interface; selection,
+following Start and Stop stay there or in Dashboard. **Reset session** closes the
+owned run before preparing another. Mode B shows a mouse canvas; mode C shows
+angle sliders and lock/loss controls. Keep resource paths, network namespaces and
+runtime details behind a diagnostic view. Each run uses an isolated configuration
+overlay and evidence directory, leaving saved public/private settings intact.
+
 The existing validation injection endpoint can exercise an active follower but
 cannot seed initial Start readiness. Mode B therefore needs a small input adapter
 registered through the ordinary tracker lifecycle, rather than an App getter
