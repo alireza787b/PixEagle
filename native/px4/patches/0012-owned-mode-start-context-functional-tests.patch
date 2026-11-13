@@ -11,7 +11,7 @@ diff --git a/src/modules/commander/OwnedModeStartContextTest.cpp b/src/modules/c
 new file mode 100644
 --- /dev/null
 +++ b/src/modules/commander/OwnedModeStartContextTest.cpp
-@@ -0,0 +1,198 @@
+@@ -0,0 +1,200 @@
 +// SPDX-License-Identifier: BSD-3-Clause
 +#include "OwnedModeGuard.hpp"
 +#include "../vtol_att_control/NativePhaseHistory.hpp"
@@ -67,7 +67,9 @@ new file mode 100644
 +	}
 +};
 +
-+TEST(OwnedModeStartContext, HealthyPollsDoNotConsumeContext)
++class OwnedModeStartContext : public ::testing::Test {};
++
++TEST_F(OwnedModeStartContext, HealthyPollsDoNotConsumeContext)
 +{
 +	Fixture f;
 +
@@ -81,7 +83,7 @@ new file mode 100644
 +	f.acquire();
 +}
 +
-+TEST(OwnedModeStartContext, OwnActivationDoesNotAssumeOneRevisionStep)
++TEST_F(OwnedModeStartContext, OwnActivationDoesNotAssumeOneRevisionStep)
 +{
 +	Fixture f;
 +	f.acquire();
@@ -89,7 +91,7 @@ new file mode 100644
 +	EXPECT_EQ(f.guard.acquiredEpoch(), 200);
 +}
 +
-+TEST(OwnedModeStartContext, AcquiredPhaseExitRetainsConditionalOriginalRelease)
++TEST_F(OwnedModeStartContext, AcquiredPhaseExitRetainsConditionalOriginalRelease)
 +{
 +	Fixture f;
 +	f.acquire();
@@ -103,7 +105,7 @@ new file mode 100644
 +	EXPECT_EQ(f.guard.request(release, f.observation, f.intention, 2001, Hold), OwnedModeAction::Hold);
 +}
 +
-+TEST(OwnedModeStartContext, PureFixedWingNeedsNoVtolSource)
++TEST_F(OwnedModeStartContext, PureFixedWingNeedsNoVtolSource)
 +{
 +	Fixture f;
 +	f.observation.is_vtol = false;
@@ -113,7 +115,7 @@ new file mode 100644
 +	f.acquire();
 +}
 +
-+TEST(OwnedModeStartContext, UnseenRoundTripRejectsOriginalAcquire)
++TEST_F(OwnedModeStartContext, UnseenRoundTripRejectsOriginalAcquire)
 +{
 +	Fixture f;
 +	f.event(); // Accepted front intent; no intermediate packet needs to reach the companion.
@@ -123,7 +125,7 @@ new file mode 100644
 +	f.refused();
 +}
 +
-+TEST(OwnedModeStartContext, AcceptedIntentBeforeStateFlipIsNotSettled)
++TEST_F(OwnedModeStartContext, AcceptedIntentBeforeStateFlipIsNotSettled)
 +{
 +	Fixture f;
 +	f.event();
@@ -132,7 +134,7 @@ new file mode 100644
 +	f.refused();
 +}
 +
-+TEST(OwnedModeStartContext, AbortedTransitionCannotReviveOriginalAcquire)
++TEST_F(OwnedModeStartContext, AbortedTransitionCannotReviveOriginalAcquire)
 +{
 +	Fixture f;
 +	f.event();
@@ -141,7 +143,7 @@ new file mode 100644
 +	f.refused();
 +}
 +
-+TEST(OwnedModeStartContext, SourceModuleRestartInvalidatesContext)
++TEST_F(OwnedModeStartContext, SourceModuleRestartInvalidatesContext)
 +{
 +	Fixture f;
 +	f.observation.phase_source_instance = 8;
@@ -149,7 +151,7 @@ new file mode 100644
 +	f.refused();
 +}
 +
-+TEST(OwnedModeStartContext, ChangedHistoryDuringPendingWithdrawsOriginalIntention)
++TEST_F(OwnedModeStartContext, ChangedHistoryDuringPendingWithdrawsOriginalIntention)
 +{
 +	Fixture f;
 +	f.pending();
@@ -159,7 +161,7 @@ new file mode 100644
 +	EXPECT_EQ(f.guard.acquiredEpoch(), 0);
 +}
 +
-+TEST(OwnedModeStartContext, ChangedHistoryAtOwnEntryWithdrawsOnlyTaggedIntention)
++TEST_F(OwnedModeStartContext, ChangedHistoryAtOwnEntryWithdrawsOnlyTaggedIntention)
 +{
 +	Fixture f;
 +	f.pending();
@@ -172,21 +174,21 @@ new file mode 100644
 +	EXPECT_FALSE(f.guard.ownerActive(f.observation, f.intention));
 +}
 +
-+TEST(OwnedModeStartContext, WrongPhysicalPhaseCannotAcquire)
++TEST_F(OwnedModeStartContext, WrongPhysicalPhaseCannotAcquire)
 +{
 +	Fixture f;
 +	f.observation.vehicle_type = OwnedModeGuard::FixedWingVehicleType;
 +	f.refused();
 +}
 +
-+TEST(OwnedModeStartContext, UnknownVtolHistoryCannotAcquire)
++TEST_F(OwnedModeStartContext, UnknownVtolHistoryCannotAcquire)
 +{
 +	Fixture f;
 +	f.observation.phase_source_instance = f.observation.phase_revision = 0;
 +	f.refused();
 +}
 +
-+TEST(OwnedModeStartContext, ExhaustedHistoryCannotAcquireOrResume)
++TEST_F(OwnedModeStartContext, ExhaustedHistoryCannotAcquireOrResume)
 +{
 +	Fixture f;
 +	NativePhaseHistoryTestPeer::exhaust(f.history);
@@ -198,7 +200,7 @@ new file mode 100644
 +	f.refused();
 +}
 +
-+TEST(OwnedModeStartContext, ForeignPilotIntentionNeverGetsCleanupModeWrite)
++TEST_F(OwnedModeStartContext, ForeignPilotIntentionNeverGetsCleanupModeWrite)
 +{
 +	Fixture f;
 +	f.pending();

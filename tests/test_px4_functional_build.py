@@ -32,6 +32,10 @@ def test_native_start_context_comparison_omits_only_the_gate_and_keeps_source_hi
     assert selector == 'owned-mode-start-context'
     assert record['target'] == 'functional-OwnedModeStartContext'
     assert record['expected_tests'] == 14 and len(record['expected_negative_failures']) == 9
+    fixture = (repository / 'native/px4/patches/0012-owned-mode-start-context-functional-tests.patch').read_text()
+    names = set(re.findall(r'^\+TEST_F\(' + re.escape(record['test_suite']) + r', (\w+)\)', fixture, re.M))
+    assert len(names) == record['expected_tests']
+    assert set(record['expected_negative_failures']) < names
     original = json.loads((repository / 'native/px4/extension.json').read_text())
     with tool.source_authority(repository, 'baseline', record) as authority:
         control = json.loads((authority / 'native/px4/extension.json').read_text())
