@@ -1,13 +1,29 @@
-"""Inert desktop preparation: no X11, Docker, flight or network dependencies."""
+"""Desktop preparation: no X11, Docker, flight or external network dependencies."""
 import configparser
 import json
 from pathlib import Path
 import subprocess
+import socket
 from unittest.mock import Mock
 
 import pytest
 
 from tools import run_gazebo_training as training
+
+
+def test_closed_owned_listener_can_restart_but_active_listener_is_never_reused():
+    with socket.socket() as server:
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server.bind(('127.0.0.1', 0))
+        port = server.getsockname()[1]
+        server.listen(1)
+        with pytest.raises(OSError):
+            training.require_free_loopback_port(port)
+        with socket.create_connection(('127.0.0.1', port), timeout=1) as client:
+            connection, _ = server.accept()
+            connection.close()
+            assert client.recv(1) == b''
+    training.require_free_loopback_port(port)
 
 
 def test_private_qgc_profile_disables_unrelated_autoconnect(tmp_path):

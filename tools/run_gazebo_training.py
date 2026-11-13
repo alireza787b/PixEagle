@@ -387,6 +387,13 @@ class TrainingAdapter:
             source_clock_id=self.source_clock_id, following_qualification=False, scope='DDS and private socket startup only'))
 
 
+def require_free_loopback_port(port):
+    with socket.socket() as probe:
+        # Match the listener's reuse policy after closing an owned prior run.
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        probe.bind(('127.0.0.1', port))
+
+
 def run(args):
     runtime = args.runtime.absolute()
     if runtime.exists():
@@ -399,8 +406,7 @@ def run(args):
         if not dependency.is_file():
             raise ValueError(f'Training dependency is unavailable: {dependency}')
     for port in ((args.port, args.dashboard_port) if args.dashboard_build else (args.port,)):
-        with socket.socket() as probe:
-            probe.bind(('127.0.0.1', port))
+        require_free_loopback_port(port)
     simulator, baseline, manifest = host.verified_simulation_build(args.build_manifest, repository=ROOT)
     scenario = verified_scenario(args.scenario, baseline, manifest)
     assets = native_training_assets(args, simulator, scenario)
