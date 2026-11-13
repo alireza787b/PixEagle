@@ -1197,7 +1197,9 @@ class TestUSBFallbackAndDiagnostics:
         stale_frame = create_test_frame(640, 480)
         handler._async_latest_frame = stale_frame
         handler._async_latest_frame_sequence = 1
-        handler._async_consumed_frame_sequence = 1
+        handler._async_latest_frame_time = time.time()
+        handler._async_latest_capture_monotonic = time.monotonic()
+        assert handler.get_frame() is not None
         handler._async_latest_frame_time = time.time() - 1.0
 
         frame = handler.get_frame()

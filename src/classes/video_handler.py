@@ -704,7 +704,6 @@ class VideoHandler:
                     self._last_frame_status["last_successful_frame_time"] = frame_time
                 return frame
 
-            self._consecutive_failures += 1
             current_time = time.time()
             if frame_time is None:
                 reason = "udp_async_waiting_for_first_frame"
@@ -713,11 +712,16 @@ class VideoHandler:
             else:
                 reason = "udp_async_awaiting_new_frame"
 
-            if frame is not None:
-                self._frame_cache.append(frame.copy())
-
+            waiting = bool(frame is not None and connection_open and not opening
+                and sequence == self._async_consumed_frame_sequence
+                and self._async_capture_thread is not None and self._async_capture_thread.is_alive()
+                and not self._async_capture_stop.is_set()
+                and frame_time is not None and current_time - frame_time < self._connection_timeout)
+            if not waiting:
+                self._consecutive_failures += 1
             cached_frame = self._get_cached_frame()
             self._last_frame_status.update({
+                "awaiting_new_capture": waiting,
                 "reason": reason,
                 "connection_open": connection_open,
                 "async_capture_opening": opening,
@@ -2048,6 +2052,7 @@ class VideoHandler:
             status = "unavailable"
 
         self._last_frame_status = {
+            "awaiting_new_capture": False,
             "source": source,
             "status": status,
             "usable_for_following": bool(usable_for_following),

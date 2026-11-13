@@ -171,7 +171,9 @@ def evaluate_following_start_readiness(
     if frame_status_available:
         try:
             from classes.sih_replay import following_video_frame_status
-            frame_status = following_video_frame_status(app_controller, _mapping(frame_status_getter()))
+            qualified = getattr(app_controller, '_get_video_frame_status_for_following', None)
+            frame_status = (qualified() if callable(qualified)
+                            else following_video_frame_status(app_controller, _mapping(frame_status_getter())))
         except Exception:
             frame_status_available = False
 
@@ -200,7 +202,8 @@ def evaluate_following_start_readiness(
             "usable_for_following": False,
             "reason": "Video-file replay is not authorized for autonomous following",
         }
-    if tracker_requires_video and frame_status.get("usable_for_following") is not True:
+    if (tracker_requires_video and frame_status.get("usable_for_following") is not True
+            and frame_status.get('retained_measurement_usable') is not True):
         frame_reason = frame_status.get("reason")
         return {
             **readiness,
@@ -235,7 +238,7 @@ def following_readiness_failure_code(readiness: Mapping[str, Any]) -> str:
     if readiness.get("tracker_requires_video"):
         if frame.get("replay_source") is True and not frame.get("sih_replay_authorized"):
             return "video_replay_not_authorized"
-        if frame.get("usable_for_following") is not True:
+        if frame.get("usable_for_following") is not True and frame.get('retained_measurement_usable') is not True:
             return "video_or_tracker_not_fresh"
     return "tracker_not_usable"
 

@@ -1128,7 +1128,7 @@ class AppController:
         with state_lock:
             self.tracking_input_frame = snapshot
             previous = getattr(self, 'tracking_input_context', None)
-            self.tracking_input_context = None
+            context = None
             publisher = getattr(self, 'frame_publisher', None)
             source_id = getattr(publisher, 'stream_id', None)
             if (isinstance(capture_geometry, tuple) and len(capture_geometry) == 4
@@ -1153,13 +1153,13 @@ class AppController:
                             and previous.provenance.geometry_revision == revision
                             and previous.provenance.calibration_revision == calibration_revision):
                         context = previous
-                    self.tracking_input_context = context
                 except ValueError:
                     self._image_calibration_binding = None
                     logging.debug('Image frame has no complete capture provenance')
             else:
                 self._image_calibration_binding = None
                 self._image_calibration_error = 'capture_geometry_unavailable'
+            self.tracking_input_context = context
         return snapshot
 
     def _publish_segmentation_selection_snapshot(
@@ -1214,6 +1214,14 @@ class AppController:
             return source.copy() if source is not None else None
 
     def _commit_tracking_image_measurement(self, tracker, output, context, pixel, *, success=True):
+        measurement = self._create_tracking_image_measurement(tracker, output, context, pixel, success=success)
+        committed = None if not isinstance(output, TrackerOutput) else dataclasses.replace(
+            output, image_measurement=measurement,
+            raw_data=dict(output.raw_data or {}), metadata=dict(output.metadata or {}))
+        self._committed_tracker_observation = (tracker, int(getattr(self, '_tracking_session_generation', 0)), committed)
+        return measurement
+
+    def _create_tracking_image_measurement(self, tracker, output, context, pixel, *, success=True):
         """Bind one accepted result to its original frame; never refresh on reads."""
         tracker.image_measurement = None
         if (getattr(tracker, 'is_external_tracker', False)
@@ -2008,6 +2016,7 @@ class AppController:
         """Invalidate asynchronous work associated with the previous target."""
         generation = int(getattr(self, "_tracking_session_generation", 0)) + 1
         self._tracking_session_generation = generation
+        self._committed_tracker_observation = None
         for tracker in (getattr(self, 'tracker', None), getattr(self, 'smart_tracker', None)):
             if tracker is not None:
                 tracker.image_measurement = None
@@ -2060,7 +2069,7 @@ class AppController:
         state = self._get_target_continuity_supervisor().get_status()["authority_state"]
         if state not in {"ACTIVE", "COASTING", "REACQUIRING"}:
             return
-        if time.monotonic() - getattr(self, "_last_continuity_dispatch_at", 0.0) < 0.25:
+        if time.monotonic() - getattr(self, "_last_continuity_dispatch_at", 0.0) < self._continuity_stall_timeout_s:
             return
         await self._dispatch_tracker_observation_after_video_stall()
 
@@ -3511,6 +3520,33 @@ class AppController:
                 else "following_observation_source_unavailable")
         return {"ready": verdict is ObservationSourceVerdict.UNCHANGED,
                 "reason_code": None if verdict is ObservationSourceVerdict.UNCHANGED else code}
+
+    @property
+    def _continuity_stall_timeout_s(self):
+        return .25
+
+    def _current_image_measurement(self, output) -> bool:
+        """Qualify the original receipt within the existing dispatch/command budget."""
+        measurement = getattr(output, 'image_measurement', None)
+        context = getattr(self, 'tracking_input_context', None)
+        if (getattr(self, 'shutdown_flag', False) or measurement is None
+                or not isinstance(context, ImageFrameContext)
+                or self._guidance_source_verdict(output) is not ObservationSourceVerdict.UNCHANGED
+                or not evaluate_tracker_command_freshness(output)['usable_for_following']):
+            return False
+        try:
+            ttl = getattr(getattr(self, 'offboard_commander', None), 'command_ttl_s', None)
+            timeout = min(OffboardCommander._validate_command_ttl_s(ttl), self._continuity_stall_timeout_s)
+            provenance = context.provenance
+            measurement.provenance.require_current(source_id=self.frame_publisher.stream_id,
+                source_epoch=self.frame_publisher.control_source_epoch,
+                target_generation=int(getattr(self, '_tracking_session_generation', 0)),
+                geometry_revision=provenance.geometry_revision,
+                calibration_revision=provenance.calibration_revision,
+                now_monotonic_s=time.monotonic(), max_receipt_age_s=timeout)
+            return True
+        except (AttributeError, TypeError, ValueError):
+            return False
 
     def _freeze_following_observation_source(self) -> tuple:
         output = self.get_tracker_output()
@@ -6389,6 +6425,16 @@ class AppController:
         )
         return await self._dispatch_tracker_output_to_follower(tracker_output)
 
+    async def handle_video_frame_no_new_capture(self, frame_status=None) -> bool:
+        """Pump control work without treating a display repeat as a measurement."""
+        self._capture_app_event_loop()
+        if not self._tracker_requires_video_for_following() and self.following_active:
+            return await self._run_on_flight_event_loop(self._dispatch_tracker_observation_after_video_stall)
+        if not self._tracker_requires_video_for_following():
+            self._refresh_non_video_tracker_output()
+        await asyncio.sleep(0)
+        return False
+
     async def handle_video_frame_unavailable(
         self,
         frame_status: Optional[Dict[str, Any]] = None,
@@ -6619,6 +6665,27 @@ class AppController:
     # ==================== Enhanced Tracker Schema Methods ====================
     
     def get_tracker_output(self) -> Optional[TrackerOutput]:
+        lock = getattr(self, '_tracker_model_state_lock', None)
+        if lock is not None and not lock.acquire(blocking=False):
+            return self._read_committed_tracker_output()
+        try:
+            return self._read_tracker_output()
+        finally:
+            if lock is not None:
+                lock.release()
+
+    def _read_committed_tracker_output(self) -> Optional[TrackerOutput]:
+        committed = getattr(self, '_committed_tracker_observation', None)
+        current = (getattr(self, 'smart_tracker', None) if getattr(self, 'smart_mode_active', False)
+                   and getattr(self, 'smart_tracker', None) else getattr(self, 'tracker', None))
+        if (committed is not None and committed[0] is current
+                and committed[1] == int(getattr(self, '_tracking_session_generation', 0))
+                and self._current_image_measurement(committed[2])):
+            return dataclasses.replace(committed[2], raw_data=dict(committed[2].raw_data or {}),
+                                       metadata=dict(committed[2].metadata or {}))
+        return None
+
+    def _read_tracker_output(self) -> Optional[TrackerOutput]:
         """
         Gets structured output from the current active tracker.
         
@@ -6785,6 +6852,11 @@ class AppController:
 
         reason = self._tracker_output_unusable_reason(tracker_output)
         frame_status = self._get_video_frame_status_for_following()
+        committed = (self._read_committed_tracker_output()
+                     if frame_status.get('retained_measurement_usable') is True else None)
+        retained_measurement = bool(committed is not None
+            and tracker_output.timestamp == committed.timestamp
+            and tracker_output.image_measurement == committed.image_measurement)
 
         # Replay retains its provenance. Owned SIH admission is resolved by
         # the shared frame helper; COMMAND_PREVIEW uses no network publisher.
@@ -6796,6 +6868,7 @@ class AppController:
             self._tracker_requires_video_for_following()
             and frame_status
             and not frame_status.get("usable_for_following", False)
+            and not retained_measurement
             and not replay_preview_active
         ):
             reason = reason or f"video_frame_{frame_status.get('source', 'unusable')}"
@@ -6904,7 +6977,15 @@ class AppController:
         if video_handler and hasattr(video_handler, "get_frame_status"):
             try:
                 from classes.sih_replay import following_video_frame_status
-                return following_video_frame_status(self, video_handler.get_frame_status())
+                status = following_video_frame_status(self, video_handler.get_frame_status())
+                status.pop('retained_measurement_usable', None)
+                if status.get('awaiting_new_capture') is True:
+                    output = self._read_committed_tracker_output()
+                    original = getattr(getattr(output, 'image_measurement', None), 'provenance', None)
+                    original = getattr(original, 'capture', None)
+                    status['retained_measurement_usable'] = bool(original is not None
+                        and str(status.get('frame_sequence')) == original.capture_id)
+                return status
             except Exception as e:
                 logging.error("Error reading video frame freshness status: %s", e)
 
