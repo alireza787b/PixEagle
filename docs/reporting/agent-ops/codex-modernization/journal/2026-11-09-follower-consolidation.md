@@ -521,3 +521,13 @@ steep-descent envelope. S8 now records that scope in the canonical plan and FW
 guide, including finite native bounds, early pull-out margin, existing recovery
 and ownership semantics, and visible source-based degradation. No runtime key,
 capability, numerical aircraft setting or public/private configuration changed.
+
+The next clarification changes the private requested floor to 3 m relative
+altitude and removes extra application mission ceilings from the intended
+experiment, while retaining native physical/recovery constraints. The accepted
+saved profile is unchanged; optional-ceiling schema/resolver support and preview
+are pending. All reusable experimental code/scenarios remain public with safe
+defaults and explicit capabilities. Storage is available again; the reviewed
+sparse-axis native regression can proceed. Independently assess the existing
+four-motor Gazebo quad-tailsitter rather than porting X-Plane first or concealing
+the failed two-motor Duo SIH results.

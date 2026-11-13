@@ -75,11 +75,22 @@ companion controller, client-side limit resolver or global parameter rewrite is
 introduced. Climb remains subject to the normal native performance envelope.
 There is no arbitrary-angle or guaranteed-speed promise.
 
-Retain load-dependent minimum-speed handling and altitude authority. The 5 m
-relative-altitude floor is a boundary, not the point at which pull-out begins:
+Retain load-dependent minimum-speed handling and altitude authority. The private
+requested floor is now **3 m relative altitude** (2026-11-13, superseding 5 m);
+the retained installation has not been changed. It is a boundary, not the point
+at which pull-out begins:
 the native response and stopping-height margin must constrain descent earlier.
 Numerical bounds require simulated evidence and later installation acceptance;
 none is selected for hardware by this planning decision.
+
+The same clarification requests no extra application altitude ceiling or
+mission-specific climb/descent restriction for that private experiment. This
+does not make an infeasible vertical FW path possible or remove native load,
+attitude, rate, actuator and recovery constraints. Public limits stay unchanged.
+An explicitly absent mission ceiling must be represented by the canonical typed
+resolver and migration preview, preserving existing per-follower inheritance;
+the current finite maximum cannot be bypassed by a large placeholder value.
+This remains pending implementation and qualification, not an available setting.
 
 Lost target evidence must command a bounded exit toward level flight while
 retaining feasible course and airspeed. Reuse the existing FW recovery deadline;

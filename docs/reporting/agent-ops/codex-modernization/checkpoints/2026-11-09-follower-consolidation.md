@@ -1813,7 +1813,8 @@ roll scale in this two-motor simulator. Its differential-thrust response then
 depends on the common effectiveness coefficient. This is not proof of a bad
 plant or a complete force balance. A general native regression/candidate is
 being prepared; neither an authority increase nor a gain/default change is
-adopted. Native compilation waits for additional host storage.
+adopted. Storage was the build blocker at this checkpoint; it is now available
+(2026-11-13), and the separately reviewed native regression is proceeding.
 
 The positive App/HTTP lifecycle remains behind the existing VTOL admission
 gate. Replay authorization does not bypass it. After native/ownership gates
@@ -1833,6 +1834,17 @@ S8. It is planned, not enabled: finite native envelope/pull-out bounds, the
 existing altitude authority, source qualification and owner-bound restoration
 must be verified. The ordinary no-upper-speed option does not implicitly remove
 vertical limits. Public defaults and the tested private MC profile stay unchanged.
+
+The subsequent clarification supersedes the private requested floor of 5 m with
+3 m relative altitude and requests no extra application ceiling on altitude or
+target-directed climb/descent. These requirements are not yet applied: the
+retained private configuration remains 5–120 m. Canonical optional-ceiling
+support, migration and native feasibility/pull-out qualification are required;
+no fabricated large limit or blanket safety bypass will stand in for them.
+Reusable experimental implementation and scenarios belong in public source with
+safe defaults and explicit capability/configuration gates. No identity or private
+address grants authority. Gazebo's existing four-motor quad-tailsitter will be a
+separate native/sensorless comparison; failed Duo SIH evidence remains intact.
 
 Continue the sparse-axis native regression and separate tailsitter performance investigation, then remaining ownership,
 abort/rescue/takeover, fault, mount and full-application matrix. Do not tune a

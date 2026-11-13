@@ -1,6 +1,6 @@
 # Follower consolidation and aircraft qualification plan
 
-Date: 2026-11-09; updated 2026-11-12. S0–S3 and the S4–S6 MC/native-FW
+Date: 2026-11-09; updated 2026-11-13. S0–S3 and the S4–S6 MC/native-FW
 component/software checkpoints are complete; S7 ownership/transition work is in progress. Application, optical,
 installation and release qualification remain separate. Follow the [checkpoint](../../reporting/agent-ops/codex-modernization/checkpoints/2026-11-09-follower-consolidation.md)
 for actual verification; later slices and qualification remain pending.
@@ -282,11 +282,16 @@ their evidence warrants. Demo video remains command-preview unless the existing
 isolated SIH authorization explicitly permits publication.
 
 **Private tailsitter overlay:** preserve accepted MC tuning, vertical provider
-mapping and existing session-speed behavior. Previously requested profile intent
-was zero startup request, 6 m/s configured MC maximum, and a 5 m minimum relative
-altitude, with altitude guidance explicitly enabled. S0 must compare that intent
-with the last accepted saved configuration; do not silently overwrite subsequent
-tuning. Session speed may replace the saved velocity cap through its declared
+mapping and existing session-speed behavior. Zero startup request and the
+6 m/s configured MC maximum remain the accepted baseline. On 2026-11-13 the
+operator changed the requested relative-altitude floor from 5 m to **3 m** and
+requested no additional application ceiling on altitude or target-directed
+climb/descent. These are pending private-profile requirements, not changes to
+the retained 5–120 m installation or permission to remove native feasibility
+constraints. Explicitly absent ceilings need typed schema/resolver support;
+neither infinity nor a fabricated large maximum represents that choice. Preserve
+legacy inheritance and show the change in Config Sync before adoption.
+Session speed may replace the saved velocity cap through its declared
 control, while altitude/rate/authority protections retain their own semantics.
 Verify the physical installation against PX4 FRD before adoption. Add explicit
 native FW configuration and phase-specific controls; read performance limits
@@ -318,6 +323,22 @@ sink and recovery bounds require airframe-specific qualification; no values are
 adopted from the Duo simulator or invented for hardware. See the
 [shared FW policy](../04-configuration/fixed-wing-guidance-policy.md#planned-private-steep-descent-envelope).
 This is planned S8 work, not an available setting or capability.
+
+All reusable strategies, experimental policy implementations and reproducible
+simulation scenarios belong in the public source. Private overlays hold only
+installation choices, credentials and airframe-specific tuning. Safe defaults,
+configuration permissions and capability/readiness checks prevent accidental
+activation; no owner-name, address or private-branch condition grants authority.
+An open-source distribution cannot guarantee prevention of deliberate misuse.
+
+**Simulator choice:** preserve the failed two-motor Duo SIH results and their
+allocator regression. Independently qualify the existing pinned Gazebo
+`4018_gz_quadtailsitter` (four motors, no control surfaces) before attempting an
+X-Plane port. Use actual simulator/PX4 truth and the same ownership/evidence
+requirements; do not relabel Gazebo as SIH. Test native stable flight and both
+transitions first, then following and a separate no-pitot case. The stock model's
+simulated airspeed does not qualify sensorless flight. A private-airframe replica
+needs sourced physical/aerodynamic data rather than copied controller gains.
 
 ## 7. Dashboard and QGC
 
