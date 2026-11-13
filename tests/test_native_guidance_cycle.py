@@ -3,7 +3,7 @@ from copy import deepcopy
 from dataclasses import asdict, replace
 import json
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 import numpy as np
 import pytest
@@ -41,6 +41,7 @@ def synthetic_log(*, phase=400000, end=400000, filled_native_topic=False):
     for field in ['xy_reset_counter', 'z_reset_counter', 'vxy_reset_counter', 'vz_reset_counter', 'heading_reset_counter']:
         pose[field] = np.zeros(len(stamps))
     attitude = dict(timestamp=stamps, timestamp_sample=stamps,
+        quat_reset_counter=np.zeros(len(stamps)),
         **{'q[0]': np.ones(len(stamps)), 'q[1]': np.zeros(len(stamps)),
            'q[2]': np.zeros(len(stamps)), 'q[3]': np.zeros(len(stamps))})
     data = {'owned_mode_status': owned, 'vehicle_local_position': pose,
@@ -48,18 +49,27 @@ def synthetic_log(*, phase=400000, end=400000, filled_native_topic=False):
         'home_position': dict(timestamp=np.array([100000]), valid_alt=np.array([True]), alt=np.array([500.])),
         'vehicle_attitude': attitude, 'trajectory_setpoint': dict(timestamp=np.arange(200000, pub_end, 50000)),
         'vehicle_status': dict(timestamp=stamps, in_transition_mode=stamps >= phase,
+                               accepts_offboard_setpoints=np.zeros(len(stamps)),
                                nav_state=np.where(active, 23, 4),
                                nav_state_timestamp=np.where(stamps < 200000, 100, np.where(stamps < end, 200000, end)),
                                vehicle_type=np.where(stamps < phase, 1, 2))}
+    for field in ['position', 'acceleration']:
+        for i in range(3): data['trajectory_setpoint'][f'{field}[{i}]'] = np.full(len(data['trajectory_setpoint']['timestamp']), np.nan)
+    for i in range(3): data['trajectory_setpoint'][f'velocity[{i}]'] = np.zeros(len(data['trajectory_setpoint']['timestamp']))
+    data['trajectory_setpoint']['yaw'] = np.full(len(data['trajectory_setpoint']['timestamp']), np.nan)
+    data['trajectory_setpoint']['yawspeed'] = np.zeros(len(data['trajectory_setpoint']['timestamp']))
     return SimpleNamespace(get_dataset=lambda name: SimpleNamespace(data=data[name]),
         dropouts=[], file_corruption=False), data
 
 
-def audit(log, count=4):
+def audit(log, count=4, *, vehicle_type=1):
     ctx = context()
     receipt = release_receipt(ctx, outcome='owner_already_released', nav_state=23, timestamp=ctx.activation_timestamp)
-    return ownership_interval(log, asdict(ctx), asdict(receipt),
-        vehicle_type=1, initial_altitude_m=30., phase_exit_required=True, publication_counter_delta=count)
+    # This pure interval fixture mocks source verification, never actual provenance.
+    with patch('tools.native_guidance_evidence._source_provenance', return_value={'scope': 'SYNTHETIC_TEST_ONLY'}):
+        return ownership_interval(log, asdict(ctx), asdict(receipt), vehicle_type=vehicle_type,
+            initial_altitude_m=30., phase_exit_required=vehicle_type == 1,
+            publication_counter_delta=count, run_directory='synthetic-fixture-never-native-evidence')
 
 
 def test_native_zoom_is_separate_without_peak_subtraction_but_authority_gate_is_hard():
@@ -75,13 +85,64 @@ def test_native_zoom_is_separate_without_peak_subtraction_but_authority_gate_is_
     assert result['retained_authority_interval_us'] == [200000, 800000]
 
 
-def test_shared_native_topic_cannot_fill_a_drain_gap_or_replace_missing_counter_attribution():
-    log, _ = synthetic_log(end=800000, filled_native_topic=True)
+def test_shared_native_payload_cannot_fill_a_drain_gap_and_counter_is_only_diagnostic():
+    log, data = synthetic_log(end=800000, filled_native_topic=True)
+    data['trajectory_setpoint']['position[0]'][-1] = 1.  # A competing native position task, outside the supported SDK form.
     result = audit(log)
     assert result['checks']['authority_publication_gaps_within_100ms']
     assert not result['checks']['native_publication_source_attributed'] and not result['passed']
+    json.dumps(result, allow_nan=False)
     log, _ = synthetic_log()
-    assert not audit(log, count=None)['passed']
+    result = audit(log, count=None)
+    assert result['passed'] and result['native_counter_delta'] is None
+    assert result['per_command_delivery'].startswith('UNKNOWN')
+
+
+@pytest.mark.parametrize('bad', [None, 'sample_repeat', 'sample_reverse', 'publication_reverse', 'reset'])
+def test_attitude_publication_ties_require_strict_sample_progress_and_same_reset(bad):
+    log, data = synthetic_log()
+    attitude = data['vehicle_attitude']
+    attitude['timestamp'] = attitude['timestamp'].copy()
+    attitude['timestamp_sample'] = attitude['timestamp_sample'].copy()
+    attitude['timestamp'][3] = attitude['timestamp'][4]
+    if bad == 'sample_repeat': attitude['timestamp_sample'][4] = attitude['timestamp_sample'][3]
+    elif bad == 'sample_reverse': attitude['timestamp_sample'][4] = attitude['timestamp_sample'][3] - 1
+    elif bad == 'publication_reverse': attitude['timestamp'][4] -= 1
+    elif bad == 'reset': attitude['quat_reset_counter'][4] = 1
+    assert audit(log)['checks']['actual_attitude_fresh'] is (bad is None)
+
+
+def test_independently_stamped_fw_receipts_need_no_exact_intersection_or_counter_equality():
+    log, data = synthetic_log()
+    data['vehicle_status']['vehicle_type'][:] = 2
+    data['vehicle_status']['in_transition_mode'][:] = False
+    lateral = np.arange(200000, 400000, 50000)
+    data['fixed_wing_lateral_setpoint'] = dict(timestamp=lateral, course=np.zeros(4),
+        airspeed_direction=np.full(4, np.nan), lateral_acceleration=np.full(4, np.nan))
+    data['fixed_wing_longitudinal_setpoint'] = dict(timestamp=lateral+4000, altitude=np.full(4, 530.),
+        height_rate=np.full(4, np.nan), equivalent_airspeed=np.full(4, 20.),
+        pitch_direct=np.full(4, np.nan), throttle_direct=np.full(4, np.nan))
+    assert not len(np.intersect1d(lateral, lateral+4000))
+    result = audit(log, count=7, vehicle_type=2)
+    assert result['passed'] and result['native_counter_delta'] == 7
+    assert result['native_topic_samples'] == {'fixed_wing_lateral_setpoint': 4, 'fixed_wing_longitudinal_setpoint': 4}
+    assert result['fw_exact_timestamp_matches_diagnostic'] == 0
+    assert len(result['publication_gaps']) == 2 and result['per_command_delivery'].startswith('UNKNOWN')
+
+
+@pytest.mark.parametrize('bad', ['no_artifacts', 'proof_boolean', 'raw_mode', 'mavlink_enabled'])
+def test_counter_equality_cannot_replace_runtime_provenance_or_exclusive_native_mode(bad):
+    log, data = synthetic_log()
+    if bad == 'raw_mode': data['vehicle_status']['nav_state'][3] = 4
+    elif bad == 'mavlink_enabled': data['vehicle_status']['accepts_offboard_setpoints'][3] = 1
+    if bad in ('no_artifacts', 'proof_boolean'):
+        ctx = context()
+        receipt = release_receipt(ctx, outcome='owner_already_released', nav_state=23, timestamp=ctx.activation_timestamp)
+        result = ownership_interval(log, asdict(ctx), asdict(receipt), vehicle_type=1,
+            initial_altitude_m=30., publication_counter_delta=4, run_directory=True if bad == 'proof_boolean' else None)
+    else:
+        result = audit(log)
+    assert not result['passed'] and not result['checks']['native_publication_source_attributed']
 
 
 def test_status_publication_is_not_the_acquisition_or_exit_epoch():
@@ -282,7 +343,8 @@ async def test_real_cycle_flow_keeps_native_zoom_separate_and_cleanup_unconditio
     monkeypatch.setattr(cycle, 'ownership_interval', Mock(return_value={
         'passed': outcome != 'unknown_native_attribution', 'source_attribution': 'UNKNOWN' if outcome == 'unknown_native_attribution' else 'corroborated'}))
     result = await cycle.execute(SimpleNamespace(mount='HORIZONTAL', config=tmp_path/'config',
-        build_repository=None, simulation_build_manifest=tmp_path/'build.json'), cycle.case(cycle.CASE))
+        build_repository=None, simulation_build_manifest=tmp_path/'build.json',
+        adapter_bundle=tmp_path/'adapter', adapter_file_manifest=tmp_path/'adapter.json'), cycle.case(cycle.CASE))
     runtime.cleanup.assert_called_once()
     assert client.close.await_count == 1
     assert result['passed'] is (outcome == 'qualified')

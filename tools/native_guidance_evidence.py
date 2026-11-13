@@ -1,13 +1,120 @@
 """Closed-log evidence for a native pursuit; no controller or runtime actions."""
 from __future__ import annotations
 
+import hashlib
+import json
+from pathlib import Path
+import re
+
 import numpy as np
 
 from classes.native_guidance import NativeAcquisitionContext, NativeReleaseReceipt
 
+ROOT = Path(__file__).resolve().parents[1]
+SOURCE_CONTRACT = ROOT / 'native/guidance-evidence-source.json'
+
+
+def _source_provenance(run, acquisition, *, adapter_bundle, adapter_file_manifest, build_repository):
+    """Reopen only canonical Runtime artifacts; never inspect or launch Docker."""
+    from tools.run_native_transition_baseline import ASSETS, verify_adapter
+    from tools.sih_baseline import authority, artifact_manifest, recipe_fingerprint
+
+    def read(path):
+        return json.loads(Path(path).read_text())
+
+    def digest(path):
+        path = Path(path)
+        if path.is_symlink() or not path.is_file():
+            raise ValueError('native_guidance_provenance_regular_input_required')
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+
+    run = Path(run)
+    contract, assets, host = read(SOURCE_CONTRACT), read(ASSETS), read(run / 'host-manifest.json')
+    if (contract.get('schema_version') != 1 or digest(ASSETS) != contract['runtime_assets_sha256']
+            or host['runtime_assets_sha256'] != contract['runtime_assets_sha256']
+            or host['tool_sha256'] != contract['runtime_helper_sha256']
+            or digest(ROOT / 'tools/run_native_transition_baseline.py') != contract['runtime_helper_sha256']
+            or host['adapter_image'] != assets['adapter_image']):
+        raise ValueError('native_guidance_runtime_provenance_unsupported')
+    verify_adapter(Path(adapter_bundle), Path(adapter_file_manifest), assets)
+    sdk = next(item for item in read(ROOT / 'native/dependencies.lock.json')['sources']
+               if item['repository'] == contract['sdk_source']['repository'])
+    if sdk != contract['sdk_source'] or any(digest(run / 'simulator' / name) != pin
+                                           for name, pin in contract['scripts'].items()):
+        raise ValueError('native_guidance_compiled_producer_changed')
+    build = host['simulation_build']
+    path = Path(build['manifest'])
+    manifest = read(path)
+    simulator = {'pixeagle_sih_build': 'sih', 'pixeagle_gazebo_build': 'gazebo'}.get(manifest.get('kind'))
+    variant = manifest['build'].get('resource_variant')
+    variant = variant.get('name', 'stock') if isinstance(variant, dict) else 'stock'
+    repository = ROOT if build_repository is None else Path(build_repository)
+    firmware, spec = authority(repository, simulator=simulator, resource_variant=variant)
+    artifacts = artifact_manifest(path.parent / 'packaged', simulator=simulator)
+    if (digest(path) != build['manifest_sha256'] or manifest['firmware'] != firmware
+            or manifest['build'] != spec or manifest['artifacts'] != artifacts
+            or manifest['recipe_sha256'] != recipe_fingerprint(firmware, spec, repository=repository)
+            or manifest['image_id'] != build['image_id'] or build['firmware'] != firmware
+            or artifacts['binary_sha256'] != build['binary_sha256']):
+        raise ValueError('native_guidance_build_provenance_changed')
+    source = path.parent / 'context/source'
+    if any(digest(source / name) != pin for name, pin in contract['firmware_files'].items()):
+        raise ValueError('native_guidance_producer_source_unsupported')
+    message = (source / 'msg/versioned/VehicleStatus.msg').read_text()
+    modes = [int(re.findall(r'(?m)^uint8 NAVIGATION_STATE_EXTERNAL' + number + r'\s*=\s*(\d+)', message)[0])
+             for number in ('1', '8')]
+    if not modes[0] <= acquisition.mode_id <= modes[1]:
+        raise ValueError('native_guidance_external_mode_required')
+    registration = read(run / 'capabilities.json')
+    capabilities = registration['capabilities']
+    bootstrap = read(run / 'adapter-bootstrap.json')
+    witnesses = [json.loads(line) for line in (run / 'isolation-verifications.jsonl').read_text().splitlines()]
+    if (not all(re.fullmatch('[0-9a-f]{64}', host[key]) for key in ('primary', 'sidecar'))
+            or host['primary'] == host['sidecar'] or len(witnesses) < 2
+            or re.fullmatch('[0-9a-f]{32}', host['owner_token']) is None
+            or bootstrap['original_sidecar'] != host['sidecar'] or bootstrap['launch_attempts'] != 1
+            or bootstrap['returncode'] != 0 or capabilities['runtime_id'] != acquisition.runtime_id
+            or bootstrap['discovery_timeout_changed'] is not False
+            or capabilities['owned_mode_id'] != acquisition.mode_id or capabilities['owned_mode_supported'] is not True
+            or registration['binding']['aircraft_uid'] != acquisition.identity.binding.aircraft_uid):
+        raise ValueError('native_guidance_original_runtime_unqualified')
+    for row in witnesses:
+        checked = row['checked']
+        if (checked['container_id'] != host['primary'] or checked['image_id'] != build['image_id']
+                or checked['firmware_build'] != build or checked['instance'] != 0
+                or checked['aircraft_uid'] != acquisition.identity.binding.aircraft_uid
+                or checked['process']['binary_sha256'] != build['binary_sha256']
+                or checked['process']['model'] != host['fixture']['model']
+                or row['sidecar_id'] != host['sidecar'] or row['sidecar_image'] != assets['adapter_image']
+                or row['sidecar_running'] is not True):
+            raise ValueError('native_guidance_runtime_identity_changed')
+    return dict(artifact_root=str(run), source_contract_sha256=digest(SOURCE_CONTRACT),
+                build_manifest_sha256=build['manifest_sha256'], compiled_adapter_sha256=assets['adapter_sha256'])
+
+
+def _exclusive_payloads(log, topics, start, end):
+    """Only the compiled adapter's applicable SDK command forms are supported."""
+    def all_fields(name, fields, predicate):
+        data = log.get_dataset(name).data
+        selected = (data['timestamp'] >= start) & (data['timestamp'] < end)
+        return all(np.all(predicate(data[field][selected])) for field in fields)
+
+    if topics == ('trajectory_setpoint',):
+        return (all_fields(topics[0], [f'{field}[{i}]' for field in ('position', 'acceleration') for i in range(3)] + ['yaw'], np.isnan)
+            and all_fields(topics[0], [f'velocity[{i}]' for i in range(3)] + ['yawspeed'], np.isfinite))
+    long = log.get_dataset(topics[1]).data
+    selected = (long['timestamp'] >= start) & (long['timestamp'] < end)
+    return (all_fields(topics[0], ['course'], np.isfinite)
+        and all_fields(topics[0], ['airspeed_direction', 'lateral_acceleration'], np.isnan)
+        and all_fields(topics[1], ['equivalent_airspeed'], np.isfinite)
+        and all_fields(topics[1], ['pitch_direct', 'throttle_direct'], np.isnan)
+        and np.all((np.isfinite(long['altitude'][selected]) & np.isnan(long['height_rate'][selected]))
+                   | (np.isnan(long['altitude'][selected]) & np.isfinite(long['height_rate'][selected]))))
+
 
 def ownership_interval(log, acquisition, receipt, *, vehicle_type, initial_altitude_m,
-                       phase_exit_required=False, publication_counter_delta=None):
+                       phase_exit_required=False, publication_counter_delta=None,
+                       run_directory=None, adapter_bundle=None, adapter_file_manifest=None, build_repository=None):
     """Native clocks define pursuit and retained-authority/drain intervals separately.
 
     Shared setpoint topics after release can belong to native Hold/Transition;
@@ -74,27 +181,32 @@ def ownership_interval(log, acquisition, receipt, *, vehicle_type, initial_altit
         raise ValueError("native_guidance_pursuit_interval_empty")
     topics = ('trajectory_setpoint',) if vehicle_type == 1 else (
         'fixed_wing_lateral_setpoint', 'fixed_wing_longitudinal_setpoint')
-    gaps = {}
+    gaps, receipts = {}, {}
     for name in topics:
         published = log.get_dataset(name).data['timestamp'].astype(np.int64)
         ticks = published[(published >= start) & (published < end)]
         if not len(ticks) or np.any(np.diff(ticks) <= 0):
             raise ValueError("native_guidance_authority_publications_missing:" + name)
+        receipts[name] = ticks
         gaps[name] = dict(samples=len(ticks), maximum_gap_s=int(np.diff(np.r_[start, ticks, end]).max()) / 1e6,
             samples_at_authority_end=int(np.sum(published == end)),
             interval_us=[start, end], includes_retained_authority_and_neutral_drain=True)
-    if vehicle_type == 2:
-        paired = np.intersect1d(log.get_dataset(topics[0]).data['timestamp'],
-                               log.get_dataset(topics[1]).data['timestamp']).astype(np.int64)
-        paired = paired[(paired >= start) & (paired < end)]
-        if not len(paired):
-            raise ValueError('native_guidance_coherent_fw_publications_missing')
-        gaps['coherent_fw_pair'] = dict(samples=len(paired),
-            maximum_gap_s=int(np.diff(np.r_[start, paired, end]).max()) / 1e6,
-            interval_us=[start, end], includes_retained_authority_and_neutral_drain=True)
-    publication_samples = gaps['trajectory_setpoint' if vehicle_type == 1 else 'coherent_fw_pair']['samples']
-    source_attributed = (type(publication_counter_delta) is int and publication_counter_delta == publication_samples
-        and (phase_end is None or end <= phase_end)
+    publication_samples = {name: gap['samples'] for name, gap in gaps.items()}
+    fw_timestamp_matches = None if vehicle_type == 1 else len(np.intersect1d(*receipts.values()))
+    source, source_error = None, 'Canonical runtime provenance not supplied'
+    if run_directory is not None:
+        try:
+            source = _source_provenance(run_directory, acquisition, adapter_bundle=adapter_bundle,
+                adapter_file_manifest=adapter_file_manifest, build_repository=build_repository)
+            source_error = None
+        except (OSError, ValueError, KeyError, TypeError, IndexError, StopIteration) as error:
+            source_error = type(error).__name__ + ':' + str(error)
+    mode_window = (vehicle['timestamp'] >= start) & (vehicle['timestamp'] < end)
+    mode_exclusive = (np.any(mode_window) and np.all(vehicle['nav_state'][mode_window] == acquisition.mode_id)
+        and np.all(vehicle['nav_state_timestamp'][mode_window] == start)
+        and not np.any(vehicle['accepts_offboard_setpoints'][mode_window])
+        and not np.any(active & (stamp >= end)))
+    source_attributed = bool(source is not None and mode_exclusive and _exclusive_payloads(log, topics, start, end)
         and not any(item.get('samples_at_authority_end', 0) for item in gaps.values()))
     position = log.get_dataset('vehicle_local_position').data
     home = log.get_dataset('home_position').data
@@ -114,7 +226,10 @@ def ownership_interval(log, acquisition, receipt, *, vehicle_type, initial_altit
     quaternions = np.array([attitude['q[' + str(i) + ']'][aq] for i in range(4)])
     attitude_fresh = (np.any(aq) and attitude_t[aq][0] - start <= 750000
         and pursuit_end - attitude_t[aq][-1] <= 750000 and len(attitude_t[aq]) >= 2
-        and np.all((np.diff(attitude_t[aq]) > 0) & (np.diff(attitude_t[aq]) <= 750000))
+        and np.all((np.diff(attitude_t[aq]) >= 0) & (np.diff(attitude_t[aq]) <= 750000))
+        and np.all((np.diff(attitude['timestamp_sample'][aq].astype(np.int64)) > 0)
+                   & (np.diff(attitude['timestamp_sample'][aq].astype(np.int64)) <= 750000))
+        and len(np.unique(attitude['quat_reset_counter'][aq])) == 1
         and np.all(np.isfinite(quaternions)) and np.all(np.sum(quaternions ** 2, axis=0) > 0.)
         and np.all((attitude['timestamp_sample'][aq] > 0) &
                    (attitude_t[aq] - attitude['timestamp_sample'][aq].astype(np.int64) >= 0) &
@@ -152,7 +267,10 @@ def ownership_interval(log, acquisition, receipt, *, vehicle_type, initial_altit
         native_phase_exit_us=phase_end, maximum_pursuit_altitude_error_m=maximum,
         maximum_truth_pursuit_excursion_m=ground_maximum, truth_reference_native_us=int(truth_t[anchor]),
         publication_gaps=gaps, original_owner_reactivation=False,
-        source_attribution='counter+native-owner corroborated' if source_attributed else 'UNKNOWN; not qualified',
+        source_attribution='exclusive reviewed producer; received-topic cadence' if source_attributed else 'UNKNOWN; not qualified',
+        publication_provenance=source, publication_provenance_error=source_error,
         native_counter_delta=publication_counter_delta, native_topic_samples=publication_samples,
+        fw_exact_timestamp_matches_diagnostic=fw_timestamp_matches,
+        per_command_delivery='UNKNOWN; API calls and logged receipts are different observations',
         full_native_transition_excluded_from_pursuit_gate=True,
         same_tick_publication_order='not resolved by shared topic timestamps; wire/counter fences are independent')

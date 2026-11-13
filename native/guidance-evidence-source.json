@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "scope": "Received-topic cadence only under the canonical isolated Runtime and reviewed producer gates; per-call delivery UNKNOWN",
+  "source_review_sha256": "2e3a6212927b8dc76cca8fc1dba3f38d72e87dc6b899ea323bf42c8f31948607",
+  "runtime_helper_sha256": "353578bba37bc0a97115c078d5c84d3b41f064d3032b85a547fc123ce914fa18",
+  "runtime_assets_sha256": "eb804b1924c83825abaffbac5c5d547a7b53ce8fb2af5cb06980c9c5e0dedd30",
+  "scripts": {
+    "adapter.sh": "5581149d49278df82262fba7a8cc5b85d028b82c4b76c2bcedbba47c4021ea22",
+    "agent.sh": "22fef6c3d7c9a38b773a94ac7af887f7561a11ab391e3ecad168c23b00a35725"
+  },
+  "sdk_source": {
+    "repository": "Auterion/px4-ros2-interface-lib",
+    "commit": "912868fe2597bac4cf3115a54ac813a97eee4dbb",
+    "sha256": "a30997aba5e0a04fe27b898fa7160057670d93c28a839cac596b9211af21e477",
+    "extension_manifest_sha256": "8c7fb0e875302efd7316ae2089311c7fcb14796daab47935560824a8397f17b1"
+  },
+  "firmware_files": {
+    "src/modules/flight_mode_manager/FlightModeManager.cpp": "77f04f674f7fb1df281f004597696752200ad5d26bdc0c203651a549e6aac88e",
+    "src/modules/mavlink/mavlink_receiver.cpp": "5018de3b7c46061fedb4aa26ed76155ac1e765d299d1e827b539f933053050e2",
+    "src/modules/mc_pos_control/GotoControl/GotoControl.cpp": "9ee18de051ebf0495a196bbf213ccefed8d16d2fd2e1bb919e846f9e68b8dadc",
+    "src/modules/mc_pos_control/MulticopterPositionControl.cpp": "7a7d99cc65655bc7400ca9e99a1b1ce1581d809d50e68d8fbf514c4786063da3",
+    "Tools/msg/templates/ucdr/msg.h.em": "1d47571c5b9a5b580c44e5c6b2bd665bfeeb2a63260b886d0dc174ef1ed25b6d",
+    "src/modules/ekf2/EKF2.cpp": "158c88664c651e923e49fc484338a923741c71d3fc95ab944624d55915550b28",
+    "src/modules/fw_mode_manager/FixedWingModeManager.cpp": "27b75d7effcf9512fdbb74dc4a2fb7223c7a7b5cdba3a3121f98452ac9b8f1a7"
+  }
+}

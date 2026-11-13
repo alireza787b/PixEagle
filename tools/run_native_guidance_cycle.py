@@ -175,7 +175,9 @@ async def execute(args, fixture):
                 metrics.append(ownership_interval(log, context, value['handoff']['release_receipt'],
                     vehicle_type=contract['vehicle_types'][phase], initial_altitude_m=value['initial_relative_altitude_m'],
                     publication_counter_delta=value['native_publication_counter']['after'] - value['native_publication_counter']['before'],
-                    phase_exit_required=name == 'mc'))
+                    phase_exit_required=name == 'mc', run_directory=runtime.output,
+                    adapter_bundle=args.adapter_bundle, adapter_file_manifest=args.adapter_file_manifest,
+                    build_repository=args.build_repository))
             result['native_ownership_intervals'] = metrics
             tokens = {json.loads((runtime.output / (name + '-follow/acquisition.json')).read_text())['token']
                       for name in ('mc', 'fw') if (runtime.output / (name + '-follow/acquisition.json')).exists()}

@@ -39,9 +39,15 @@ remain available. Pursuit altitude/range acceptance uses measured active
 pursuit rows, followed by a hard closed-log check using native acquisition,
 phase, retirement and external-mode epochs. No maxima are subtracted. Native
 publication cadence is checked through the retained external-authority/drain
-interval, including both edges, against 100 ms. Native counter and topic counts
-must corroborate attribution; ambiguous phase overlap, equal release-tick
-traffic or missing attribution stays UNKNOWN and cannot pass the closed gate.
+interval, including both edges, against 100 ms. Cadence qualification requires
+the canonical capture's pinned build/compiled producer, original isolated
+runtime witnesses, native external-mode epoch and supported command payloads.
+Unsupported provenance or equal release-tick ambiguity stays UNKNOWN and cannot
+pass. API-call counters and logged receipt counts remain diagnostics; individual
+command delivery stays UNKNOWN. The two FW topics are independently stamped
+receipts, each requiring the same 100 ms cadence, without an exact timestamp
+intersection. Attitude publication ties require strictly advancing native
+sample timestamps, bounded age, finite quaternion and stable reset counter.
 Invalid/reset/stale raw 3D pose/velocity or attitude data cannot be hidden by
 sampling or phase selection. Ground-truth estimator validity flags retain their
 source meaning; they are not used to discard numeric simulator truth.
@@ -85,6 +91,7 @@ top-level tooling tests. Reproduce the focused regression checks with:
 
 ```bash
 PYTHONPATH=src pytest tests/test_native_guidance_cycle.py \
+  tests/test_native_guidance_evidence.py \
   tests/test_native_transition_baseline.py tests/test_native_vector_sih.py \
   tests/test_native_ownership_sih.py tests/unit/test_sih_visualization.py \
   tests/unit/core_app/test_retarget_admission.py -q -p no:cacheprovider
