@@ -34,7 +34,8 @@
   "bootstrap_files": {
     "ROMFS/px4fmu_common/init.d-posix/rcS": "6c2dfba5624eeb5ad7a391e5703d1bb9e1045e9b834536ec7d0c0a809840bf75",
     "src/modules/navigator/mission_params.yaml": "7afcb3610076d46cb09419fe316aafbd93f0fe5aef0a8e3b1623012255d44e4d",
-    "src/modules/vtol_att_control/vtol_att_control_params.yaml": "d1247a7508ae04c45118efb8dcca6382c25f8fcf4bdca99b5837c50557bf3adf"
+    "src/modules/vtol_att_control/vtol_att_control_params.yaml": "d1247a7508ae04c45118efb8dcca6382c25f8fcf4bdca99b5837c50557bf3adf",
+    "src/modules/uxrce_dds_client/uxrce_dds_client.cpp": "854e37f809253cd124eaeeee0ec2a5b122cd81cc1636de3f1939f23da1b376ff"
   },
   "logger_sha256": "5b1fe808bdf9fd1d6526c168c989a60881c483ef8446fdd1dc7e26905d2e34da",
   "extracted_from": {

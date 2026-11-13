@@ -37,7 +37,22 @@ adapter and DDS Agent in a second token-owned container sharing only the
 primary network namespace and private runtime directory. Its mount is
 `/runtime`, preserving the observer image's `/work/ws` ROS workspace. There is
 no ABI assumption between the two images. Both original CIDs must remain
-running and verified before simulated arm/takeoff; fresh native observations
+running and verified before simulated arm/takeoff. The sidecar first runs only
+the fixed DDS Agent as its foreground process. The host polls the original
+private primary's fixed read-only `px4-uxrce_dds_client --instance 0 status`
+command: exact connected status, converged time synchronization and UDP Agent
+`127.0.0.1:8888` are required. The pinned native source sets connected only after
+session synchronization, entity creation and data requests succeed; exit zero
+or the substring `connected` alone is insufficient.
+
+One detached exec then starts the ordinary adapter in that same sidecar. DDS
+readiness, this single launch and socket arrival share the original 45-second
+startup admission budget, checked around bounded probes and ownership
+inspections. It is not a hard cancellation deadline for every Docker inspect.
+The adapter's normal ten-second discovery budget is unchanged. A lost launch
+reply cannot trigger another adapter launch. Raw DDS status and launch evidence
+are retained; full firmware verification and the native handshake still follow
+socket arrival. Fresh native observations
 and native vehicle-status timestamps qualify each action within one existing
 30-second preflight budget. Ordinary startup unavailability may wait; positive
 owner, identity or rescue failures do not become retries.
@@ -83,6 +98,9 @@ the same external-runtime exclusions, so this unmarked mock-test file is
 already included. `requirements.txt` includes the development ULog dependency;
 no extra workflow or service is added. Software checks do not establish a
 successful SIH/Gazebo flight. This canonical runner is initially **runtime
-unqualified**; no actual launch/flight was performed while extracting it.
+unqualified**. Its first Gazebo attempt failed before arm because observer
+discovery started before PX4/DDS session readiness. That closed R1 evidence is
+retained; the sequencing correction has software tests and requires a separately
+reviewed actual capture.
 These software checks do not qualify sensorless flight, a private airframe,
 pursuit or hardware.

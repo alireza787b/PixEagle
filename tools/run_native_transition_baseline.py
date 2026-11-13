@@ -37,6 +37,7 @@ GATE_M = 2.
 FRESH_S = .75
 MODELS = {"sihsim_xvert", "sihsim_standard_vtol", "gz_quadtailsitter"}
 PARAMETERS = {"MIS_TAKEOFF_ALT", "VT_F_TRANS_DUR", "VT_F_TR_OL_TM", "VT_ARSP_TRANS"}
+DDS_STATUS_SOURCE = "src/modules/uxrce_dds_client/uxrce_dds_client.cpp"
 ASSETS = ROOT / "native/baseline-runtime.json"
 SCENARIOS = ROOT / "tools/native_baseline_scenarios"
 
@@ -97,7 +98,20 @@ def bootstrap_contract(source, fixture, assets):
         raise ValueError("One source-owned airframe required")
     return {"rcS_sha256": assets["bootstrap_files"]["ROMFS/px4fmu_common/init.d-posix/rcS"],
             "autostart": int(files[0].name.split("_", 1)[0]), "airframe_sha256": digest(files[0]),
+            "dds_status_source_sha256": assets["bootstrap_files"][DDS_STATUS_SOURCE],
             "overlay_before_navigator": True, "midrun_parameter_write": False}
+
+
+def dds_session_ready(result):
+    """Pinned print_status fields; exit0 or the substring 'connected' is insufficient."""
+    if result.returncode != 0:
+        return False
+    text = re.sub(r"\x1b\[[0-9;]*m", "", result.stdout)
+    text = re.sub(r"(?m)^\s*INFO\s+\[uxrce_dds_client\]\s*", "", text)
+    expected = {"Running,": "connected", "Using transport:": "udp", "Agent IP:": "127.0.0.1",
+                "Agent port:": "8888", "timesync converged:": "true"}
+    return all(re.findall(r"(?m)^\s*" + re.escape(field) + r"\s*(\S+)\s*$", text) == [value]
+               for field, value in expected.items())
 
 
 def verify_adapter(bundle, manifest_path, assets):
@@ -178,6 +192,7 @@ class Runtime:
         self.output, self.token = args.output.resolve(), uuid.uuid4().hex
         self.created, self.isolation = [], None
         self.primary = self.sidecar = self.alias = None
+        self.adapter_requested = False
 
     def command(self, argv, *, check=True, timeout=15):
         try:
@@ -235,16 +250,18 @@ class Runtime:
         script.write_text('set -eo pipefail\nsource /work/ws/install/setup.bash\n'
             'source /output/ros/install/local_setup.bash\n'
             'export LD_LIBRARY_PATH=/opt/pixeagle/agent/lib:${LD_LIBRARY_PATH:-}\n'
-            '/opt/pixeagle/agent/bin/MicroXRCEAgent udp4 -p 8888 > /runtime/dds.log 2>&1 &\nagent=$!\n'
-            'trap \'kill "$agent" "${adapter:-}" 2>/dev/null || true\' EXIT\n'
-            '/output/adapter/pixeagle-native-guidance --ros-args -p socket_path:=/runtime/private/guidance.sock '
-            '> /runtime/adapter.log 2>&1 &\nadapter=$!\nwait -n "$agent" "$adapter"\n')
+            'exec /output/adapter/pixeagle-native-guidance --ros-args -p socket_path:=/runtime/private/guidance.sock '
+            '> /runtime/adapter.log 2>&1\n')
+        (work / "agent.sh").write_text('set -eo pipefail\nsource /work/ws/install/setup.bash\n'
+            'source /output/ros/install/local_setup.bash\n'
+            'export LD_LIBRARY_PATH=/opt/pixeagle/agent/lib:${LD_LIBRARY_PATH:-}\n'
+            'exec /opt/pixeagle/agent/bin/MicroXRCEAgent udp4 -p 8888 > /runtime/dds.log 2>&1\n')
         sidecar = ["docker", "run", "-d", "--name", "pe-native-" + self.token + "-adapter", "--label",
             shared.LABEL + "=" + self.token, "--network", "container:" + self.primary,
             "--user", f"{os.getuid()}:{os.getgid()}", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
             "--mount", f"type=bind,src={work},dst=/runtime", "--mount",
             f"type=bind,src={self.args.adapter_bundle.resolve()},dst=/output,readonly",
-            self.assets["adapter_image"], "bash", "/runtime/adapter.sh"]
+            self.assets["adapter_image"], "bash", "/runtime/agent.sh"]
         self.sidecar = self.launch(sidecar, "pe-native-" + self.token + "-adapter")
         write(self.output / "host-manifest.json", dict(primary=self.primary, sidecar=self.sidecar,
             owner_token=self.token, simulator=self.simulator, fixture=self.fixture,
@@ -253,7 +270,7 @@ class Runtime:
             logger_sha256=digest(logger), socket_alias=str(self.socket),
             tool_sha256=digest(Path(__file__)), runtime_assets_sha256=digest(ASSETS)))
 
-    def verify(self):
+    def sidecar_info(self):
         info = shared.owned_container_info(self.sidecar, self.token)
         host = info["HostConfig"]
         mounts = {item["Destination"]: (Path(item["Source"]).resolve(), item["RW"]) for item in info["Mounts"]}
@@ -264,6 +281,10 @@ class Runtime:
                 or mounts != {"/runtime": (self.output / "simulator", True),
                               "/output": (self.args.adapter_bundle.resolve(), False)}):
             raise ValueError("Native observer sidecar isolation changed")
+        return info
+
+    def verify(self):
+        info = self.sidecar_info()
         self.primary_info()
         checked = verify_simulator(self.primary, 0, self.socket,
             simulation_build_manifest=self.args.simulation_build_manifest,
@@ -278,6 +299,53 @@ class Runtime:
             stream.write(json.dumps(dict(checked=checked, sidecar_id=self.sidecar,
                 sidecar_image=info["Image"], sidecar_running=info["State"]["Running"])) + "\n")
         return checked
+
+    def bootstrap_status(self, *, timeout):
+        """The sole pre-socket probe: a fixed read-only command in the owned primary."""
+        info = self.primary_info()
+        self.sidecar_info()
+        mounts = {item["Destination"]: (Path(item["Source"]).resolve(), item["RW"]) for item in info["Mounts"]}
+        if (mounts != {"/work": (self.output / "simulator", True)}
+                or info["Config"].get("WorkingDir") != "/work/rootfs"):
+            raise ValueError("DDS bootstrap requires the original private primary workdir")
+        return self.command(["docker", "exec", "--user", f"{os.getuid()}:{os.getgid()}", self.primary,
+            "/opt/px4/bin/px4-uxrce_dds_client", "--instance", "0", "status"], check=False, timeout=timeout)
+
+    async def bootstrap(self, deadline, *, clock=None, sleep=asyncio.sleep):
+        """DDS readiness, one adapter launch and socket arrival share the original45s budget."""
+        clock = time.monotonic if clock is None else clock
+        if self.adapter_requested:
+            raise ValueError("Adapter bootstrap is one-shot; no restart")
+        while clock() < deadline:
+            status = await asyncio.to_thread(self.bootstrap_status, timeout=min(15., deadline - clock()))
+            ready = dds_session_ready(status)
+            with (self.output / "bootstrap-status.jsonl").open("a") as stream:
+                stream.write(json.dumps(dict(returncode=status.returncode, stdout=status.stdout, stderr=status.stderr,
+                    session_ready=ready, remaining_boot_budget_s=deadline - clock())) + "\n")
+            if ready:
+                if clock() >= deadline:
+                    break
+                self.primary_info()
+                self.sidecar_info()
+                if clock() >= deadline:
+                    break
+                self.adapter_requested = True  # Set before exec: a lost reply never permits a second launch.
+                launched = self.command(["docker", "exec", "-d", "--user", f"{os.getuid()}:{os.getgid()}",
+                    self.sidecar, "bash", "/runtime/adapter.sh"], timeout=min(15., deadline - clock()))
+                write(self.output / "adapter-bootstrap.json", dict(returncode=launched.returncode,
+                    stdout=launched.stdout, stderr=launched.stderr, original_sidecar=self.sidecar,
+                    remaining_boot_budget_s=deadline - clock(), discovery_timeout_changed=False, launch_attempts=1))
+                while clock() < deadline:
+                    self.primary_info()
+                    self.sidecar_info()
+                    if clock() >= deadline:
+                        break
+                    if self.socket.is_socket():
+                        return
+                    await sleep(min(.5, max(0., deadline - clock())))
+                break
+            await sleep(min(.5, max(0., deadline - clock())))
+        raise TimeoutError("Original45s bootstrap budget exhausted; adapter not restarted")
 
     def primary_info(self):
         info = shared.owned_container_info(self.primary, self.token)
@@ -516,8 +584,7 @@ async def execute(args, fixture):
     try:
         runtime.start()
         deadline = time.monotonic() + 45.
-        while not runtime.socket.is_socket() and time.monotonic() < deadline:
-            await asyncio.sleep(.5)
+        await runtime.bootstrap(deadline)
         runtime.verify()
         client = NativeGuidanceClient(runtime.socket)
         capabilities = await client.connect()

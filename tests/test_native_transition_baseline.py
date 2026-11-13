@@ -48,7 +48,8 @@ def info(runtime, cid):
     mounts = [("/work", runtime.output / "simulator", True)] if primary else [
         ("/runtime", runtime.output / "simulator", True), ("/output", runtime.args.adapter_bundle, False)]
     return dict(Id=cid, Image=runtime.baseline["image_id"] if primary else runtime.assets["adapter_image"],
-        Config={"User": f"{os.getuid()}:{os.getgid()}", "Labels": {tool.shared.LABEL: runtime.token}},
+        Config={"User": f"{os.getuid()}:{os.getgid()}", "WorkingDir": "/work/rootfs",
+                "Labels": {tool.shared.LABEL: runtime.token}},
         HostConfig={"NetworkMode": "none" if primary else "container:" + P, "Privileged": False, "Devices": []},
         NetworkSettings={"Ports": {}}, State={"Running": True},
         Mounts=[dict(Destination=dest, Source=str(source), RW=rw) for dest, source, rw in mounts])
@@ -90,7 +91,7 @@ def test_boot_overlay_source_order_native_bounds_and_actual_readback(tmp_path):
         "src/modules/navigator/mission_params.yaml": yaml.safe_dump({"parameters": [{"definitions": {
             "MIS_TAKEOFF_ALT": {"min": 0}}}]}),
         "src/modules/vtol_att_control/vtol_att_control_params.yaml": yaml.safe_dump({"parameters": [{"definitions": {
-            "VT_F_TRANS_DUR": {"min": .1, "max": 20}}}]})}
+            "VT_F_TRANS_DUR": {"min": .1, "max": 20}}}]}), tool.DDS_STATUS_SOURCE: "pinned status source"}
     for name, text in texts.items():
         path = source / name
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -258,10 +259,14 @@ def test_start_installs_logger_before_primary_and_preserves_adapter_ros_workspac
     assert any("dst=/runtime" in arg for arg in launches[1])
     assert not any("dst=/work" in arg for arg in launches[1])
     assert "source /work/ws/install/setup.bash" in (rt.output / "simulator/adapter.sh").read_text()
+    assert launches[1][-1] == "/runtime/agent.sh"
+    agent = (rt.output / "simulator/agent.sh").read_text()
+    assert "exec /opt/pixeagle/agent/bin/MicroXRCEAgent" in agent
+    assert "pixeagle-native-guidance" not in agent and "wait -n" not in agent
     assert not list((rt.output / "simulator/rootfs").glob("fs/parameters*.bson"))
 
 
-@pytest.mark.parametrize("problem", ["owner", "stale", "rescue", "after-arm-rescue", "readback", "close", "none"])
+@pytest.mark.parametrize("problem", ["bootstrap", "owner", "stale", "rescue", "after-arm-rescue", "readback", "close", "none"])
 @pytest.mark.asyncio
 async def test_execute_has_no_authority_before_verified_native_preflight_and_always_cleans(tmp_path, monkeypatch, problem):
     options = args(tmp_path)
@@ -273,6 +278,8 @@ async def test_execute_has_no_authority_before_verified_native_preflight_and_alw
             self.socket = SimpleNamespace(is_socket=lambda: True)
             self.isolation = {"aircraft_uid": "aircraft-a"}
         def start(self): self.output.mkdir()
+        async def bootstrap(self, deadline):
+            if problem == "bootstrap": raise TimeoutError("DDS session not ready before deadline")
         def verify(self): verified.append(True)
         def logger(self, stage): pass
         def cli(self, alias, *arguments, **kwargs):
@@ -309,7 +316,7 @@ async def test_execute_has_no_authority_before_verified_native_preflight_and_alw
     result = await tool.execute(options, fixture)
     assert cleaned == [P, A]
     flight = [args for alias, args in actions if alias == "commander"]
-    if problem in {"owner", "rescue", "readback"}:
+    if problem in {"bootstrap", "owner", "rescue", "readback"}:
         assert flight == [] and not result["passed"]
     elif problem == "after-arm-rescue":
         assert flight == [("arm",)] and not result["passed"]
@@ -391,3 +398,92 @@ def test_closed_log_full_window_truth_cannot_filter_excursions_or_unknowns(tmp_p
         if "spike" in kind:
             assert max(topic["maximum_excursion_m"] for topic in result["topics"].values()) == 3.
             assert not any(topic["filtered_by_pose_flags"] for topic in result["topics"].values())
+
+
+DDS_STATUS = """INFO  [uxrce_dds_client] Running, connected
+INFO  [uxrce_dds_client] Using transport:     udp
+INFO  [uxrce_dds_client] Agent IP:            127.0.0.1
+INFO  [uxrce_dds_client] Agent port:          8888
+INFO  [uxrce_dds_client] timesync converged: true
+"""
+
+
+@pytest.mark.parametrize("change", ["ready", "disconnected", "timesync", "transport", "ip", "port", "duplicate", "exit"])
+def test_dds_gate_matches_exact_source_status_not_exit_or_connected_substring(change):
+    text = DDS_STATUS
+    if change == "disconnected": text = text.replace("Running, connected", "Running, disconnected")
+    if change == "timesync": text = text.replace("converged: true", "converged: false")
+    if change == "transport": text = text.replace("udp", "serial")
+    if change == "ip": text = text.replace("127.0.0.1", "10.0.0.2")
+    if change == "port": text = text.replace("8888", "9999")
+    if change == "duplicate": text += DDS_STATUS
+    assert tool.dds_session_ready(SimpleNamespace(returncode=1 if change == "exit" else 0, stdout=text)) is (change == "ready")
+
+
+def test_only_fixed_owned_private_primary_status_can_bypass_socket_readiness(tmp_path, monkeypatch):
+    rt = runtime(tmp_path)
+    rt.isolation = None
+    monkeypatch.setattr(tool.shared, "owned_container_info", lambda cid, token: info(rt, cid))
+    rt.command = Mock(return_value=SimpleNamespace(returncode=0, stdout=DDS_STATUS, stderr=""))
+    assert tool.dds_session_ready(rt.bootstrap_status(timeout=2.))
+    command = rt.command.call_args.args[0]
+    assert command == ["docker", "exec", "--user", f"{os.getuid()}:{os.getgid()}", P,
+                       "/opt/px4/bin/px4-uxrce_dds_client", "--instance", "0", "status"]
+    with pytest.raises(ValueError): rt.cli("commander", "arm")
+    with pytest.raises(ValueError): rt.cli("uxrce_dds_client", "status")
+
+
+@pytest.mark.parametrize("changed", ["mount", "workdir"])
+def test_bootstrap_status_refuses_nonprivate_primary_before_fixed_probe(tmp_path, monkeypatch, changed):
+    rt = runtime(tmp_path)
+    primary = info(rt, P)
+    if changed == "mount": primary["Mounts"][0]["Source"] = "/unrelated"
+    else: primary["Config"]["WorkingDir"] = "/work"
+    monkeypatch.setattr(tool.shared, "owned_container_info", lambda cid, token: primary if cid == P else info(rt, cid))
+    rt.command = Mock(side_effect=AssertionError("probe before private isolation"))
+    with pytest.raises(ValueError, match="private primary workdir"):
+        rt.bootstrap_status(timeout=2.)
+    assert not rt.command.called
+
+
+@pytest.mark.parametrize("failure", [None, "never-ready", "socket-timeout", "sidecar-death", "primary-death", "exec-failure", "late-inspection"])
+@pytest.mark.asyncio
+async def test_bootstrap_orders_session_then_one_adapter_and_shares_original_deadline(tmp_path, failure):
+    rt = runtime(tmp_path)
+    rt.output.mkdir()
+    now, events, probes = [0.], [], [0]
+    async def sleep(duration): now[0] += duration
+    def primary():
+        events.append("primary")
+        if failure == "primary-death": raise ValueError("primary dead")
+        if failure == "late-inspection" and probes[0] >= 3: now[0] = 45.
+    def sidecar():
+        events.append("sidecar")
+        if failure == "sidecar-death": raise ValueError("sidecar dead")
+    def status(**kwargs):
+        probes[0] += 1
+        now[0] += 4.
+        events.append("status")
+        ready = probes[0] >= 3 and failure != "never-ready"
+        return SimpleNamespace(returncode=0, stdout=DDS_STATUS if ready else DDS_STATUS.replace("connected", "disconnected"), stderr="")
+    def launch(argv, **kwargs):
+        events.append("adapter")
+        assert probes[0] >= 3 and rt.adapter_requested
+        assert argv[:3] == ["docker", "exec", "-d"] and argv[-3:] == [A, "bash", "/runtime/adapter.sh"]
+        assert kwargs["timeout"] <= 45. - now[0]
+        if failure == "exec-failure": raise RuntimeError("exec failed after possible fork")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+    rt.primary_info, rt.sidecar_info, rt.bootstrap_status, rt.command = primary, sidecar, status, launch
+    rt.socket = SimpleNamespace(is_socket=lambda: failure != "socket-timeout")
+    if failure is None:
+        await rt.bootstrap(45., clock=lambda: now[0], sleep=sleep)
+        assert events.count("adapter") == 1 and now[0] < 45.
+    else:
+        with pytest.raises((ValueError, RuntimeError, TimeoutError)):
+            await rt.bootstrap(45., clock=lambda: now[0], sleep=sleep)
+        assert events.count("adapter") <= 1
+    if failure in {"never-ready", "late-inspection", "sidecar-death", "primary-death"}:
+        assert "adapter" not in events
+    if rt.adapter_requested:
+        with pytest.raises(ValueError, match="one-shot"):
+            await rt.bootstrap(45., clock=lambda: now[0], sleep=sleep)
