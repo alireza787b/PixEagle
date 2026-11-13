@@ -1021,24 +1021,37 @@ def attach_component_observer(binding, connection, log, *, started: float, clock
 async def refresh_component_start(client, connection, qualified_window, *, runtime_id, expected_altitude_m,
                                   deadline, log, started, clock=time.monotonic):
     """Read actual state after setup; never refresh a retained sample's receipt."""
-    remaining = deadline - clock()
-    if remaining <= 0.:
-        raise TimeoutError("native_component_start_refresh_deadline")
-    packet = await asyncio.wait_for(client.observe(), timeout=remaining)
-    log("observations.jsonl", dict(timestamp=clock()-started, value=packet, purpose="pre_projection_start_refresh"))
-    if clock() >= deadline:
-        raise TimeoutError("native_component_start_refresh_deadline")
-    if (packet.get("runtime_id") != runtime_id or packet.get("fresh") is not True
-            or packet.get("owner_confirmed") is not False or packet.get("rescue_active") is not False
-            or packet.get("nav_state") != 4 or packet.get("phase_status_fresh") is not True
-            or packet.get("release_pending") is not False or packet.get("neutral_drain_active") is not False):
-        raise ValueError("native_component_start_refresh_unqualified")
-    state = AircraftState.from_payload(packet["aircraft_state"])
-    window = qualified_window if state == qualified_window[-1] else [*qualified_window, state]
-    if (not stable_window(window, expected_altitude_m=expected_altitude_m)
-            or not connection.commit_aircraft_state(state) or not connection.retain_packet(state, packet)):
-        raise ValueError("native_component_start_refresh_not_stable")
-    return state
+    original = qualified_window[-1]
+    previous_pose = connection.last_packet["vehicle_pose"]["px4_timestamp_us"]
+    while True:
+        remaining = deadline - clock()
+        if remaining <= 0.:
+            raise TimeoutError("native_component_start_refresh_deadline")
+        packet = await asyncio.wait_for(client.observe(), timeout=remaining)
+        log("observations.jsonl", dict(timestamp=clock()-started, value=packet, purpose="pre_projection_start_refresh"))
+        if clock() >= deadline:
+            raise TimeoutError("native_component_start_refresh_deadline")
+        if (packet.get("runtime_id") != runtime_id or packet.get("fresh") is not True
+                or packet.get("owner_confirmed") is not False or packet.get("rescue_active") is not False
+                or packet.get("nav_state") != 4 or packet.get("phase_status_fresh") is not True
+                or packet.get("release_pending") is not False or packet.get("neutral_drain_active") is not False):
+            raise ValueError("native_component_start_refresh_unqualified")
+        state = AircraftState.from_payload(packet["aircraft_state"])
+        same_oldest = state.observed_at_monotonic_s == original.observed_at_monotonic_s
+        # A composite update is current telemetry, not another timed stability sample.
+        window = [*qualified_window[:-1], state] if same_oldest else [*qualified_window, state]
+        pose = packet.get("vehicle_pose", {}).get("px4_timestamp_us")
+        if (state.attitude_timing is None or original.attitude_timing is None
+                or state.attitude_timing.quat_reset_counter != original.attitude_timing.quat_reset_counter
+                or type(pose) is not int or pose < previous_pose
+                or not stable_window(window, expected_altitude_m=expected_altitude_m)
+                or (state != connection.get_aircraft_state() and not connection.commit_aircraft_state(state))
+                or not connection.retain_packet(state, packet)):
+            raise ValueError("native_component_start_refresh_not_stable")
+        previous_pose = pose
+        if not same_oldest:
+            return state
+        await asyncio.sleep(min(.05, max(0., deadline-clock())))
 
 
 def load_component_scenario(path, *, mount, altitude, duration, is_vtol, follower="gm_velocity_vector"):

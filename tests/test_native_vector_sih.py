@@ -869,6 +869,70 @@ async def test_start_refresh_refuses_unqualified_or_expired_read_before_acquire(
     if bad == 'deadline': client.observe.assert_not_awaited()
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize('outcome', ['progress', 'repeated', 'timeout', 'phase', 'binding', 'source_time', 'reset', 'pose_time', 'owner'])
+async def test_start_refresh_waits_for_oldest_source_progress_but_never_retries_terminal_changes(outcome):
+    env = native_image_context()
+    window = [replace(env.state, sequence=i+1, observed_at_monotonic_s=97.+i*.5,
+        airspeed=replace(env.state.airspeed, observed_at_monotonic_s=97.+i*.5)) for i in range(7)]
+    env.state = window[-1]
+    connection = ObservationConnection(env.state.binding, clock=lambda: env.now[0])
+    env.packet['aircraft_state'] = asdict(env.state)
+    assert connection.commit_aircraft_state(env.state) and connection.retain_packet(env.state, env.packet)
+    pending = replace(env.state, sequence=8, relative_altitude_m=50.001,
+        attitude_timing=replace(env.state.attitude_timing, publication_timestamp_us=1020000,
+            sample_timestamp_us=1010000, publication_received_at_monotonic_s=100.02,
+            sample_received_at_monotonic_s=100.02))
+    def packet(state, stamp, receipt):
+        value = deepcopy(env.packet)
+        value.update(aircraft_state=asdict(state), attitude_timing=asdict(state.attitude_timing),
+            owner_confirmed=False, rescue_active=False, nav_state=4, phase_status_fresh=True,
+            release_pending=False, neutral_drain_active=False)
+        value['vehicle_pose'].update(px4_timestamp_us=stamp, observed_at_monotonic_s=receipt)
+        return value
+    composite = packet(pending, 1020000, 100.02)
+    complete = replace(pending, sequence=9, observed_at_monotonic_s=100.1,
+        airspeed=replace(pending.airspeed, observed_at_monotonic_s=100.1),
+        attitude_timing=replace(pending.attitude_timing, publication_timestamp_us=1100000,
+            sample_timestamp_us=1090000, publication_received_at_monotonic_s=100.1,
+            sample_received_at_monotonic_s=100.1))
+    calls = []
+    async def observe():
+        calls.append(len(calls)+1)
+        env.now[0] = 100.02 + len(calls)*.01
+        if len(calls) == 1 or outcome == 'timeout' or outcome == 'repeated' and len(calls) < 4:
+            return composite
+        if outcome in ('progress', 'repeated'):
+            env.now[0] = 100.12
+            return packet(complete, 1100000, 100.1)
+        changed = packet(replace(pending, sequence=9), 1020000, 100.02)
+        if outcome == 'phase': changed['aircraft_state']['phase'] = AirframePhase.VTOL_TRANSITION.value
+        elif outcome == 'binding': changed['aircraft_state']['binding']['aircraft_uid'] = 'replacement'
+        elif outcome == 'source_time':
+            changed['aircraft_state']['attitude_timing']['sample_timestamp_us'] = 990000
+            changed['attitude_timing'] = changed['aircraft_state']['attitude_timing']
+        elif outcome == 'reset':
+            changed['aircraft_state']['attitude_timing']['quat_reset_counter'] = 0
+            changed['attitude_timing'] = changed['aircraft_state']['attitude_timing']
+        elif outcome == 'pose_time': changed['vehicle_pose']['px4_timestamp_us'] -= 1
+        else: changed['owner_confirmed'] = True
+        return changed
+    client = SimpleNamespace(observe=AsyncMock(side_effect=observe), engage=AsyncMock())
+    refresh = tool.refresh_component_start(client, connection, window, runtime_id='native-fixture',
+        expected_altitude_m=50., deadline=100.05 if outcome == 'timeout' else 110.,
+        log=lambda *args: None, started=97., clock=lambda: env.now[0])
+    if outcome in ('progress', 'repeated'):
+        state = await refresh
+        assert state == complete and state.observed_at_monotonic_s == 100.1
+        assert project_component_input(env.fixture, connection.last_packet, state, [100., 20., -40.], timestamp_s=1.).tracking_active
+        assert len(calls) == (4 if outcome == 'repeated' else 2)
+    else:
+        with pytest.raises(TimeoutError if outcome == 'timeout' else ValueError): await refresh
+        assert len(calls) >= 2 if outcome == 'timeout' else len(calls) == 2
+    assert window[-1].observed_at_monotonic_s == 100.
+    client.engage.assert_not_awaited()
+
+
 @pytest.mark.parametrize('profile,kind', [('gm_velocity_vector', TrackerDataType.GIMBAL_ANGLES),
                                         ('fw_navigation_chase', TrackerDataType.POSITION_2D)])
 def test_declared_native_input_binds_the_same_readonly_resolver_before_authority(profile, kind):
