@@ -126,5 +126,34 @@
         "characterization_env": null
       }
     }
+  },
+  "gazebo_build": {
+    "toolchain_image": "ghcr.io/px4/px4-dev-ros2-gazebo@sha256:4e7bb18e46f8007d3e601e25597f84117ef14d282df10999e2dc0a9fe7d4e1f2",
+    "runtime_image": "ghcr.io/px4/px4-dev-ros2-gazebo@sha256:4e7bb18e46f8007d3e601e25597f84117ef14d282df10999e2dc0a9fe7d4e1f2",
+    "platform": "linux/amd64",
+    "target": "px4_sitl_default",
+    "distribution": "harmonic",
+    "model": "quadtailsitter",
+    "world": "default",
+    "airframe_id": 4018,
+    "submodules": [
+      "src/drivers/gps/devices",
+      "src/lib/events/libevents",
+      "src/lib/heatshrink/heatshrink",
+      "src/modules/mavlink/mavlink",
+      "src/modules/uxrce_dds_client/Micro-XRCE-DDS-Client",
+      "Tools/simulation/gz",
+      "src/modules/simulation/gz_plugins/optical_flow/PX4-OpticalFlow"
+    ],
+    "submodule_pins": {
+      "Tools/simulation/gz": "a15af9628536914ff7201c992fce5e3cb5d70db9",
+      "src/modules/simulation/gz_plugins/optical_flow/PX4-OpticalFlow": "a4d4cfde0c023be6b1ff8c8e796862413bc99272"
+    },
+    "microcdr": {
+      "repository": "https://github.com/eProsima/Micro-CDR.git",
+      "commit": "3d1b17703c7cf4f22def2910bc845bdb5152d7b5",
+      "tag": "v2.0.1"
+    },
+    "qualification": "build_only_recipe; compilation, runtime and aircraft response pending"
   }
 }

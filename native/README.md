@@ -250,6 +250,13 @@ followed by the unchanged qualification gates against that built image, remains
 required before adopting a new default. Legacy SIH profile/CI repository-digest
 requirements are unchanged by this builder.
 
+## Gazebo build-only variant
+
+The same builder accepts `--target gazebo` for the pinned four-motor stock
+quad tailsitter. It packages native firmware, model/world resources and plugins
+without launching a simulator. See [Gazebo build inputs and remaining gates](gazebo-build.md).
+Existing SIH callers and VTOL admission are unchanged.
+
 ## Native transition regression
 
 The same builder has an explicit `px4-functional` target. It uses the canonical

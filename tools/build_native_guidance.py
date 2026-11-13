@@ -111,9 +111,9 @@ def main() -> None:
     parser.add_argument("--cache-dir", type=Path, default=Path.home() / ".cache/pixeagle-native-guidance")
     parser.add_argument("--prepare-only", action="store_true", help="Verify and prepare sources without starting Docker")
     parser.add_argument("--px4-source", type=Path,
-                        help="Canonical patched pinned PX4 checkout; required for SIH and PX4 functional targets")
+                        help="Canonical patched pinned PX4 checkout; required for simulator and PX4 functional targets")
     parser.add_argument("--image", default="pixeagle-native-contracts:development", help="Contract-test image tag")
-    parser.add_argument("--target", choices=("contracts", "sih", "px4-functional"), default="contracts")
+    parser.add_argument("--target", choices=("contracts", "sih", "gazebo", "px4-functional"), default="contracts")
     parser.add_argument("--regression", help="Locked PX4 functional regression; defaults to the lock's selected regression")
     args = parser.parse_args()
     if args.regression is not None and args.target != "px4-functional":
@@ -126,13 +126,15 @@ def main() -> None:
         build_functional(args.px4_source, args.output_dir, args.cache_dir,
                          prepare_only=args.prepare_only, verify_extension=verify_extension, regression=args.regression)
         return
-    if args.target == "sih":
+    if args.target in ("sih", "gazebo"):
         if args.px4_source is None:
-            parser.error("--target sih requires --px4-source with the reviewed extension applied")
-        from tools.sih_baseline import build_sih
+            parser.error(f"--target {args.target} requires --px4-source with the reviewed extension applied")
+        from tools.sih_baseline import build_sih, build_simulator
 
-        build_sih(args.px4_source, args.output_dir, prepare_only=args.prepare_only,
-                  verify_extension=verify_extension, cache=args.cache_dir.expanduser())
+        build = build_sih if args.target == "sih" else build_simulator
+        selection = {} if args.target == "sih" else {"simulator": "gazebo"}
+        build(args.px4_source, args.output_dir, prepare_only=args.prepare_only,
+              verify_extension=verify_extension, cache=args.cache_dir.expanduser(), **selection)
         return
     output = args.output_dir.expanduser().resolve()
     output.mkdir(parents=True, exist_ok=True)
