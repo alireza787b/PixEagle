@@ -4,10 +4,11 @@ Supported active followers advertise a **Requested speed** control to Dashboard
 and the custom QGC follower panel. The backend declares its meaning through
 `speed_basis`: `translation_3d` for the existing MC velocity adjustment, or
 `equivalent_airspeed` for a native FW reference. Unsupported followers expose no
-control; clients must not infer support from the follower name.
+control; clients must not infer support from the follower name. MC Velocity Chase
+and GM Velocity Vector share the MC control without sharing a pursuit law.
 
 For the MC control, use **− / +** to request a slower or faster **total 3D
-velocity**, in 0.5 m/s steps. The speedometer and numeric readout sit next to
+velocity ceiling**, in 0.5 m/s steps. The speedometer and numeric readout sit next to
 follower status in QGC, and below Stop in Dashboard's Command card. The same control is available
 near the top of **Follower**, above the saved profile selector and diagnostics,
 with an independent Stop button. Idle and unsupported followers have no speed
@@ -23,9 +24,9 @@ aircraft speed: turns, acceleration, continuity and safety limits can reduce the
 effective submitted command. A request of zero ramps translation down; tracking
 and permitted yaw guidance continue. Use **Stop Following** to end the session.
 
-**An adjustment activates a temporary velocity override.** The requested 3D speed
+**An adjustment activates a temporary velocity override.** The requested 3D ceiling
 replaces PixEagle's saved total, forward, lateral and vertical velocity caps for
-this session. The target direction determines the components; coordinated-turn
+this session. Each follower retains its existing guidance law; coordinated-turn
 guidance still turns instead of commanding sideways flight. There is no additional
 PixEagle UI speed ceiling. Existing aircraft firmware limits remain independent.
 Altitude protection, acceleration, yaw/rate limits, validity checks and the
@@ -58,8 +59,9 @@ between pages never replays an earlier adjustment.
 | `GM_VELOCITY_VECTOR.REQUESTED_SPEED` | Optional saved request at session start. Default `null` or an omitted key preserves the existing ceiling-based startup behavior. Clear the advanced Dashboard field to restore `null`. |
 | `GM_VELOCITY_VECTOR.INITIAL_VELOCITY` | Initial condition of the existing speed ramp; not a second cruise setting. |
 | `GM_VELOCITY_VECTOR.RAMP_ACCELERATION` | Existing acceleration/deceleration ramp and final command slew limit; the session control does not change it. |
-| `Safety.GlobalLimits` and `Safety.FollowerOverrides.GM_VELOCITY_VECTOR` | Saved limits used before adjustment and after restore. The startup ceiling is the smaller of the effective forward and total-magnitude limits. The owned velocity override replaces velocity limits only. |
-| `Follower.General.ENABLE_ALTITUDE_CONTROL` and follower override | Enable existing angle-guided climb/descent. The speed control does not enable it. |
+| `MC_VELOCITY_CHASE.INITIAL_FORWARD_VELOCITY` / `FORWARD_RAMP_RATE` | Existing forward-ramp initial state and acceleration. The same acceleration bounds changes of submitted translation magnitude after adjustment. No new saved startup request is introduced. |
+| `Safety.GlobalLimits` and the selected follower's `Safety.FollowerOverrides` | Saved limits used before adjustment and after restore. Vector starts at the smaller forward/total ceiling; Chase reports the total ceiling while retaining its saved forward target. The owned velocity override replaces velocity limits only. |
+| `Follower.General.ENABLE_ALTITUDE_CONTROL` and follower override | Enable the profile's existing vertical guidance. The speed control does not enable it. |
 
 The public demo keeps its 0.5 m/s forward ceiling, 1 m/s overall ceiling, video
 file/CSRT, constant-position follower and enabled safety/circuit-breaker defaults.
@@ -67,6 +69,16 @@ Saved startup requests remain within the configured envelope. Only an explicit
 session adjustment activates the velocity override; startup and reconnect do not
 activate or replay one. Increasing the request does not edit the saved ceiling.
 An existing saved startup request outside its configured envelope is rejected.
+
+MC Chase initially reports the saved total translation ceiling (factory: 1 m/s),
+while retaining its separate saved forward target (factory: 0.5 m/s), component
+limits and existing image-error PID/yaw behaviour. Only an explicit speed action
+activates the shared override. After that action, the forward ramp is bounded by
+the request and lateral/vertical guidance shares the total translation ceiling.
+Zero ramps all translation down; it is not just a forward-speed zero and does
+not promise geographic position Hold. Restore reapplies the saved limits without
+raising a lower request. Stop/new Start restores the configured startup state.
+No image coordinate is converted into a fabricated physical 3D ray.
 
 Altitude is the backend's **relative altitude**, referenced to the estimator/home
 reference. It is not terrain clearance. Existing minimum/maximum altitude and

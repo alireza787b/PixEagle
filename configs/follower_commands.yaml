@@ -151,6 +151,11 @@ follower_profiles:
     description: "Pursuit profile: forward ramp with yaw or sideslip and optional vertical control"
     control_type: "velocity_body_offboard"
     live_qualified_phases: [multicopter]
+    session_controls:
+      requested_speed:
+        label: Requested speed
+        unit: m/s
+        step: 0.5
     airframe_phase: "multicopter"
     required_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s"]
     ui_category: "velocity"

@@ -95,7 +95,6 @@ from classes.gimbal_guidance import (
 from classes.tracker_output import TrackerOutput, TrackerDataType
 from classes.parameters import Parameters
 from classes.safety_types import AltitudeLimits
-from classes.follower_session_controls import SessionControl
 from classes.follower_config_manager import get_follower_config_manager
 from classes.aircraft_state import AircraftState, AirframePhase
 from classes.gimbal_bearing import gimbal_to_body_bearing
@@ -713,19 +712,8 @@ class GMVelocityVectorFollower(BaseFollower):
     # ==================== Filtering & Smoothing ====================
 
     def create_session_controls(self) -> dict:
-        declarations = self.setpoint_handler.profile_config.get('session_controls', {})
-        declaration = declarations.get('requested_speed')
-        if declaration is None:
-            return {}
         ceiling = min(self.velocity_limits.forward, self.velocity_limits.max_magnitude)
-        startup = self.config.get('REQUESTED_SPEED')
-        value = ceiling if startup is None else startup
-        configured = SessionControl('requested_speed', declaration['label'], declaration['unit'],
-                                    0.0, ceiling, declaration['step'], float(value))
-        configured.updated(value, configured.revision)
-        control = SessionControl('requested_speed', declaration['label'], declaration['unit'],
-                                 0.0, None, declaration['step'], float(value), configured_maximum=ceiling)
-        return {control.control_id: control}
+        return self._create_translation_speed_controls(ceiling, startup=self.config.get('REQUESTED_SPEED'))
 
     def update_session_control(self, control_id, value, revision):
         session = getattr(self, '_airframe_session', None)
@@ -734,10 +722,7 @@ class GMVelocityVectorFollower(BaseFollower):
         else:
             self.validate_session_control(control_id, value, revision)
             session.controls.update(value, identity=session.identity, expected_revision=revision)
-        if self._requested_speed_control().override_active:
-            self.safety_manager.bind_session_velocity(self._follower_config_name, self, self._session_velocity_envelope)
-        else:
-            self._clear_session_velocity()
+        self._sync_translation_speed_override()
 
     def validate_session_control(self, control_id, value, revision):
         session = getattr(self, '_airframe_session', None)
@@ -765,44 +750,17 @@ class GMVelocityVectorFollower(BaseFollower):
             session.end('follow_session_ended')
         self._native_guidance_input_resolver = None
 
-    def _clear_session_velocity(self):
-        release = getattr(getattr(self, 'safety_manager', None), 'clear_session_velocity', None)
-        if callable(release):
-            release(self)
-
     def _session_velocity_envelope(self):
         session = getattr(self, '_airframe_session', None)
         if session is not None and session.control_type != 'velocity_body_offboard':
             return None
-        control = self._requested_speed_control()
-        if control is None or not control.override_active:
-            return None
-        previous = getattr(self, '_submitted_command_fields', None) or {}
-        speed = math.hypot(*(previous.get(name, 0) for name in ('vel_body_fwd', 'vel_body_right', 'vel_body_down')))
-        return max(control.value, self.current_velocity_magnitude, speed)
+        return self._translation_speed_envelope(self.current_velocity_magnitude)
 
     def limit_session_control_command(self, fields: Dict[str, float]) -> Dict[str, float]:
         self._synchronize_native_phase()
         if getattr(self, '_airframe_session', None) is not None and self.get_control_type() != 'velocity_body_offboard':
             return dict(fields)
-        control = self._requested_speed_control()
-        if control is None:
-            return dict(fields)
-        names = ('vel_body_fwd', 'vel_body_right', 'vel_body_down')
-        previous = getattr(self, '_submitted_command_fields', None) or dict.fromkeys(names, 0.0)
-        rate = float(self.update_rate)
-        now = time.monotonic()
-        timestamp = getattr(self, '_submitted_command_timestamp', None)
-        _, dt = self.bounded_control_delta(timestamp if timestamp is not None else now - 1 / rate,
-                                           rate, current_timestamp=now)
-        previous_speed = math.sqrt(sum(previous[name] ** 2 for name in names))
-        ceiling = max(control.value, previous_speed - self.authorized_command_acceleration * dt)
-        result = dict(fields)
-        speed = math.sqrt(sum(result[name] ** 2 for name in names))
-        if speed > ceiling:
-            for name in names:
-                result[name] *= ceiling / speed
-        return result
+        return self._limit_translation_speed(fields, acceleration=self.authorized_command_acceleration)
 
     @property
     def authorized_command_acceleration(self) -> float:

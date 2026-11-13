@@ -154,6 +154,7 @@ class MCVelocityChaseFollower(BaseFollower):
         # v5.0.0: Use SafetyManager for velocity limits (single source of truth)
         self.max_forward_velocity = self.velocity_limits.forward
         self.forward_ramp_rate = config.get('FORWARD_RAMP_RATE', 0.5)
+        self._session_controls = self.create_session_controls()
         # Shared params from FollowerConfigManager (General → FollowerOverrides → Fallback)
         fcm = get_follower_config_manager()
         _fn = 'MC_VELOCITY_CHASE'
@@ -539,11 +540,17 @@ class MCVelocityChaseFollower(BaseFollower):
             if not np.isfinite(dt) or dt < 0.0:
                 raise ValueError("Forward-ramp interval must be finite and non-negative")
 
-            # Determine target velocity based on system state
+            control = self._requested_speed_control()
+            # The saved forward target differs from the total-translation
+            # ceiling displayed before the first operator adjustment.
+            requested = (self.max_forward_velocity if control is None or control.revision == 0
+                         else control.value if control.override_active
+                         else min(self.max_forward_velocity, control.value))
             if self.emergency_stop_active:
                 target_velocity = 0.0
             else:
-                target_velocity = self.max_forward_velocity
+                target_velocity = requested
+            self.target_forward_velocity = target_velocity
 
             # Calculate velocity change
             ramp_rate = self.forward_ramp_rate
@@ -559,11 +566,10 @@ class MCVelocityChaseFollower(BaseFollower):
                 self.current_forward_velocity += velocity_change
             
             # Apply absolute velocity limits
-            self.current_forward_velocity = np.clip(
-                self.current_forward_velocity,
-                0.0,  # Never go backward
-                self.max_forward_velocity
-            )
+            if control is not None and control.override_active:
+                self.current_forward_velocity = max(0., self.current_forward_velocity)
+            else:
+                self.current_forward_velocity = np.clip(self.current_forward_velocity, 0., self.max_forward_velocity)
             
             logger.debug(f"Forward velocity updated: {self.current_forward_velocity:.2f} m/s "
                         f"(target: {target_velocity:.2f} m/s, dt: {dt:.3f}s)")
@@ -1635,6 +1641,42 @@ class MCVelocityChaseFollower(BaseFollower):
         except Exception as e:
             return f"Error generating body velocity chase status report: {e}"
 
+    def create_session_controls(self) -> dict:
+        return self._create_translation_speed_controls(self.velocity_limits.max_magnitude)
+
+    def update_session_control(self, control_id, value, revision):
+        super().update_session_control(control_id, value, revision)
+        self._sync_translation_speed_override()
+        self._update_velocity_pid_limits()
+
+    def _update_velocity_pid_limits(self) -> None:
+        limits = self.velocity_limits
+        for name, maximum in (('pid_right', limits.lateral), ('pid_down', limits.vertical)):
+            controller = getattr(self, name, None)
+            if controller is not None:
+                controller.output_limits = (-maximum, maximum)
+
+    def _session_velocity_envelope(self):
+        return self._translation_speed_envelope(self.current_forward_velocity)
+
+    def limit_session_control_command(self, fields: Dict[str, float]) -> Dict[str, float]:
+        control = self._requested_speed_control()
+        if control is None or control.revision == 0:
+            return dict(fields)
+        return self._limit_translation_speed(fields, acceleration=self.forward_ramp_rate, ramp_increase=True)
+
+    def on_command_submitted(self, fields: Dict[str, float]) -> None:
+        self.record_submitted_command(fields)
+
+    def release_session_controls(self) -> None:
+        self._clear_session_velocity()
+        self._update_velocity_pid_limits()
+
+    def reset_control_session(self) -> None:
+        super().reset_control_session()
+        self.current_forward_velocity = self.initial_forward_velocity
+        self.target_forward_velocity = self.max_forward_velocity
+
     def reset_target_state(self, reason: str) -> bool:
         return self.reset_chase_state() is not False
 
@@ -1702,6 +1744,7 @@ class MCVelocityChaseFollower(BaseFollower):
         Activates emergency stop mode, setting all velocities to zero.
         """
         try:
+            self.release_session_controls()
             self.emergency_stop_active = True
             self.current_forward_velocity = 0.0
             self.smoothed_right_velocity = 0.0
