@@ -1,5 +1,6 @@
 """Harness caller regressions with synthetic native packets; no simulator or control IO."""
 import asyncio
+import math
 from copy import deepcopy
 from dataclasses import asdict, replace
 from types import SimpleNamespace
@@ -44,14 +45,20 @@ def packets(*, sensorless=True, feedback=False, binding=None, phase=AirframePhas
 
 
 @pytest.mark.usefixtures('native_follower_environment')
+@pytest.mark.parametrize('minimum_motion,forward', [(None, 0.), (14., 0.), (14., 18.)])
 @pytest.mark.parametrize('phase,sensorless,feedback,ready', [
     (AirframePhase.FIXED_WING, True, False, True), (AirframePhase.FIXED_WING, True, None, False),
     (AirframePhase.FIXED_WING, True, True, False), (AirframePhase.FIXED_WING, False, None, True),
     (AirframePhase.MULTICOPTER, True, None, True)])
 async def test_real_vector_initial_settle_and_refresh_forward_paired_feedback(
-        tmp_path, monkeypatch, phase, sensorless, feedback, ready):
+        tmp_path, monkeypatch, phase, sensorless, feedback, ready, minimum_motion, forward):
+    ready = ready and (minimum_motion is None or phase is AirframePhase.FIXED_WING and forward >= minimum_motion)
     output = tmp_path/'caller'
     observed = packets(sensorless=sensorless, feedback=feedback, binding=AircraftBinding('42', 'sih-caller', 1), phase=phase)
+    if forward and phase is AirframePhase.FIXED_WING:
+        for packet in observed:
+            heading = packet['aircraft_state']['navigation_heading_rad']
+            packet['aircraft_state']['velocity_ned_m_s'].update(x=forward*math.cos(heading), y=forward*math.sin(heading))
     clock, index = [100.], [0]
     async def observe():
         value = observed[min(index[0], len(observed)-1)]
@@ -91,7 +98,8 @@ async def test_real_vector_initial_settle_and_refresh_forward_paired_feedback(
     args = SimpleNamespace(output=output, target_clock=None, scenario=None, config=tool.ROOT/'configs/config_default.yaml',
         follower='gm_velocity_vector', mount='HORIZONTAL', altitude=False, stable_timeout=4., test_altitude=30.,
         initial_phase=phase.value, socket=tmp_path/'never-opened-source.sock', duration=15.,
-        expect_handoff=None, altitude_tolerance=2., mc_request=None)
+        expect_handoff=None, altitude_tolerance=2., mc_request=None,
+        minimum_forward_ground_speed_m_s=minimum_motion)
     with pytest.raises(RuntimeError if ready else ValueError,
                        match='engage boundary' if ready else 'stable_airborne_window'):
         await tool.run(args, {'aircraft_uid': '42', 'simulator': 'gazebo'})
@@ -186,3 +194,51 @@ async def test_refresh_cannot_accept_sensorless_history_with_unpaired_feedback()
     with pytest.raises(ValueError, match='not_stable'):
         await tool.refresh_component_start(client, connection, [(state, None) for state in states], runtime_id='test-adapter',
             expected_altitude_m=30., deadline=104., log=Mock(), started=100., clock=lambda: 103.1)
+
+
+@pytest.mark.parametrize('heading', [0., math.pi/2, -math.pi+.01])
+@pytest.mark.parametrize('along,across,ready', [(18., 0., True), (14., 30., True),
+    (13., 0., False), (0., 30., False), (-18., 0., False)])
+def test_declared_forward_motion_uses_observed_navigation_frame(heading, along, across, ready):
+    state = AircraftState.from_payload(packets()[-1]['aircraft_state'])
+    state = replace(state, navigation_heading_rad=heading, velocity_ned_m_s=replace(state.velocity_ned_m_s,
+        x=along*math.cos(heading)-across*math.sin(heading),
+        y=along*math.sin(heading)+across*math.cos(heading)))
+    assert tool.forward_ground_speed(state) == pytest.approx(along)
+    assert tool.forward_motion_ready([state], 14.) is ready
+    assert not state.airspeed.valid and state.airspeed.equivalent_m_s is None
+
+
+@pytest.mark.parametrize('minimum', [True, 0., -1., float('nan'), float('inf')])
+def test_motion_threshold_is_a_finite_positive_fixture_condition(minimum):
+    with pytest.raises(ValueError, match='motion_threshold_invalid'):
+        tool.forward_motion_ready([], minimum)
+
+
+def test_basic_sensorless_predicate_does_not_satisfy_an_explicit_motion_condition():
+    observed = packets()[:7]
+    samples = [tool.stability_sample(AircraftState.from_payload(p['aircraft_state']), p,
+        captured_at=p['aircraft_state']['observed_at_monotonic_s']) for p in observed]
+    assert tool.stable_samples(samples, expected_altitude_m=30.)
+    assert not tool.stable_samples(samples, expected_altitude_m=30., minimum_forward_ground_speed_m_s=14.)
+    assert not tool.forward_motion_ready([replace(samples[-1][0], phase=AirframePhase.MULTICOPTER)], 14.)
+
+
+async def test_fresh_start_rechecks_motion_instead_of_reusing_the_old_window():
+    observed = packets()
+    qualified = []
+    for packet in observed[:7]:
+        state = AircraftState.from_payload(packet['aircraft_state'])
+        state = replace(state, navigation_heading_rad=0., velocity_ned_m_s=replace(state.velocity_ned_m_s, x=18.))
+        qualified.append((state, False))
+    assert tool.stable_samples(qualified, expected_altitude_m=30., minimum_forward_ground_speed_m_s=14.)
+    old_packet = deepcopy(observed[6]);old_packet['aircraft_state'] = asdict(qualified[-1][0])
+    connection = tool.ObservationConnection(qualified[-1][0].binding, clock=lambda: 103.1)
+    assert connection.commit_aircraft_state(qualified[-1][0]) and connection.retain_packet(qualified[-1][0], old_packet)
+    # New actual snapshot is stable but has no forward motion. A previous ready window cannot authorize it.
+    client = SimpleNamespace(observe=AsyncMock(return_value=observed[7]), engage=AsyncMock())
+    with pytest.raises(ValueError, match='not_stable'):
+        await tool.refresh_component_start(client, connection, qualified, runtime_id='test-adapter',
+            expected_altitude_m=30., minimum_forward_ground_speed_m_s=14., deadline=104.,
+            log=Mock(), started=100., clock=lambda: 103.1)
+    client.engage.assert_not_awaited()

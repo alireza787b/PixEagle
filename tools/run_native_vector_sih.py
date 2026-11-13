@@ -998,13 +998,30 @@ def stability_sample(state: AircraftState, packet, *, captured_at: float) -> tup
     return state, flag
 
 
-def stable_samples(samples, *, expected_altitude_m=None) -> bool:
+def forward_ground_speed(state: AircraftState) -> float:
+    """Observed navigation motion, never measured or estimated airspeed."""
+    heading = state.navigation_heading_rad
+    return state.velocity_ned_m_s.x * math.cos(heading) + state.velocity_ned_m_s.y * math.sin(heading)
+
+
+def forward_motion_ready(states, minimum_m_s: float) -> bool:
+    """A declared simulator-start condition, separate from any stall policy."""
+    if type(minimum_m_s) not in (int, float) or not math.isfinite(minimum_m_s) or minimum_m_s <= 0.:
+        raise ValueError("native_component_motion_threshold_invalid")
+    return bool(states) and all(state.phase is AirframePhase.FIXED_WING
+        and math.isfinite(speed := forward_ground_speed(state)) and speed >= minimum_m_s
+        for state in states)
+
+
+def stable_samples(samples, *, expected_altitude_m=None, minimum_forward_ground_speed_m_s=None) -> bool:
     states = [sample[0] for sample in samples]
     controls = ([sample[1] for sample in samples]
                 if any(state.phase is AirframePhase.FIXED_WING and not state.airspeed.valid for state in states)
                 else None)
-    return stable_window(states, expected_altitude_m=expected_altitude_m,
-                         native_airspeed_control_enabled=controls)
+    stable = stable_window(states, expected_altitude_m=expected_altitude_m,
+                           native_airspeed_control_enabled=controls)
+    return stable and (minimum_forward_ground_speed_m_s is None
+        or forward_motion_ready(states, minimum_forward_ground_speed_m_s))
 
 
 class ObservationConnection:
@@ -1051,7 +1068,8 @@ def attach_component_observer(binding, connection, log, *, started: float, clock
 
 
 async def refresh_component_start(client, connection, qualified_window, *, runtime_id, expected_altitude_m,
-                                  deadline, log, started, clock=time.monotonic):
+                                  deadline, log, started, clock=time.monotonic,
+                                  minimum_forward_ground_speed_m_s=None):
     """Read actual state after setup; never refresh a retained sample's receipt."""
     original = qualified_window[-1][0]
     previous_pose = connection.last_packet["vehicle_pose"]["px4_timestamp_us"]
@@ -1077,7 +1095,8 @@ async def refresh_component_start(client, connection, qualified_window, *, runti
         if (state.attitude_timing is None or original.attitude_timing is None
                 or state.attitude_timing.quat_reset_counter != original.attitude_timing.quat_reset_counter
                 or type(pose) is not int or pose < previous_pose
-                or not stable_samples(window, expected_altitude_m=expected_altitude_m)
+                or not stable_samples(window, expected_altitude_m=expected_altitude_m,
+                    minimum_forward_ground_speed_m_s=minimum_forward_ground_speed_m_s)
                 or (state != connection.get_aircraft_state() and not connection.commit_aircraft_state(state))
                 or not connection.retain_packet(state, packet)):
             raise ValueError("native_component_start_refresh_not_stable")
@@ -1304,7 +1323,8 @@ async def run(args, isolation):
                 if connection.retain_packet(state, packet):
                     if not window or state.sequence > window[-1][0].sequence:
                         window = (window + [stability_sample(state, packet, captured_at=time.monotonic())])[-7:]
-                    if stable_samples(window, expected_altitude_m=args.test_altitude):
+                    if stable_samples(window, expected_altitude_m=args.test_altitude,
+                            minimum_forward_ground_speed_m_s=getattr(args, "minimum_forward_ground_speed_m_s", None)):
                         break
                 else:
                     window = []
@@ -1401,7 +1421,8 @@ async def run(args, isolation):
         )
         attach_component_observer(binding, connection, log, started=started)
         state = await refresh_component_start(client, connection, window, runtime_id=capabilities.runtime_id,
-            expected_altitude_m=args.test_altitude, deadline=started+args.stable_timeout, log=log, started=started)
+            expected_altitude_m=args.test_altitude, deadline=started+args.stable_timeout, log=log, started=started,
+            minimum_forward_ground_speed_m_s=getattr(args, "minimum_forward_ground_speed_m_s", None))
         initial_target = (world_clock.target_at_host(connection.last_packet["vehicle_pose"]["observed_at_monotonic_s"])
                           if world_clock is not None else scenario.target_at(0.))
         (output / "start-pose.json").write_text(json.dumps(dict(

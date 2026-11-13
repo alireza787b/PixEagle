@@ -2,8 +2,8 @@
   "schema_version": 1,
   "scope": "Received-topic cadence only under the canonical isolated Runtime and reviewed producer gates; per-call delivery UNKNOWN",
   "source_review_sha256": "2e3a6212927b8dc76cca8fc1dba3f38d72e87dc6b899ea323bf42c8f31948607",
-  "runtime_helper_sha256": "353578bba37bc0a97115c078d5c84d3b41f064d3032b85a547fc123ce914fa18",
-  "runtime_assets_sha256": "eb804b1924c83825abaffbac5c5d547a7b53ce8fb2af5cb06980c9c5e0dedd30",
+  "runtime_helper_sha256": "fbbac30be405ddcf00b0afb5efb57a719d254201b3c8f4ac3194e8f49db45217",
+  "runtime_assets_sha256": "16e5d076356a18596120c1c71e56de9bcdf109255d4e35e3c4aebd7b5e67f1d1",
   "scripts": {
     "adapter.sh": "5581149d49278df82262fba7a8cc5b85d028b82c4b76c2bcedbba47c4021ea22",
     "agent.sh": "22fef6c3d7c9a38b773a94ac7af887f7561a11ab391e3ecad168c23b00a35725"

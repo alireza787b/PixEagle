@@ -19,3 +19,4 @@ vehicle_thrust_setpoint 0 0
 vehicle_thrust_setpoint 0 1
 actuator_motors 0 0
 actuator_servos 0 0
+differential_pressure 0 0

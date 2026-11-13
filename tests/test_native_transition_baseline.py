@@ -502,3 +502,151 @@ async def test_bootstrap_orders_session_then_one_adapter_and_shares_original_dea
     if rt.adapter_requested:
         with pytest.raises(ValueError, match="one-shot"):
             await rt.bootstrap(45., clock=lambda: now[0], sleep=sleep)
+
+
+def no_pitot_fixture():
+    return tool.scenario(tool.SCENARIOS / "gazebo-quadtailsitter-no-pitot-hold-cycle.json")
+
+
+def test_no_pitot_fixture_changes_only_declared_installation_and_resource():
+    stock = tool.scenario(tool.SCENARIOS / "gazebo-quadtailsitter-hold-cycle.json")
+    assert no_pitot_fixture() == stock | {"resource_variant": "quadtailsitter-no-pitot-v1",
+        "parameters": {"MIS_TAKEOFF_ALT": 30, "SYS_HAS_NUM_ASPD": 0}}
+    assert "differential_pressure 0 0" in (tool.SCENARIOS / "logger_topics.txt").read_text().splitlines()
+    assert tool.digest(tool.SCENARIOS / "logger_topics.txt") == json.loads(tool.ASSETS.read_text())["logger_sha256"]
+
+
+@pytest.mark.parametrize("change", [
+    {"resource_variant": None}, {"resource_variant": []}, {"resource_variant": "unknown"},
+    {"model": "sihsim_xvert"}, {"parameters": {"MIS_TAKEOFF_ALT": 30}},
+    {"parameters": {"MIS_TAKEOFF_ALT": 30, "SYS_HAS_NUM_ASPD": 1}},
+    {"parameters": {"MIS_TAKEOFF_ALT": 30, "SYS_HAS_NUM_ASPD": False}},
+    {"parameters": {"MIS_TAKEOFF_ALT": 30, "SYS_HAS_NUM_ASPD": 0., "FW_USE_AIRSPD": 0}},
+])
+def test_no_pitot_fixture_rejects_ambiguous_or_disabled_control_configuration(tmp_path, change):
+    value = {"schema_version": 1, "model": "gz_quadtailsitter", "resource_variant": "quadtailsitter-no-pitot-v1",
+        "parameters": {"MIS_TAKEOFF_ALT": 30, "SYS_HAS_NUM_ASPD": 0},
+        "forward": {"request_at_s": 8, "capture_s": 48}, "back": {"request_at_s": 8, "capture_s": 48}} | change
+    path = tmp_path / "case.json";path.write_text(json.dumps(value))
+    with pytest.raises(ValueError): tool.scenario(path)
+    value.pop("resource_variant", None);path.write_text(json.dumps(value))
+    if "SYS_HAS_NUM_ASPD" in value["parameters"]:
+        with pytest.raises(ValueError): tool.scenario(path)
+
+
+@pytest.mark.parametrize("declared,variant,accepted", [
+    (False, None, True), (True, {"name": "quadtailsitter-no-pitot-v1"}, True),
+    (False, {"name": "quadtailsitter-no-pitot-v1"}, False), (True, None, False),
+    (True, {"name": "other"}, False), (True, "quadtailsitter-no-pitot-v1", False),
+])
+def test_no_pitot_manifest_pairing_precedes_runtime_staging(tmp_path, monkeypatch, declared, variant, accepted):
+    fixture = tool.scenario(tool.SCENARIOS / "gazebo-quadtailsitter-hold-cycle.json")
+    if declared: fixture.update(resource_variant="quadtailsitter-no-pitot-v1", parameters={"MIS_TAKEOFF_ALT": 30, "SYS_HAS_NUM_ASPD": 0})
+    manifest = {"build": {"model": "quadtailsitter"}}
+    if variant is not None: manifest["build"]["resource_variant"] = variant
+    monkeypatch.setattr(tool, "verify_adapter", Mock())
+    monkeypatch.setattr(tool.shared, "verified_simulation_build", Mock(return_value=("gazebo", {}, manifest)))
+    image = Mock();monkeypatch.setattr(tool, "verify_adapter_image", image)
+    monkeypatch.setattr(tool, "bootstrap_contract", Mock(return_value={}))
+    constructor = Mock();monkeypatch.setattr(tool, "Runtime", constructor)
+    if accepted:
+        tool.verified_runtime(args(tmp_path), fixture)
+        constructor.assert_called_once()
+    else:
+        with pytest.raises(ValueError, match="variant"): tool.verified_runtime(args(tmp_path), fixture)
+        constructor.assert_not_called();image.assert_not_called()
+    assert not args(tmp_path).output.exists()
+
+
+@pytest.mark.parametrize("stdout,stderr,code,accepted", [
+    ("never published\n", "", 0, True), ("TOPIC: differential_pressure\n", "", 0, False),
+    ("never published\nTOPIC: differential_pressure\n", "", 0, False),
+    ("never published\n", "", 1, False), ("", "", 0, False),
+    ("never published\n", "unknown topic", 0, False),
+])
+def test_no_pitot_probe_requires_exact_all_instance_absence(tmp_path, stdout, stderr, code, accepted):
+    rt = runtime(tmp_path);rt.output.mkdir()
+    rt.cli = Mock(return_value=SimpleNamespace(stdout=stdout, stderr=stderr, returncode=code))
+    if accepted: rt.verify_sensor_absence("before-arm")
+    else:
+        with pytest.raises(ValueError, match="publisher"): rt.verify_sensor_absence("before-arm")
+    rt.cli.assert_called_once_with("listener", "differential_pressure", "-n", "1", check=False)
+    retained = json.loads((rt.output / "before-arm-differential-pressure.json").read_text())
+    assert retained["stdout"] == stdout and retained["returncode"] == code
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["publisher", "cancel"])
+@pytest.mark.parametrize("after_arm", [False, True])
+async def test_no_pitot_probe_failure_closes_both_original_containers_before_arm(tmp_path, monkeypatch, failure, after_arm):
+    import asyncio
+    fixture = {"parameters": {"MIS_TAKEOFF_ALT": 30, "SYS_HAS_NUM_ASPD": 0},
+               "resource_variant": "quadtailsitter-no-pitot-v1"}
+    rt = runtime(tmp_path);rt.fixture = fixture;rt.start = lambda: rt.output.mkdir()
+    rt.socket = tmp_path / "observer.sock"
+    rt.bootstrap = AsyncMock();rt.verify = Mock();rt.logger = Mock()
+    rt.cli = Mock(return_value=SimpleNamespace(stdout="MIS_TAKEOFF_ALT: 30\nSYS_HAS_NUM_ASPD: 0\n"
+        "FW_USE_AIRSPD: 1\nSYS_AUTOSTART: 4018\nSDLOG_PROFILE: 131\n"))
+    error = ValueError("publisher present") if failure == "publisher" else asyncio.CancelledError()
+    rt.verify_sensor_absence = Mock(side_effect=[None, error] if after_arm else error)
+    rt.cleanup = Mock(return_value=[])
+    client = SimpleNamespace(connect=AsyncMock(return_value=NativeCapabilities("runtime", "synthetic", 2, True, True, False, True, 23)),
+        bind=AsyncMock(), close=AsyncMock())
+    monkeypatch.setattr(tool, "verified_runtime", lambda *_: (rt, {"autostart": 4018, "native_default_readback": {"FW_USE_AIRSPD": 1}}, "gazebo"))
+    monkeypatch.setattr(tool, "NativeGuidanceClient", lambda *_: client)
+    admission = AsyncMock();monkeypatch.setattr(tool, "admit_flight_action", admission)
+    from tools import run_native_guidance_cycle as cycle
+    monkeypatch.setattr(cycle, "NativeGuidanceClient", lambda *_: client)
+    options = args(tmp_path);options.mount = "HORIZONTAL"
+    case = cycle.case(tool.SCENARIOS / "gazebo-guidance-no-pitot.json")
+    result = await cycle.execute(options, case)
+    assert result["errors"] and not result["passed"]
+    assert rt.cli.call_args_list == [(("param", "show"),)] + ([(("commander", "arm"),)] if after_arm else [])
+    assert admission.await_count == (1 if after_arm else 0)
+    rt.cleanup.assert_called_once();client.close.assert_awaited_once()
+    assert rt.created == [P, A]
+
+
+@pytest.mark.asyncio
+async def test_no_pitot_standalone_transition_execute_refuses_before_staging(tmp_path, monkeypatch, capsys):
+    verify = Mock(side_effect=AssertionError("unsupported native transition runtime"))
+    monkeypatch.setattr(tool, "verified_runtime", verify)
+    fixture = no_pitot_fixture()
+    with pytest.raises(ValueError, match="guidance only"):
+        await tool.execute(args(tmp_path), fixture)
+    assert tool.main(["--scenario", str(tool.SCENARIOS / "gazebo-quadtailsitter-no-pitot-hold-cycle.json")]) == 0
+    assert json.loads(capsys.readouterr().out)["runner_supported"] is False
+    verify.assert_not_called();assert not args(tmp_path).output.exists()
+
+
+@pytest.mark.parametrize("bad_source", [None, "bounds", "default", "probe", "reference"])
+def test_no_pitot_boot_uses_native_bounds_default_and_pinned_absence_semantics(tmp_path, bad_source):
+    import yaml
+    source = tmp_path / "source"
+    files = {"ROMFS/px4fmu_common/init.d-posix/rcS":
+        '"PX4_PARAM_"*) param set\n. px4-rc.simulator\ncommander start\nnavigator start\n',
+        "src/modules/navigator/mission_params.yaml": yaml.safe_dump({"parameters": [{"definitions": {
+            "MIS_TAKEOFF_ALT": {"min": 0}}}]}),
+        "src/modules/vtol_att_control/vtol_att_control_params.yaml": yaml.safe_dump({"parameters": [{"definitions": {}}]}),
+        tool.DDS_STATUS_SOURCE: "source", tool.SYSTEM_PARAMETERS: yaml.safe_dump({"parameters": [{"definitions": {
+            "SYS_HAS_NUM_ASPD": {"min": 1 if bad_source == "bounds" else 0, "max": 1}}}]}),
+        tool.FW_PARAMETERS: yaml.safe_dump({"parameters": [{"definitions": {
+            "FW_USE_AIRSPD": {"default": 0 if bad_source == "default" else 1}}}]}),
+        "src/systemcmds/topic_listener/listener_main.cpp": "pinned probe semantics"}
+    for name, text in files.items():
+        path = source / name;path.parent.mkdir(parents=True, exist_ok=True);path.write_text(text)
+    airframe = source / "ROMFS/px4fmu_common/init.d-posix/airframes/4018_gz_quadtailsitter"
+    airframe.parent.mkdir();airframe.write_text("param set-default FW_AIRSPD_MIN " + ("13" if bad_source == "reference" else "14") + "\n")
+    supplemental = {tool.SYSTEM_PARAMETERS, tool.FW_PARAMETERS, "src/systemcmds/topic_listener/listener_main.cpp"}
+    assets = {"bootstrap_files": {name: tool.digest(source/name) for name in files if name not in supplemental},
+        "no_pitot_sources": {name: tool.digest(source/name) for name in supplemental}}
+    if bad_source == "probe": (source/"src/systemcmds/topic_listener/listener_main.cpp").write_text("changed")
+    if bad_source:
+        with pytest.raises(ValueError): tool.bootstrap_contract(source, no_pitot_fixture(), assets)
+    else:
+        boot = tool.bootstrap_contract(source, no_pitot_fixture(), assets)
+        assert boot["native_default_readback"] == {"FW_USE_AIRSPD": 1}
+        assert boot["no_pitot_source_sha256"] == assets["no_pitot_sources"]
+        assert "FW_USE_AIRSPD" not in no_pitot_fixture()["parameters"]
+        with pytest.raises(ValueError, match="readback"):
+            tool.readback("FW_USE_AIRSPD: 0\n", boot["native_default_readback"])

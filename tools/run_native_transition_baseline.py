@@ -37,6 +37,9 @@ GATE_M = 2.
 FRESH_S = .75
 MODELS = {"sihsim_xvert", "sihsim_standard_vtol", "gz_quadtailsitter"}
 PARAMETERS = {"MIS_TAKEOFF_ALT", "VT_F_TRANS_DUR", "VT_B_TRANS_DUR", "VT_F_TR_OL_TM", "VT_ARSP_TRANS"}
+NO_PITOT_VARIANT = "quadtailsitter-no-pitot-v1"
+SYSTEM_PARAMETERS = "src/lib/systemlib/system_params.yaml"
+FW_PARAMETERS = "src/modules/fw_rate_control/fw_rate_control_params.yaml"
 DDS_STATUS_SOURCE = "src/modules/uxrce_dds_client/uxrce_dds_client.cpp"
 ASSETS = ROOT / "native/baseline-runtime.json"
 SCENARIOS = ROOT / "tools/native_baseline_scenarios"
@@ -56,14 +59,21 @@ def finite(value):
 
 def scenario(path):
     value = json.loads(Path(path).read_text())
-    if (not isinstance(value, dict) or set(value) != {"schema_version", "model", "parameters", "forward", "back"}
+    if (not isinstance(value, dict) or set(value) - {"resource_variant"} != {"schema_version", "model", "parameters", "forward", "back"}
             or type(value["schema_version"]) is not int or value["schema_version"] != 1
             or not isinstance(value["model"], str) or value["model"] not in MODELS
             or not isinstance(value["parameters"], dict)
-            or not {"MIS_TAKEOFF_ALT"} <= value["parameters"].keys() <= PARAMETERS
+            or not {"MIS_TAKEOFF_ALT"} <= value["parameters"].keys() <= PARAMETERS | {"SYS_HAS_NUM_ASPD"}
             or any(not finite(number) for number in value["parameters"].values())
             or value["parameters"]["MIS_TAKEOFF_ALT"] < 15.):
         raise ValueError("Explicit native VTOL fixture and stable-window altitude required")
+    if "resource_variant" in value:
+        if (value["resource_variant"] != NO_PITOT_VARIANT or value["model"] != "gz_quadtailsitter"
+                or type(value["parameters"].get("SYS_HAS_NUM_ASPD")) is not int
+                or value["parameters"]["SYS_HAS_NUM_ASPD"] != 0):
+            raise ValueError("No-pitot resource variant requires the exact sensor-absent installation")
+    elif "SYS_HAS_NUM_ASPD" in value["parameters"]:
+        raise ValueError("Sensor installation override requires the no-pitot resource variant")
     for name in ("forward", "back"):
         event = value[name]
         if (not isinstance(event, dict) or set(event) != {"request_at_s", "capture_s"}
@@ -77,7 +87,11 @@ def bootstrap_contract(source, fixture, assets):
     """Pinned rcS consumes literal overrides before any Navigator instance exists."""
     import yaml
 
-    for name, expected in assets["bootstrap_files"].items():
+    source_pins = assets["bootstrap_files"]
+    no_pitot = fixture.get("resource_variant") == NO_PITOT_VARIANT
+    if no_pitot:
+        source_pins = source_pins | assets["no_pitot_sources"]
+    for name, expected in source_pins.items():
         if digest(source / name) != expected:
             raise ValueError("Startup parameter ordering source changed: " + name)
     text = (source / "ROMFS/px4fmu_common/init.d-posix/rcS").read_text()
@@ -85,8 +99,11 @@ def bootstrap_contract(source, fixture, assets):
             < text.index('commander start') < text.index('navigator start')):
         raise ValueError("Startup overlay must precede simulator, commander and Navigator")
     definitions = {}
-    for name in ("src/modules/navigator/mission_params.yaml",
-                 "src/modules/vtol_att_control/vtol_att_control_params.yaml"):
+    parameter_files = ["src/modules/navigator/mission_params.yaml",
+                       "src/modules/vtol_att_control/vtol_att_control_params.yaml"]
+    if no_pitot:
+        parameter_files += [SYSTEM_PARAMETERS, FW_PARAMETERS]
+    for name in parameter_files:
         for group in yaml.safe_load((source / name).read_text())["parameters"]:
             definitions.update(group["definitions"])
     for name, number in fixture["parameters"].items():
@@ -96,10 +113,23 @@ def bootstrap_contract(source, fixture, assets):
     files = list((source / "ROMFS/px4fmu_common/init.d-posix/airframes").glob("*_" + fixture["model"]))
     if len(files) != 1:
         raise ValueError("One source-owned airframe required")
-    return {"rcS_sha256": assets["bootstrap_files"]["ROMFS/px4fmu_common/init.d-posix/rcS"],
+    contract = {"rcS_sha256": assets["bootstrap_files"]["ROMFS/px4fmu_common/init.d-posix/rcS"],
             "autostart": int(files[0].name.split("_", 1)[0]), "airframe_sha256": digest(files[0]),
             "dds_status_source_sha256": assets["bootstrap_files"][DDS_STATUS_SOURCE],
             "overlay_before_navigator": True, "midrun_parameter_write": False}
+    if no_pitot:
+        default = definitions["FW_USE_AIRSPD"]["default"]
+        if not finite(default) or default != 1:
+            raise ValueError("Reviewed native automatic airspeed control default required")
+        reference = re.findall(r"(?m)^param set-default FW_AIRSPD_MIN\s+(\S+)\s*$", files[0].read_text())
+        if reference != ["14"]:
+            raise ValueError("Reviewed airframe forward-motion reference must remain literal FW_AIRSPD_MIN 14")
+        contract.update(native_default_readback={"FW_USE_AIRSPD": default},
+                        no_pitot_source_sha256=assets["no_pitot_sources"],
+                        forward_motion_reference=dict(parameter="FW_AIRSPD_MIN", value=14., units="m/s",
+                            source=str(files[0].relative_to(source)), source_sha256=digest(files[0])),
+                        sensor_absence_scope="all uORB instances at each pre-flight-action probe only")
+    return contract
 
 
 def dds_session_ready(result):
@@ -378,6 +408,15 @@ class Runtime:
             raise ValueError("Fresh original native clock without pursuit required")
         return values[0]
 
+    def verify_sensor_absence(self, stage):
+        # -n 1 with no -i inspects all advertised instances without entering the poll loop.
+        result = self.cli("listener", "differential_pressure", "-n", "1", check=False)
+        write(self.output / (stage + "-differential-pressure.json"), dict(
+            stdout=result.stdout, stderr=result.stderr, returncode=result.returncode,
+            scope="point_in_time_all_instances", observed_at_monotonic_s=time.monotonic()))
+        if result.returncode != 0 or result.stderr.strip() or result.stdout.strip() != "never published":
+            raise ValueError("No-pitot installation requires absent differential-pressure publishers")
+
     def logger(self, stage):
         status = self.cli("logger", "status").stdout
         logs = self.command(["docker", "logs", self.primary], check=False)
@@ -568,6 +607,12 @@ def verified_runtime(args, fixture):
     verify_adapter(args.adapter_bundle.resolve(), args.adapter_file_manifest, assets)
     simulator, baseline, manifest = shared.verified_simulation_build(args.simulation_build_manifest,
         repository=args.build_repository)
+    variant = manifest.get("build", {}).get("resource_variant")
+    declared = fixture.get("resource_variant")
+    if ((declared is None and variant is not None)
+            or (declared is not None and (simulator != "gazebo" or not isinstance(variant, dict)
+                or variant.get("name") != declared))):
+        raise ValueError("Fixture resource variant differs from verified manifest")
     verify_adapter_image(assets)
     if (simulator == "gazebo") != fixture["model"].startswith("gz_"):
         raise ValueError("Fixture simulator differs from verified manifest")
@@ -592,16 +637,21 @@ async def admit_native_runtime(runtime, client, fixture, boot):
     write(runtime.output / "capabilities.json", dict(capabilities=asdict(capabilities), binding=asdict(binding)))
     deadline = time.monotonic() + 30.
     readback(runtime.cli("param", "show").stdout,
-             fixture["parameters"] | {"SDLOG_PROFILE": 131, "SYS_AUTOSTART": boot["autostart"]})
+             fixture["parameters"] | {"SDLOG_PROFILE": 131, "SYS_AUTOSTART": boot["autostart"]}
+             | boot.get("native_default_readback", {}))
     runtime.logger("before-arm")
     with (runtime.output / "preflight-observations.jsonl").open("x") as stream:
         for action in ("arm", "takeoff"):
+            if fixture.get("resource_variant") == NO_PITOT_VARIANT:
+                runtime.verify_sensor_absence("before-" + action)
             await admit_flight_action(client, runtime, binding, capabilities.runtime_id, stream, action, deadline)
             runtime.cli("commander", action)
     return capabilities, binding
 
 
 async def execute(args, fixture):
+    if fixture.get("resource_variant") == NO_PITOT_VARIANT:
+        raise ValueError("No-pitot fixture supports guidance only; native-transition capture remains measured-only")
     from pyulog import ULog  # Fail before any staging/control if the optional development parser is absent.
 
     runtime, boot, simulator = verified_runtime(args, fixture)
@@ -661,6 +711,7 @@ def main(argv=None):
     fixture = scenario(args.scenario)
     if not args.execute:
         print(json.dumps(dict(execute=False, fixture=fixture, altitude_gate_m=GATE_M,
+            runner_supported=fixture.get("resource_variant") is None,
             verified_simulation_manifest_required=True, no_following_or_target_commands=True,
             bootstrap="Fresh rootfs PX4_PARAM_* before Navigator; source-bound and read back"), indent=2))
         return 0

@@ -1,5 +1,11 @@
 # Native guidance phase-exit component case
 
+Closed-log attribution is bound to the exact Runtime and asset hashes in
+`guidance-evidence-source.json`. Reproduce historical captures with their
+recorded source revision and build authority; a newer startup recipe does not
+retroactively authorize an older artifact. Stored audits and original verdicts
+remain unchanged when these pins advance.
+
 `tools/run_native_guidance_cycle.py` reuses the canonical isolated Runtime,
 DDS/bootstrap/readback/pre-arm gates, stable-window predicate and existing
 native vector runner. It prepares settled MC, follows an independent world
@@ -12,7 +18,7 @@ The first fixture is `tools/native_baseline_scenarios/gazebo-guidance-phase-exit
 
 | Stimulus | Declared value |
 |---|---|
-| Native source/plant | Existing reviewed stock Gazebo quadtailsitter build; sole MIS30/logger131 startup overlays |
+| Native source/plant | Reviewed stock Gazebo quadtailsitter by default; explicit no-pitot fixture requires its matching verified resource variant |
 | World target | Anchored once from measured initial MC pose/heading, 1000 m forward and 35 m right; moves 0.25 m/s along that original heading for 300 s |
 | First Start | MC requested speed 1 m/s; 20 s component budget; one pilot front-transition trigger at 8 s |
 | Second Start | Fresh settled FW admission; 15 s of following then ordinary Stop |
@@ -125,3 +131,58 @@ PYTHONPATH=src pytest tests/test_native_guidance_cycle.py \
   tests/test_native_ownership_sih.py tests/unit/test_sih_visualization.py \
   tests/unit/core_app/test_retarget_admission.py -q -p no:cacheprovider
 ```
+
+## Explicit no-pitot guidance fixture
+
+`tools/native_baseline_scenarios/gazebo-guidance-no-pitot.json` selects the
+shared `gazebo-quadtailsitter-no-pitot-hold-cycle.json` installation fixture.
+It requires the verified `quadtailsitter-no-pitot-v1` manifest resource variant;
+stock/variant mismatches fail before staging or launch. Use the existing command
+above with `--case-fixture tools/native_baseline_scenarios/gazebo-guidance-no-pitot.json`
+and that variant's exact build manifest. Preview remains read-only.
+
+The fresh-rootfs startup overlay adds only `SYS_HAS_NUM_ASPD=0` to MIS30 and
+logger profile 131. This declares the physically sensor-absent model installation;
+it is not a flight-control bypass. The source-bound native parameter definition
+supplies its bounds. `FW_USE_AIRSPD` is not overridden: the reviewed native
+default 1 must read back unchanged, retaining native valid-airspeed use and
+sensorless behavior. No groundspeed is relabeled as airspeed.
+
+Before each existing arm/takeoff admission, the fixed read-only
+`listener differential_pressure -n 1` command requires exact `never published`
+with successful exit and no error output. Pinned listener/uORB source proves that
+omitting `-i` checks all advertised instances immediately without the polling
+branch. Each raw result and its host receipt time are retained; the result also
+records the startup contract and source pins. This is point-in-time publisher
+absence, not proof of whole-flight absence or stall margin. Existing deadlines,
+preflight checks and original-token cleanup remain in force on refusal/cancel.
+
+The no-pitot guidance fixture also declares
+`minimum_forward_ground_speed_m_s=14.0`. This is an observed-motion test condition,
+using the literal `FW_AIRSPD_MIN 14` from the locked 4018 airframe only as a
+numerical reference. The source-bound default Gazebo world has no configured
+wind; this fixture assumption is pinned and recorded. It is not a general
+airspeed, stall-margin or real-aircraft admission rule. The canonical native
+navigation heading and observed NED velocity supply the forward projection;
+no tailsitter quaternion transform or command-derived motion is introduced.
+
+All seven original settled FW states must pass, with their last state matching
+the actual retained packet. `fw-motion-readiness.json` retains those states,
+projections, threshold and source/world hashes. The same condition is forwarded
+only to the FW component's fresh initial window and final Start refresh; an old
+post-transition window cannot authorize a newly stationary/reversed aircraft.
+The stock/MC paths do not request this additional fixture condition.
+
+The shared additive logger now also requests `differential_pressure 0 0`.
+Qualification still requires closed-log sensor/publisher absence and actual
+native source selection, using the pinned `AirspeedValidated.msg` enums, plus
+actual motion/attitude, ownership, cadence, recovery and height checks. Fixture
+existence or native `airspeed_control_enabled=false` is not flight qualification.
+Standalone native-transition execution refuses this fixture before launch because
+its FW capture remains measured-only; this slice supports the guidance runner.
+
+The no-pitot package keeps its own real ELF/image hashes. It is not a bitmatched
+stock control flight. The single guidance source contract records both exact
+`runtime_helper_sha256` and `runtime_assets_sha256` values; startup changes renew
+both together. Older captures remain bound to their original
+frozen helper/assets authority; no old hash is accepted as a new recipe.

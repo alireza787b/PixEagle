@@ -119,8 +119,9 @@ Stock cannot masquerade as sensor-free, and sensor-free cannot masquerade as
 stock, even after updating artifact hashes. ELF, bin and etc are outside the
 sensor transform. Any future paired comparison must use matching firmware
 authority and actually verify their identical hashes; the current stock ELF
-has 0001–0007, while the current extension additionally has 0008/0009. The new
-variant provides no firmware reuse or extension-validation bypass.
+has 0001–0007; the later stock and no-pitot builds use 0001–0009. Each retains
+its own manifest and build authority. The variant provides no firmware reuse
+or extension-validation bypass.
 
 This is a build-only seam. The no-pitot runner, startup sensor configuration,
 per-sample native readiness feedback, publisher-absence proof and actual flight
@@ -209,10 +210,14 @@ These caller paths are covered by synthetic packet regressions in
 `tests/test_native_sensorless_callers.py`; run them with
 `PYTHONPATH=src pytest tests/test_native_sensorless_callers.py tests/test_native_vector_sih.py -q -p no:cacheprovider`.
 The existing coverage job selects both modules through `pytest tests/`.
-The native-only baseline Runtime helper remains unchanged. No sensorless fixture,
-variant admission or startup-parameter qualification is established by these
-software checks, and no no-pitot-from-start flight was performed. Groundspeed
-must not masquerade as measured airspeed or stall margin.
+The separate [no-pitot guidance fixture](guidance-cycle.md#explicit-no-pitot-guidance-fixture)
+declares `SYS_HAS_NUM_ASPD=0`, requires the matching verified resource variant,
+retains the native airspeed-control default and probes for absent sensor
+publishers before flight actions. Its explicit 14 m/s ground-motion condition
+checks actual velocity along the canonical native heading in the settled window
+and fresh Start. The pinned no-wind world is part of that diagnostic assumption;
+this condition does not estimate airspeed or stall margin. Standalone native
+transition capture remains measured-only. Actual no-pitot flight is still pending.
 The Gazebo airspeed callback does not currently use the SIH failure-injection
 hook, so an accepted `failure airspeed off` command alone is not evidence of
 sensor absence. No-pitot behavior, pursuit, S7 admission, S8 steep descent,

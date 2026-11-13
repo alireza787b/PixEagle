@@ -160,3 +160,12 @@ commands about six seconds after their scheduled trigger; native phase events
 anchor this figure. The continuous log covers those observation gaps. No active
 external publication-cadence gate is exercised. Both original containers stop;
 the Agent's exit137 is recorded as forced teardown, not a graceful shutdown.
+
+
+The explicit `gazebo-quadtailsitter-no-pitot-hold-cycle.json` fixture is shared
+with the guidance runner only. This baseline tool reports `runner_supported=false`
+in preview and refuses its execution before staging or launch: native-transition
+FW stability capture remains measured-only. See [guidance-cycle.md](guidance-cycle.md)
+for exact resource pairing, source-bound installation parameters and sensor
+absence evidence. Stock baseline behavior is unchanged except the additive
+`differential_pressure 0 0` logger subscription.

@@ -345,7 +345,8 @@ def test_explicit_build_authority_reaches_component_cli_before_a_client(tmp_path
 @pytest.mark.asyncio
 @pytest.mark.parametrize('outcome', ['qualified', 'unknown_native_attribution', 'component_failure'])
 @pytest.mark.parametrize('expected_fw_handoff', [None, 'maximum_coast_time_reached'])
-async def test_real_cycle_flow_keeps_native_zoom_separate_and_cleanup_unconditional(tmp_path, monkeypatch, outcome, expected_fw_handoff):
+@pytest.mark.parametrize('no_pitot', [False, True])
+async def test_real_cycle_flow_keeps_native_zoom_separate_and_cleanup_unconditional(tmp_path, monkeypatch, outcome, expected_fw_handoff, no_pitot):
     import pyulog
 
     output = tmp_path / 'fresh-run'
@@ -359,7 +360,12 @@ async def test_real_cycle_flow_keeps_native_zoom_separate_and_cleanup_unconditio
         primary='original-primary', isolation={}, start=lambda: output.mkdir(), verify=Mock(),
         clock=Mock(return_value={'incarnation': '2'.zfill(32), 'source_clock_us': 100000}),
         cleanup=Mock(side_effect=cleanup))
-    monkeypatch.setattr(cycle.base, 'verified_runtime', Mock(return_value=(runtime, {}, 'gazebo')))
+    monkeypatch.setattr(cycle.base, 'verified_runtime', Mock(return_value=(runtime,
+        {'no_pitot_source_sha256': {'Tools/simulation/gz/worlds/default.sdf': '0' * 64},
+         'forward_motion_reference': {'parameter': 'FW_AIRSPD_MIN', 'value': 14.}}, 'gazebo')))
+    # Only orchestration is tested here; the canonical vector predicate has separate state/math tests.
+    monkeypatch.setattr(vector, 'forward_motion_ready', Mock(return_value=True), raising=False)
+    monkeypatch.setattr(vector, 'forward_ground_speed', Mock(return_value=15.), raising=False)
     client = SimpleNamespace(close=AsyncMock())
     monkeypatch.setattr(cycle, 'NativeGuidanceClient', Mock(return_value=client))
     monkeypatch.setattr(cycle.base, 'admit_native_runtime', AsyncMock(return_value=(SimpleNamespace(runtime_id='test'), None)))
@@ -382,7 +388,7 @@ async def test_real_cycle_flow_keeps_native_zoom_separate_and_cleanup_unconditio
             packet = dict(aircraft_state=asdict(aircraft_state(is_vtol=True, phase=AirframePhase.FIXED_WING)),
                 owner_confirmed=False, rescue_active=False, phase_status_fresh=True,
                 release_pending=False, neutral_drain_active=False)
-            (args.output/'post-transition-settled.json').write_text(json.dumps({'last_packet': packet}))
+            (args.output/'post-transition-settled.json').write_text(json.dumps({'last_packet': packet, 'states': [packet['aircraft_state']] * 7}))
         return dict(passed=True, response_checks=checks, handoff={'release_receipt': asdict(release_receipt(ctx, timestamp=800000))},
                     initial_relative_altitude_m=30., native_publication_counter={'before': 0, 'after': 4})
     monkeypatch.setattr(vector, 'run', component)
@@ -393,7 +399,7 @@ async def test_real_cycle_flow_keeps_native_zoom_separate_and_cleanup_unconditio
     monkeypatch.setattr(cycle.base, 'audit_ulog', Mock(return_value={'passed': False, 'maximum_excursion_m': 17.}))
     monkeypatch.setattr(cycle, 'ownership_interval', Mock(return_value={
         'passed': outcome != 'unknown_native_attribution', 'source_attribution': 'UNKNOWN' if outcome == 'unknown_native_attribution' else 'corroborated'}))
-    fixture = cycle.case(cycle.CASE)
+    fixture = cycle.case(cycle.base.SCENARIOS/'gazebo-guidance-no-pitot.json' if no_pitot else cycle.CASE)
     fixture['fw']['expected_handoff'] = expected_fw_handoff
     result = await cycle.execute(SimpleNamespace(mount='HORIZONTAL', config=tmp_path/'config',
         build_repository=None, simulation_build_manifest=tmp_path/'build.json',
@@ -408,5 +414,51 @@ async def test_real_cycle_flow_keeps_native_zoom_separate_and_cleanup_unconditio
         assert calls[0].target_clock == calls[1].target_clock == clock
         assert calls[0].expect_handoff == 'aircraft_transition_observed'
         assert calls[1].expect_handoff == expected_fw_handoff
+        assert calls[0].minimum_forward_ground_speed_m_s is None
+        assert calls[1].minimum_forward_ground_speed_m_s == (14. if no_pitot else None)
+        assert (output/'fw-motion-readiness.json').exists() is no_pitot
         assert result['full_native_capture']['passed'] is False
         assert result['application_startup_qualified'] is result['same_application_connection_qualified'] is False
+
+
+def test_no_pitot_guidance_preview_selects_explicit_installation_without_launch(tmp_path, monkeypatch, capsys):
+    launch = Mock(side_effect=AssertionError('no-pitot preview launched'))
+    monkeypatch.setattr(cycle.base, 'verified_runtime', launch)
+    path = cycle.base.SCENARIOS / 'gazebo-guidance-no-pitot.json'
+    assert cycle.main(['--mount', 'HORIZONTAL', '--case-fixture', str(path)]) == 0
+    value = json.loads(capsys.readouterr().out)
+    assert value['case']['native_fixture'] == 'gazebo-quadtailsitter-no-pitot-hold-cycle.json'
+    launch.assert_not_called()
+
+
+@pytest.mark.parametrize('minimum', [None, True, float('nan'), 0., -1., 13.9, 15.])
+def test_no_pitot_fixture_cannot_omit_or_weaken_declared_forward_motion_gate(tmp_path, minimum):
+    raw = json.loads((cycle.base.SCENARIOS/'gazebo-guidance-no-pitot.json').read_text())
+    if minimum is None: raw.pop('minimum_forward_ground_speed_m_s')
+    else: raw['minimum_forward_ground_speed_m_s'] = minimum
+    path = tmp_path/'case.json';path.write_text(json.dumps(raw))
+    with pytest.raises(ValueError, match='forward ground-motion'): cycle.case(path)
+
+
+@pytest.mark.parametrize('problem', [None, 'not_ready', 'short', 'binding', 'source', 'last'])
+def test_no_pitot_motion_record_uses_canonical_gate_and_original_bound_states(monkeypatch, problem):
+    state = asdict(aircraft_state(is_vtol=True, phase=AirframePhase.FIXED_WING))
+    settled = {'last_packet': {'aircraft_state': deepcopy(state)}, 'states': [deepcopy(state) for _ in range(7)]}
+    if problem == 'short': settled['states'].pop(0)
+    elif problem == 'binding': settled['states'][0]['binding']['connection_generation'] += '-wrong'
+    elif problem == 'source': settled['states'][0]['source'] = 'other'
+    elif problem == 'last': settled['last_packet']['aircraft_state']['sequence'] += 1
+    gate = Mock(return_value=problem != 'not_ready')
+    monkeypatch.setattr(vector, 'forward_motion_ready', gate, raising=False)
+    projection = Mock(return_value=15.);monkeypatch.setattr(vector, 'forward_ground_speed', projection, raising=False)
+    boot = {'no_pitot_source_sha256': {'Tools/simulation/gz/worlds/default.sdf': '1' * 64},
+            'forward_motion_reference': {'parameter': 'FW_AIRSPD_MIN', 'value': 14.}}
+    if problem in ('short', 'binding', 'source', 'last'):
+        with pytest.raises(ValueError): cycle.forward_motion_readiness(settled, 14., boot)
+        gate.assert_not_called();projection.assert_not_called()
+    else:
+        result = cycle.forward_motion_readiness(settled, 14., boot)
+        assert result['passed'] is (problem is None)
+        assert result['states'] == settled['states'] and result['world_sha256'] == '1' * 64
+        assert result['observed_forward_ground_speed_m_s'] == [15.] * 7
+        assert gate.call_args.kwargs == {'minimum_m_s': 14.} and projection.call_count == 7

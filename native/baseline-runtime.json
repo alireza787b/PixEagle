@@ -37,11 +37,22 @@
     "src/modules/vtol_att_control/vtol_att_control_params.yaml": "d1247a7508ae04c45118efb8dcca6382c25f8fcf4bdca99b5837c50557bf3adf",
     "src/modules/uxrce_dds_client/uxrce_dds_client.cpp": "854e37f809253cd124eaeeee0ec2a5b122cd81cc1636de3f1939f23da1b376ff"
   },
-  "logger_sha256": "5b1fe808bdf9fd1d6526c168c989a60881c483ef8446fdd1dc7e26905d2e34da",
+  "logger_sha256": "e03e2f34f9f3c4dd35d121694c9713ded0c06575bb03ded12510d303ccab8842",
   "extracted_from": {
     "prepare_runtime.py": "edbc60efc08b362ebff93f2a9e66a09db765de690ad16be1aaa117dacf74afc2",
     "observe_baseline.py": "daa31ef56c513f95d278b772302f11f3ef812bccf0f9a94d239f2b1f9e57deda",
     "stop_and_archive.py": "f1810161e547dec892d0d74a5279156ec151596cdafd9ab04463824919a51444"
   },
-  "historical_limit": "Prior MIS cache race, failed transitions and helper versions remain unchanged. Newfreshrootfs startup overlay is consumed before Navigator."
+  "historical_limit": "Prior MIS cache race, failed transitions and helper versions remain unchanged. Newfreshrootfs startup overlay is consumed before Navigator.",
+  "no_pitot_sources": {
+    "src/lib/systemlib/system_params.yaml": "348ef0f82957abd0c94d4ad4d9e0b89cfbf1e44a60e5e8fb1f5c4605e83f20d7",
+    "src/modules/fw_rate_control/fw_rate_control_params.yaml": "90576ab72e5bbf9c4abf010171e481d7cd749e872bb5f05f19163a23684d069c",
+    "ROMFS/px4fmu_common/init.d/rc.vtol_defaults": "3f02908764d25387b9d44f3e4b2602b6744d847d0a59197ffda8d430939d1dec",
+    "src/systemcmds/topic_listener/listener_main.cpp": "f49fe9cadff3c87dfe6b3c101fbcad1dd7b33e72069c9268a07fc4f8cea476fa",
+    "platforms/common/uORB/uORBManager.cpp": "a62d0b53843fa1692e142e5e30cfd0597395e12a39312a941fb7170645350483",
+    "src/modules/simulation/gz_bridge/GZBridge.cpp": "52a04b8e31c0463589150c1115d68160670bb29e9a401c108bf34a844c03a908",
+    "msg/DifferentialPressure.msg": "c611a8189fa7d8a1adff37242b0bbd0a9dc1f809f61a0e48dd52668c66801d46",
+    "msg/versioned/AirspeedValidated.msg": "cb5e944da8d5559234c9d2d20521a1b813cee183be622ec65932f960e1315174",
+    "Tools/simulation/gz/worlds/default.sdf": "8c82e627b3a1e70238156b372b9bcbe0280c89b88a45f400326de307760952f8"
+  }
 }

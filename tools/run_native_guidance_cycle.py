@@ -30,10 +30,17 @@ CASE = base.SCENARIOS / 'gazebo-guidance-phase-exit.json'
 
 def case(path):
     value = json.loads(Path(path).read_text())
-    if (set(value) != {'schema_version', 'native_fixture', 'target', 'mc', 'fw'}
+    if (set(value) - {'minimum_forward_ground_speed_m_s'} != {'schema_version', 'native_fixture', 'target', 'mc', 'fw'}
             or type(value['schema_version']) is not int or value['schema_version'] != 1
-            or value['native_fixture'] != 'gazebo-quadtailsitter-hold-cycle.json'):
-        raise ValueError('Explicit stock Gazebo guidance fixture required')
+            or value['native_fixture'] not in ('gazebo-quadtailsitter-hold-cycle.json',
+                'gazebo-quadtailsitter-no-pitot-hold-cycle.json')):
+        raise ValueError('Explicit reviewed Gazebo guidance fixture required')
+    if value['native_fixture'] == 'gazebo-quadtailsitter-no-pitot-hold-cycle.json':
+        minimum = value.get('minimum_forward_ground_speed_m_s')
+        if not base.finite(minimum) or minimum != 14.:
+            raise ValueError('No-pitot fixture requires its explicit 14 m/s forward ground-motion gate')
+    elif 'minimum_forward_ground_speed_m_s' in value:
+        raise ValueError('Forward ground-motion fixture is specific to the no-pitot case')
     expected = {'target': {'forward_m', 'right_m', 'speed_m_s', 'coverage_s'},
                 'mc': {'duration_s', 'transition_at_s', 'requested_speed_m_s'}}
     if any(set(value[key]) != names or any(not base.finite(x) for x in value[key].values())
@@ -114,14 +121,30 @@ def next_start_allowed(result, settled):
         and packet.get('release_pending') is False and packet.get('neutral_drain_active') is False)
 
 
+def forward_motion_readiness(settled, minimum, boot):
+    """Fixture-only actual ground motion; never an airspeed or stall-margin estimate."""
+    states = [AircraftState.from_payload(value) for value in settled['states']]
+    last = AircraftState.from_payload(settled['last_packet']['aircraft_state'])
+    if (len(states) != 7 or states[-1] != last
+            or any(state.binding != last.binding or state.source != last.source for state in states)):
+        raise ValueError('Forward motion requires the original seven settled FW states')
+    return dict(passed=vector.forward_motion_ready(states, minimum_m_s=minimum),
+        minimum_forward_ground_speed_m_s=minimum,
+        observed_forward_ground_speed_m_s=[vector.forward_ground_speed(state) for state in states],
+        states=settled['states'], world_sha256=boot['no_pitot_source_sha256']['Tools/simulation/gz/worlds/default.sdf'],
+        native_reference=boot['forward_motion_reference'],
+        scope='actual NED ground velocity along native navigation heading; pinned zero-wind fixture assumption; not EAS or stall margin')
+
+
 async def execute(args, fixture):
     from pyulog import ULog
 
     native = base.scenario(base.SCENARIOS / fixture['native_fixture'])
     runtime, boot, simulator = base.verified_runtime(args, native)
-    if simulator != 'gazebo' or runtime.manifest['build'].get('resource_variant'):
-        raise ValueError('This first guidance case requires the verified stock measured-model image')
+    if simulator != 'gazebo':
+        raise ValueError('Guidance case requires its verified Gazebo fixture image')
     result = dict(passed=False, scope='native_guidance_ownership_component', mount=args.mount,
+        native_fixture=native, bootstrap_contract=boot,
         application_startup_qualified=False, same_application_connection_qualified=False,
         new_observer_connection_per_start=True, hardware_qualified=False, errors=[], sessions=[])
     client = start = None
@@ -140,6 +163,11 @@ async def execute(args, fixture):
                 settled = json.loads((runtime.output / 'mc-follow/post-transition-settled.json').read_text())
                 if not next_start_allowed(result['sessions'][0], settled):
                     raise ValueError('Original owner/phase not qualified for the next explicit Start')
+                if 'minimum_forward_ground_speed_m_s' in fixture:
+                    motion = forward_motion_readiness(settled, fixture['minimum_forward_ground_speed_m_s'], boot)
+                    base.write(runtime.output / 'fw-motion-readiness.json', motion)
+                    if not motion['passed']:
+                        raise ValueError('Observed FW forward ground-motion fixture gate not reached')
             runtime.verify()
             stage = SimpleNamespace(socket=runtime.socket, output=runtime.output / (name + '-follow'),
                 container=runtime.primary, instance=0, config=args.config, follower='gm_velocity_vector',
@@ -148,6 +176,7 @@ async def execute(args, fixture):
                 expect_handoff='aircraft_transition_observed' if index == 0 else fixture['fw'].get('expected_handoff'),
                 mc_request=fixture['mc']['requested_speed_m_s'] if index == 0 else None,
                 initial_phase='multicopter' if index == 0 else 'fixed_wing',
+                minimum_forward_ground_speed_m_s=fixture.get('minimum_forward_ground_speed_m_s') if index else None,
                 simulation_build_manifest=args.simulation_build_manifest, build_repository=args.build_repository)
             value = await vector.run(stage, runtime.isolation)
             result['sessions'].append(value)
