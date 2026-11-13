@@ -158,7 +158,7 @@ class VisualizationScenario:
         if native_contract and speed_source_policy != "native_auto":
             raise VisualizationValidationError("Native FW/VTOL scenarios require automatic native speed-source semantics")
         evidence_provenance = str(raw.get("evidence_provenance", "synthetic_fixture"))
-        if evidence_provenance not in {"synthetic_fixture", "px4_sih", "camera_field"}:
+        if evidence_provenance not in {"synthetic_fixture", "px4_sih", "px4_gazebo", "camera_field"}:
             raise VisualizationValidationError("evidence_provenance is invalid")
         stable_flight = raw.get("stable_flight") or {}
         if not isinstance(stable_flight, Mapping):

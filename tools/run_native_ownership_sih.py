@@ -124,11 +124,13 @@ async def restart_step(args, isolation, log, operation):
     return value
 
 
-def source_contract(manifest_path: Path) -> dict:
+def source_contract(manifest_path: Path, *, build_repository: Path | None = None) -> dict:
     """Use constants from the exact verified source, never an assumed registration."""
     source = manifest_path.resolve().parent / 'context/source'
-    simulator, _, _ = verified_simulation_build(manifest_path)
-    verify_source(source, ROOT, verify_extension, **({} if simulator == "sih" else {"simulator": simulator}))
+    authority = {} if build_repository is None else {"repository": build_repository}
+    simulator, _, _ = verified_simulation_build(manifest_path, **authority)
+    verify_source(source, ROOT if build_repository is None else build_repository, verify_extension,
+                  **({} if simulator == "sih" else {"simulator": simulator}))
     message = source / 'msg/versioned/VehicleStatus.msg'
     values = re.findall(r'(?m)^uint8 NAVIGATION_STATE_EXTERNAL1\s*=\s*(\d+)\s*(?:#[^\n]*)?$', message.read_text())
     hold = re.findall(r'(?m)^uint8 NAVIGATION_STATE_AUTO_LOITER\s*=\s*(\d+)\s*(?:#[^\n]*)?$', message.read_text())
@@ -682,6 +684,8 @@ async def process_restart(args, isolation, session, wire, log, progress, *, cont
             '--output', str(child_output), '--config', str(args.config), '--follower', args.follower,
             '--duration', str(args.duration), '--test-altitude', str(args.test_altitude),
             '--stable-timeout', str(args.stable_timeout)]
+    if getattr(args, 'build_repository', None) is not None:
+        argv += ['--build-repository', str(args.build_repository)]
     child = await asyncio.to_thread(subprocess.run, argv, text=True, capture_output=True, timeout=160, check=False)
     log('fresh-backend.jsonl', {'argv': argv, 'returncode': child.returncode,
                               'stdout': child.stdout, 'stderr': child.stderr})
@@ -740,7 +744,7 @@ async def run(args, isolation, contract):
             wire.append(record)
         return record['timestamp']
 
-    manifest = {'evidence_kind': 'px4_observed_sih', 'qualification': 'native_causal_ownership_component',
+    manifest = {'evidence_kind': 'px4_observed_' + isolation.get('simulator', 'sih'), 'qualification': 'native_causal_ownership_component',
         'case': args.case, 'isolation': isolation, 'source_contract': contract, 'configuration': configuration,
         'host_clock': {'basis': 'time.monotonic', 'origin_s': started,
                        'wire_timestamp_semantics': 'seconds_since_origin'},
@@ -929,6 +933,7 @@ def main(argv=None):
     parser.add_argument('--instance', type=int, required=True)
     parser.add_argument('--socket', type=Path, required=True)
     parser.add_argument('--simulation-build-manifest', type=Path, required=True)
+    parser.add_argument('--build-repository', type=Path)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--follower', default='gm_velocity_vector')
     parser.add_argument('--config', type=Path, default=ROOT / 'configs/config_default.yaml')
@@ -943,8 +948,10 @@ def main(argv=None):
     component_profile(args.follower)
     if args.case == 'adapter_process_restart' and (args.airframe != 'settled_vtol_mc' or args.restart_plan is None):
         parser.error('adapter_process_restart requires --airframe settled_vtol_mc and --restart-plan')
-    isolation = verify_simulator(args.container, args.instance, args.socket, simulation_build_manifest=args.simulation_build_manifest)
-    contract = source_contract(args.simulation_build_manifest)
+    authority = {} if args.build_repository is None else {'build_repository': args.build_repository}
+    isolation = verify_simulator(args.container, args.instance, args.socket,
+        simulation_build_manifest=args.simulation_build_manifest, **authority)
+    contract = source_contract(args.simulation_build_manifest, **authority)
     if args.case == 'adapter_process_restart':
         restart_plan(args, isolation)
     if not args.execute:

@@ -468,17 +468,20 @@ def native_pilot_transition(socket, isolation, event, initial_phase, contract, *
 
 class PilotTransitionInjection:
     """One declared test action; never retry, reverse, restore or acquire a mode."""
-    def __init__(self, socket, isolation, event, initial_phase, contract, *, log, started, clock=time.monotonic):
+    def __init__(self, socket, isolation, event, initial_phase, contract, *, log, started, clock=time.monotonic,
+                 build_repository=None):
         self.socket, self.isolation, self.event = socket, isolation, event
         self.initial_phase, self.contract = initial_phase, contract
         self.log, self.started, self.clock = log, started, clock
+        self.build_repository = build_repository
         self.events = []
         self.requested = False
         self._task = None
 
     async def _apply(self):
+        authority = {} if self.build_repository is None else {"build_repository": self.build_repository}
         command_result = await asyncio.to_thread(native_pilot_transition, self.socket, self.isolation,
-                                                self.event, self.initial_phase, self.contract)
+                                                self.event, self.initial_phase, self.contract, **authority)
         record = dict(kind="pilot_transition", timestamp=self.clock()-self.started,
             requested_phase=self.event.requested_phase.value, from_phase=self.initial_phase.value,
             command=command_result)
@@ -594,7 +597,8 @@ def record_released_observation(packet, acquisition, *, captured_at, follow_star
         raise ValueError("native_component_post_transition_target_truth_missing")
     if response is not None:
         response.append(dict(timestamp=elapsed, phase=state.phase.value,
-            range_m=math.dist(packet["vehicle_pose"]["vehicle_ned"], target), altitude_m=state.relative_altitude_m))
+            range_m=math.dist(packet["vehicle_pose"]["vehicle_ned"], target), altitude_m=state.relative_altitude_m,
+            pursuit_active=False, authority_held=False))
     log("trace/target_truth.jsonl", dict(timestamp=elapsed, target_ned=target))
     if pose is not None:
         log("px4/pose_trace.jsonl", pose)
@@ -1100,6 +1104,48 @@ def phase_response_segments(response):
     return segments
 
 
+def pursuit_response(response, initial_altitude):
+    """Select measured pursuit rows, retaining the separate full native response."""
+    active = [row for row in response if row.get("pursuit_active") is True]
+    if not active:
+        raise ValueError("native_component_pursuit_response_missing")
+    return dict(samples=len(active), start_s=active[0]["timestamp"], end_s=active[-1]["timestamp"],
+        range_start_m=active[0]["range_m"], range_end_m=active[-1]["range_m"],
+        final_altitude_m=active[-1]["altitude_m"],
+        minimum_altitude_m=min(row["altitude_m"] for row in active),
+        maximum_altitude_error_m=max(abs(row["altitude_m"] - initial_altitude) for row in active),
+        finite=all(math.isfinite(row["range_m"]) and math.isfinite(row["altitude_m"]) for row in active),
+        scope="Fresh observed pursuit rows; independent native ownership/phase/ULog audit still required")
+
+
+def transition_fence_checks(wire, witness):
+    from tools.run_native_ownership_sih import wire_requests
+
+    return dict(no_write_after_phase_witness=witness is not None and all(
+        request["operation"] in ("hello", "bind", "observe")
+        for request in wire_requests(wire, after=witness["timestamp"])))
+
+
+def phase_exit_release_confirmed(handoff, acquisition, packet):
+    from tools.run_native_ownership_sih import coherent_hold
+
+    receipt = NativeReleaseReceipt.from_payload(handoff.get("release_receipt")).require_match(
+        acquisition.identity, acquisition.runtime_id, acquisition.token, acquisition)
+    if (handoff.get("local_sender_quiesced") is not True or not receipt.released
+            or packet.get("release_receipt") != receipt.wire_payload()
+            or packet.get("runtime_id") != acquisition.runtime_id or packet.get("fresh") is not True
+            or packet.get("aircraft_state", {}).get("binding") != asdict(acquisition.identity.binding)
+            or packet.get("owner_confirmed") is not False or packet.get("rescue_active") is not False
+            or packet.get("phase_status_fresh") is not True or packet.get("release_pending") is not False
+            or packet.get("neutral_drain_active") is not False):
+        return False
+    if receipt.outcome == "hold_confirmed":
+        # Native conditional release can enter Hold while preserving the transition.
+        return (handoff.get("executed") is True and handoff.get("reason") == "aircraft_transition_observed"
+                and coherent_hold(packet, acquisition, 4))
+    return handoff.get("executed") is False and handoff.get("reason") == "native_owner_already_released"
+
+
 async def run(args, isolation):
     selected = component_profile(args.follower)
     output = args.output.resolve()
@@ -1127,7 +1173,7 @@ async def run(args, isolation):
     tool_bytes = Path(__file__).read_bytes()
     (output / "run_native_vector_sih.py").write_bytes(tool_bytes)
     (output / "manifest.json").write_text(json.dumps(dict(
-        evidence_kind="px4_observed_sih", qualification="native_guidance_component",
+        evidence_kind="px4_observed_" + isolation.get("simulator", "sih"), qualification="native_guidance_component",
         application_startup_qualified=False, revision=source, worktree_dirty=bool(patch),
         isolation=isolation, altitude_guidance=args.altitude, mount=args.mount,
         follower=selected.profile.mode, input_contract=selected.input_contract,
@@ -1199,6 +1245,8 @@ async def run(args, isolation):
         else:
             raise ValueError("stable_airborne_window_not_reached")
         log("stable-flight.jsonl", dict(timestamp=time.monotonic() - started, states=[asdict(s) for s in window]))
+        if getattr(args, "initial_phase", None) is not None and state.phase.value != args.initial_phase:
+            raise ValueError("native_component_initial_phase_mismatch")
         require_component_phase(selected, state)
         follower = FollowerFactory.create_follower(selected.profile.mode, connection, (.5, .5))
         continuity_config = config["TargetContinuity"]
@@ -1224,6 +1272,7 @@ async def run(args, isolation):
                 and scenario_raw.get("mount_type") != args.mount):
             raise ValueError("native_component_fixed_camera_mount_mismatch")
         scenario_raw.update(name=output.name, mount_type=args.mount, initial_conditions={"vehicle_ned": origin})
+        scenario_raw["evidence_provenance"] = "px4_" + isolation.get("simulator", "sih")
         scenario_raw["airframe"] = "vtol" if state.is_vtol else "fixed_wing"
         scenario_raw["follower"].update(
             profile=selected.profile.mode, purpose=selected.profile.description,
@@ -1249,7 +1298,8 @@ async def run(args, isolation):
                 raise ValueError("native_component_transition_scenario_contract_mismatch")
             if scenario.target_at(args.duration + args.stable_timeout) is None:
                 raise ValueError("native_component_post_transition_target_truth_missing")
-            transition_contract = transition_source_contract(isolation)
+            authority = {} if getattr(args, "build_repository", None) is None else {"build_repository": args.build_repository}
+            transition_contract = transition_source_contract(isolation, **authority)
             (output / "transition-source-contract.json").write_text(json.dumps(transition_contract, indent=2))
         loss_windows = [(window.start_s, window.end_s) for window in fault_windows if window.kind == "target_loss"]
         airspeed_windows = tuple(window for window in fault_windows if window.kind == "airspeed_loss")
@@ -1283,6 +1333,11 @@ async def run(args, isolation):
         attach_component_observer(binding, connection, log, started=started)
         initial_target = (world_clock.target_at_host(connection.last_packet["vehicle_pose"]["observed_at_monotonic_s"])
                           if world_clock is not None else scenario.target_at(0.))
+        (output / "start-pose.json").write_text(json.dumps(dict(
+            aircraft_state=asdict(state), vehicle_pose=connection.last_packet["vehicle_pose"],
+            navigation_heading_rad=state.navigation_heading_rad, target_ned=initial_target,
+            target_clock=None if world_clock is None else dict(target_id=world_clock.target_id,
+                host_monotonic_origin_s=world_clock.origin_s)), indent=2))
         target_output[0] = tracker_input(connection.last_packet, state, initial_target)
         initial_evidence = target_evidence()
         if initial_evidence.state is not TargetEvidenceState.CONFIRMED:
@@ -1294,7 +1349,9 @@ async def run(args, isolation):
                 world_clock.require_coverage(now, args.duration+(args.stable_timeout if transition else 0.))
 
         target_clock_current()
+        publications_before_acquire = connection.last_packet['publications']
         baseline = await binding.engage(before_dispatch=target_clock_current if world_clock is not None else None)
+        (output / "acquisition.json").write_text(json.dumps(asdict(client.acquisition_context), indent=2))
         follower.bind_airframe_session(guidance)
 
         async def published(event):
@@ -1323,10 +1380,12 @@ async def run(args, isolation):
             fault_injection = AirspeedLossInjection(args.socket, isolation, airspeed_windows, log=log, started=follow_start)
         if transition:
             pilot_fault = PilotTransitionInjection(args.socket, isolation, transition, state.phase,
-                transition_contract, log=log, started=follow_start)
+                transition_contract, log=log, started=follow_start,
+                build_repository=getattr(args, "build_repository", None))
         if not await commander.start():
             raise ValueError(commander.last_error)
         initial_altitude = state.relative_altitude_m
+        pursuit_phase = state.phase
         initial_publications = commander.successful_publishes
         mc_request_applied = False
         handoff_reason = None
@@ -1404,7 +1463,9 @@ async def run(args, isolation):
                                  **observed_airspeed_status(state, feedback),
                                  altitude_m=state.relative_altitude_m,
                                  eas_m_s=state.airspeed.equivalent_m_s,
-                                 pose_observed_at=p["observed_at_monotonic_s"]))
+                                 pose_observed_at=p["observed_at_monotonic_s"],
+                                 pursuit_active=packet.get("owner_confirmed") is True and state.phase is pursuit_phase,
+                                 authority_held=packet.get("owner_confirmed") is True))
             pose_record = observed_pose_record(packet, follow_start=follow_start, previous_timestamp_us=previous_pose_timestamp)
             if pose_record is not None:
                 log("px4/pose_trace.jsonl", pose_record)
@@ -1476,30 +1537,46 @@ async def run(args, isolation):
                 duration_s=max(args.duration, max(row["timestamp"] for row in response)))
             scenario_path.write_text(yaml.safe_dump(scenario_raw, sort_keys=False))
         altitude_error = max(abs(row["altitude_m"] - initial_altitude) for row in response)
-        checks = dict(range_decreased=response[-1]["range_m"] < response[0]["range_m"],
-                      altitude_floor=min(row["altitude_m"] for row in response) >= follower.altitude_limits.min_altitude,
-                      finite_observed_response=all(math.isfinite(row["range_m"]) for row in response),
+        pursuit = pursuit_response(response, initial_altitude)
+        checks = dict(range_decreased=pursuit["range_end_m"] < pursuit["range_start_m"],
+                      altitude_floor=pursuit["minimum_altitude_m"] >= follower.altitude_limits.min_altitude,
+                      finite_observed_response=pursuit["finite"],
                       no_publication_after_stop=len(set(after_stop + [packet["publications"]])) == 1,
                       hold_confirmed=handoff["executed"],
                       no_publication_failure=commander.failed_publishes == 0,
                       expected_handoff=handoff_reason == args.expect_handoff)
+        if pilot_fault is None:
+            from tools.run_native_ownership_sih import coherent_hold
+
+            checks["hold_confirmed"] = handoff["executed"] is True and coherent_hold(
+                stopped_packet, client.acquisition_context, 4)
         if args.altitude:
-            checks["altitude_guidance_response"] = response[-1]["altitude_m"] < initial_altitude - .5
+            checks["altitude_guidance_response"] = pursuit["final_altitude_m"] < initial_altitude - .5
         else:
-            checks["altitude_hold"] = altitude_error <= args.altitude_tolerance
+            checks["altitude_hold"] = pursuit["maximum_altitude_error_m"] <= args.altitude_tolerance
         if pilot_fault is not None:
+            checks.pop("hold_confirmed")
+            checks["phase_exit_release_confirmed"] = phase_exit_release_confirmed(
+                handoff, client.acquisition_context, packet)
             checks.update(pilot_transition_checks(pilot_fault, phase_witness, terminal_before_cleanup,
                                                   args.expect_handoff, post_transition))
+            checks.update(transition_fence_checks(wire, phase_witness))
         result = dict(passed=all(checks.values()), reason="component_scenario_complete", response_checks=checks,
                       scope="native_guidance_component_only", follower=selected.profile.mode,
                       input_contract=selected.input_contract, handoff=handoff,
                       successful_publications=commander.successful_publishes - initial_publications,
                       observed_native_publications=native_publications,
+                      native_publication_counter=dict(before=publications_before_acquire, after=packet['publications']),
                       failed_publications=commander.failed_publishes, initial_relative_altitude_m=initial_altitude,
                       final_relative_altitude_m=packet["aircraft_state"]["relative_altitude_m"],
-                      target_range_start_m=response[0]["range_m"], target_range_end_m=response[-1]["range_m"],
+                      target_range_start_m=pursuit["range_start_m"], target_range_end_m=pursuit["range_end_m"],
                       maximum_altitude_change_m=altitude_error,
-                      maximum_altitude_hold_error_m=None if args.altitude else altitude_error,
+                      maximum_altitude_hold_error_m=None if args.altitude else pursuit["maximum_altitude_error_m"],
+                      pursuit_response=pursuit,
+                      full_native_response=dict(maximum_altitude_error_m=altitude_error,
+                          range_start_m=response[0]["range_m"], range_end_m=response[-1]["range_m"],
+                          includes_native_transition_after_release=True if pilot_fault is not None else False,
+                          altitude_within_2m=altitude_error <= 2., performance_scope="diagnostic, independent of pursuit acceptance"),
                       required_altitude_hold_tolerance_m=None if args.altitude else args.altitude_tolerance,
                       phase_segments=phase_response_segments(response),
                       handoff_reason=handoff_reason, handoff_time_s=handoff_time,
@@ -1555,7 +1632,7 @@ async def run(args, isolation):
     return result
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--container", required=True)
@@ -1565,6 +1642,7 @@ def main():
     parser.add_argument("--follower", default="gm_velocity_vector", help="Registered native FW profile; input follows its declared contract")
     parser.add_argument("--config", type=Path, default=ROOT / "configs/config_default.yaml")
     parser.add_argument("--simulation-build-manifest", type=Path, help="Verify the running executable against a pinned source-built SIH or Gazebo bundle")
+    parser.add_argument("--build-repository", type=Path, help="Explicit reviewed authority for the selected immutable simulation build")
     parser.add_argument("--scenario", type=Path, help="Version-2 world-target YAML; must match mount, altitude and actual airframe")
     parser.add_argument("--target-clock", type=Path, help="Immutable original YAML/target/host-clock artifact shared across explicit Starts")
     parser.add_argument("--expect-handoff", help="Expected production reason code; an absent or different handoff fails the test")
@@ -1575,7 +1653,8 @@ def main():
     parser.add_argument("--test-altitude", type=float, default=30., help="Stable SIH altitude, home-relative metres")
     parser.add_argument("--altitude-tolerance", type=float, default=2., help="Maximum measured hold error, metres")
     parser.add_argument("--mc-request", type=float, help="Explicit simulated operator speed adjustment in initial VTOL MC")
-    args = parser.parse_args()
+    parser.add_argument("--initial-phase", choices=("multicopter", "fixed_wing"), help="Require a settled explicit-Start phase")
+    args = parser.parse_args(argv)
     if not 1. <= args.duration <= 60. or not 1. <= args.stable_timeout <= 180.:
         parser.error("Scenario duration must be 1–60 s; stable timeout must be 1–180 s")
     if not 15. <= args.test_altitude <= 120. or not 0. < args.altitude_tolerance <= 10.:
@@ -1591,7 +1670,9 @@ def main():
             target_clock.require_matching_target(yaml.safe_load(args.scenario.read_text()))
     except ValueError as error:
         parser.error(str(error))
-    isolation = verify_simulator(args.container, args.instance, args.socket, simulation_build_manifest=args.simulation_build_manifest)
+    authority = {} if args.build_repository is None else {"build_repository": args.build_repository}
+    isolation = verify_simulator(args.container, args.instance, args.socket,
+        simulation_build_manifest=args.simulation_build_manifest, **authority)
     if not args.execute:
         print(json.dumps(dict(execute=False, isolation=isolation), indent=2))
         return

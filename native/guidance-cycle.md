@@ -1,0 +1,82 @@
+# Native guidance phase-exit component case
+
+`tools/run_native_guidance_cycle.py` reuses the canonical isolated Runtime,
+DDS/bootstrap/readback/pre-arm gates, stable-window predicate and existing
+native vector runner. It prepares settled MC, follows an independent world
+target, requests one pilot front transition, verifies original-owner retirement,
+and requests a new explicit FW Start after settled FW readiness. Each Start uses
+production guidance/continuity/commander/transport and a separately correlated
+native acquisition. No application startup or hardware is exercised.
+
+The first fixture is `tools/native_baseline_scenarios/gazebo-guidance-phase-exit.json`:
+
+| Stimulus | Declared value |
+|---|---|
+| Native source/plant | Existing reviewed stock Gazebo quadtailsitter build; sole MIS30/logger131 startup overlays |
+| World target | Anchored once from measured initial MC pose/heading, 1000 m forward and 35 m right; moves 0.25 m/s along that original heading for 300 s |
+| First Start | MC requested speed 1 m/s; 20 s component budget; one pilot front-transition trigger at 8 s |
+| Second Start | Fresh settled FW admission; 15 s of following then ordinary Stop |
+| Mounts | One fresh host/capture per HORIZONTAL or VERTICAL invocation |
+
+The geometry gives observable MC and FW intent without requiring an intercept
+within either short pursuit. Original world-target YAML/clock bytes survive both
+Starts; target motion during native transition is retained, never reset to the
+aircraft. `target-anchor.json` and each component's `start-pose.json` archive
+actual packet pose/heading. Tracker projection is explicitly simulated; flight
+pose and closed ULog ground truth come from the simulator. The loaded continuity
+policy, including its existing 4 m/8 s behavior, is not overridden. Short loss
+and reacquisition are a separate next case.
+
+The user's clarified scope separates native pilot-maneuver response from
+following ownership. All full raw pose/envelope data and native 2 m failures
+remain available. Pursuit altitude/range acceptance uses measured active
+pursuit rows, followed by a hard closed-log check using native acquisition,
+phase, retirement and external-mode epochs. No maxima are subtracted. Native
+publication cadence is checked through the retained external-authority/drain
+interval, including both edges, against 100 ms. Native counter and topic counts
+must corroborate attribution; ambiguous phase overlap, equal release-tick
+traffic or missing attribution stays UNKNOWN and cannot pass the closed gate.
+Invalid/reset/stale raw 3D pose/velocity or attitude data cannot be hidden by
+sampling or phase selection. Ground-truth estimator validity flags retain their
+source meaning; they are not used to discard numeric simulator truth.
+
+Original-token reactivation, late intent/Hold/engage writes after the phase
+witness, changed publication counters after release, uncorrelated receipts or
+unqualified phase/readiness are independent failures. A phase exit uses its
+matched native retirement and observed requested phase. A native conditional
+release may confirm correlated Hold while preserving the transition; an
+`owner_already_released` receipt requires independent fresh owner-free state
+without demanding a newly executed Hold. Neither permits a new backend handoff
+after the phase witness. Ordinary Stop still requires correlated Hold
+confirmation. New session/token/native activation are required; production
+does not require a network reconnect. This component fixture creates separate
+ObservationConnections, so same-App/same-connection HTTP recovery remains gated.
+
+Preview performs no Docker/client/staging/control action:
+
+```bash
+PYTHONPATH=src python tools/run_native_guidance_cycle.py --mount HORIZONTAL
+```
+
+Execution additionally needs explicit `--execute`, a fresh `--output`, reviewed
+`--simulation-build-manifest`/`--build-repository` and pinned `--adapter-bundle` /
+`--adapter-file-manifest`. The prospective argv and exact source/config/binary
+pins belong to the reviewed run packet. No new firmware build or native tuning
+is needed. Cleanup retains the original two token-owned CIDs and logger closure
+even when component or evidence gates fail.
+
+Software checks and a replay of a retained actual target-free FW normal-Stop log
+validate the tooling only. The old native-only results remain FAILED. This new
+guidance case remains unexecuted until separate review/approval; no whole-S7,
+application, sensorless, private-airframe or hardware qualification follows.
+
+The existing `.github/workflows/tests.yml` coverage job selects this unmarked
+test module through `pytest tests/`. The smaller unit-only job does not select
+top-level tooling tests. Reproduce the focused regression checks with:
+
+```bash
+PYTHONPATH=src pytest tests/test_native_guidance_cycle.py \
+  tests/test_native_transition_baseline.py tests/test_native_vector_sih.py \
+  tests/test_native_ownership_sih.py tests/unit/test_sih_visualization.py \
+  tests/unit/core_app/test_retarget_admission.py -q -p no:cacheprovider
+```

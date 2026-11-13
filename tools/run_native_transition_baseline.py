@@ -562,9 +562,8 @@ def audit_ulog(rootfs, start, end, *, parser=None):
         passed=clean and all(value["maximum_excursion_m"] <= GATE_M for value in topics.values()))
 
 
-async def execute(args, fixture):
-    from pyulog import ULog  # Fail before any staging/control if the optional development parser is absent.
-
+def verified_runtime(args, fixture):
+    """Validate the explicit simulator fixture before constructing its owned lifecycle."""
     assets = json.loads(ASSETS.read_text())
     verify_adapter(args.adapter_bundle.resolve(), args.adapter_file_manifest, assets)
     simulator, baseline, manifest = shared.verified_simulation_build(args.simulation_build_manifest,
@@ -576,32 +575,45 @@ async def execute(args, fixture):
         raise ValueError("Gazebo model is strictly manifest-derived")
     source = args.simulation_build_manifest.resolve().parent / "context/source"
     boot = bootstrap_contract(source, fixture, assets)
-    runtime, client = Runtime(args, fixture, simulator, baseline, manifest, assets), None
+    return Runtime(args, fixture, simulator, baseline, manifest, assets), boot, simulator
+
+
+async def admit_native_runtime(runtime, client, fixture, boot):
+    """Shared boot and simulated arm/takeoff; the caller owns close/CID cleanup."""
+    deadline = time.monotonic() + 45.
+    await runtime.bootstrap(deadline)
+    runtime.verify()
+    capabilities = await client.connect()
+    if (capabilities.multicopter_supported is not True or capabilities.fixed_wing_supported is not True
+            or capabilities.owned_mode_supported is not True or capabilities.unrestricted_speed_supported is not False):
+        raise ValueError("Native protocol capabilities are not the reviewed baseline")
+    binding = AircraftBinding(runtime.isolation["aircraft_uid"], runtime.token, 1)
+    await client.bind(binding)
+    write(runtime.output / "capabilities.json", dict(capabilities=asdict(capabilities), binding=asdict(binding)))
+    deadline = time.monotonic() + 30.
+    readback(runtime.cli("param", "show").stdout,
+             fixture["parameters"] | {"SDLOG_PROFILE": 131, "SYS_AUTOSTART": boot["autostart"]})
+    runtime.logger("before-arm")
+    with (runtime.output / "preflight-observations.jsonl").open("x") as stream:
+        for action in ("arm", "takeoff"):
+            await admit_flight_action(client, runtime, binding, capabilities.runtime_id, stream, action, deadline)
+            runtime.cli("commander", action)
+    return capabilities, binding
+
+
+async def execute(args, fixture):
+    from pyulog import ULog  # Fail before any staging/control if the optional development parser is absent.
+
+    runtime, boot, simulator = verified_runtime(args, fixture)
+    client = None
     result = dict(passed=False, simulator=simulator, fixture=fixture, altitude_gate_m=GATE_M,
         following_acquired=False, submitted_intents=0, native_publications_requirement=0,
         external_100ms_gap_exercised=False, bootstrap_contract=boot, errors=[])
     start_clock = end_clock = None
     try:
         runtime.start()
-        deadline = time.monotonic() + 45.
-        await runtime.bootstrap(deadline)
-        runtime.verify()
         client = NativeGuidanceClient(runtime.socket)
-        capabilities = await client.connect()
-        if (capabilities.multicopter_supported is not True or capabilities.fixed_wing_supported is not True
-                or capabilities.owned_mode_supported is not True or capabilities.unrestricted_speed_supported is not False):
-            raise ValueError("Native protocol capabilities are not the reviewed baseline")
-        binding = AircraftBinding(runtime.isolation["aircraft_uid"], runtime.token, 1)
-        await client.bind(binding)
-        write(runtime.output / "capabilities.json", dict(capabilities=asdict(capabilities), binding=asdict(binding)))
-        deadline = time.monotonic() + 30.
-        readback(runtime.cli("param", "show").stdout,
-                 fixture["parameters"] | {"SDLOG_PROFILE": 131, "SYS_AUTOSTART": boot["autostart"]})
-        runtime.logger("before-arm")
-        with (runtime.output / "preflight-observations.jsonl").open("x") as stream:
-            for action in ("arm", "takeoff"):
-                await admit_flight_action(client, runtime, binding, capabilities.runtime_id, stream, action, deadline)
-                runtime.cli("commander", action)
+        capabilities, binding = await admit_native_runtime(runtime, client, fixture, boot)
         with (runtime.output / "observations.jsonl").open("x") as stream:
             initial = await wait_stable(client, runtime, binding, capabilities.runtime_id, stream)
             cycle, start_clock, end_clock = await capture_cycle(client, runtime, binding,
