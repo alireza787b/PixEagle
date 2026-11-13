@@ -11,11 +11,12 @@ diff --git a/src/modules/commander/OwnedModeStartContextTest.cpp b/src/modules/c
 new file mode 100644
 --- /dev/null
 +++ b/src/modules/commander/OwnedModeStartContextTest.cpp
-@@ -0,0 +1,200 @@
+@@ -0,0 +1,205 @@
 +// SPDX-License-Identifier: BSD-3-Clause
 +#include "OwnedModeGuard.hpp"
 +#include "../vtol_att_control/NativePhaseHistory.hpp"
 +#include <gtest/gtest.h>
++#include <uORB/uORB.h>
 +
 +namespace px4
 +{
@@ -67,7 +68,11 @@ new file mode 100644
 +	}
 +};
 +
-+class OwnedModeStartContext : public ::testing::Test {};
++class OwnedModeStartContext : public ::testing::Test
++{
++protected:
++	void SetUp() override { ASSERT_EQ(uorb_start(), 0); }
++};
 +
 +TEST_F(OwnedModeStartContext, HealthyPollsDoNotConsumeContext)
 +{

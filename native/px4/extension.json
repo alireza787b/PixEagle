@@ -13,7 +13,7 @@
     "patches/0009-control-allocation-sparse-axes-functional-tests.patch": "5bd68d30100e0c7df12280854caaa3061ebf3c1c6b83b2a167874a55052b49a8",
     "patches/0010-native-phase-history-source.patch": "f87479928498b4ee5712c8840d49103c26747e82c51ec5aaa4c98c740a76fae9",
     "patches/0011-original-phase-context-acquisition-fence.patch": "317e4c491d0c54fb1f8a18271f22b56fdb3e51c087ece79ae707a7d9f5f029a2",
-    "patches/0012-owned-mode-start-context-functional-tests.patch": "33d4b68d873f3571878a786c28e4f435440e37b6c379c2eed1286c16df67522a",
+    "patches/0012-owned-mode-start-context-functional-tests.patch": "9db00db10268abef35aa0a6bca08519cf73599fa225a5c666bea0102360ee1f2",
     "patches/0013-raw-physical-attitude-source-pair.patch": "da66125efbe76c3c8abb5644c8380e3327aae6f66076b1155fa02cbff677ed8e"
   },
   "files": {
@@ -54,7 +54,7 @@
     "src/modules/vtol_att_control/vtol_att_control_main.cpp": "1a5ba1e193bef35b4eaff321592668fdd90a293868eb59ca49252dbc7f63ad51",
     "src/modules/vtol_att_control/vtol_att_control_main.h": "4ce75029eb41db6e5edc8209884b0d543fb8cb44a7fc2d650e91e247db35bc5d",
     "src/modules/vtol_att_control/NativePhaseHistory.hpp": "0477a926c81cda9e734a4f800225c25aa0e8c8f80f571bdb41b2233578a9c107",
-    "src/modules/commander/OwnedModeStartContextTest.cpp": "838726e5a77026d9daff353416ea00f8c86a8bc81e28821f6db0dbba9baee216"
+    "src/modules/commander/OwnedModeStartContextTest.cpp": "a1640c18a128048a0a2bf9b21fcf827091418eeff24c4d10054b29b6712983b3"
   },
   "deleted_files": [
     "src/modules/commander/ExpectedModeGuard.hpp",
