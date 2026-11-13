@@ -1,10 +1,23 @@
 # Native guidance phase-exit component case
 
 Closed-log attribution is bound to the exact Runtime and asset hashes in
-`guidance-evidence-source.json`. Reproduce historical captures with their
+`guidance-evidence-source-v5.json` (schema 3, protocol 5). The archived
+`guidance-evidence-source.json` remains the unchanged protocol 4 contract.
+Reproduce historical captures with their
 recorded source revision and build authority; a newer startup recipe does not
 retroactively authorize an older artifact. Stored audits and original verdicts
 remain unchanged when these pins advance.
+
+New acquisitions require the exact typed Start context from the final fresh
+passive packet before engagement. The request, original acquisition receipt
+and last preceding observed context must agree; a newer changed observation
+cannot be hidden by an earlier matching one. The shared adapter bootstrap
+helper is pinned alongside the Runtime and compiled assets, and its exact hash
+is recorded in the host manifest. Unsupported old protocol/context/host records
+cannot qualify under this tool; replay them using their frozen original code.
+Synthetic protocol projections in unit tests do not upgrade recorded captures.
+Normal training-launcher logs are a separate artifact kind and do not establish
+canonical isolated Runtime provenance or full-App following qualification.
 
 `tools/run_native_guidance_cycle.py` reuses the canonical isolated Runtime,
 DDS/bootstrap/readback/pre-arm gates, stable-window predicate and existing

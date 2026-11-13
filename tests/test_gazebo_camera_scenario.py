@@ -540,3 +540,11 @@ def test_repinning_raw_server_cannot_remove_other_systems_or_add_plugins(package
     save()
     with pytest.raises(ValueError, match='raw camera'):
         scenario.verified_scenario(value['name'], baseline, manifest)
+
+
+def test_phase_fenced_courtyard_keeps_all_prior_scene_and_camera_resources():
+    old = json.loads((scenario.SCENARIOS / 'standard-vtol-mono-camera-courtyard-v2.json').read_text())
+    current = json.loads((scenario.SCENARIOS / 'standard-vtol-mono-camera-courtyard-v3.json').read_text())
+    identity = {'name', 'build_manifest_sha256', 'image_id', 'binary_sha256'}
+    assert {k: v for k, v in current.items() if k not in identity} == {k: v for k, v in old.items() if k not in identity}
+    assert all(current[key] != old[key] for key in identity)

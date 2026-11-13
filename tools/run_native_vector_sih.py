@@ -37,7 +37,7 @@ from classes.following_readiness import evaluate_follower_guidance_input  # noqa
 from classes.fixed_wing_guidance_policy import FixedWingGuidancePolicy  # noqa: E402
 from classes.follower import FollowerFactory  # noqa: E402
 from classes.native_follow_binding import NativeFollowBinding  # noqa: E402
-from classes.native_guidance import NativeGuidanceClient, NativeReleaseReceipt  # noqa: E402
+from classes.native_guidance import NativeGuidanceClient, NativeReleaseReceipt, NativeStartContext  # noqa: E402
 from classes.offboard_commander import OffboardCommander  # noqa: E402
 from classes.parameters import Parameters  # noqa: E402
 from classes.guidance_observation import PinholeCalibration  # noqa: E402
@@ -1495,7 +1495,8 @@ async def run(args, isolation):
 
         target_clock_current()
         publications_before_acquire = connection.last_packet['publications']
-        baseline = await binding.engage(before_dispatch=target_clock_current if world_clock is not None else None)
+        start_context = NativeStartContext.from_payload(connection.last_packet.get("start_context"))
+        baseline = await binding.engage(start_context=start_context, before_dispatch=target_clock_current if world_clock is not None else None)
         (output / "acquisition.json").write_text(json.dumps(asdict(client.acquisition_context), indent=2))
         follower.bind_airframe_session(guidance)
 

@@ -45,6 +45,7 @@ from classes.native_guidance import (
     NativeGuidanceError,
     NativeMulticopterCommand,
     NativeReleaseReceipt,
+    NativeStartContext,
 )
 from classes.offboard_commander import OffboardCommander
 from classes.parameters import Parameters
@@ -318,7 +319,8 @@ def create_session(client, connection, capabilities, identity, config, profile, 
 
 
 async def activate_session(session, log):
-    baseline = await session.binding.engage()
+    start_context = NativeStartContext.from_payload(session.connection.last_packet.get("start_context"))
+    baseline = await session.binding.engage(start_context=start_context)
     session.acquisition = session.client.acquisition_context
     session.follower.bind_airframe_session(session.guidance)
     log('acquisitions.jsonl', {'acquisition': asdict(session.acquisition)})

@@ -247,7 +247,8 @@ class Runtime:
             simulation_build=self.baseline, adapter_image=self.assets["adapter_image"],
             startup_parameters=startup, fresh_parameter_store_before_boot=True,
             logger_sha256=digest(logger), socket_alias=str(self.socket),
-            tool_sha256=digest(Path(__file__)), runtime_assets_sha256=digest(ASSETS)))
+            tool_sha256=digest(Path(__file__)), runtime_assets_sha256=digest(ASSETS),
+            runtime_dependencies={"tools/native_adapter_runtime.py": digest(ROOT / "tools/native_adapter_runtime.py")}))
 
     def sidecar_info(self):
         return adapter_info(self, shared.owned_container_info)

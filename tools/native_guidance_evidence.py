@@ -9,10 +9,10 @@ import re
 
 import numpy as np
 
-from classes.native_guidance import NativeAcquisitionContext, NativeCapabilities, NativeGuidanceError, NativeReleaseReceipt
+from classes.native_guidance import NativeAcquisitionContext, NativeCapabilities, NativeGuidanceError, NativeReleaseReceipt, NativeStartContext
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE_CONTRACT = ROOT / 'native/guidance-evidence-source.json'
+SOURCE_CONTRACT = ROOT / 'native/guidance-evidence-source-v5.json'
 
 
 def _uint64(value):
@@ -48,7 +48,7 @@ def _engagement_reference(run, acquisition, capabilities, *, reference_timeout_s
             def key(row):
                 message = row['value']
                 values = (row['connection'], message['generation'], message['request_id'])
-                if message['protocol_version'] != 4 or not all(_uint64(value) for value in values):
+                if type(message['protocol_version']) is not int or message['protocol_version'] != 5 or not all(_uint64(value) for value in values):
                     raise ValueError('native_guidance_altitude_wire_header_invalid')
                 return values
 
@@ -68,10 +68,13 @@ def _engagement_reference(run, acquisition, capabilities, *, reference_timeout_s
                 return replies[0]
 
             payload = engage['value']['payload']
-            if (set(payload) != {'identity', 'token', 'runtime_id', 'expires_at_monotonic_s', 'altitude_reference'}
+            if (set(payload) != {'identity', 'token', 'runtime_id', 'expires_at_monotonic_s', 'altitude_reference', 'start_context'}
                     or payload['identity'] != identity or payload['runtime_id'] != acquisition.runtime_id
                     or not _finite(payload['expires_at_monotonic_s'])):
                 raise ValueError('native_guidance_altitude_engagement_changed')
+            start_context = NativeStartContext.from_payload(payload['start_context'])
+            if start_context != acquisition.start_context:
+                raise ValueError('native_guidance_start_context_changed')
             reference = payload['altitude_reference']
             if (not isinstance(reference, dict) or set(reference) != {'altitude_amsl_m', 'reference_generation'}
                     or not _finite(reference['altitude_amsl_m']) or not _uint64(reference['reference_generation'])
@@ -88,15 +91,24 @@ def _engagement_reference(run, acquisition, capabilities, *, reference_timeout_s
                     or NativeCapabilities.from_payload(reply(hello[0])['value']['payload'])
                     != NativeCapabilities.from_payload(capabilities)):
                 raise ValueError('native_guidance_altitude_hello_unqualified')
+            passive = [row for row in preceding if row['value'].get('operation') == 'observe']
+            passive.sort(key=lambda row: row['timestamp'])
+            if (not passive or len(passive) > 1 and passive[-1]['timestamp'] == passive[-2]['timestamp']):
+                raise ValueError('native_guidance_start_observation_ambiguous_or_missing')
+            last_observe = reply(passive[-1])
+            if (last_observe['timestamp'] >= engage['timestamp']
+                    or NativeStartContext.from_payload(last_observe['value']['payload'].get('start_context')) != start_context):
+                raise ValueError('native_guidance_start_context_changed')
             observed = []
             for request in preceding:
-                if request['value'].get('operation') != 'observe':
+                if request is not passive[-1]:
                     continue
                 response = reply(request)
                 packet = response['value']['payload']
                 state, pose = packet.get('aircraft_state') or {}, packet.get('vehicle_pose') or {}
                 xyz, velocity = pose.get('vehicle_ned'), state.get('velocity_ned_m_s')
                 if (response['timestamp'] < engage['timestamp'] and packet.get('fresh') is True
+                        and packet.get('owner_confirmed') is False
                         and packet.get('rescue_active') is False and state.get('binding') == identity['binding']
                         and _finite(packet.get('phase_source_health', {}).get('vehicle_status_timeout_s'))
                         and packet.get('phase_source_health', {}).get('vehicle_status_timeout_s') == reference_timeout_s
@@ -147,7 +159,7 @@ def _engagement_reference(run, acquisition, capabilities, *, reference_timeout_s
                 elif (set(command) != {'velocity_north_m_s', 'velocity_east_m_s', 'yaw_rate_rad_s', 'velocity_down_m_s'}
                         or not all(_finite(value) for value in command.values())):
                     raise ValueError('native_guidance_altitude_intent_unqualified')
-            matches.append(reference | dict(position_fingerprint=observed[-1][1],
+            matches.append(reference | dict(start_context_id=start_context.context_id, position_fingerprint=observed[-1][1],
                 dds_position_timestamp_us=observed[-1][2],
                 aircraft_uid=acquisition.identity.binding.aircraft_uid,
                 wire_path=str(path.relative_to(run)), wire_sha256=hashlib.sha256(path.read_bytes()).hexdigest()))
@@ -172,12 +184,16 @@ def _source_provenance(run, acquisition, *, adapter_bundle, adapter_file_manifes
 
     run = Path(run)
     contract, assets, host = read(SOURCE_CONTRACT), read(ASSETS), read(run / 'host-manifest.json')
-    if (contract.get('schema_version') != 2 or contract.get('protocol_version') != 4
+    if (not isinstance(contract, dict) or type(contract.get('schema_version')) is not int or contract.get('schema_version') != 3
+            or type(contract.get('protocol_version')) is not int or contract.get('protocol_version') != 5
             or re.fullmatch('[0-9a-f]{64}', contract.get('source_review_sha256', '')) is None
             or digest(ASSETS) != contract['runtime_assets_sha256']
             or host['runtime_assets_sha256'] != contract['runtime_assets_sha256']
             or host['tool_sha256'] != contract['runtime_helper_sha256']
             or digest(ROOT / 'tools/run_native_transition_baseline.py') != contract['runtime_helper_sha256']
+            or contract.get('runtime_dependencies') != {
+                'tools/native_adapter_runtime.py': digest(ROOT / 'tools/native_adapter_runtime.py')}
+            or host.get('runtime_dependencies') != contract['runtime_dependencies']
             or host['adapter_image'] != assets['adapter_image']):
         raise ValueError('native_guidance_runtime_provenance_unsupported')
     verify_adapter(Path(adapter_bundle), Path(adapter_file_manifest), assets)
@@ -244,7 +260,7 @@ def _source_provenance(run, acquisition, *, adapter_bundle, adapter_file_manifes
             or recorder != {'path': 'native_sih_wire.py', 'sha256': contract['wire_recorder_sha256']}
             or digest(phase / recorder['path']) != contract['wire_recorder_sha256']):
         raise ValueError('native_guidance_wire_recorder_changed')
-    return dict(artifact_root=str(run), source_contract_sha256=digest(SOURCE_CONTRACT), protocol_version=4,
+    return dict(artifact_root=str(run), source_contract_sha256=digest(SOURCE_CONTRACT), protocol_version=5,
                 source_review_sha256=contract['source_review_sha256'],
                 altitude_reference_timeout_s=timeout,
                 multicopter_altitude_hold_supported=capabilities['multicopter_altitude_hold_supported'],
@@ -279,7 +295,7 @@ def _held_reference_matches(log, start, end, ticks, down, source):
         reference = source['mc_altitude_reference']
         altitude, generation = reference['altitude_amsl_m'], reference['reference_generation']
         timeout = source['altitude_reference_timeout_s']
-        if (source['protocol_version'] != 4 or source['multicopter_altitude_hold_supported'] is not True
+        if (source['protocol_version'] != 5 or source['multicopter_altitude_hold_supported'] is not True
                 or not _finite(altitude) or not _uint64(generation)
                 or abs(altitude) > np.finfo(np.float32).max
                 or not _finite(timeout) or timeout <= 0):

@@ -92,7 +92,7 @@ def held_mc_log(**kwargs):
         home_update_count=np.zeros(len(position['timestamp'])),
         home_altitude_valid=np.ones(len(position['timestamp']), dtype=bool),
         home_altitude_amsl=np.full(len(position['timestamp']), 500.))
-    source = dict(protocol_version=4, multicopter_altitude_hold_supported=True, altitude_reference_timeout_s=1.,
+    source = dict(protocol_version=5, multicopter_altitude_hold_supported=True, altitude_reference_timeout_s=1.,
         mc_altitude_reference=dict(altitude_amsl_m=530., reference_generation=7,
             position_fingerprint=dict(x=.125, y=0., z=-30., vx=2.5, vy=0., vz=0., altitude_amsl_m=530.),
             dds_position_timestamp_us=1794570356442135, aircraft_uid='42'))

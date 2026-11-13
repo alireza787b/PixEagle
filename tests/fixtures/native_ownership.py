@@ -24,3 +24,17 @@ def acquisition(identity, *, runtime_id="test-adapter", token=TOKEN, activation_
 
 def release_receipt(context, *, outcome="hold_confirmed", nav_state=4, timestamp=300):
     return NativeReleaseReceipt(context, outcome, nav_state, timestamp)
+
+
+def project_recorded_acquisition(payload):
+    """Synthetic v5 test projection, never evidence of the recorded v4 Start history."""
+    from copy import deepcopy
+    owner = deepcopy(payload)
+    if 'start_context' in owner:
+        raise ValueError('Expected recorded pre-v5 acquisition')
+    owner['start_context'] = dict(version=1, runtime_id=owner['runtime_id'], binding=owner['identity']['binding'],
+        firmware_incarnation=owner['firmware_incarnation'], mode_id=owner['mode_id'], registration_id=9000,
+        intention_revision=owner['source_revision'], source_nav_state=owner['source_nav_state'],
+        source_nav_state_timestamp=owner['source_nav_state_timestamp'], phase='fixed_wing',
+        phase_source_instance=0, phase_revision=0)
+    return owner
