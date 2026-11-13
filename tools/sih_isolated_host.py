@@ -132,6 +132,9 @@ def simulation_launch_args(simulator: str, baseline: dict, manifest: dict | None
     else:
         raise ValueError("Unsupported simulator launch plan")
     if source_build:
+        if scenario:
+            from tools.gazebo_scenario import stage_scenario_resources
+            options.extend(stage_scenario_resources(scenario, runtime))
         work = runtime.resolve() / "simulator"
         for directory in ("home", "rootfs"):
             (work / directory).mkdir(parents=True, mode=0o700, exist_ok=True)

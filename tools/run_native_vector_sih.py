@@ -830,6 +830,12 @@ def verify_gazebo_runtime(container, instance, uid, process, manifest, *, packag
         from tools.gazebo_scenario import scenario_environment
         if any(environment.get(key) != value for key, value in scenario_environment(scenario).items()):
             raise ValueError("Gazebo process environment differs from the runtime scenario")
+        if scenario.get("added_resources"):
+            mounts = json.loads(command("docker", "inspect", container))[0]["Mounts"]
+            for relative in scenario["added_resources"]:
+                matches = [mount for mount in mounts if mount.get("Destination") == "/opt/px4/gazebo/" + relative]
+                if len(matches) != 1 or matches[0].get("Type") != "bind" or matches[0].get("RW") is not False:
+                    raise ValueError("Gazebo added world requires its declared read-only file mount")
     partition = environment.get("GZ_PARTITION")
     if not isinstance(partition, str) or not partition.strip():
         raise ValueError("Gazebo requires a nonempty process transport partition")
@@ -850,7 +856,10 @@ print(json.dumps(out))
     extra = [json.dumps(spec["airframe_chain"])] if scenario else []
     observed = json.loads(command(*prefix, "python3", "-c", script, airframe, *extra))
     resources = observed.get("gazebo")
-    if resources != manifest["artifacts"]["gazebo"] or observed.get("airframe_sha256") != airframe_sha256:
+    expected_resources = dict(manifest["artifacts"]["gazebo"])
+    if scenario:
+        expected_resources.update(scenario.get("added_resources", {}))
+    if resources != expected_resources or observed.get("airframe_sha256") != airframe_sha256:
         raise ValueError("Gazebo runtime resources differ from the verified build")
     if scenario and observed.get("scenario_airframes") != {
             name: spec["resources"][name]["sha256"] for name in spec["airframe_chain"]}:

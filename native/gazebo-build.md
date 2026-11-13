@@ -233,6 +233,37 @@ force/torque noise even at requested zero speed. No new target physics,
 controller, native parameter tuning, public defaults or flight permission is
 introduced by this scenario.
 
+### Raised visual training target
+
+`x500-mono-camera-board-v1` is a separate version 2 descriptor. It reuses the same
+stock image/ELF, 4010 aircraft, camera, calibration and spawn. Its one added world,
+`native/gazebo/worlds/training_board_v1.sdf`, preserves the stock `aruco` world
+and tiny marker, adding a static visual board. The loader compares the world
+structure after removing that declared board and restoring the original name;
+physics, lighting, georeference, existing objects and plugins must be unchanged.
+The addition cannot overwrite any packaged resource. Before launch the verified
+world is copied into the private run directory, made read-only and mounted at
+its declared new resource path. Runtime verification requires that read-only
+file mount and the full original resource tree plus exactly the added hash/mode.
+The original build manifest and `x500-mono-camera-aruco-v1` bytes remain unchanged.
+
+The board is centered at **Gazebo world ENU [12, 0, 6] metres**, with zero
+roll/pitch/yaw. Its 6×6 m vertical panel faces -X; the black border, white inset,
+opposing black squares and orange center supply distinct visual features.
+The target is visual-only, with no collision, sensor, plugin or motion controller.
+Typed descriptor metadata binds its static pose, panel dimensions and aim point
+to the SDF. This is fixture metadata, not synthetic tracker input or a safety
+boundary; it does not prevent flying through the panel.
+
+With unchanged spawn [-6,0,0], level attitude and aircraft height about 6 m, the
+camera-to-panel range is about 17.8 m. The pinned 1.74 rad horizontal FOV predicts
+roughly 90×90 pixels at 640×480 analysis resolution (roughly 180×180 at 1280×960).
+It also geometrically fits the camera view at the bench pose. These are pinhole
+estimates, not rendering/CSRT evidence. The prior disarmed stock-marker capture
+showed only a 44×1-pixel dark line; its capture PASS and visibility limitation
+remain unchanged. The added world requires its own rendered-frame/visibility
+check before an operator demo and later airborne tracking/following evidence.
+
 ## Next gates
 
 No simulator launch or flight was performed for this verifier extension. Keep

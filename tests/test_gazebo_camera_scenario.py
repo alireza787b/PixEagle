@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import socket
 from unittest.mock import Mock
+import xml.etree.ElementTree as ET
 
 import pytest
 
@@ -13,6 +14,7 @@ from tools import sih_isolated_host as host
 from tools import run_native_vector_sih as runner
 
 NAME = "x500-mono-camera-aruco-v1"
+BOARD = "x500-mono-camera-board-v1"
 
 
 @pytest.fixture
@@ -150,13 +152,107 @@ def test_startup_overlay_cannot_change_declared_aircraft_identity(tmp_path, pack
     assert not (tmp_path / 'run').exists()
 
 
-@pytest.mark.parametrize('change', [None, 'model', 'world', 'image', 'binary', 'spawn', 'camera_host',
-    'runtime_resources', 'runtime_parent_airframe', 'extra_entity', 'missing_marker', 'extra_topic_model',
-    'missing_image', 'extra_image', 'parameter', 'empty_partition'])
-def test_runtime_requires_actual_scenario_and_keeps_original_build(tmp_path, package, monkeypatch, change):
+def board_package(package):
     value, manifest, baseline, _ = package
+    root = Path(__file__).resolve().parents[1]
+    declaration = json.loads((root / 'native/gazebo/scenarios' / (BOARD + '.json')).read_text())
+    value.update({k: declaration[k] for k in ('schema_version', 'name', 'world', 'scene_models', 'added_world', 'target')})
+    base = Path(baseline['manifest']).parent / 'packaged/gazebo/worlds/aruco.sdf'
+    document = ET.fromstring(base.read_bytes());world = document.find('world');world.set('name', value['world'])
+    source = ET.parse(root / 'native/gazebo/worlds/training_board_v1.sdf')
+    world.append(next(model for model in source.findall('./world/model') if model.get('name') == 'training_board'))
+    addition = scenario.SCENARIOS.parent / value['added_world']['resource']
+    addition.parent.mkdir(parents=True);addition.write_bytes(ET.tostring(document))
+    def save(*, repin=False):
+        if repin:value['added_world']['sha256'] = hashlib.sha256(addition.read_bytes()).hexdigest()
+        (scenario.SCENARIOS / (BOARD + '.json')).write_text(json.dumps(value))
+    save(repin=True)
+    return value, manifest, baseline, save, addition
+
+
+def test_board_stages_only_declared_read_only_world_without_changing_build(tmp_path, package):
+    value, manifest, baseline, _, addition = board_package(package)
+    before = deepcopy(manifest)
+    checked = scenario.verified_scenario(BOARD, baseline, manifest)
+    argv = host.simulation_launch_args('gazebo', baseline, manifest, runtime=tmp_path/'run',
+        token='owner', name='camera', gazebo_scenario=BOARD)
+    staged = tmp_path / 'run/scenario/worlds/training_board_v1.sdf'
+    assert staged.read_bytes() == addition.read_bytes()
+    assert staged.stat().st_mode & 0o777 == 0o444
+    assert f'type=bind,src={staged},dst=/opt/px4/gazebo/worlds/training_board_v1.sdf,readonly' in argv
+    assert 'PX4_GZ_WORLD=training_board_v1' in argv
+    assert checked['descriptor']['target']['aim_point_m'] == [12, 0, 6]
+    assert checked['added_resources'] == {'worlds/training_board_v1.sdf': {
+        'sha256': value['added_world']['sha256'], 'executable': False}}
+    assert manifest == before and 'worlds/training_board_v1.sdf' not in manifest['artifacts']['gazebo']
+
+
+@pytest.mark.parametrize('change', ['hash', 'executable', 'file_mode', 'replace_packaged', 'traversal', 'symlink',
+    'missing', 'extra_declaration', 'target_frame', 'target_nan', 'target_bool', 'target_size', 'target_aim',
+    'target_rotated', 'target_pose', 'target_plugin', 'target_sensor', 'target_collision', 'target_dynamic',
+    'target_missing', 'target_duplicate', 'panel_size', 'world_gravity', 'world_extra_model', 'world_plugin'])
+def test_added_world_cannot_hide_physics_resource_or_target_changes(tmp_path, package, change):
+    value, manifest, baseline, save, addition = board_package(package)
+    if change == 'hash':value['added_world']['sha256'] = '0'*64
+    if change == 'executable':value['added_world']['executable'] = True
+    if change == 'file_mode':addition.chmod(0o755)
+    if change == 'replace_packaged':value['added_world']['resource'] = 'worlds/aruco.sdf'
+    if change == 'traversal':value['added_world']['resource'] = '../other.sdf'
+    if change == 'symlink':
+        renamed = addition.with_suffix('.copy');addition.rename(renamed);addition.symlink_to(renamed)
+    if change == 'missing':addition.unlink()
+    if change == 'extra_declaration':value['added_world']['other'] = 'unexpected'
+    if change == 'target_frame':value['target']['frame'] = 'ned'
+    if change == 'target_nan':value['target']['pose'][0] = float('nan')
+    if change == 'target_bool':value['target']['panel_size_m'][0] = True
+    if change == 'target_size':value['target']['panel_size_m'][0] = -1
+    if change == 'target_aim':value['target']['aim_point_m'][2] = 7
+    if change == 'target_rotated':value['target']['pose'][5] = 1
+    xml_changes = {'target_pose', 'target_plugin', 'target_sensor', 'target_collision', 'target_dynamic',
+                   'target_missing', 'target_duplicate', 'panel_size', 'world_gravity', 'world_extra_model', 'world_plugin'}
+    if change in xml_changes:
+        doc = ET.parse(addition);world = doc.find('world')
+        model = next(m for m in world.findall('model') if m.get('name') == 'training_board')
+        if change == 'target_pose':model.find('pose').text = '12 0 8 0 0 0'
+        if change in ('target_plugin', 'target_sensor', 'target_collision'):ET.SubElement(model, change.removeprefix('target_'))
+        if change == 'target_dynamic':model.find('static').text = 'false'
+        if change == 'target_missing':world.remove(model)
+        if change == 'target_duplicate':world.append(deepcopy(model))
+        if change == 'panel_size':model.find('./link/visual[@name="panel"]/geometry/box/size').text = '0.1 8 6'
+        if change == 'world_gravity':ET.SubElement(world, 'gravity').text = '0 0 -4'
+        if change == 'world_extra_model':ET.SubElement(world, 'model', {'name': 'hidden'})
+        if change == 'world_plugin':ET.SubElement(world, 'plugin', {'name': 'hidden'})
+        doc.write(addition)
+    save(repin=change in xml_changes)
+    with pytest.raises(ValueError):
+        host.simulation_launch_args('gazebo', baseline, manifest, runtime=tmp_path/'run',
+            token='owner', name='camera', gazebo_scenario=BOARD)
+    assert not (tmp_path/'run').exists()
+
+
+def test_added_resource_is_rechecked_before_private_staging(tmp_path, package):
+    _, manifest, baseline, _, addition = board_package(package)
+    checked = scenario.verified_scenario(BOARD, baseline, manifest)
+    addition.write_text('changed after descriptor validation')
+    with pytest.raises(ValueError, match='resource changed'):
+        scenario.stage_scenario_resources(checked, tmp_path/'run')
+    assert not (tmp_path/'run').exists()
+
+
+RUNTIME_CHANGES = [None, 'model', 'world', 'image', 'binary', 'spawn', 'camera_host',
+    'runtime_resources', 'runtime_parent_airframe', 'extra_entity', 'missing_marker', 'extra_topic_model',
+    'missing_image', 'extra_image', 'parameter', 'empty_partition']
+
+
+@pytest.mark.parametrize('board,change', [(board, change) for board in (False, True) for change in RUNTIME_CHANGES]
+    + [(True, change) for change in ('world_bytes', 'missing_world_file', 'writable_world', 'missing_world_mount')])
+def test_runtime_requires_actual_scenario_and_keeps_original_build(tmp_path, package, monkeypatch, board, change):
+    if board:
+        value, manifest, baseline, _, _ = board_package(package)
+    else:
+        value, manifest, baseline, _ = package
     monkeypatch.setattr(runner, 'verified_simulation_build', lambda *a, **k: ('gazebo', baseline, manifest))
-    environment = {'PX4_GZ_WORLD': 'aruco', 'PX4_GZ_MODELS': '/opt/px4/gazebo/models',
+    environment = {'PX4_GZ_WORLD': value['world'], 'PX4_GZ_MODELS': '/opt/px4/gazebo/models',
         'PX4_GZ_WORLDS': '/opt/px4/gazebo/worlds',
         'GZ_SIM_RESOURCE_PATH': '/opt/px4/gazebo/models:/opt/px4/gazebo/worlds',
         'GZ_SIM_SYSTEM_PLUGIN_PATH': '/opt/px4/gazebo/plugins',
@@ -167,9 +263,14 @@ def test_runtime_requires_actual_scenario_and_keeps_original_build(tmp_path, pac
                      'empty_partition': 'GZ_PARTITION'}[change]] = ''
     def read(*args):
         if args[1] == 'inspect':
+            mounts = [{'Source': str(tmp_path), 'Destination': '/work'}]
+            if board and change != 'missing_world_mount':
+                mounts.append({'Type': 'bind', 'RW': change == 'writable_world',
+                    'Source': str(tmp_path/'scene/world.sdf'),
+                    'Destination': '/opt/px4/gazebo/worlds/training_board_v1.sdf'})
             return json.dumps([{'Id': 'original', 'Image': 'wrong' if change == 'image' else baseline['image_id'],
                 'HostConfig': {'NetworkMode': 'none', 'Privileged': False, 'Devices': []},
-                'NetworkSettings': {'Ports': {}}, 'Mounts': [{'Source': str(tmp_path), 'Destination': '/work'}]}])
+                'NetworkSettings': {'Ports': {}}, 'Mounts': mounts}])
         if args[-1] == 'verify':
             return json.dumps([{'args': ['/opt/px4/bin/px4', '-i', '0'], 'cwd': '/work/rootfs',
                 'model': 'gz_quadtailsitter' if change == 'model' else 'gz_x500_mono_cam',
@@ -177,10 +278,14 @@ def test_runtime_requires_actual_scenario_and_keeps_original_build(tmp_path, pac
         if 'python3' in args:
             chain = {name: value['resources'][name]['sha256'] for name in value['airframe_chain']}
             if change == 'runtime_parent_airframe': chain[value['airframe_chain'][1]] = 'bad'
-            return json.dumps({'gazebo': {} if change == 'runtime_resources' else manifest['artifacts']['gazebo'],
+            resources = deepcopy(manifest['artifacts']['gazebo'])
+            if board and change != 'missing_world_file':
+                resources[value['added_world']['resource']] = {
+                    'sha256': 'bad' if change == 'world_bytes' else value['added_world']['sha256'], 'executable': False}
+            return json.dumps({'gazebo': {} if change == 'runtime_resources' else resources,
                 'airframe_sha256': value['resources'][value['airframe_chain'][0]]['sha256'], 'scenario_airframes': chain})
         if 'service' in args:
-            names = ['ground_plane', 'arucotag', 'x500_mono_cam_0']
+            names = [*value['scene_models'], 'x500_mono_cam_0']
             if change == 'extra_entity': names.append('other')
             if change == 'missing_marker': names.remove('arucotag')
             return ''.join('model {\n  name: "' + name + '"\n}\n' for name in names)
@@ -192,7 +297,7 @@ def test_runtime_requires_actual_scenario_and_keeps_original_build(tmp_path, pac
             if change == 'missing_image': topics.pop()
             if change == 'extra_image': topics.append('/world/aruco/model/x500_mono_cam_0/link/other/sensor/other/image')
             if change == 'extra_topic_model': topics.append('/model/other/odometry')
-            return '\n'.join(topics)
+            return '\n'.join(topics).replace('/world/aruco/', '/world/' + value['world'] + '/')
         if '/opt/px4/bin/px4-param' in args:
             return '\n'.join(f'{k}: {v}' for k, v in {'SYS_AUTOSTART': 4010,
                 'MAV_TYPE': 2, 'CA_AIRFRAME': 0, 'CA_ROTOR_COUNT': 6 if change == 'parameter' else 4, 'SIM_GZ_EN': 1}.items())
@@ -206,10 +311,10 @@ def test_runtime_requires_actual_scenario_and_keeps_original_build(tmp_path, pac
         if change:
             with pytest.raises(ValueError):
                 runner.verify_simulator('original', 0, socket_path,
-                    simulation_build_manifest=Path(baseline['manifest']), gazebo_scenario=NAME)
+                    simulation_build_manifest=Path(baseline['manifest']), gazebo_scenario=value['name'])
         else:
             checked = runner.verify_simulator('original', 0, socket_path,
-                simulation_build_manifest=Path(baseline['manifest']), gazebo_scenario=NAME)
+                simulation_build_manifest=Path(baseline['manifest']), gazebo_scenario=value['name'])
             assert checked['firmware_build'] == baseline
             assert checked['gazebo']['runtime_scenario']['descriptor']['airframe_id'] == 4010
             assert checked['gazebo']['expected_parameters']['MAV_TYPE'] == 2

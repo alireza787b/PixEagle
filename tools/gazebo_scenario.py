@@ -1,7 +1,8 @@
 """Explicit runtime scenarios over an unchanged, independently verified Gazebo build.
 
-Repository descriptors select packaged resources; they never redefine build authority,
-modify an airframe, publish a scene command, or qualify rendering/flight response.
+Repository descriptors select packaged resources and explicit pinned scene additions.
+They never redefine build authority, modify an airframe, publish a scene command,
+or qualify rendering/flight response.
 """
 from __future__ import annotations
 
@@ -13,6 +14,63 @@ import re
 import xml.etree.ElementTree as ET
 
 SCENARIOS = Path(__file__).resolve().parents[1] / "native/gazebo/scenarios"
+
+
+def _finite_vector(value, count):
+    return (isinstance(value, list) and len(value) == count
+            and all(type(v) in (int, float) and math.isfinite(v) for v in value))
+
+
+def _added_world(value: dict, manifest: dict, files: dict) -> dict:
+    """Permit one additional world, never an override of a packaged resource."""
+    addition = value["added_world"]
+    if (not isinstance(addition, dict) or set(addition) != {"resource", "base_resource", "sha256", "executable"}
+            or addition["resource"] != f'worlds/{value["world"]}.sdf'
+            or not isinstance(addition["base_resource"], str)
+            or not re.fullmatch(r"worlds/[a-z][a-z0-9_]*\.sdf", addition["base_resource"])
+            or addition["resource"] in manifest["artifacts"]["gazebo"]
+            or "gazebo/" + addition["base_resource"] not in files
+            or addition["executable"] is not False):
+        raise ValueError("Gazebo scenario must add one declared world without replacing packaged resources")
+    pin = {k: addition[k] for k in ("sha256", "executable")}
+    raw = _read_file(SCENARIOS.parent, addition["resource"], pin)
+    target = value["target"]
+    if (not isinstance(target, dict) or set(target) != {"name", "frame", "pose", "panel_size_m", "aim_point_m"}
+            or not isinstance(target["name"], str) or not re.fullmatch(r"[a-z][a-z0-9_]*", target["name"])
+            or target["frame"] != "gazebo_world_enu"
+            or not _finite_vector(target["pose"], 6) or target["pose"][3:] != [0, 0, 0]
+            or not _finite_vector(target["panel_size_m"], 2) or min(target["panel_size_m"]) <= 0
+            or not _finite_vector(target["aim_point_m"], 3) or target["aim_point_m"] != target["pose"][:3]):
+        raise ValueError("Gazebo scenario target requires a finite static ENU vertical-panel contract")
+    try:
+        document = ET.fromstring(raw)
+        worlds = document.findall("world")
+        if len(worlds) != 1 or worlds[0].get("name") != value["world"]:
+            raise ValueError("Gazebo added world identity differs")
+        world = worlds[0]
+        targets = [model for model in world.findall("model") if model.get("name") == target["name"]]
+        if len(targets) != 1:
+            raise ValueError("Gazebo scenario target is missing or duplicated")
+        model = targets[0]
+        pose = [float(n) for n in model.findtext("pose", "").split()]
+        panel = model.findall('./link/visual[@name="panel"]/geometry/box/size')
+        size = [float(n) for n in (panel[0].text or "").split()] if len(panel) == 1 else []
+        if (model.findtext("static") != "true" or pose != target["pose"]
+                or not _finite_vector(size, 3) or min(size) <= 0 or size[1:] != target["panel_size_m"]
+                or any(model.findall(".//" + kind) for kind in ("plugin", "sensor", "include", "uri", "collision"))):
+            raise ValueError("Gazebo target must match its static visual-only panel declaration")
+        world.remove(model)
+        base = ET.fromstring(files["gazebo/" + addition["base_resource"]]).find("world")
+        if base is None:
+            raise ValueError("Gazebo base world is missing")
+        world.set("name", base.get("name", ""))
+        canonical = lambda node: ET.canonicalize(ET.tostring(node, encoding="unicode"), strip_text=True)
+        if canonical(world) != canonical(base):
+            raise ValueError("Gazebo added world changes more than its declared target and name")
+    except (ET.ParseError, TypeError) as error:
+        raise ValueError("Gazebo added world is malformed") from error
+    files["gazebo/" + addition["resource"]] = raw
+    return {addition["resource"]: pin}
 
 
 def _read_file(packaged: Path, relative: str, entry: dict) -> bytes:
@@ -78,8 +136,10 @@ def verified_scenario(name: str, baseline: dict, manifest: dict) -> dict:
     fields = {"schema_version", "name", "build_manifest_sha256", "image_id", "binary_sha256",
               "model", "world", "airframe_id", "airframe_chain", "identity_parameters", "models",
               "scene_models", "resources", "spawn_pose", "camera"}
+    if isinstance(value, dict) and value.get("schema_version") == 2:
+        fields |= {"added_world", "target"}
     if (not isinstance(value, dict) or set(value) != fields or type(value["schema_version"]) is not int
-            or value["schema_version"] != 1 or value["name"] != name):
+            or value["schema_version"] not in (1, 2) or value["name"] != name):
         raise ValueError("Invalid Gazebo scenario descriptor")
     if (manifest.get("kind") != "pixeagle_gazebo_build"
             or baseline.get("kind") != "verified_gazebo_source_build"
@@ -124,6 +184,7 @@ def verified_scenario(name: str, baseline: dict, manifest: dict) -> dict:
         required = {"gazebo/" + k for k in manifest["artifacts"]["gazebo"] if k.startswith(f"models/{model}/")}
         if not required or not required <= files.keys():
             raise ValueError("Gazebo scenario model resource closure is incomplete")
+    additions = _added_world(value, manifest, files) if value["schema_version"] == 2 else {}
     world_file = f'gazebo/worlds/{value["world"]}.sdf'
     try:
         world = ET.fromstring(files[world_file]).find("world")
@@ -158,7 +219,22 @@ def verified_scenario(name: str, baseline: dict, manifest: dict) -> dict:
     if len(sensors) != 1 or sensors[0].get("type") != "camera":
         raise ValueError("Gazebo scenario camera is missing or ambiguous")
     return {"name": name, "descriptor_sha256": hashlib.sha256(raw).hexdigest(), "descriptor": value,
-            "expected_parameters": expected, "build_manifest_sha256": baseline["manifest_sha256"]}
+            "expected_parameters": expected, "build_manifest_sha256": baseline["manifest_sha256"],
+            **({"added_resources": additions} if additions else {})}
+
+
+def stage_scenario_resources(scenario: dict, runtime: Path) -> list[str]:
+    """Freeze verified additions in this private run; return read-only file mounts."""
+    args = []
+    for relative, pin in scenario.get("added_resources", {}).items():
+        raw = _read_file(SCENARIOS.parent, relative, pin)
+        destination = runtime / "scenario" / relative
+        destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        with destination.open("xb") as stream:
+            stream.write(raw)
+        destination.chmod(0o444)
+        args.extend(["--mount", f"type=bind,src={destination.resolve()},dst=/opt/px4/gazebo/{relative},readonly"])
+    return args
 
 
 def scenario_environment(scenario: dict) -> dict[str, str]:
