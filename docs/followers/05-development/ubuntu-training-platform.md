@@ -1,7 +1,8 @@
 # Ubuntu visual training platform plan
 
-**Status: planned and unqualified.** This document proposes a reusable local
-training and test environment; it does not enable a profile or establish flight
+**Status: first MC camera stack implemented; operator qualification pending.**
+Camera rendering and normal UDP ingestion have passed a disarmed check. The
+full application, UI and airborne workflow are still being qualified; this does not establish flight
 qualification. The [follower consolidation plan](follower-consolidation-plan.md)
 remains authoritative for scope, admission, continuity and acceptance. The
 current native engagement-altitude hold correction and pre-request source
@@ -107,6 +108,23 @@ contexts, confirmation, idempotency and Stop semantics. Reuse the
 for evidence playback; do not turn it into another action client.
 
 ## Operator acceptance and reset
+
+The initial `tools/run_gazebo_training.py --execute` launcher opens ordinary QGC
+and Gazebo with a fresh private profile. Supply the verified build manifest,
+scenario, QGC/Qt and installed Python/runtime paths shown by `--help`. It starts
+MC Velocity Chase with explicit altitude guidance, CSRT, a local RTP camera and
+the circuit breaker active. The local-only training account is `admin/admin`.
+Sign-in, vehicle preparation, target selection and following remain distinct
+normal operator actions. The MC Chase session-speed row uses the same capability
+and action as Vector; other followers show it only after implementing that contract.
+
+PX4, the normal backend sidecars and QGC share one owned internal Docker network
+namespace. Only the authenticated API TCP port is published to host loopback;
+camera and MAVLink UDP are never published. QGC has separate settings/cache and
+one simulated UDP link; physical serial auto-connect is disabled. No saved user
+profile is changed. Ctrl-C closes only the original token-bound containers,
+retains logs and removes the empty owned network. A new run requires a new
+directory; cleanup uncertainty prevents silent reuse.
 
 Present Gazebo world view, the selected camera/input view and QGC together.
 The user must visually confirm axes, mount orientation, target motion, following

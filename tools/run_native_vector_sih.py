@@ -889,6 +889,43 @@ print(json.dumps(out))
                 **({"runtime_scenario": scenario} if scenario else {}))
 
 
+def inspect_simulator_process(container: str, instance: int, uid: int, *, simulator: str,
+                              baseline: dict | None, manifest: dict | None, scenario: dict | None = None) -> dict:
+    """Inspect the real PX4 executable/model without requiring a particular command transport."""
+    # Inspect the real process and inherited model, not an operator-supplied label.
+    script = """import hashlib, json, pathlib, sys
+out=[]
+for p in pathlib.Path('/proc').iterdir():
+ try:
+  args=(p/'cmdline').read_bytes().split(b'\\0'); args=[x.decode() for x in args if x]
+  env=dict(x.split('=',1) for x in (p/'environ').read_bytes().decode().split('\\0') if '=' in x)
+  if args and pathlib.Path(args[0]).name=='px4':
+   value=dict(args=args, model=env.get('PX4_SIM_MODEL'), cwd=str((p/'cwd').resolve()),
+              environment={k: env.get(k) for k in ('PX4_GZ_WORLD', 'PX4_GZ_MODELS', 'PX4_GZ_WORLDS',
+               'GZ_SIM_RESOURCE_PATH', 'GZ_SIM_SYSTEM_PLUGIN_PATH', 'GZ_SIM_SERVER_CONFIG_PATH', 'GZ_PARTITION',
+               'PX4_GZ_MODEL_POSE', 'PX4_VIDEO_HOST_IP')})
+   if sys.argv[1]=='verify':
+    value['binary_sha256']=hashlib.sha256((p/'exe').read_bytes()).hexdigest()
+   out.append(value)
+ except (OSError, UnicodeError): pass
+print(json.dumps(out))
+"""
+    matches = [p for p in json.loads(command("docker", "exec", "--user", str(uid),
+                                            container, "python3", "-c", script, "verify" if baseline else "legacy"))
+               if "-i" in p["args"] and p["args"].index("-i") + 1 < len(p["args"])
+               and p["args"][p["args"].index("-i") + 1] == str(instance)
+               and (baseline is not None or p["args"][0].endswith('/build/px4_sitl_sih/bin/px4'))]
+    if len(matches) != 1:
+        raise ValueError("An unambiguous running PX4 SIH or Gazebo instance is required")
+    process = matches[0]
+    expected_model = "gz_" + (scenario["descriptor"] if scenario else manifest["build"])["model"] if simulator == "gazebo" else None
+    if (process["model"] != expected_model if expected_model else not str(process["model"]).startswith("sihsim_")):
+        raise ValueError("Running simulator model requires its matching verified build manifest")
+    if baseline is not None and process.get("binary_sha256") != baseline["binary_sha256"]:
+        raise ValueError("Running simulator binary differs from the verified source build")
+    return process
+
+
 def verify_simulator(container: str, instance: int, socket: Path, *, simulation_build_manifest: Path | None = None,
                      build_repository: Path | None = None, gazebo_scenario: str | None = None) -> dict:
     if build_repository is not None and simulation_build_manifest is None:
@@ -910,37 +947,8 @@ def verify_simulator(container: str, instance: int, socket: Path, *, simulation_
         if simulator != "gazebo":
             raise ValueError("A runtime scenario requires a verified Gazebo build")
         scenario = verified_scenario(gazebo_scenario, baseline, manifest)
-    # Inspect the real process and inherited model, not an operator-supplied label.
-    script = """import hashlib, json, pathlib, sys
-out=[]
-for p in pathlib.Path('/proc').iterdir():
- try:
-  args=(p/'cmdline').read_bytes().split(b'\\0'); args=[x.decode() for x in args if x]
-  env=dict(x.split('=',1) for x in (p/'environ').read_bytes().decode().split('\\0') if '=' in x)
-  if args and pathlib.Path(args[0]).name=='px4':
-   value=dict(args=args, model=env.get('PX4_SIM_MODEL'), cwd=str((p/'cwd').resolve()),
-              environment={k: env.get(k) for k in ('PX4_GZ_WORLD', 'PX4_GZ_MODELS', 'PX4_GZ_WORLDS',
-               'GZ_SIM_RESOURCE_PATH', 'GZ_SIM_SYSTEM_PLUGIN_PATH', 'GZ_SIM_SERVER_CONFIG_PATH', 'GZ_PARTITION',
-               'PX4_GZ_MODEL_POSE', 'PX4_VIDEO_HOST_IP')})
-   if sys.argv[1]=='verify':
-    value['binary_sha256']=hashlib.sha256((p/'exe').read_bytes()).hexdigest()
-   out.append(value)
- except (OSError, UnicodeError): pass
-print(json.dumps(out))
-"""
-    matches = [p for p in json.loads(command("docker", "exec", "--user", str(socket.stat().st_uid),
-                                            container, "python3", "-c", script, "verify" if baseline else "legacy"))
-               if "-i" in p["args"] and p["args"].index("-i") + 1 < len(p["args"])
-               and p["args"][p["args"].index("-i") + 1] == str(instance)
-               and (baseline is not None or p["args"][0].endswith('/build/px4_sitl_sih/bin/px4'))]
-    if len(matches) != 1:
-        raise ValueError("An unambiguous running PX4 SIH or Gazebo instance is required")
-    process = matches[0]
-    expected_model = "gz_" + (scenario["descriptor"] if scenario else manifest["build"])["model"] if simulator == "gazebo" else None
-    if (process["model"] != expected_model if expected_model else not str(process["model"]).startswith("sihsim_")):
-        raise ValueError("Running simulator model requires its matching verified build manifest")
-    if baseline is not None and process.get("binary_sha256") != baseline["binary_sha256"]:
-        raise ValueError("Running simulator binary differs from the verified source build")
+    process = inspect_simulator_process(container, instance, socket.stat().st_uid, simulator=simulator,
+                                        baseline=baseline, manifest=manifest, scenario=scenario)
     mapped = [str(Path(m["Destination"]) / socket.resolve().relative_to(Path(m["Source"])))
               for m in info["Mounts"] if socket.resolve().is_relative_to(Path(m["Source"]))]
     if len(mapped) != 1 or not socket.is_socket():
