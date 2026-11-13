@@ -3317,6 +3317,47 @@ async def test_api_v1_offboard_action_blocks_unusable_tracker_output():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("dry_run", [True, False])
+@pytest.mark.parametrize("reason_code", [
+    "following_observation_source_unavailable",
+    "following_observation_source_changed",
+    "guidance_input_contract_invalid",
+    "alignment_pose_stale",
+    "future_guidance_precondition",
+])
+async def test_api_v1_offboard_preflight_preserves_guidance_refusal(reason_code, dry_run):
+    """New guidance refusals remain typed refusals before any acquire attempt."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        following_active=False,
+        px4_interface=object(),
+        tracker=object(),
+        video_handler=object(),
+        _tracker_requires_video_for_following=lambda: False,
+        get_tracker_output=MagicMock(return_value=_active_gimbal_output()),
+        _guidance_source_readiness=lambda _output: {"ready": False, "reason_code": reason_code},
+        connect_px4=AsyncMock(),
+    )
+    response = Response()
+    result = await handler.start_offboard_action(
+        APIActionRequest(confirm=True, dry_run=dry_run, idempotency_key=f"refused-{reason_code}-{dry_run}",
+                         source="operator_test"),
+        response,
+    )
+    assert result.status_code == 409
+    payload = json.loads(result.body)
+    assert payload["code"] == reason_code
+    assert reason_code in payload["detail"]["message"]
+    action = await handler.get_action_resource(payload["detail"]["action_id"])
+    assert action["status"] == "failure"
+    assert action["accepted"] is False
+    assert action["executed"] is False
+    assert action["following_active_after"] is False
+    handler.app_controller.connect_px4.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_api_v1_offboard_action_rejects_command_inhibit_before_execution(
     monkeypatch,
 ):

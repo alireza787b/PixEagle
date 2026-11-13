@@ -86,6 +86,14 @@ an Offboard stop or final setpoint to another aircraft and reports that partial
 outcome. A stale session receives a conflict; QGC must refresh status before
 retrying. The Stop action is distinct from target Cancel and camera Stop.
 
+Completed execution failures return an action resource with `status: failure`,
+including the original readiness refusal in `result.outcome.precondition.code`
+when available. HTTP 202 reports completion of the attempted action, not Start
+success. Clients correlate the action type and idempotency key, show a vetted
+reason, then refresh status. Failure or inactivity alone does not confirm Hold.
+Shared Offboard preflight retains existing legacy refusal codes and preserves
+canonical guidance/source refusal codes as structured 409 errors before execution.
+
 All mutation responses are typed, actor-audited action resources. The client
 must treat a timeout or lost response as an unknown outcome and read the current
 status rather than blindly retrying with a new key. The existing dashboard can
