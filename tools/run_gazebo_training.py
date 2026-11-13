@@ -346,7 +346,8 @@ class TrainingAdapter:
         self.primary, self.network_id, self.baseline, self.assets = primary, network_id, baseline, assets
         self.created, self.sidecar, self.adapter_requested = containers, None, False
         self.socket = output / 'simulator/private/guidance.sock'
-        self.original_mounts = host.owned_container_info(primary, token)['Mounts']
+        self.original_mounts = sorted(host.owned_container_info(primary, token)['Mounts'],
+                                      key=lambda mount: mount['Destination'])
 
     def primary_info(self):
         info = host.owned_container_info(self.primary, self.token)
@@ -356,7 +357,7 @@ class TrainingAdapter:
                 or config['User'] != f'{os.getuid()}:{os.getgid()}' or config['WorkingDir'] != '/work/rootfs'
                 or host_config['Privileged'] or host_config.get('Devices') or info['NetworkSettings']['Ports']
                 or set(info['NetworkSettings']['Networks']) != {network['Name']}
-                or info['Mounts'] != self.original_mounts):
+                or sorted(info['Mounts'], key=lambda mount: mount['Destination']) != self.original_mounts):
             raise ValueError('Original desktop simulator identity or isolation changed')
         mounts = {item['Destination']: (Path(item['Source']).resolve(), item['RW']) for item in info['Mounts']}
         if mounts.get('/work') != (self.output / 'simulator', True):

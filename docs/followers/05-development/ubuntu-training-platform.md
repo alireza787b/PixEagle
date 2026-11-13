@@ -265,3 +265,9 @@ spawn and resource hashes are identical to MC v1. It retains ordinary UDP image
 ingestion and MAVSDK MC behavior without a native adapter requirement.
 Historical descriptors stay bound to their original builds; this resource
 selection is not new flight or following evidence.
+
+Desktop bootstrap compares complete original mount records sorted by destination;
+Docker's returned list order is not part of mount identity. Changes to source,
+destination, write permission, mount type or propagation, and missing/duplicate
+records still refuse startup. The retained first VTOL bench failure remains
+unchanged; this comparison correction alone is not a successful runtime claim.

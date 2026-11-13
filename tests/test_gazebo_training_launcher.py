@@ -299,3 +299,28 @@ def test_wrong_or_nonliteral_clock_parameter_refuses_before_adapter_scripts(tmp_
         adapter_launch_args(tmp_path, tmp_path / 'bundle', {'adapter_image': 'image'}, token='a' * 32,
             primary='original', label='owner', name='adapter', simulator_clock_id=clock)
     assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize('change', [None, 'source', 'writable', 'type', 'propagation', 'missing', 'duplicate'])
+def test_desktop_mount_identity_ignores_only_list_order(tmp_path, monkeypatch, change):
+    from copy import deepcopy
+    adapter, primary = desktop_adapter(tmp_path, monkeypatch)
+    original = [dict(Type='bind', Source=str(adapter.output/'simulator'), Destination='/work', RW=True, Propagation='rprivate'),
+        dict(Type='bind', Source='/tmp/.X11-unix/X0', Destination='/tmp/.X11-unix/X0', RW=False, Propagation='rprivate'),
+        dict(Type='bind', Source='/owned/auth', Destination='/run/training-xauthority', RW=False, Propagation='rprivate')]
+    primary['Mounts'] = deepcopy(original)
+    monkeypatch.setattr(training.host, 'owned_container_info', Mock(return_value=primary))
+    adapter = training.TrainingAdapter(adapter.args, adapter.output, adapter.token, adapter.primary, adapter.network_id,
+                                      adapter.baseline, adapter.assets, [])
+    primary['Mounts'] = deepcopy(list(reversed(original)))
+    if change == 'source': primary['Mounts'][0]['Source'] = '/replacement/auth'
+    elif change == 'writable': primary['Mounts'][0]['RW'] = True
+    elif change == 'type': primary['Mounts'][0]['Type'] = 'volume'
+    elif change == 'propagation': primary['Mounts'][0]['Propagation'] = 'rshared'
+    elif change == 'missing': primary['Mounts'].pop()
+    elif change == 'duplicate': primary['Mounts'].append(deepcopy(primary['Mounts'][0]))
+    if change is None:
+        assert adapter.primary_info() is primary
+    else:
+        with pytest.raises(ValueError, match='identity or isolation'):
+            adapter.primary_info()
