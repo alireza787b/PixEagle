@@ -5,7 +5,7 @@ import json
 import pytest
 import yaml
 
-from tools.prepare_sitl_gimbal_profile import prepare, validate
+from tools.prepare_simulation_profile import prepare, validate
 
 
 def test_prepared_gimbal_sih_profile_blocks_commands_and_uses_one_mount_setting(tmp_path):
@@ -163,3 +163,39 @@ def test_recorded_sih_opt_in_is_private_and_keeps_aircraft_commands_blocked(tmp_
     assert config["Follower"]["FOLLOWER_EXECUTION_MODE"] == "PX4"
     assert config["FOLLOWER_CIRCUIT_BREAKER"] is True
     assert validate(directory)["allow_recorded_sih_following"] is True
+
+
+def test_gazebo_camera_profile_uses_normal_udp_capture_without_replay_or_gimbal(tmp_path):
+    directory = tmp_path / 'gazebo'
+    prepare(directory, udp_url='udp://127.0.0.1:5600', tracking_engine='local',
+            follower_mode='mc_velocity_chase', enable_altitude_control=True,
+            username='admin', password='admin')
+    config = yaml.safe_load((directory / 'configs/config.yaml').read_text())
+    manifest = validate(directory)
+    assert manifest['video_source'] == 'udp'
+    assert config['VideoSource']['VIDEO_SOURCE_TYPE'] == 'UDP_STREAM'
+    assert config['VideoSource']['USE_GSTREAMER'] is True
+    assert config['VideoSource']['UDP_URL'] == 'udp://127.0.0.1:5600'
+    assert not config['GimbalTracker']['ENABLED'] and not config['GimbalTracker']['CONTROL_ENABLED']
+    assert not config['Follower']['SIH_RECORDED_VIDEO_FOLLOWING']
+    assert config['Follower']['FollowerOverrides']['MC_VELOCITY_CHASE']['ENABLE_ALTITUDE_CONTROL'] is True
+    assert config['FOLLOWER_CIRCUIT_BREAKER'] is True
+    assert config['Safety']['GlobalLimits']['ALTITUDE_SAFETY_ENABLED'] is True
+    credentials = json.loads((directory / 'credentials.json').read_text())
+    assert credentials['username'] == 'admin' and credentials['password'] == 'admin'
+
+
+@pytest.mark.parametrize('url', ['http://127.0.0.1:5600', 'udp://192.0.2.1:5600',
+                                 'udp://127.0.0.1:0', 'udp://user@127.0.0.1:5600',
+                                 'udp://127.0.0.1:5600/path', 'udp://127.0.0.1:5600?x=1'])
+def test_udp_training_profile_rejects_nonlocal_or_ambiguous_source_before_copy(tmp_path, url):
+    with pytest.raises(ValueError):
+        prepare(tmp_path / 'bad', udp_url=url, tracking_engine='local', follower_mode='mc_velocity_chase')
+    assert not (tmp_path / 'bad').exists()
+
+
+def test_profile_uses_catalog_compatible_mc_followers(tmp_path):
+    directory = tmp_path / 'ground'
+    prepare(directory, udp_url='udp://127.0.0.1:5600', tracking_engine='local',
+            follower_mode='mc_velocity_ground')
+    assert validate(directory)['follower_mode'] == 'mc_velocity_ground'

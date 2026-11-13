@@ -150,7 +150,7 @@ become fresh commands. QGC labels authorized operation **SIH following**.
 Prepare an explicit test profile with the existing tool:
 
 ```bash
-python tools/prepare_sitl_gimbal_profile.py --directory /path/to/new-private-profile \
+python tools/prepare_simulation_profile.py --directory /path/to/new-private-profile \
   --tracking-engine local --recorded-video test11.mp4 \
   --follower-mode mc_velocity_position --allow-recorded-sih-following
 bash tools/run_gimbal_sih_probe.sh --hold /path/to/new-private-profile

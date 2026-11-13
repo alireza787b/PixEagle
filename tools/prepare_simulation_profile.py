@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Prepare a private camera/SIH profile; do not start services or permit commands.
+"""Prepare a private simulator profile; do not start services or permit commands.
 
 The profile starts with the PixEagle flight-command circuit breaker active.
-Only an isolated SIH launcher may later connect it to PX4 and explicitly
+Only an isolated simulator launcher may later connect it to PX4 and explicitly
 disable that guard after verifying the simulated aircraft identity.
 """
 
@@ -40,6 +40,28 @@ def _private_json(path: Path, payload: dict) -> None:
     path.chmod(0o600)
 
 
+def _udp_source(url: str) -> str:
+    if not isinstance(url, str):
+        raise ValueError('Simulation UDP source must be a URL string')
+    parsed = urlsplit(url)
+    if (parsed.scheme != 'udp' or parsed.hostname not in {'127.0.0.1', '0.0.0.0'}
+            or parsed.username is not None or parsed.password is not None or parsed.path
+            or parsed.query or parsed.fragment or parsed.port is None or not 1024 <= parsed.port <= 65535):
+        raise ValueError('Simulation UDP source must be a local UDP host and unprivileged port')
+    return url
+
+
+def _follower_profile(mode: str, engine: str):
+    from classes.follower_catalog import get_follower_profile
+
+    profile = get_follower_profile(mode)
+    requirement = {'camera': 'GIMBAL_ANGLES', 'local': 'POSITION_2D'}.get(engine)
+    if (requirement is None or requirement not in profile.required_tracker_data
+            or not profile.live_eligibility_for('multicopter').eligible):
+        raise ValueError('Follower must match the selected tracking engine and qualified MC phase')
+    return profile
+
+
 def prepare(
     directory: Path, *, camera_host: str | None = None, rtsp_url: str | None = None, mount_type: str = "HORIZONTAL",
     follower_mode: str = "gm_velocity_chase", backend_port: int = 8096,
@@ -48,13 +70,21 @@ def prepare(
     recorded_video: str | None = None,
     follower_execution_mode: str = "PX4",
     allow_recorded_sih_following: bool = False,
+    udp_url: str | None = None, enable_altitude_control: bool | None = None,
+    username: str = 'sih-operator', password: str | None = None,
 ) -> Path:
+    sys.path.insert(0, str(REPOSITORY / 'src'))
+    from classes.browser_user_store import (
+        BrowserUserStore, make_browser_user_record, normalize_plaintext_password, normalize_username,
+    )
+
     if mount_type not in ("HORIZONTAL", "VERTICAL"):
         raise ValueError("Mount must be HORIZONTAL or VERTICAL")
-    modes = {"camera": ("gm_velocity_chase", "gm_velocity_vector"),
-             "local": ("mc_velocity_position", "mc_velocity_chase", "mc_velocity_distance")}
-    if tracking_engine not in modes or follower_mode not in modes[tracking_engine]:
-        raise ValueError("Follower must match the selected tracking engine")
+    profile = _follower_profile(follower_mode, tracking_engine)
+    if enable_altitude_control is not None and type(enable_altitude_control) is not bool:
+        raise ValueError('Altitude guidance selection must be a boolean')
+    username = normalize_username(username)
+    password = normalize_plaintext_password(secrets.token_urlsafe(24) if password is None else password)
     if follower_execution_mode not in ("PX4", "COMMAND_PREVIEW"):
         raise ValueError("Unsupported follower execution mode")
     if follower_execution_mode == "COMMAND_PREVIEW" and recorded_video is None:
@@ -72,7 +102,11 @@ def prepare(
         or dashboard_port == backend_port
     ):
         raise ValueError("Dashboard port must be distinct and in 1024–65535")
-    if recorded_video is not None:
+    if udp_url is not None:
+        _udp_source(udp_url)
+        if recorded_video is not None or camera_host is not None or rtsp_url is not None or tracking_engine != 'local':
+            raise ValueError('Choose one simulation video source; UDP requires local image tracking')
+    elif recorded_video is not None:
         if recorded_video not in VIDEOS or tracking_engine != "local":
             raise ValueError("Recorded-video SIH requires local tracking and a bundled video")
         if camera_host is not None or rtsp_url is not None:
@@ -127,7 +161,11 @@ def prepare(
         copied[relative] = _digest(target)
 
     config = yaml.safe_load((directory / "configs/config_default.yaml").read_text(encoding="utf-8"))
-    if recorded_video is not None:
+    if udp_url is not None:
+        config['VideoSource'].update(VIDEO_SOURCE_TYPE='UDP_STREAM', UDP_URL=udp_url,
+            USE_GSTREAMER=True, PIPELINE_MODE='REALTIME', FRAME_ROTATION_DEG=0, FRAME_FLIP_MODE='none')
+        config['GimbalTracker'].update(ENABLED=False, CONTROL_ENABLED=False, MOUNT_TYPE=mount_type)
+    elif recorded_video is not None:
         relative = VIDEOS[recorded_video]
         source = REPOSITORY / relative
         target = directory / relative
@@ -162,8 +200,9 @@ def prepare(
             # quiet through the normal configuration path.
             SMART_TRACKER_SHOW_PASSIVE_LABELS=True)
     config["Follower"].update(FOLLOWER_MODE=follower_mode, FOLLOWER_EXECUTION_MODE=follower_execution_mode)
+    if enable_altitude_control is not None:
+        config['Follower']['FollowerOverrides'].setdefault(profile.config_section, {})['ENABLE_ALTITUDE_CONTROL'] = enable_altitude_control
     config["Follower"]["SIH_RECORDED_VIDEO_FOLLOWING"] = allow_recorded_sih_following
-    config["Follower"]["FollowerOverrides"]["GM_VELOCITY_VECTOR"]["LATERAL_GUIDANCE_MODE"] = "coordinated_turn"
     config["TargetContinuity"]["MODE"] = continuity_mode
     # This explicit qualification profile owns one policy for both allowed
     # followers. Do not let fresh-install sparse defaults defeat the CLI mode.
@@ -205,29 +244,27 @@ def prepare(
     config_path.chmod(0o600)
     copied["configs/config.yaml"] = _digest(config_path)
 
-    sys.path.insert(0, str(REPOSITORY / "src"))
-    from classes.browser_user_store import BrowserUserStore, make_browser_user_record
-
-    password = secrets.token_urlsafe(24)
     user_file = directory / "configs/secrets/sitl-users.json"
     BrowserUserStore(user_file).replace_all([
-        make_browser_user_record(username="sih-operator", plaintext_password=password, role="admin")
+        make_browser_user_record(username=username, plaintext_password=password, role="admin")
     ], create_if_missing=True, backup=False)
     copied["configs/secrets/sitl-users.json"] = _digest(user_file)
     _private_json(directory / "credentials.json", {
-        "purpose": "Isolated PX4 SIH gimbal qualification only",
-        "username": "sih-operator", "password": password,
+        "purpose": "Isolated PX4 simulator qualification only",
+        "username": username, "password": password,
         "endpoint": f"http://127.0.0.1:{backend_port}",
     })
     _private_json(directory / "profile-manifest.json", {
-        "version": 1, "kind": "gimbal-sih-preflight", "created_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "version": 2, "kind": "simulation-preflight", "created_at": dt.datetime.now(dt.timezone.utc).isoformat(),
         "source_repository": str(REPOSITORY),
         "source_head": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPOSITORY).decode().strip(),
         "source_files": copied, "python": str(Path(sys.executable).absolute()),
-        "instance_id": f"gimbal-sih-{secrets.token_hex(8)}", "backend_port": backend_port,
+        "instance_id": f"simulation-{secrets.token_hex(8)}", "backend_port": backend_port,
         "camera_host": camera_host, "rtsp_url": rtsp_url,
         "mount_type": mount_type, "follower_mode": follower_mode,
         "tracking_engine": tracking_engine, "models": model_names, "recorded_video": recorded_video,
+        "video_source": 'udp' if udp_url is not None else 'recorded' if recorded_video is not None else 'rtsp',
+        "udp_url": udp_url, "enable_altitude_control": enable_altitude_control,
         "follower_execution_mode": follower_execution_mode,
         "allow_recorded_sih_following": allow_recorded_sih_following,
         "continuity_mode": continuity_mode,
@@ -244,9 +281,10 @@ def validate(directory: Path) -> dict:
             or stat.S_IMODE(directory.stat().st_mode) & 0o077):
         raise ValueError("SIH profile directory must be private and not a symlink")
     manifest = json.loads((directory / "profile-manifest.json").read_text(encoding="utf-8"))
-    if (manifest.get("version") != 1 or manifest.get("kind") != "gimbal-sih-preflight"
+    if (manifest.get("version") != 2 or manifest.get("kind") != "simulation-preflight"
+            or manifest.get('video_source') not in {'udp', 'recorded', 'rtsp'}
             or manifest.get("flight_commands_blocked") is not True):
-        raise ValueError("Expected a prepared, command-blocked gimbal SIH profile")
+        raise ValueError("Expected a prepared, command-blocked simulation profile")
     for name, expected in manifest["source_files"].items():
         path = directory / name
         if path.is_symlink() or not path.is_file() or _digest(path) != expected:
@@ -263,7 +301,7 @@ def validate(directory: Path) -> dict:
             or config.get("Streaming", {}).get("API_EXPOSURE_MODE") != "trusted_lan_legacy"
             or config.get("Streaming", {}).get("HTTP_STREAM_PORT") != manifest.get("backend_port")
             or config.get("GimbalTracker", {}).get("MOUNT_TYPE") != manifest.get("mount_type")
-            or (manifest.get("recorded_video") is None and
+            or (manifest.get("video_source") == 'rtsp' and
                 config.get("GimbalTracker", {}).get("UDP_HOST") != manifest.get("camera_host"))
             or config.get("TargetContinuity", {}).get("MODE") != manifest.get("continuity_mode")):
         raise ValueError("SIH profile safety or camera contract changed")
@@ -273,6 +311,18 @@ def validate(directory: Path) -> dict:
                 or config["VideoSource"]["VIDEO_SOURCE_TYPE"] != "VIDEO_FILE"
                 or manifest.get("tracking_engine") != "local"):
             raise ValueError("Recorded-video profile must not activate a camera provider")
+    if manifest.get('video_source') == 'udp':
+        if (config['VideoSource']['VIDEO_SOURCE_TYPE'] != 'UDP_STREAM'
+                or config['VideoSource']['UDP_URL'] != _udp_source(manifest['udp_url'])
+                or config['VideoSource']['USE_GSTREAMER'] is not True
+                or config['GimbalTracker']['ENABLED'] or config['GimbalTracker']['CONTROL_ENABLED']
+                or manifest['tracking_engine'] != 'local' or manifest['allow_recorded_sih_following']):
+            raise ValueError('UDP simulation profile must use normal local image tracking without replay binding')
+    profile = _follower_profile(manifest['follower_mode'], manifest['tracking_engine'])
+    if (manifest.get('enable_altitude_control') is not None
+            and config['Follower']['FollowerOverrides'].get(profile.config_section, {}).get('ENABLE_ALTITUDE_CONTROL')
+            is not manifest['enable_altitude_control']):
+        raise ValueError('Simulation altitude guidance differs from the prepared declaration')
     for name in ("configs/config.yaml", "configs/secrets/sitl-users.json", "credentials.json"):
         if stat.S_IMODE((directory / name).stat().st_mode) & 0o077:
             raise ValueError(f"SIH private file has broad permissions: {name}")
@@ -284,10 +334,11 @@ def main() -> None:
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--camera-host")
     parser.add_argument("--rtsp-url")
+    parser.add_argument('--udp-url')
+    parser.add_argument('--altitude-control', choices=('on', 'off'))
     parser.add_argument("--mount-type", choices=("HORIZONTAL", "VERTICAL"), default="HORIZONTAL")
     parser.add_argument("--recorded-video", choices=tuple(VIDEOS))
-    parser.add_argument("--follower-mode", choices=("gm_velocity_chase", "gm_velocity_vector", "mc_velocity_position", "mc_velocity_chase", "mc_velocity_distance"),
-                        default="gm_velocity_chase")
+    parser.add_argument("--follower-mode", default="gm_velocity_chase")
     parser.add_argument("--tracking-engine", choices=("camera", "local"), default="camera")
     parser.add_argument("--follower-execution-mode", choices=("PX4", "COMMAND_PREVIEW"), default="PX4")
     parser.add_argument("--allow-recorded-sih-following", action="store_true")
@@ -304,7 +355,8 @@ def main() -> None:
                    continuity_mode=args.continuity_mode, tracking_engine=args.tracking_engine,
                    model_store=args.model_store, model=args.model, recorded_video=args.recorded_video,
                    follower_execution_mode=args.follower_execution_mode,
-                   allow_recorded_sih_following=args.allow_recorded_sih_following)
+                   allow_recorded_sih_following=args.allow_recorded_sih_following, udp_url=args.udp_url,
+                   enable_altitude_control=None if args.altitude_control is None else args.altitude_control == 'on')
     print(f"Prepared private SIH profile: {path}")
     print("Camera and PX4 services remain stopped; PixEagle flight commands are blocked.")
     print("Run only inside a dedicated Docker network with the API port mapped to host loopback.")
