@@ -97,10 +97,41 @@ The existing `.github/workflows/tests.yml` coverage step selects `tests/` with
 the same external-runtime exclusions, so this unmarked mock-test file is
 already included. `requirements.txt` includes the development ULog dependency;
 no extra workflow or service is added. Software checks do not establish a
-successful SIH/Gazebo flight. This canonical runner is initially **runtime
+successful SIH/Gazebo flight. This canonical runner remains **response
 unqualified**. Its first Gazebo attempt failed before arm because observer
 discovery started before PX4/DDS session readiness. That closed R1 evidence is
-retained; the sequencing correction has software tests and requires a separately
-reviewed actual capture.
+retained; a separately reviewed R2 capture verifies the sequencing repair below.
 These software checks do not qualify sensorless flight, a private airframe,
 pursuit or hardware.
+
+## Observed stock quad response
+
+The 2026-11-13 stock `4018_gz_quadtailsitter` capture passes startup, native
+preflight and initial MC hover. Both pilot transitions execute without a pursuit
+owner or external setpoints. **Altitude response fails the unchanged 2 m gate:**
+forward observations reach 2.817 m upward excursion; the full closed log reaches
+17.684 m in estimated pose and 17.534 m in independent simulator truth. The final
+seven MC samples also fail the existing hover-stability requirement.
+
+![Actual stock quad altitude, native setpoints, speed and phase](../docs/followers/assets/native-quadtailsitter-transition-20261113.png)
+
+The native scheduled back-transition pitch-up converts forward speed into
+height: ground truth rises 16.344 m from transition entry, near its 16.618 m
+kinetic-height equivalent. The near-zero vertical request does not command this
+climb. This supports a native maneuver/plant explanation; it does not prove a
+2 m envelope impossible. A matched comparison removing only patch0003 is the
+next extension-causality check, without gain or limit tuning.
+
+This is the stock 1.635 kg composite Gazebo model with its airspeed sensor,
+firmware parent `155f415168cef08dca2f5d85d2bc258b44a589ec` plus patches0001–0007,
+and binary SHA `ff4369a61964f5a192e6a47d4fe6d69ddcf84158989cc503275af1883b95b142`.
+It is not the private airframe. The 43,450,776-byte ULog has no dropouts,
+corruption or pose reset within the 44.508–140.520 s native window; its SHA is
+`430badca4cdc2b4a5ea628fbd7e73db79e51c7c5562533566a9b1a05a1b23004`.
+The retained run is `reports/sitl/follower-consolidation-20261111/s7-gazebo-native-hold-cycle-r2`.
+The linked local evidence review provides the full plot, CSV and separate source
+and physical-response audits. Mandatory verification delays the actual pilot
+commands about six seconds after their scheduled trigger; native phase events
+anchor this figure. The continuous log covers those observation gaps. No active
+external publication-cadence gate is exercised. Both original containers stop;
+the Agent's exit137 is recorded as forced teardown, not a graceful shutdown.

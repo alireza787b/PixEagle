@@ -339,8 +339,9 @@ flight verdicts remain historical evidence. VTOL admission stays closed.
 The separate [native-only transition baseline](native-transition-baseline.md)
 is an opt-in simulator-control tool for source-built SIH/Gazebo qualification.
 It reuses the shared host/verifier and production observer, with no following
-owner or target commands. Its extraction has mock-test evidence only; actual
-simulator response remains unqualified. It is not the read-only probe below.
+owner or target commands. The stock quad capture verifies startup but fails
+native transition altitude/stability gates; the guide retains the actual plot
+and exact scope. Simulator response remains unqualified. It is not the read-only probe below.
 
 Start the adapter in the isolated SIH environment after the DDS Agent and PX4
 are available. The socket's parent must be owned by the adapter user and not

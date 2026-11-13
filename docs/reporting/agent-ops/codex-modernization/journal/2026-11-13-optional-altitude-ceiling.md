@@ -36,3 +36,8 @@ schema regeneration check and fatal Python lint pass. Schema generation is versi
 1.10.0; retirement history stays at its original versions. A rollback to an
 older backend requires restoring a numeric ceiling first. Saved public/private
 configuration bytes remain unchanged.
+
+The exact clean `773b1005e` full regression passes 6,562 unit, 196 integration and
+155 Phase 0 checks plus inventory/schema/fatal lint, with eleven optional
+GStreamer skips. Native transition and private-profile qualification remain
+separate from this software receipt.

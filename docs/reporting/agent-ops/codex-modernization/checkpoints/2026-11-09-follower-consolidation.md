@@ -1887,6 +1887,19 @@ follower to conceal a native-only failure or relax the 2 m/100 ms gates.
 The original report-owned replay remains historical evidence; the ten-test
 fixture now lives in canonical patch 0004. VTOL admission stays closed.
 
+The canonical native-only runner is committed as `05b729d05`, with its DDS
+startup-sequencing repair in `481846849`; root renews 206 combined checks.
+Actual stock Gazebo R2 passes startup but fails the 2 m response gate: forward
+observation 2.817 m, full-window PX4 pose 17.684 m and independent truth 17.534 m
+upward. Back-transition hover stability also fails. No following owner or active
+external publication gate is involved. The [native baseline guide](../../../../../native/native-transition-baseline.md#observed-stock-quad-response)
+contains the actual plot, exact firmware/log provenance and limitations.
+Native pitch-up/kinetic-to-height conversion is supported by the trace; a
+matched patch0003 negative control precedes any tuning or qualification claim.
+The full backend gate on `773b1005e` separately passes 6,562 unit, 196 integration
+and 155 Phase 0 checks; all 560 Dashboard tests/build/lint pass. Eleven optional
+GStreamer checks are skipped. These software results do not promote S7.
+
 The read-only entry point is
 `reports/sitl/follower-consolidation-20261111/s7-review-r6/index.html`.
 All four new 3D replays pass browser checks at 320, 400, 800 and 1440 pixels:
