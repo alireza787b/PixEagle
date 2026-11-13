@@ -70,6 +70,11 @@ zero vertical velocity and cannot reuse a pursuit anchor. This implementation
 requires new simulator qualification; the earlier altitude-drift failure remains
 recorded. Ordinary MAVSDK MC altitude-off behavior remains zero vertical velocity
 pending a separately qualified compatible position/velocity transport.
+The same captured `AltitudeLimits` validates native current height and the
+absolute hold target before acquisition and at the final MC command boundary.
+AMSL targets use the current native home-relative offset; out-of-bounds targets
+are rejected without clamping or recapturing the reference. FW reuses this check
+and retains its native vertical-response guard.
 
 The Python client supports Python 3.10 and newer without an extra async runtime
 dependency. Drain and reply share one monotonic RPC budget; read-only release

@@ -16,6 +16,13 @@ resets are checked before publication; terminal neutral release does not retain
 the pursuit anchor. PX4 supplies the altitude controller, with no additional
 application PID, gain tuning or horizontal speed redistribution.
 
+Independent review found that legacy Start altitude and the native snapshot can
+disagree. The correction uses the existing captured `AltitudeLimits` for native
+current height and the absolute target, before acquisition and at final MC
+publication. FW reuses the target check. Seven new regressions fail before this
+correction; 507 focused checks pass afterward. Targets are rejected rather than
+clamped or re-anchored. No additional configuration or safety controller is added.
+
 The paired Python/C++ candidate remains under component and simulator
 qualification. [The native guide](../../../../../native/README.md) describes the
 wire and transport boundaries. Ordinary MAVSDK MC still uses its existing
