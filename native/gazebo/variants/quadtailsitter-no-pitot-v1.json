@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "name": "quadtailsitter-no-pitot-v1",
+  "resource": "models/airspeed/model.sdf",
+  "gazebo_commit": "a15af9628536914ff7201c992fce5e3cb5d70db9",
+  "source_sha256": "8e39836e6e9f749497bf2d98a0bc3f2bf583c2b0fe56078c99ea275bf8b1d7a6",
+  "packaged_sha256": "21efc8784dba0a57c1d03ba8d359f616ff3d072287a78760c3774b6096c75a13",
+  "remove_xml": "      <sensor name=\"air_speed\" type=\"air_speed\">\n        <gz_frame_id>airspeed_link</gz_frame_id>\n        <pose>0 0 0 0 0 0</pose>\n        <update_rate>5.0</update_rate>\n        <always_on>1</always_on>\n        <visualize>false</visualize>\n      </sensor>\n"
+}

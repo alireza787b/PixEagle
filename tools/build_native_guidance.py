@@ -106,6 +106,8 @@ def verify_extension(source: Path, extension: Path) -> None:
 
 
 def main() -> None:
+    from tools.sih_baseline import GAZEBO_RESOURCE_VARIANTS
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--cache-dir", type=Path, default=Path.home() / ".cache/pixeagle-native-guidance")
@@ -115,9 +117,13 @@ def main() -> None:
     parser.add_argument("--image", default="pixeagle-native-contracts:development", help="Contract-test image tag")
     parser.add_argument("--target", choices=("contracts", "sih", "gazebo", "px4-functional"), default="contracts")
     parser.add_argument("--regression", help="Locked PX4 functional regression; defaults to the lock's selected regression")
+    parser.add_argument("--gazebo-resource-variant", choices=GAZEBO_RESOURCE_VARIANTS,
+                        default="stock", help="Reviewed packaged Gazebo sensor variant; stock is unchanged")
     args = parser.parse_args()
     if args.regression is not None and args.target != "px4-functional":
         parser.error("--regression requires --target px4-functional")
+    if args.gazebo_resource_variant != "stock" and args.target != "gazebo":
+        parser.error("--gazebo-resource-variant requires --target gazebo")
     if args.target == "px4-functional":
         if args.px4_source is None:
             parser.error("--target px4-functional requires --px4-source with the canonical extension applied")
@@ -133,6 +139,8 @@ def main() -> None:
 
         build = build_sih if args.target == "sih" else build_simulator
         selection = {} if args.target == "sih" else {"simulator": "gazebo"}
+        if args.gazebo_resource_variant != "stock":
+            selection["resource_variant"] = args.gazebo_resource_variant
         build(args.px4_source, args.output_dir, prepare_only=args.prepare_only,
               verify_extension=verify_extension, cache=args.cache_dir.expanduser(), **selection)
         return

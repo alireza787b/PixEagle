@@ -152,6 +152,11 @@ def source_authority(repository: Path, variant: str, regression: dict | None = N
         temporary = Path(directory)
         shutil.copytree(repository / "native/px4", temporary / "native/px4")
         shutil.copyfile(repository / "native/dependencies.lock.json", temporary / "native/dependencies.lock.json")
+        builder = repository / "tools/sih_baseline.py"
+        if builder.is_symlink() or not builder.is_file():
+            raise ValueError("A regular simulator builder is required in the source authority")
+        (temporary / "tools").mkdir()
+        shutil.copyfile(builder, temporary / "tools/sih_baseline.py")
         path = temporary / "native/px4/extension.json"
         manifest = json.loads(path.read_text())
         del manifest["patches"][regression["negative_patch"]]

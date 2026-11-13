@@ -9,12 +9,57 @@ import re
 import shlex
 import shutil
 import subprocess
+import xml.etree.ElementTree as ET
 
 
 ROOT = Path(__file__).resolve().parents[1]
 LABEL = "org.pixeagle.sih"
 IMAGE_ID = re.compile(r"sha256:[0-9a-f]{64}\Z")
 GAZEBO_SERVER_CONFIG = "src/modules/simulation/gz_bridge/server.config"
+GAZEBO_RESOURCE_VARIANTS = ("stock", "quadtailsitter-no-pitot-v1")
+
+
+def gazebo_resource_variant(repository: Path, name: str) -> dict | None:
+    """Load one reviewed instrumentation-only derivative, never a model override."""
+    if name == "stock":
+        return None
+    if name not in GAZEBO_RESOURCE_VARIANTS:
+        raise ValueError("Unknown Gazebo resource variant")
+    path = repository / "native/gazebo/variants" / (name + ".json")
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("Missing regular Gazebo resource variant descriptor")
+    variant = json.loads(path.read_text())
+    if (not isinstance(variant, dict)
+            or set(variant) != {"schema_version", "name", "resource", "gazebo_commit", "source_sha256",
+                        "packaged_sha256", "remove_xml"}
+            or type(variant["schema_version"]) is not int or variant["schema_version"] != 1 or variant["name"] != name
+            or variant["resource"] != "models/airspeed/model.sdf"
+            or not isinstance(variant["remove_xml"], str) or not variant["remove_xml"]
+            or not all(isinstance(variant[key], str) and re.fullmatch(r"[0-9a-f]{64}", variant[key])
+                       for key in ("source_sha256", "packaged_sha256"))):
+        raise ValueError("Invalid Gazebo resource variant descriptor")
+    try:
+        sensor = ET.fromstring(variant["remove_xml"])
+    except ET.ParseError as exc:
+        raise ValueError("Gazebo variant sensor block is not XML") from exc
+    if sensor.tag != "sensor" or sensor.attrib != {"name": "air_speed", "type": "air_speed"}:
+        raise ValueError("Gazebo variant must remove only the airspeed sensor")
+    return {**variant, "descriptor_sha256": digest(path)}
+
+
+def derived_gazebo_resource(raw: bytes, variant: dict) -> bytes:
+    """Delete the exact reviewed sensor block while preserving all other bytes."""
+    if hashlib.sha256(raw).hexdigest() != variant["source_sha256"]:
+        raise ValueError("Gazebo variant source resource checksum mismatch")
+    block = variant["remove_xml"].encode()
+    if raw.count(block) != 1:
+        raise ValueError("Gazebo variant sensor block is missing or ambiguous")
+    derived = raw.replace(block, b"", 1)
+    if hashlib.sha256(derived).hexdigest() != variant["packaged_sha256"]:
+        raise ValueError("Gazebo variant derived resource checksum mismatch")
+    if ET.fromstring(derived).findall(".//sensor"):
+        raise ValueError("Gazebo no-pitot resource still contains a sensor")
+    return derived
 
 
 def digest(path: Path) -> str:
@@ -38,9 +83,12 @@ def build_image(arguments: list[str], log: Path) -> None:
     log.write_text(output + "\n")
 
 
-def authority(repository: Path = ROOT, *, simulator: str = "sih") -> tuple[dict, dict]:
+def authority(repository: Path = ROOT, *, simulator: str = "sih",
+              resource_variant: str = "stock") -> tuple[dict, dict]:
     if simulator not in ("sih", "gazebo"):
         raise ValueError("Unsupported simulator build recipe")
+    if resource_variant != "stock" and simulator != "gazebo":
+        raise ValueError("Gazebo resource variants require the Gazebo build")
     lock = json.loads((repository / "native/dependencies.lock.json").read_text())
     extension_path = repository / "native/px4/extension.json"
     extension = json.loads(extension_path.read_text())
@@ -49,7 +97,9 @@ def authority(repository: Path = ROOT, *, simulator: str = "sih") -> tuple[dict,
     for name, checksum in extension["patches"].items():
         if digest(repository / "native/px4" / name) != checksum:
             raise ValueError(f"SIH extension patch checksum mismatch: {name}")
-    spec = lock[simulator + "_build"]
+    spec = dict(lock[simulator + "_build"])
+    if "resource_variant" in spec:
+        raise ValueError("Select Gazebo resource variants explicitly, outside the stock recipe")
     target = "px4_sitl_sih" if simulator == "sih" else "px4_sitl_default"
     if spec["platform"] != "linux/amd64" or spec["target"] != target:
         raise ValueError("Unsupported simulator build platform or target")
@@ -63,6 +113,11 @@ def authority(repository: Path = ROOT, *, simulator: str = "sih") -> tuple[dict,
                 or any(not isinstance(pin, str) or not re.fullmatch(r"[0-9a-f]{40}", pin)
                        for pin in pins.values())):
             raise ValueError("Gazebo model/plugin resource submodules require exact commit pins")
+        variant = gazebo_resource_variant(repository, resource_variant)
+        if variant is not None:
+            if variant["gazebo_commit"] != pins["Tools/simulation/gz"]:
+                raise ValueError("Gazebo variant resource commit differs from the locked source")
+            spec["resource_variant"] = variant
     for key in ("toolchain_image", "runtime_image"):
         value = spec.get(key)
         if not isinstance(value, str) or not re.fullmatch(r"[^\s]+@sha256:[0-9a-f]{64}", value):
@@ -72,8 +127,11 @@ def authority(repository: Path = ROOT, *, simulator: str = "sih") -> tuple[dict,
     return firmware, spec
 
 
-def recipe_fingerprint(firmware: dict, spec: dict) -> str:
-    return json_digest({"firmware": firmware, "build": spec, "builder_sha256": digest(Path(__file__))})
+def recipe_fingerprint(firmware: dict, spec: dict, *, repository: Path | None = None) -> str:
+    builder = Path(__file__) if repository is None else repository / "tools/sih_baseline.py"
+    if builder.is_symlink() or not builder.is_file():
+        raise ValueError("A regular builder source is required in the selected build authority")
+    return json_digest({"firmware": firmware, "build": spec, "builder_sha256": digest(builder)})
 
 
 def verify_source(source: Path, repository: Path, verify_extension, *, simulator: str = "sih") -> dict:
@@ -184,7 +242,7 @@ def artifact_manifest(packaged: Path, *, simulator: str = "sih") -> dict:
     return artifacts
 
 
-def verify_packaged_resources(artifacts: dict, source: dict) -> None:
+def verify_packaged_resources(artifacts: dict, source: dict, *, variant: dict | None = None) -> None:
     """Resource files must survive compilation/packaging without substitutions."""
     expected = source.get("gazebo_resources")
     if not isinstance(expected, dict):
@@ -193,7 +251,13 @@ def verify_packaged_resources(artifacts: dict, source: dict) -> None:
     for directory in ("models", "worlds"):
         actual = {name.removeprefix(directory + "/"): value for name, value in bundled.items()
                   if name.startswith(directory + "/")}
-        if actual != expected.get(directory):
+        expected_files = dict(expected.get(directory, {}))
+        if variant is not None and directory == "models":
+            name = variant["resource"].removeprefix("models/")
+            if expected_files.get(name) != {"sha256": variant["source_sha256"], "executable": False}:
+                raise ValueError("Gazebo variant lacks its exact upstream resource provenance")
+            expected_files[name] = {"sha256": variant["packaged_sha256"], "executable": False}
+        if actual != expected_files:
             raise ValueError(f"Packaged Gazebo {directory} differ from the verified source")
     if bundled["server.config"].get("sha256") != expected.get("server_config_sha256"):
         raise ValueError("Packaged Gazebo server configuration differs from the verified source")
@@ -220,8 +284,12 @@ def inspect_image(image: str, *, pinned_input: bool = False) -> dict:
 def validate_build_manifest(path: Path, *, repository: Path = ROOT, simulator: str = "sih") -> dict:
     path = path.expanduser().resolve()
     manifest = json.loads(path.read_text())
-    firmware, spec = authority(repository, simulator=simulator)
-    fingerprint = recipe_fingerprint(firmware, spec)
+    if not isinstance(manifest, dict) or not isinstance(manifest.get("build"), dict):
+        raise ValueError("Simulation build manifest and build metadata must be objects")
+    declared_variant = manifest.get("build", {}).get("resource_variant")
+    variant_name = declared_variant.get("name") if isinstance(declared_variant, dict) else "stock"
+    firmware, spec = authority(repository, simulator=simulator, resource_variant=variant_name)
+    fingerprint = recipe_fingerprint(firmware, spec, repository=repository)
     if (manifest.get("schema_version") != 1 or manifest.get("kind") != f"pixeagle_{simulator}_build"
             or manifest.get("firmware") != firmware or manifest.get("build") != spec
             or manifest.get("recipe_sha256") != fingerprint):
@@ -233,7 +301,7 @@ def validate_build_manifest(path: Path, *, repository: Path = ROOT, simulator: s
     if not isinstance(source, dict) or not isinstance(source.get("submodules"), list):
         raise ValueError("SIH source provenance is missing")
     if simulator == "gazebo":
-        verify_packaged_resources(artifacts, source)
+        verify_packaged_resources(artifacts, source, variant=spec.get("resource_variant"))
     image_id = manifest.get("image_id", "")
     if not isinstance(image_id, str) or not IMAGE_ID.fullmatch(image_id):
         raise ValueError("SIH build manifest requires an immutable image ID")
@@ -255,13 +323,20 @@ def build_sih(source: Path, output: Path, *, prepare_only: bool, verify_extensio
 
 
 def build_simulator(source: Path, output: Path, *, prepare_only: bool, verify_extension,
-                    repository: Path = ROOT, cache: Path | None = None, simulator: str = "sih") -> Path:
+                    repository: Path = ROOT, cache: Path | None = None, simulator: str = "sih",
+                    resource_variant: str = "stock") -> Path:
     source, output = source.expanduser().resolve(), output.expanduser().resolve()
     if output.is_relative_to(source) or source.is_relative_to(output):
         raise ValueError("Keep SIH build evidence separate from the source checkout")
-    firmware, spec = authority(repository, simulator=simulator)
+    firmware, spec = authority(repository, simulator=simulator, resource_variant=resource_variant)
+    fingerprint = recipe_fingerprint(firmware, spec, repository=repository)
+    if digest(repository / "tools/sih_baseline.py") != digest(Path(__file__)):
+        raise ValueError("Run the builder from the selected build authority; mixed builder versions cannot build")
+    variant = spec.get("resource_variant")
     selection = {} if simulator == "sih" else {"simulator": simulator}
     provenance = verify_source(source, repository, verify_extension, **selection)
+    if variant is not None:
+        derived_gazebo_resource((source / "Tools/simulation/gz" / variant["resource"]).read_bytes(), variant)
     if output.exists() and any(output.iterdir()):
         raise ValueError("Use a new SIH build output directory; existing evidence is never overwritten")
     output.mkdir(parents=True, exist_ok=True)
@@ -286,7 +361,7 @@ def build_simulator(source: Path, output: Path, *, prepare_only: bool, verify_ex
             'git config --global url."file:///work/microcdr".insteadOf '
             + shlex.quote(spec["microcdr"]["repository"]) + "\n"
         )
-    build_command = ["make", spec["target"], "-j2"]
+    build_command = ["make", spec["target"], "-j2", "j=2"]
     if spec.get("submodules"):
         build_command.append('CMAKE_ARGS=-DPX4_GIT_SUBMODULES="' + ";".join(spec["submodules"]) + '"')
     (context / "Dockerfile.firmware").write_text(
@@ -301,7 +376,7 @@ def build_simulator(source: Path, output: Path, *, prepare_only: bool, verify_ex
            "/work/gazebo-plugins/\n" if simulator == "gazebo" else "")
     )
     plan = {"firmware": firmware, "build": spec, "source": provenance,
-            "recipe_sha256": recipe_fingerprint(firmware, spec), "command": build_command,
+            "recipe_sha256": fingerprint, "command": build_command,
             "prepare_only": prepare_only, "qualification": f"build inputs only; no {simulator.upper()} response qualification"}
     (output / "build-plan.json").write_text(json.dumps(plan, indent=2) + "\n")
     if prepare_only:
@@ -337,6 +412,13 @@ def build_simulator(source: Path, output: Path, *, prepare_only: bool, verify_ex
     artifacts = artifact_manifest(packaged, **selection)
     if simulator == "gazebo":
         verify_packaged_resources(artifacts, provenance)
+        if variant is not None:
+            resource = packaged / "gazebo" / variant["resource"]
+            if resource.is_symlink():
+                raise ValueError("Gazebo variant requires a regular packaged resource")
+            resource.write_bytes(derived_gazebo_resource(resource.read_bytes(), variant))
+            artifacts = artifact_manifest(packaged, **selection)
+            verify_packaged_resources(artifacts, provenance, variant=variant)
     fingerprint = plan["recipe_sha256"]
     labels = "\n".join(f"LABEL {key}={json.dumps(value)}"
                        for key, value in image_labels(fingerprint, artifacts, provenance, **selection).items())

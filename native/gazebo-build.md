@@ -70,23 +70,64 @@ python3 tools/build_native_guidance.py --target gazebo \
 
 Use a new output directory for each command. Preparation follows the existing
 Micro-CDR cache behavior; it may obtain that locked dependency if missing.
-Compilation uses `DONT_RUN=1 GZ_DISTRO=harmonic make px4_sitl_default -j2`,
+Compilation uses `DONT_RUN=1 GZ_DISTRO=harmonic make px4_sitl_default -j2 j=2`,
 with the reviewed submodule list and network disabled. It never invokes the
 `gz_quadtailsitter` launch target. No image pull or Apt install occurs inside
 this builder. Input image pins must already exist locally for compilation.
+PX4's pinned Makefile forwards its lowercase `j` variable to Ninja; GNU Make's
+`-j2` alone does not bound the native compiler jobs. The shared SIH build uses
+the same explicit forwarding. Historical R1 build commands remain retained.
 
 The builder extracts artifacts from a stopped compiler container. Alongside
 `bin` and `etc`, it packages the full pinned models/worlds trees, PX4's server
 configuration and built shared plugins. Resource hashes must match the verified
-source after packaging. `gazebo-build-manifest.json` has distinct
+source or the single declared sensor derivative after packaging. `gazebo-build-manifest.json` has distinct
 `pixeagle_gazebo_build` identity and `org.pixeagle.gazebo` image labels. Use the
 same validator with explicit `simulator="gazebo"`; SIH callers reject this
 manifest. Both response and hardware qualification remain false.
 
-SIH commands, defaults, manifest shape and label namespace are preserved.
+SIH target, defaults, manifest shape and label namespace are preserved; only
+the shared Make-to-Ninja job forwarding changes its compiler command.
 The recipe fingerprint continues to include the shared builder source hash:
 old manifests remain bound to their original builder version, with no
-compatibility bypass or retroactive adoption.
+compatibility bypass or retroactive adoption. Validation hashes the builder
+bytes in the explicitly selected build repository. An old manifest therefore
+requires its frozen authority, such as `/home/alireza/PixEagle-gazebo-build` for
+the retained 0001–0007 build. Actual builds refuse mixed executing/authority
+builder versions; select and run the matching authority deliberately. A current
+extension cannot adopt an older ELF simply by naming a resource variant.
+
+## Packaged no-pitot variant
+
+The default `stock` selection preserves the resource tree. The explicit build
+option `--gazebo-resource-variant quadtailsitter-no-pitot-v1` selects the reviewed
+descriptor in `native/gazebo/variants/`. It requires Gazebo and the same locked
+quad model/world/4018 airframe. Unknown variants and variants on other targets
+fail before preparation. No native sensor policy or startup parameter is changed.
+
+The builder verifies the complete upstream source and extracted stock package
+first. Only then does it remove the exact sensor block from the new package's
+`gazebo/models/airspeed/model.sdf`. Source and package SHA256 values, the deletion
+bytes and descriptor checksum are bound into the recipe. Every other resource
+must still match the upstream tree. The 15 g passive housing, inertia and visual
+remain, preserving the plant without copying a second quad model. The upstream
+submodule and firmware source remain unchanged. Source provenance retains the
+upstream hash; artifact provenance records the derived hash.
+
+The ordinary package/image validator enforces this one declared difference.
+Stock cannot masquerade as sensor-free, and sensor-free cannot masquerade as
+stock, even after updating artifact hashes. ELF, bin and etc are outside the
+sensor transform. Any future paired comparison must use matching firmware
+authority and actually verify their identical hashes; the current stock ELF
+has 0001–0007, while the current extension additionally has 0008/0009. The new
+variant provides no firmware reuse or extension-validation bypass.
+
+This is a build-only seam. The no-pitot runner, startup sensor configuration,
+per-sample native readiness feedback, publisher-absence proof and actual flight
+acceptance remain separately reviewed work. The measured-EAS baseline runner
+is unchanged. Removing instrumentation is not equivalent to overriding a valid
+low airspeed or treating groundspeed as measured EAS. Response and hardware
+qualification remain false for every built manifest.
 
 ## Runtime verification
 
@@ -98,8 +139,8 @@ bound to their original version. The separate SIH evidence gallery is unchanged.
 
 The manifest discriminant selects the existing strict SIH or Gazebo validator.
 There is no second model selector or transport configuration. Unknown kinds and
-Gazebo without a verified manifest are rejected. The builder and its fingerprint
-are unchanged; historical builds still require their exact reviewed authority.
+Gazebo without a verified manifest are rejected. Historical builds still
+require their exact reviewed authority and builder fingerprint.
 Explicit `build_repository` in the native verifier/source-contract helpers must
 identify that authority, never a fallback when current validation fails.
 
@@ -143,10 +184,11 @@ No simulator launch or flight was performed for this verifier extension. Keep
 actual PX4 pose and independent Gazebo truth with measured clock/frame alignment,
 and seal ULogs before cleanup.
 
-First establish native MC Hold, front transition, FW Hold, back transition and
-MC Hold without follower ownership. Preserve the Duo failure evidence and
-allocator regressions independently of the new plant's outcome. Then qualify
-ownership release and fresh explicit Start after each transition.
+The first retained stock quad cycle passes startup but fails native altitude
+and final hover-stability gates; see the [actual baseline evidence](native-transition-baseline.md#observed-stock-quad-response).
+Native flight qualification remains open. Preserve the Duo failure evidence and
+allocator regressions independently of the new plant's outcome. Ownership
+release and fresh explicit Start after each transition remain later gates.
 
 A separate no-pitot-from-start case must remove the simulated sensor explicitly
 and record native sensorless configuration and selected source. Existing FW

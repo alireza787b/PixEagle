@@ -79,6 +79,8 @@ def build_inputs(tmp_path, monkeypatch):
                     "characterization_env": "EXAMPLE_CHARACTERIZATION"}}}}
 
     (repository / "native/dependencies.lock.json").write_text(json.dumps(lock))
+    (repository / "tools").mkdir()
+    (repository / "tools/sih_baseline.py").write_bytes(Path(tool.sih.__file__).read_bytes())
     policy = {"source_pins": {}, "expected_output_paths": 1,
               "outputs": {"generated.txt": {"template": "template.txt", "template_sha256": tool.sih.digest(source / "template.txt"),
                                             "mode": "COPYONLY"}}}
@@ -440,6 +442,7 @@ def test_sparse_axes_authority_omits_only_production_fix_and_retains_test_hook()
     assert record["expected_tests"] == 11 and len(record["expected_negative_failures"]) == 2
     assert record["characterization_env"] is None
     with tool.source_authority(root, "baseline", record) as authority:
+        assert (authority / "tools/sih_baseline.py").read_bytes() == (root / "tools/sih_baseline.py").read_bytes()
         baseline = json.loads((authority / "native/px4/extension.json").read_text())
         assert set(canonical["patches"]) - set(baseline["patches"]) == {record["negative_patch"]}
         assert {name for name in canonical["files"] if canonical["files"][name] != baseline["files"][name]} == set(record["original_files"])
