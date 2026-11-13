@@ -1,11 +1,76 @@
 """Session-only follower controls shared by browser and native clients."""
 
 import math
+import time
 
+from classes.aircraft_state import AircraftState, AirframePhase, GuidanceSessionIdentity, finite_number
 from classes.api_v1_actions import ensure_api_action_store, new_api_action_record
 from classes.api_v1_native_targets import NativeTargetError
 from classes.api_v1_paths import API_V1_ACTION_FOLLOWING_CONTROL_PATH
 from classes.runtime_identity import INSTANCE_ID, RUNTIME_ID
+
+
+def _observed_session_speed(app, control) -> tuple[float | None, str | None]:
+    """Read qualified measurements without refreshing or polling their producer."""
+    if app._is_command_preview_session():
+        return None, None
+    connection = app.px4_interface
+    getter = getattr(connection, 'get_aircraft_state', None)
+    if not callable(getter):
+        return None, None
+    state = getter()
+    if not isinstance(state, AircraftState):
+        return None, None
+    identity = connection.get_aircraft_identity()
+    if (not connection.is_command_connection_ready(require_fresh_telemetry=True)
+            or state.binding.aircraft_uid != app._following_session_aircraft_uid
+            or state.binding.connection_generation != app._following_session_connection_generation
+            or identity.get('autopilot_uid') != state.binding.aircraft_uid
+            or identity.get('connection_generation') != state.binding.connection_generation or state.rescue_active):
+        return None, None
+    phase = {'translation_3d': AirframePhase.MULTICOPTER,
+             'equivalent_airspeed': AirframePhase.FIXED_WING}.get(control.get('speed_basis', 'translation_3d'))
+    if state.phase is not phase or control.get('aircraft_phase') not in {None, phase.value}:
+        return None, None
+    native = getattr(app, '_native_follow_binding', None)
+    guidance = getattr(native, 'guidance', None)
+    generation = control.get('guidance_generation')
+    try:
+        timeout = finite_number(connection.get_telemetry_stale_timeout_s(), 'telemetry_timeout')
+        if generation is not None:
+            owned = getattr(guidance, 'identity', None)
+            if (not isinstance(owned, GuidanceSessionIdentity) or owned.follow_session_id != app._following_session_id
+                    or owned.binding != state.binding or owned.guidance_generation != generation
+                    or guidance.phase is not phase or native.owner_confirmed is not True
+                    or native.transport.identity != owned):
+                return None, None
+            guidance.require_state()
+            timeout = min(timeout, guidance.phase_owner.observation_timeout_s)
+        elif native is not None or phase is AirframePhase.FIXED_WING:
+            return None, None
+    except (TypeError, ValueError):
+        return None, None
+    now = time.monotonic()
+    if timeout <= 0 or not state.fresh(now, timeout):
+        return None, None
+    if phase is AirframePhase.MULTICOPTER:
+        magnitude = state.velocity_ned_m_s.magnitude
+        return magnitude if math.isfinite(magnitude) else None, None
+    airspeed = state.airspeed
+    if airspeed.fresh(now, timeout):
+        return airspeed.equivalent_m_s, airspeed.source
+    # Missing EAS alone does not prove that the native sensorless mode is active.
+    feedback = native.transport.last_feedback
+    if (isinstance(feedback, dict) and feedback.get('controller_active') is True
+            and feedback.get('airspeed_control_enabled') is False
+            and guidance.phase_owner.capabilities.fixed_wing_supported is True):
+        try:
+            measured = finite_number(feedback.get('observed_at_monotonic_s'), 'native_feedback_time')
+        except ValueError:
+            return None, None
+        if state.observed_at_monotonic_s <= measured <= now and now - measured <= timeout:
+            return None, 'native_airspeedless'
+    return None, None
 
 
 def session_control_snapshot(app, principal, *, client_contract_version: int = 1) -> list:
@@ -57,7 +122,8 @@ def session_control_snapshot(app, principal, *, client_contract_version: int = 1
     increasing = reason is None and state == 'ACTIVE' and not continuity.get('target_transition_pending')
     result = []
     for control in getter():
-        if control.get('speed_basis', 'translation_3d') != 'translation_3d' and client_contract_version < 2:
+        if client_contract_version < 2 and (control.get('speed_basis', 'translation_3d') != 'translation_3d'
+                                            or control.get('guidance_generation') is not None):
             continue
         limiting = (getattr(concrete, '_vertical_limit_status', None)
                     or ('target_recovery' if not increasing and reason is None else reason))
@@ -66,8 +132,10 @@ def session_control_snapshot(app, principal, *, client_contract_version: int = 1
                 limiting = 'slowing_down'
             elif effective < control['value'] - .001:
                 limiting = 'guidance_limited'
+        observed, observed_source = _observed_session_speed(app, control)
         result.append(dict(control, available=reason is None, increase_allowed=increasing,
-                           reason_code=reason, effective_command_magnitude=effective, limiting_reason=limiting))
+                           reason_code=reason, effective_command_magnitude=effective, limiting_reason=limiting,
+                           observed_speed_m_s=observed, observed_speed_source=observed_source))
     return result
 
 

@@ -1,12 +1,14 @@
 # Requested speed during following
 
-GM Velocity Vector exposes a **Requested speed** control in Dashboard and the
-custom QGC follower panel while following is active. Other followers expose no
-speed adjustment unless their profile and implementation explicitly support it.
+Supported active followers advertise a **Requested speed** control to Dashboard
+and the custom QGC follower panel. The backend declares its meaning through
+`speed_basis`: `translation_3d` for the existing MC velocity adjustment, or
+`equivalent_airspeed` for a native FW reference. Unsupported followers expose no
+control; clients must not infer support from the follower name.
 
-Use **− / +** to request a slower or faster **total 3D velocity**, in 0.5 m/s
-steps. The speedometer and numeric readout sit next to follower status in QGC,
-and below Stop in Dashboard's Command card. The same control is available
+For the MC control, use **− / +** to request a slower or faster **total 3D
+velocity**, in 0.5 m/s steps. The speedometer and numeric readout sit next to
+follower status in QGC, and below Stop in Dashboard's Command card. The same control is available
 near the top of **Follower**, above the saved profile selector and diagnostics,
 with an independent Stop button. Idle and unsupported followers have no speed
 adjustment. Tap the value to open an inline
@@ -75,6 +77,36 @@ invalid geometry follows the existing fail-closed path.
 There is no distance hold, target-speed estimator or automatic overtaking
 detection in this control. Screen position alone does not establish target range.
 
+## Requested, submitted and observed speed
+
+A native FW row requests **equivalent airspeed**, not total 3D ground velocity.
+Its positive minimum and feasible envelope remain aircraft-owned. An acknowledged
+request can be below a changing load-dependent minimum; it remains distinct from
+PX4's effective reference and the aircraft's actual speed. Zero is not a FW stop
+request. Use Stop to end following and request the existing native handoff.
+
+`effective_command_magnitude` is the **submitted command**, not a measurement or
+a report of PX4's internally slewed reference. The API does not currently expose
+that native effective reference. Optional `observed_speed_m_s` uses the row's
+`speed_basis`: a full fresh NED velocity norm for MC, or PX4's selected qualified
+EAS observation for FW. A valid low EAS remains visible below the native minimum;
+it is not replaced by a requested speed, trim reference or groundspeed.
+
+Observations must match the active session's aircraft, connection, phase and,
+when present, guidance generation. The existing connection-owned snapshot retains
+its original measurement age; status reads cannot refresh it. Legacy MC scalar
+telemetry cannot establish a full NED vector, so its observation remains absent.
+For a qualified MC vector, `observed_speed_source: null` means no airspeed-source
+label applies; `speed_basis: translation_3d` defines its meaning.
+
+FW source labels are `sensor` or the qualified `ground_minus_wind` estimate.
+Missing, invalid, stale or misbound airspeed leaves the observation unknown.
+`native_airspeedless` additionally requires fresh matching native feedback proving
+that the FW controller is active with airspeed control disabled; unavailable
+EAS alone cannot establish that mode. It still reports no measured EAS or stall
+margin. These fields add no observer, polling loop, controller or flight authority.
+VTOL admission remains gated; exposing phase-aware status does not qualify it.
+
 ## Client and extension contract
 
 `GET /api/v1/integration/following` adds optional `session_controls` and
@@ -85,6 +117,10 @@ unsupported; clients must not infer support from a follower name.
 `maximum: null` means no configured adjustment ceiling. `configured_maximum`
 describes the saved startup ceiling; `override_active` and `reset_supported`
 advertise the restore affordance. Clients show acknowledged values only.
+Clients request `control_contract_version=2` for phase-bound controls and submit
+the advertised `guidance_generation` with each mutation. Version 1 hides EAS and
+all generation-bound rows, including MC; ordinary legacy MC rows without a
+generation remain available. The mutation guard is unchanged.
 
 `POST /api/v1/actions/following-control` accepts the ordinary action envelope
 plus `instance_id`, `runtime_id`, `follow_session_id`, `aircraft_uid`,
@@ -116,9 +152,9 @@ implementation; their existing independent-axis laws are not silently changed.
 
 ### Ordinary camera followers
 
-Only GM Velocity Vector supports this control today. A normal-camera chase
-follower can reuse the action, session ownership, limit resolver and interfaces,
-but needs an explicit guidance adapter and qualification before advertising it.
+A normal-camera chase follower can reuse the action, session ownership, limit
+resolver and interfaces, but needs an explicit guidance adapter and qualification
+before advertising it.
 Its image controller first derives the desired motion from image error and any
 other existing observations. The requested speed can then set that motion's
 magnitude while preserving its direction and existing acceleration/altitude

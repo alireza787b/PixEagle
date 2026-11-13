@@ -49,7 +49,7 @@ source:
   - file: src/classes/api_v1_native_targets.py
     sha256: 06472ee16e1c51e58f43ef9393c60a43ed84a4805ff9506d692c24cb3b5823af
   - file: src/classes/api_v1_following_controls.py
-    sha256: c4cee179949c6edfcc18f9c8793de49ff31a17c84d2966439fa42aea4d5e2084
+    sha256: 93ce6d07d82c74bb4242e5e61911af36222f279beeaed435b7aaf7f84d5f3282
   - file: src/classes/api_v1_native_following.py
     sha256: ee7375cf9ab08834376a90b4cd696822bab0dc8e6c16908432c038bcd0455072
   - file: src/classes/follower_catalog.py
