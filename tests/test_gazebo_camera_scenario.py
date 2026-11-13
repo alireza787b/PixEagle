@@ -569,3 +569,70 @@ def test_current_mc_descriptor_refuses_historical_build_before_resource_reads(tm
     with pytest.raises(ValueError, match='exact verified stock build'):
         scenario.verified_scenario('x500-mono-camera-board-v2', baseline, manifest)
     assert list(tmp_path.iterdir()) == []
+
+
+def test_metadata_mc_version_preserves_all_scene_resources():
+    old = json.loads((scenario.SCENARIOS / 'x500-mono-camera-board-v2.json').read_text())
+    new = json.loads((scenario.SCENARIOS / 'x500-mono-camera-board-v3.json').read_text())
+    changed = {'name', 'build_manifest_sha256', 'image_id', 'binary_sha256'}
+    assert {k: v for k, v in new.items() if k not in changed} == {k: v for k, v in old.items() if k not in changed}
+    assert all(new[k] != old[k] for k in changed)
+    quad = json.loads((scenario.SCENARIOS / 'standard-vtol-mono-camera-courtyard-v4.json').read_text())
+    assert all(new[k] == quad[k] for k in changed - {'name'})
+
+
+@pytest.mark.parametrize('change', [None, 'collision', 'undeclared', 'pose', 'hash'])
+def test_visual_courtyard_preserves_native_world_and_refuses_hidden_changes(monkeypatch, tmp_path, change):
+    root = scenario.SCENARIOS.parent
+    old = json.loads((scenario.SCENARIOS / 'standard-vtol-mono-camera-courtyard-v3.json').read_text())
+    new = json.loads((scenario.SCENARIOS / 'standard-vtol-mono-camera-courtyard-v4.json').read_text())
+    for key in ('resources', 'camera', 'camera_mount', 'added_model', 'server_config', 'target', 'spawn_pose',
+                'airframe_id', 'airframe_chain', 'identity_parameters'):
+        assert new[key] == old[key]
+    base = ET.parse(root / old['added_world']['resource'])
+    names = {old['target']['name'], *(p['name'] for p in old['scene_additions'])}
+    for model in list(base.findall('./world/model')):
+        if model.get('name') in names:
+            base.find('world').remove(model)
+    base.find('world').set('name', 'aruco')
+    files = {'gazebo/' + new['added_world']['base_resource']: ET.tostring(base.getroot())}
+    files.update({k: b'pinned mesh placeholder' for k in new['resources'] if '/meshes/' in k})
+    document = ET.parse(root / new['added_world']['resource'])
+    new_names = {p['name'] for p in new['scene_additions']} - {p['name'] for p in old['scene_additions']}
+    assert len(new_names) == 11
+    for model in document.findall('./world/model'):
+        if model.get('name') in new_names:
+            assert model.findtext('static') == 'true'
+            assert not any(model.findall('.//' + tag) for tag in ('collision', 'plugin', 'sensor', 'joint', 'include'))
+    if change == 'collision':
+        ET.SubElement(document.find('./world/model[@name="cross_roads"]/link'), 'collision', name='hidden')
+    if change == 'undeclared':
+        new['scene_additions'] = [p for p in new['scene_additions'] if p['name'] != 'cross_roads']
+    if change == 'pose':
+        document.find('./world/model[@name="cross_roads"]/pose').text = '0 0 1 0 0 0'
+    path = tmp_path / new['added_world']['resource']
+    path.parent.mkdir(parents=True)
+    document.write(path)
+    new['added_world']['sha256'] = hashlib.sha256(path.read_bytes()).hexdigest()
+    if change == 'hash':
+        new['added_world']['sha256'] = '0' * 64
+    monkeypatch.setattr(scenario, 'SCENARIOS', tmp_path / 'scenarios')
+    if change:
+        with pytest.raises(ValueError):
+            scenario._added_world(new, {'artifacts': {'gazebo': {}}}, files)
+    else:
+        assert new['added_world']['resource'] in scenario._added_world(new, {'artifacts': {'gazebo': {}}}, files)
+
+
+@pytest.mark.parametrize('old_name,new_name', [
+    ('x500-mono-camera-board-v2', 'x500-mono-camera-board-v3'),
+    ('standard-vtol-mono-camera-courtyard-v3', 'standard-vtol-mono-camera-courtyard-v4')])
+def test_metadata_scenarios_refuse_previous_build_before_reads(tmp_path, old_name, new_name):
+    old = json.loads((scenario.SCENARIOS / (old_name + '.json')).read_text())
+    baseline = dict(kind='verified_gazebo_source_build', manifest=str(tmp_path/'absent.json'),
+        image_id=old['image_id'], binary_sha256=old['binary_sha256'], manifest_sha256=old['build_manifest_sha256'])
+    manifest = dict(kind='pixeagle_gazebo_build', build={}, image_id=old['image_id'],
+                    artifacts={'binary_sha256': old['binary_sha256']})
+    with pytest.raises(ValueError, match='exact verified stock build'):
+        scenario.verified_scenario(new_name, baseline, manifest)
+    assert list(tmp_path.iterdir()) == []

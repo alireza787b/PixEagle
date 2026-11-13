@@ -366,3 +366,28 @@ The Gazebo airspeed callback does not currently use the SIH failure-injection
 hook, so an accepted `failure airspeed off` command alone is not evidence of
 sensor absence. No-pitot behavior, pursuit, S7 admission, S8 steep descent,
 private aircraft equivalence and hardware remain unqualified.
+
+### Versioned visual courtyard for operator training
+
+`standard-vtol-mono-camera-courtyard-v4` selects the authentic-version-metadata
+firmware package (`96f0968e…` manifest) and the separate
+`training_courtyard_v2.sdf` world. All earlier descriptors/worlds remain intact.
+`x500-mono-camera-board-v3` selects that same package with its original MC scene
+unchanged. Aircraft, camera, plugins, defaults and controller resources are
+byte-identical to the preceding package; the real firmware ELF hash differs.
+
+The v2 courtyard adds 11 declared, static, collision-free visual models:
+a 600×600 m pattern of contrasting 100 m field blocks, crossed dark roads,
+white runway edges/thresholds, and eight striped buildings distributed around
+ENU radii 210–252 m. Buildings are 18–30 m tall and stay outside the original
+central flight corridor. There are 215 total visuals, no downloaded textures,
+new plugins or collision geometry; added boxes disable their own shadows.
+These are tracking features, not physical obstacle protection. Existing targets,
+world gravity, georeference, aircraft mass and fixed camera calibration are unchanged.
+
+At 35 m altitude, visible 20 m features at 150–250 m range subtend roughly
+43–72 native camera pixels (about 22–36 at 640-wide analysis), when they are in
+view. This pinhole estimate is not a rendering or tracking qualification.
+A skyward or aircraft-occluded view can still contain no usable ground features;
+resource presence cannot correct attitude, framing, or tracker drift onto the nose.
+Actual visibility in MC and FW remains an operator bench check.
