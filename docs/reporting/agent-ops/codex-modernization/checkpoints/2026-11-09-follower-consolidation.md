@@ -1881,9 +1881,15 @@ tests. The next native-only transition runner will retain actual PX4 pose and
 ground truth under the unchanged 2 m gate; its default is a no-launch preview.
 No following owner or target is involved in this baseline.
 
-Continue actual sparse-axis and separate tailsitter performance qualification, then remaining ownership,
-abort/rescue/takeover, fault, mount and full-application matrix. Do not tune a
-follower to conceal a native-only failure or relax the 2 m/100 ms gates.
+Following the operator's 2026-11-13 scope clarification, continue the actual
+tracking/following, loss/reacquisition, retargeting, ownership,
+abort/rescue/takeover, fault, mount and full-application matrix. Native transition
+performance is separate airframe context; preserve its failed verdicts without
+requiring another transition tuning sweep. Apply the 2 m altitude-hold gate to
+active altitude-disabled pursuit and the 100 ms publication gate through the
+whole authority-held interval, including neutral release drainage. Obsolete
+pursuit after phase exit or late Hold after takeover still fails; do not mask
+either by relabeling an interval or subtracting a baseline excursion.
 The original report-owned replay remains historical evidence; the ten-test
 fixture now lives in canonical patch 0004. VTOL admission stays closed.
 
@@ -1894,11 +1900,22 @@ observation 2.817 m, full-window PX4 pose 17.684 m and independent truth 17.534 
 upward. Back-transition hover stability also fails. No following owner or active
 external publication gate is involved. The [native baseline guide](../../../../../native/native-transition-baseline.md#observed-stock-quad-response)
 contains the actual plot, exact firmware/log provenance and limitations.
-Native pitch-up/kinetic-to-height conversion is supported by the trace; a
-matched patch0003 negative control precedes any tuning or qualification claim.
+Native pitch-up/kinetic-to-height conversion is supported by the trace. A later
+matched patch0003 comparison records full-window truth excursions of 17.06 m
+with the patch and 17.21 m without it. Both retain their failed native-only
+verdicts. A single 10 s duration contrast still fails at 14.44 m; no tuning is
+adopted. These native-only results are not pursuit-altitude acceptance results.
 The full backend gate on `773b1005e` separately passes 6,562 unit, 196 integration
 and 155 Phase 0 checks; all 560 Dashboard tests/build/lint pass. Eleven optional
 GStreamer checks are skipped. These software results do not promote S7.
+
+The S9 backend observation/compatibility slice is committed at `98b9a2e0e`.
+Its full runtime/test bytes pass 6,662 unit and 196 integration tests; a generated
+API source-checksum correction is followed by 155 fresh Phase 0 tests, inventory,
+schema and fatal-lint checks. The R15 reuse receipt verifies byte identity with
+the R14 unit/integration inputs; the initial inventory failure remains retained.
+Mutation execution and saved public/private settings are unchanged. QGC catalog,
+phase-aware controls and the remaining actual guidance matrix are still open.
 
 The read-only entry point is
 `reports/sitl/follower-consolidation-20261111/s7-review-r6/index.html`.

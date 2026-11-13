@@ -1,5 +1,14 @@
 # Native-only transition baseline
 
+The operator separated native transition performance from follower
+qualification on 2026-11-13. This tool retains its original full-window 2 m
+diagnostic and failed captures. Those results describe the airframe maneuver;
+they do not establish a PixEagle pursuit failure or block separate following
+tests. Following must still end at transition entry. Test its authority release,
+publication through release, and absence of obsolete commands independently.
+A fresh Start requires a settled phase. No native-motion subtraction or verdict
+promotion is permitted.
+
 `tools/run_native_transition_baseline.py` is an opt-in **simulator control tool**,
 separate from the read-only visualizer/probe. It prepares native MC Hold,
 requests one pilot front transition, observes FW Hold, requests one guarded
@@ -131,8 +140,12 @@ The native scheduled back-transition pitch-up converts forward speed into
 height: ground truth rises 16.344 m from transition entry, near its 16.618 m
 kinetic-height equivalent. The near-zero vertical request does not command this
 climb. This supports a native maneuver/plant explanation; it does not prove a
-2 m envelope impossible. A matched comparison removing only patch0003 is the
-next extension-causality check, without gain or limit tuning.
+2 m envelope impossible. A matched comparison with and without patch0003 now
+retains about 17.06 m and 17.21 m of full-window truth excursion, respectively.
+The climb persists without that patch; this is not proof of equivalence across
+the full trajectories. A single 10 s back-transition contrast still fails at
+14.44 m. No tuning is adopted. Further native maneuver tuning is outside this
+following/recovery checkpoint.
 
 This is the stock 1.635 kg composite Gazebo model with its airspeed sensor,
 firmware parent `155f415168cef08dca2f5d85d2bc258b44a589ec` plus patches0001–0007,

@@ -226,6 +226,19 @@ publication while still retaining authority. Safe setpoints until confirmed
 release belong to the transport handoff, not continuing target pursuit. No
 transition baseline is required from a session after its release is confirmed.
 
+**Qualification scope clarified on 2026-11-13.** The native pilot/PX4 transition
+maneuver is separate airframe evidence, not a pursuit-altitude acceptance gate.
+Retain the failed native-only results and their original thresholds. New
+following runs report pursuit-active response/altitude separately from the
+native maneuver after release. The 2 m altitude-hold requirement applies while
+altitude-disabled pursuit is active; the 100 ms publication requirement covers
+the entire authority-held interval, including neutral release drainage.
+Premature publication loss, obsolete pursuit after phase exit or late Hold
+after takeover still fail. Never subtract a native baseline peak from a pursuit
+result or exclude a broken ownership interval by changing its label. Remaining
+work prioritizes tracking, loss/reacquisition, retargeting, recovery and actual
+phase-exit release; no further native transition tuning is required here.
+
 S7's MAVSDK source review confirms that the existing inner Stop guard closes the
 known Python 3.10/3.11 task-scheduling gap: it rechecks the retained session,
 aircraft and activation inside the actual invocation. Twenty-two authority tests
