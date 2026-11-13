@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "scope": "Pinned native-only simulator observer runtime; no following qualification",
+  "adapter_image": "sha256:c09b3a23646d975b9fb801e08b604a11d17e689f44c4ba9978f9d12db00d2912",
+  "file_manifest_sha256": "c45bc2dc503653d0a9b81ac0ccd3bcd61aa2bc0f4c2336250504e6b00ac50c8d",
+  "bundle_files": 6559,
+  "adapter_sha256": "162c425f022df6f28420b2f87cd6c5958cb4718c6e304bc6e49129e88c7a9c29",
+  "compiled_inputs": {
+    "native/px4_guidance/CMakeLists.txt": "a5ad843d1498ecd1a8a4ee976a23ec922df3b8a4eea82c4d9c3a33d9180a53fb",
+    "native/px4_guidance/include/pixeagle/aircraft_observations.hpp": "cc6b75d6453afcc2674677c7376654e398b39d4dfa55da0badcd90f4a2ca1584",
+    "native/px4_guidance/include/pixeagle/command_lease.hpp": "0c4c6a8a3e039e2f840f9234c23b9d72436d6c1555edd847b6311982a637386b",
+    "native/px4_guidance/include/pixeagle/external_mode.hpp": "84a71153e9581e6009eb5996a88ea011d04afd52be0e7a396d654b7bb38b923a",
+    "native/px4_guidance/include/pixeagle/local_protocol.hpp": "2c2fa8a9dc011cdef7dd4eb93bdfbd33b52c798520c1b2401015e842c3df2242",
+    "native/px4_guidance/include/pixeagle/local_server.hpp": "26130897644f31397b93dbe59e940516c3d2e30ac334dcc340715abbec78bd98",
+    "native/px4_guidance/include/pixeagle/navigation_heading.hpp": "44657168ad053b5d9c180cad158b56170abc5eb8f0cb81c7fd96b8a8fe418017",
+    "native/px4_guidance/include/pixeagle/neutral_release.hpp": "f9f8f08cbfaabdac55fa4f409bd58ebae2dbba9e2fc1f60bfe4b8ec1d8bd4ae3",
+    "native/px4_guidance/include/pixeagle/owned_mode_contract.hpp": "effb78a2021eae4131a1342bb266ce4cb772d2483a4755139fbf9ed54e5f2a89",
+    "native/px4_guidance/include/pixeagle/phase_observation.hpp": "fff8934a1b16140b9a9a56dabdde9a638073f94f350f50e108cac1d447d209a8",
+    "native/px4_guidance/include/pixeagle/source_sample.hpp": "4fb2e2698e5b8458db10307c131bb1a8401f87241d59f1465ac99502ae059b72",
+    "native/px4_guidance/src/aircraft_observations.cpp": "b1512f1cf2fa1b953aabbe5fcb453bde93a8fb95de1524c7694e58e8d5e2cffc",
+    "native/px4_guidance/src/external_mode.cpp": "994dfac02a67b74083fabf96f73b82dc14d49973a336bba97afff96e5ea95414",
+    "native/px4_guidance/src/local_server.cpp": "2be4f00262ffe38f623e919cb409b607f4c904fbc8ea14459cd4fa51a253f06b",
+    "native/px4_guidance/src/main.cpp": "e50a602b70fda95d415a263e754cd57204934cd9ab712a2db4e421e527457866",
+    "native/px4_guidance/test/command_lease_test.cpp": "58fd9dfdfeab2e6999d471fd265c4d00879709ebb9abcae7e1c27a8041f14a75",
+    "native/px4_guidance/test/fixtures/ownership-protocol.json": "79947cb4b41934a55e06b7801622a6f142470ddb65479a3761d9915c98a87159",
+    "native/px4_guidance/test/local_protocol_test.cpp": "e47cf3c3a2241f6756c728140989b0799d39089df89ac18a5c9522af20b88a9a",
+    "native/px4_guidance/test/navigation_heading_test.cpp": "214188505b4ee5e9c5da645b278ed1bacc38eb69be4043fc6614bc16ecb38511",
+    "native/px4_guidance/test/neutral_release_test.cpp": "9f405ea099c35550c611ef20b005b0653612b4b473d019cf1ddbd48b6cb13e36",
+    "native/px4_guidance/test/owned_mode_contract_test.cpp": "bd1434359c9351e97199157209152c371bbcfe5b1d5433f8d2e356ff8204d49f",
+    "native/px4_guidance/test/phase_observation_test.cpp": "b32c5688c3e37f1b63edddd16bb20d691942bc005fddadf07b6c5ef218d4b988",
+    "native/px4_guidance/test/source_sample_test.cpp": "d4c63c934c1e71ea27b3486ef9d61fb675e861392e0359abd16a7420bb6a370d",
+    "native/px4_guidance/test/terminal_release_test.cpp": "227ac46db40744a2b44712c734a11552cfd95ae948770bb55f89755884e439cd"
+  },
+  "bootstrap_files": {
+    "ROMFS/px4fmu_common/init.d-posix/rcS": "6c2dfba5624eeb5ad7a391e5703d1bb9e1045e9b834536ec7d0c0a809840bf75",
+    "src/modules/navigator/mission_params.yaml": "7afcb3610076d46cb09419fe316aafbd93f0fe5aef0a8e3b1623012255d44e4d",
+    "src/modules/vtol_att_control/vtol_att_control_params.yaml": "d1247a7508ae04c45118efb8dcca6382c25f8fcf4bdca99b5837c50557bf3adf"
+  },
+  "logger_sha256": "5b1fe808bdf9fd1d6526c168c989a60881c483ef8446fdd1dc7e26905d2e34da",
+  "extracted_from": {
+    "prepare_runtime.py": "edbc60efc08b362ebff93f2a9e66a09db765de690ad16be1aaa117dacf74afc2",
+    "observe_baseline.py": "daa31ef56c513f95d278b772302f11f3ef812bccf0f9a94d239f2b1f9e57deda",
+    "stop_and_archive.py": "f1810161e547dec892d0d74a5279156ec151596cdafd9ab04463824919a51444"
+  },
+  "historical_limit": "Prior MIS cache race, failed transitions and helper versions remain unchanged. Newfreshrootfs startup overlay is consumed before Navigator."
+}
