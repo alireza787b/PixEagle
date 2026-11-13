@@ -4,16 +4,18 @@ Plan: [MC/FW/VTOL consolidation](../../../../followers/05-development/follower-c
 Baseline: PixEagle `50bb2f763`; QGC implementation worktree `c7cfdfa13`.
 Hardware, installed services and local saved/private configuration are untouched.
 
-Current position (November 12): **S0–S6 component/software checkpoints complete;
-S7 implementation in progress.** The S6 closeout below records 32 selected
-actual-PX4 component passes and retained failed history. Native causal ownership,
-transition-preserving release, clients, packaging and hardware remain open.
-The repaired `e4b366d5e` baseline and separate, unmerged `fd57059a6` native
-Transition candidate each pass the renewed 6,391/196/155 software gate.
-Protocol-3 airplane renewal passes three component cases. The declared MC
-process-loss component now retains both flight logs, while VTOL altitude,
-remaining ownership cases and full application qualification stay open.
-VTOL admission stays closed. See the
+Current position (November 13): **S0–S6 component/software checkpoints complete;
+S7 following/recovery/ownership qualification remains open.** Native pilot
+transition motion is separate airframe evidence; following ends at transition
+and a settled phase requires a fresh Start. Actual vertical and horizontal MC
+pursuit/release checks pass. Vertical FW pursuit retains a 2.1956 m altitude
+failure against the 2 m gate; horizontal FW Start is refused before acquisition
+by a duplicate-time composite sample in the harness. Neither whole case passes.
+The latest full backend checkpoint passes 6,670/196/155 checks on `3023d351e`;
+later narrow harness and client checks have their own scopes below. QGC candidate
+`89d39998e` is built locally with retained host/baseline gate limitations.
+Full application, sensorless, remaining fault, packaging and hardware gates
+remain open; VTOL application admission stays closed. See the
 [current S7 findings](#s7-current-diagnostics-and-native-response).
 
 Continuation on 2026-11-11: the current MC component selector has 28 passing
@@ -1965,12 +1967,15 @@ response remains under review; no follower reference fix or gain tuning is
 supported yet. This is an active-pursuit failure, separate from the excluded
 native pilot-transition excursion.
 
-The new log audit also needs source-supported timing corrections: distinct
-attitude samples may share a publication tick, and independently stamped FW
-lateral/longitudinal messages need not have equal timestamps. SDK publication
-calls and logged uORB records are different quantities. The MC discrepancy of
-333 calls versus 331 records remains unresolved; no lossless-delivery claim is
-made. The original failed result is retained. Actual 3D replays and CSV/PNG
+The corrected log audit (`ee426efe2`) qualifies received-topic cadence from the
+reviewed sole producer, exact compiled artifacts, original isolated-runtime
+witnesses, native ownership epochs and supported command payloads. Distinct
+attitude samples may share a publication tick only with advancing sensor time;
+independently stamped FW topics each retain the 100 ms gate. Both phases have
+36 ms maximum received gaps, including neutral drainage. SDK publication calls
+and logged uORB records are different quantities: the MC discrepancy of 333
+calls versus 331 records remains unresolved, and individual-command delivery
+stays UNKNOWN. The original failed result is retained. Actual 3D replays and CSV/PNG
 exports are under `software-gates-s7-guidance-vertical-r2-review-r1/` in the run
 root; source, timing and lifecycle audits accompany them. Live VTOL application
 admission remains closed.
@@ -1984,3 +1989,17 @@ recorded. The candidate is local and unpublished; original QGC worktrees and
 saved public/private settings remain unchanged. The Vector catalog description
 is clarified to cover both declared command strategies instead of implying
 body velocity in FW.
+
+The horizontal comparison (`ee426efe2`) independently verifies MC retirement,
+0.4716 m active altitude error (0.5311 m simulator truth), and 36 ms received
+cadence. No control writes follow the phase witness; cleanup reuses the original
+release receipt. FW has no acquisition, publication or cleanup Hold: its
+immediate refresh packet advances packet/partial sensor data but retains the
+same oldest-constituent receipt as the last stable sample. Appending it as
+another stable sample fails the strict time-progress check. This harness refusal
+does not establish unstable FW flight or qualify FW following. Both original
+containers are stopped, the closed log has no drops/corruption, and original
+failures remain unchanged. The next test-helper correction must await genuine
+source progress within the original deadline, without widening stability or
+freshness limits. Optional target-loss fixtures then reuse the existing runner
+and continuity policy for reacquisition and expiry; they are not flight evidence.

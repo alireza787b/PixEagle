@@ -268,6 +268,56 @@ def test_one_actual_pose_anchor_and_clock_are_preserved_across_the_two_scenarios
     assert artifact.read_bytes() == original
 
 
+@pytest.mark.parametrize('faults,reason', [([], None),
+    ([dict(kind='target_loss', at_s=3., duration_s=1.)], None),
+    ([dict(kind='target_loss', at_s=3., duration_s=10.)], 'maximum_coast_time_reached')])
+def test_fw_loss_stimuli_use_existing_validator_and_preserve_world_target(tmp_path, monkeypatch, faults, reason):
+    monkeypatch.setattr(vector, 'host_boot_id', lambda: '11111111-1111-1111-1111-111111111111')
+    raw = json.loads(cycle.CASE.read_text())
+    raw['fw'].update(faults=faults, expected_handoff=reason)
+    fixture = tmp_path/'case.json';fixture.write_text(json.dumps(raw))
+    accepted = cycle.case(fixture)
+    state = aircraft_state(binding=AircraftBinding('42', 'conn', 1), is_vtol=True, navigation_heading_rad=.3)
+    initial = dict(aircraft_state=asdict(state), vehicle_pose=dict(vehicle_ned=[10., 20., -30.]))
+    paths, artifact = cycle.world_scenarios(tmp_path, initial, 'VERTICAL', accepted, clock=lambda: 100.)
+    target = vector.WorldTargetClock.from_file(artifact, now=101.)
+    mc, fw = [yaml.safe_load(path.read_text()) for path in paths]
+    assert fw['faults'] == faults and mc['faults'][0]['kind'] == 'pilot_transition'
+    assert mc['target'] == fw['target']
+    target.require_matching_target(fw)
+    assert target.target_at_host(101.) != target.target_at_host(110.)
+
+
+@pytest.mark.parametrize('fw', [
+    {'duration_s': True}, {'duration_s': float('nan')}, {'duration_s': 15., 'faults': {}},
+    {'duration_s': 15., 'faults': [dict(kind='pilot_transition', at_s=3.)]},
+    {'duration_s': 15., 'faults': [dict(kind='target_loss', at_s=3., duration_s=20.)]},
+    {'duration_s': 15., 'faults': [dict(kind='target_loss', at_s=True, duration_s=1.)]},
+    {'duration_s': 15., 'expected_handoff': 'pilot_takeover'},
+    {'duration_s': 15., 'new_policy': 'another_recovery_timer'},
+])
+def test_invalid_fw_loss_stimuli_are_rejected_before_any_runtime(tmp_path, monkeypatch, fw):
+    launch = Mock(side_effect=AssertionError('invalid case started runtime'))
+    monkeypatch.setattr(cycle.base, 'verified_runtime', launch)
+    raw = json.loads(cycle.CASE.read_text());raw['fw'] = fw
+    path = tmp_path/'invalid.json';path.write_text(json.dumps(raw))
+    with pytest.raises(ValueError): cycle.main(['--mount', 'HORIZONTAL', '--case-fixture', str(path)])
+    launch.assert_not_called()
+
+
+@pytest.mark.parametrize('name,reason', [('gazebo-guidance-fw-reacquire.json', None),
+    ('gazebo-guidance-fw-loss-expiry.json', 'maximum_coast_time_reached')])
+def test_declared_fw_loss_cases_are_readonly_and_use_shared_loss_contract(name, reason, monkeypatch, capsys):
+    launch = Mock(side_effect=AssertionError('preview launched runtime'))
+    monkeypatch.setattr(cycle.base, 'verified_runtime', launch)
+    path = cycle.base.SCENARIOS/name
+    assert cycle.main(['--mount', 'VERTICAL', '--case-fixture', str(path)]) == 0
+    value = json.loads(capsys.readouterr().out)
+    assert value['execute'] is False and value['case']['fw']['expected_handoff'] == reason
+    assert value['case']['fw']['faults']
+    launch.assert_not_called()
+
+
 @pytest.mark.parametrize('phase', [AirframePhase.VTOL_TRANSITION, AirframePhase.UNKNOWN, AirframePhase.MULTICOPTER])
 def test_transition_unknown_or_old_phase_never_selects_the_fresh_fw_start(phase):
     packet = dict(aircraft_state=asdict(aircraft_state(phase=phase, is_vtol=True)), owner_confirmed=False,
@@ -294,7 +344,8 @@ def test_explicit_build_authority_reaches_component_cli_before_a_client(tmp_path
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('outcome', ['qualified', 'unknown_native_attribution', 'component_failure'])
-async def test_real_cycle_flow_keeps_native_zoom_separate_and_cleanup_unconditional(tmp_path, monkeypatch, outcome):
+@pytest.mark.parametrize('expected_fw_handoff', [None, 'maximum_coast_time_reached'])
+async def test_real_cycle_flow_keeps_native_zoom_separate_and_cleanup_unconditional(tmp_path, monkeypatch, outcome, expected_fw_handoff):
     import pyulog
 
     output = tmp_path / 'fresh-run'
@@ -342,9 +393,11 @@ async def test_real_cycle_flow_keeps_native_zoom_separate_and_cleanup_unconditio
     monkeypatch.setattr(cycle.base, 'audit_ulog', Mock(return_value={'passed': False, 'maximum_excursion_m': 17.}))
     monkeypatch.setattr(cycle, 'ownership_interval', Mock(return_value={
         'passed': outcome != 'unknown_native_attribution', 'source_attribution': 'UNKNOWN' if outcome == 'unknown_native_attribution' else 'corroborated'}))
+    fixture = cycle.case(cycle.CASE)
+    fixture['fw']['expected_handoff'] = expected_fw_handoff
     result = await cycle.execute(SimpleNamespace(mount='HORIZONTAL', config=tmp_path/'config',
         build_repository=None, simulation_build_manifest=tmp_path/'build.json',
-        adapter_bundle=tmp_path/'adapter', adapter_file_manifest=tmp_path/'adapter.json'), cycle.case(cycle.CASE))
+        adapter_bundle=tmp_path/'adapter', adapter_file_manifest=tmp_path/'adapter.json'), fixture)
     runtime.cleanup.assert_called_once()
     assert client.close.await_count == 1
     assert result['passed'] is (outcome == 'qualified')
@@ -353,5 +406,7 @@ async def test_real_cycle_flow_keeps_native_zoom_separate_and_cleanup_unconditio
     else:
         assert [call.initial_phase for call in calls] == ['multicopter', 'fixed_wing']
         assert calls[0].target_clock == calls[1].target_clock == clock
+        assert calls[0].expect_handoff == 'aircraft_transition_observed'
+        assert calls[1].expect_handoff == expected_fw_handoff
         assert result['full_native_capture']['passed'] is False
         assert result['application_startup_qualified'] is result['same_application_connection_qualified'] is False

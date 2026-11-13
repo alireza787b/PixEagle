@@ -35,10 +35,19 @@ def case(path):
             or value['native_fixture'] != 'gazebo-quadtailsitter-hold-cycle.json'):
         raise ValueError('Explicit stock Gazebo guidance fixture required')
     expected = {'target': {'forward_m', 'right_m', 'speed_m_s', 'coverage_s'},
-                'mc': {'duration_s', 'transition_at_s', 'requested_speed_m_s'}, 'fw': {'duration_s'}}
+                'mc': {'duration_s', 'transition_at_s', 'requested_speed_m_s'}}
     if any(set(value[key]) != names or any(not base.finite(x) for x in value[key].values())
            for key, names in expected.items()):
         raise ValueError('Finite explicit world-target and timing fixture required')
+    fw = value['fw']
+    if (not isinstance(fw, dict) or 'duration_s' not in fw
+            or set(fw) - {'duration_s', 'faults', 'expected_handoff'} or not base.finite(fw['duration_s'])
+            or not isinstance(fw.get('faults', []), list)
+            or any(not isinstance(fault, dict) or fault.get('kind') != 'target_loss'
+                   for fault in fw.get('faults', []))
+            or fw.get('expected_handoff') not in (None, 'maximum_coast_time_reached')):
+        raise ValueError('Explicit FW target-loss fixture required')
+    vector.component_fault_windows(fw.get('faults', []), fw['duration_s'])
     if (not 0. < value['mc']['transition_at_s'] < value['mc']['duration_s'] <= 60.
             or not 1. <= value['fw']['duration_s'] <= 60.
             or not 0. < value['mc']['requested_speed_m_s'] <= 5.
@@ -76,7 +85,7 @@ def world_scenarios(output, initial, mount, fixture, *, clock=time.monotonic):
     for name in ('mc', 'fw'):
         scenario = dict(raw)
         scenario['faults'] = ([dict(kind='pilot_transition', at_s=fixture['mc']['transition_at_s'],
-                                   requested_phase='fixed_wing')] if name == 'mc' else [])
+                                   requested_phase='fixed_wing')] if name == 'mc' else fixture['fw'].get('faults', []))
         path = output / (name + '-scenario.yaml')
         path.write_text(yaml.safe_dump(scenario, sort_keys=False))
         paths.append(path)
@@ -136,7 +145,7 @@ async def execute(args, fixture):
                 container=runtime.primary, instance=0, config=args.config, follower='gm_velocity_vector',
                 mount=args.mount, altitude=False, duration=fixture[name]['duration_s'], stable_timeout=90.,
                 test_altitude=30., altitude_tolerance=2., scenario=scenarios[index], target_clock=target_clock,
-                expect_handoff='aircraft_transition_observed' if index == 0 else None,
+                expect_handoff='aircraft_transition_observed' if index == 0 else fixture['fw'].get('expected_handoff'),
                 mc_request=fixture['mc']['requested_speed_m_s'] if index == 0 else None,
                 initial_phase='multicopter' if index == 0 else 'fixed_wing',
                 simulation_build_manifest=args.simulation_build_manifest, build_repository=args.build_repository)
