@@ -548,3 +548,24 @@ def test_phase_fenced_courtyard_keeps_all_prior_scene_and_camera_resources():
     identity = {'name', 'build_manifest_sha256', 'image_id', 'binary_sha256'}
     assert {k: v for k, v in current.items() if k not in identity} == {k: v for k, v in old.items() if k not in identity}
     assert all(current[key] != old[key] for key in identity)
+
+
+def test_current_mc_board_keeps_all_original_scene_and_camera_resources():
+    old = json.loads((scenario.SCENARIOS / 'x500-mono-camera-board-v1.json').read_text())
+    current = json.loads((scenario.SCENARIOS / 'x500-mono-camera-board-v2.json').read_text())
+    identity = {'name', 'build_manifest_sha256', 'image_id', 'binary_sha256'}
+    assert {k: v for k, v in current.items() if k not in identity} == {k: v for k, v in old.items() if k not in identity}
+    assert all(current[key] != old[key] for key in identity)
+    quadplane = json.loads((scenario.SCENARIOS / 'standard-vtol-mono-camera-courtyard-v3.json').read_text())
+    assert all(current[key] == quadplane[key] for key in identity - {'name'})
+
+
+def test_current_mc_descriptor_refuses_historical_build_before_resource_reads(tmp_path):
+    old = json.loads((scenario.SCENARIOS / 'x500-mono-camera-board-v1.json').read_text())
+    baseline = dict(kind='verified_gazebo_source_build', manifest=str(tmp_path/'absent.json'),
+        image_id=old['image_id'], binary_sha256=old['binary_sha256'], manifest_sha256=old['build_manifest_sha256'])
+    manifest = dict(kind='pixeagle_gazebo_build', build={}, image_id=old['image_id'],
+                    artifacts={'binary_sha256': old['binary_sha256']})
+    with pytest.raises(ValueError, match='exact verified stock build'):
+        scenario.verified_scenario('x500-mono-camera-board-v2', baseline, manifest)
+    assert list(tmp_path.iterdir()) == []

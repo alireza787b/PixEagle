@@ -12,11 +12,14 @@ def test_stamped_gazebo_profile_is_explicit_and_keeps_commands_blocked(tmp_path)
     settings = dict(socket_path='/run/pixeagle-camera/camera.sock', source_clock_id='test-world',
         world='training', image_topic='/camera/image', max_attitude_skew_s=.05)
     directory = tmp_path / 'gazebo'
-    prepare(directory, gazebo_camera=settings, tracking_engine='local', follower_mode='mc_velocity_chase')
+    prepare(directory, gazebo_camera=settings, tracking_engine='local', follower_mode='mc_velocity_chase',
+            enable_altitude_control=True)
     config = yaml.safe_load((directory / 'configs/config.yaml').read_text())
     assert config['VideoSource']['VIDEO_SOURCE_TYPE'] == 'GAZEBO_CAMERA'
     assert config['VideoSource']['GAZEBO_CAMERA'] == settings
     assert config['FOLLOWER_CIRCUIT_BREAKER'] is True
+    assert config['Follower']['General']['ENABLE_ALTITUDE_CONTROL'] is True
+    assert config['Follower']['FollowerOverrides']['MC_VELOCITY_CHASE']['ENABLE_ALTITUDE_CONTROL'] is True
     assert not config['GimbalTracker']['ENABLED']
     assert not config['GimbalTracker']['CONTROL_ENABLED']
     assert validate(directory)['video_source'] == 'gazebo'

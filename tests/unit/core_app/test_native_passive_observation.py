@@ -26,7 +26,8 @@ def native_client(connection):
         client.capabilities = caps
         return caps
     client.connect = AsyncMock(side_effect=connect)
-    client.observe = AsyncMock(return_value=dict(fresh=True, owner_confirmed=False,
+    client.observe = AsyncMock(return_value=dict(runtime_id=caps.runtime_id,
+        start_context=None, source_attitude=None, fresh=True, owner_confirmed=False,
         rescue_active=False, aircraft_state=asdict(state)))
     return client, state
 
@@ -56,7 +57,7 @@ async def test_two_passive_polls_reuse_one_client_and_snapshot_owner(connection,
     client.close.assert_not_awaited()
 
 
-@pytest.mark.parametrize('condition', ['mc', 'unknown', 'mavsdk_profile', 'unqualified', 'disconnected',
+@pytest.mark.parametrize('condition', ['mc', 'unknown', 'mavsdk_profile', 'disconnected',
     'active', 'binding', 'stopping', 'cleanup', 'shutdown', 'preview'])
 async def test_status_never_starts_adapter_for_ineligible_or_owned_paths(connection, monkeypatch, condition):
     app = controller(connection, monkeypatch); mode = 'gm_velocity_vector'
@@ -64,7 +65,6 @@ async def test_status_never_starts_adapter_for_ineligible_or_owned_paths(connect
     if condition in ('mc', 'unknown'):
         connection.get_aircraft_kind.return_value = AircraftKind.MULTICOPTER if condition == 'mc' else AircraftKind.UNKNOWN
     elif condition == 'mavsdk_profile': mode = 'mc_velocity_position'
-    elif condition == 'unqualified': mode = 'fw_navigation_chase'
     elif condition == 'disconnected': connection.get_connection_status = lambda: {'connected': False}
     elif condition == 'active': app.following_active = True
     elif condition == 'binding': app._native_follow_binding = object()
@@ -74,6 +74,19 @@ async def test_status_never_starts_adapter_for_ineligible_or_owned_paths(connect
     elif condition == 'preview': monkeypatch.setattr(Parameters, 'FOLLOWER_EXECUTION_MODE', 'COMMAND_PREVIEW')
     await app.refresh_native_following_state(mode)
     connection.prepare_native_guidance.assert_not_awaited()
+
+
+async def test_implemented_native_profile_can_observe_while_start_remains_unqualified(connection, monkeypatch):
+    from classes.follower_catalog import get_follower_profile
+
+    app = controller(connection, monkeypatch)
+    profile = replace(get_follower_profile('fw_navigation_chase'), live_qualified_phases=())
+    assert not profile.live_eligibility.eligible
+    monkeypatch.setattr('classes.follower_catalog.get_follower_profile', lambda _: profile)
+    connection.prepare_native_guidance = AsyncMock()
+    await app.refresh_native_following_state('fw_navigation_chase')
+    connection.prepare_native_guidance.assert_awaited_once()
+    assert not app.following_active
 
 
 async def test_metadata_not_vector_name_selects_native_observation(connection, monkeypatch):

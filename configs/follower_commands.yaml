@@ -213,10 +213,10 @@ follower_profiles:
     family: fixed_wing
     visibility: experimental
     display_name: "FW Navigation Chase"
-    description: "Calibrated image pursuit through native PX4 course, airspeed and vertical-path control; live qualification pending"
+    description: "Calibrated image pursuit through native PX4 course, airspeed and vertical-path control; qualified image timing and native ownership required"
     control_type: fixed_wing_external
     airframe_phase: fixed_wing
-    live_qualified_phases: []
+    live_qualified_phases: [fixed_wing]
     native_phase_contracts:
       fixed_wing: fixed_wing_external
     required_fields: []

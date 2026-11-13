@@ -218,6 +218,7 @@ def prepare(
             SMART_TRACKER_SHOW_PASSIVE_LABELS=True)
     config["Follower"].update(FOLLOWER_MODE=follower_mode, FOLLOWER_EXECUTION_MODE=follower_execution_mode)
     if enable_altitude_control is not None:
+        config['Follower']['General']['ENABLE_ALTITUDE_CONTROL'] = enable_altitude_control
         config['Follower']['FollowerOverrides'].setdefault(profile.config_section, {})['ENABLE_ALTITUDE_CONTROL'] = enable_altitude_control
     config["Follower"]["SIH_RECORDED_VIDEO_FOLLOWING"] = allow_recorded_sih_following
     config["TargetContinuity"]["MODE"] = continuity_mode

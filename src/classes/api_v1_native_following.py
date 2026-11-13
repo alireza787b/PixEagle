@@ -147,9 +147,16 @@ def following_snapshot(owner, principal, *, client_control_contract_version: int
                     start_context = None
                     reasons.append(_native_observation_reason(error))
             aircraft = evaluate_aircraft(profile, flight.get("aircraft_kind"),
-                                        observed_phase=None if state is None else state.phase.value)
+                observed_phase=None if state is None else state.phase.value,
+                native_vtol_verified=getattr(owner.app_controller.px4_interface, 'native_vtol_contract_ready', False) is True)
             if not aircraft.eligible:
                 reasons.append(aircraft.reason_code)
+            if state is not None and not status['following_active']:
+                from classes.gazebo_image_alignment import native_image_guidance_readiness
+
+                image_readiness = native_image_guidance_readiness(owner.app_controller, profile, state)
+                if not image_readiness['ready']:
+                    reasons.append(image_readiness['reason_code'])
     if not _following_scopes(start=True).issubset(principal.scopes):
         reasons.append("following_permission_required")
     if execution_mode != "PX4":

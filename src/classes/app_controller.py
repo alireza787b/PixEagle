@@ -3304,6 +3304,7 @@ class AppController:
         decision = evaluate_aircraft(
             descriptor, kind.value if isinstance(kind, AircraftKind) else "unknown",
             observed_phase=None if state is None else state.phase.value,
+            native_vtol_verified=getattr(self.px4_interface, 'native_vtol_contract_ready', False) is True,
         )
         if not decision.eligible:
             result["precondition"] = {"code": decision.reason_code}
@@ -3385,7 +3386,7 @@ class AppController:
         from classes.follower_catalog import get_follower_profile
 
         profile = get_follower_profile(selected_mode)
-        if (not profile.native_phase_contracts or not profile.live_eligibility.eligible
+        if (not profile.native_phase_contracts or not profile.implementation_available
                 or self._is_command_preview_configured()
                 or self.px4_interface.get_aircraft_kind() not in (AircraftKind.FIXED_WING, AircraftKind.VTOL)):
             return

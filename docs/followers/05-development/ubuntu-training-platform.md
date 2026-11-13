@@ -1,6 +1,6 @@
 # Ubuntu visual training platform plan
 
-**Status: first MC camera stack implemented; operator qualification pending.**
+**Status: MC operator check passed; combined VTOL qualification in progress.**
 Camera rendering and normal UDP ingestion have passed a disarmed check. The
 full application, UI and airborne workflow are still being qualified; this does not establish flight
 qualification. The [follower consolidation plan](follower-consolidation-plan.md)
@@ -20,7 +20,7 @@ evidence.
 
 | Mode | Normal application path | Evidence boundary |
 | --- | --- | --- |
-| A: rendered camera | Gazebo camera → RTP/H.264 → `VideoHandler` → selected production tracker | Actual rendered images and tracker behaviour; simulator evidence only |
+| A: rendered camera | Gazebo camera → stamped image socket (VTOL) or RTP/H.264 (MC) → `VideoHandler` → selected production tracker | Actual rendered images and tracker behaviour; simulator evidence only |
 | B: mouse observations | Mouse canvas → registered simulation tracker → typed `TrackerOutput` | Synthetic 2D measurements, not computer-vision detection or real camera evidence |
 | C: angle emulator | Sliders and independent tracking status → `GimbalInputProvider` → `CameraRuntime` → `GimbalTracker` | Emulated angle/lock observations, not mechanical joint response or confirmed physical target lock |
 
@@ -143,7 +143,7 @@ private configuration. Any uncertain ownership/cleanup blocks another Start.
 
 ### Standard quadplane runtime staging
 
-The explicit `standard-vtol-mono-camera-courtyard-v2` scenario selects the stock
+The explicit `standard-vtol-mono-camera-courtyard-v3` scenario selects the stock
 4004 standard VTOL airframe with its reviewed fixed camera wrapper and populated
 world. The launcher requires `--adapter-bundle` and `--adapter-file-manifest` for
 this declared VTOL scenario, verifies the pinned runtime assets and DDS status
@@ -187,6 +187,30 @@ provider/protocol hashes and original container ID. Native attitude timestamp
 mapping remains independently qualified; a socket or image alone grants none.
 The default MC scenario keeps its UDP path.
 
+### Phase-specific operator checkpoint
+
+The native contract admits MC Chase only in settled MC phase and Native
+Navigation Chase only in settled FW phase. It requires the verified ownership
+and altitude-hold capabilities, fresh aircraft state and an original Start
+context; a configured VTOL label grants none of these. A transition ends
+following and requires a new operator Start after settling. MC Chase's ordinary
+MAVSDK path remains unchanged for pure multicopters.
+
+Native Navigation Chase additionally requires the calibrated rendered-image
+source and matching raw PX4 sample clock before Start is offered. The same gate
+is rechecked before acquisition. Its phase declaration makes this isolated
+software checkpoint possible; it does not qualify arbitrary physical cameras,
+real VTOL aircraft or the private steep-dive profile.
+
+The training overlay explicitly enables altitude guidance in the shared General
+setting and selected profile override, so changing from MC to FW Chase retains
+the requested training behavior. Public saved defaults stay unchanged. Session
+speed controls are advertised by each supported profile: MC requested velocity
+and FW airspeed reference retain their separate limits and phase generations.
+Source history, passive Start context and current aircraft state share one
+connection owner. Delayed older replies cannot retire newer evidence; repeated
+reads cannot renew sample age or replay an action.
+
 The declared pinhole calibration uses the unchanged SDF image size and horizontal
 FOV, plus the fixed optical-to-body rotation. Gazebo's
 [projection conversion](https://github.com/gazebosim/gz-rendering/blob/gz-rendering8/src/Utils.cc#L160)
@@ -229,3 +253,15 @@ The recorder's original CID joins the launcher's existing cleanup list. Its
 image, UID, namespace and exact bind mounts are checked before App startup.
 These are distinct training artifacts, not canonical network-none Runtime
 authority or a claim of following, phase, altitude or delivery qualification.
+
+### Current build scenario selection
+
+`x500-mono-camera-board-v2` (MC, airframe 4010) and
+`standard-vtol-mono-camera-courtyard-v3` (quadplane, airframe 4004) explicitly
+share the reviewed protocol-5-era stock build. Select either through the same
+`run_gazebo_training.py --scenario` argument. The MC v2 descriptor changes only
+its name and manifest/image/ELF identity; its aircraft, camera, world, target,
+spawn and resource hashes are identical to MC v1. It retains ordinary UDP image
+ingestion and MAVSDK MC behavior without a native adapter requirement.
+Historical descriptors stay bound to their original builds; this resource
+selection is not new flight or following evidence.

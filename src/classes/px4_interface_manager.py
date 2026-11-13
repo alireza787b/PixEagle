@@ -18,6 +18,7 @@ from classes.setpoint_handler import SetpointHandler
 from classes.attitude_envelope import guard_body_rates
 from classes.aircraft_state import AircraftBinding, AircraftKind, AircraftState, AircraftStateOwner, AirframePhase, Quaternion, finite_number
 from classes.native_guidance import NativeGuidanceClient, NativeGuidanceError
+from classes.gazebo_image_alignment import SourceAttitudeHistory
 from classes.telemetry_observation import AltitudeObservation, AltitudeSourceSample
 
 # Import circuit breaker for testing support
@@ -261,6 +262,8 @@ class PX4InterfaceManager:
         self._telemetry_generation = 0
         self._aircraft_state_owner = AircraftStateOwner()
         self._native_guidance_client = None
+        self._native_observation_snapshot = None
+        self._source_attitude_history = SourceAttitudeHistory()
         self._native_guidance_lock = asyncio.Lock()
         self._telemetry_connection_generation = None
         self._telemetry_state = "idle"
@@ -565,9 +568,96 @@ class PX4InterfaceManager:
     def native_guidance_client(self):
         return self._native_guidance_client
 
+    @property
+    def source_attitude_history(self):
+        history = getattr(self, '_source_attitude_history', None)
+        if history is None:
+            history = SourceAttitudeHistory()
+            self._source_attitude_history = history
+        return history
+
+    @property
+    def native_vtol_contract_ready(self):
+        client = self._native_guidance_client
+        capabilities = None if client is None else client.capabilities
+        state = self.get_aircraft_state()
+        return bool(capabilities is not None and state is not None and state.is_vtol
+            and capabilities.owned_mode_supported and capabilities.multicopter_supported
+            and capabilities.multicopter_altitude_hold_supported)
+
+    @property
+    def native_start_context(self):
+        """Immutable original observation; polling cannot renew its source age."""
+        snapshot = getattr(self, '_native_observation_snapshot', None)
+        client = self._native_guidance_client
+        capabilities = None if client is None else client.capabilities
+        current = self.get_aircraft_state()
+        if (snapshot is None or capabilities is None or current is None
+                or client.session_identity is not None):
+            return None
+        context, state = snapshot
+        if (context is None or current.binding != state.binding or current.phase is not state.phase
+                or not state.fresh(time.monotonic(), self.get_telemetry_stale_timeout_s())
+                or current.rescue_active or self._native_observation_snapshot is not snapshot):
+            return None
+        try:
+            context.require_match(current.binding, capabilities.runtime_id, phase=current.phase)
+        except (ValueError, NativeGuidanceError):
+            return None
+        return context
+
+    def commit_native_observation(self, observation):
+        """Retain state, pre-acquire identity and raw source samples from one read."""
+        from classes.native_guidance import NativeStartContext
+
+        client = self._native_guidance_client
+        capabilities = None if client is None else client.capabilities
+        if capabilities is None or observation.get('runtime_id') != capabilities.runtime_id:
+            return False
+        payload = observation.get('aircraft_state')
+        state = None if payload is None else AircraftState.from_payload(payload)
+        binding = self.get_aircraft_state_binding()
+        if state is None or binding is None or state.binding != binding:
+            return False
+        if not self._aircraft_state_owner.accepts(state):
+            return False
+        if observation.get('fresh') is not True or observation.get('rescue_active') is not False:
+            snapshot = self._native_observation_snapshot
+            if snapshot is not None and snapshot[1].binding == binding:
+                self._native_observation_snapshot = None
+            self.source_attitude_history.clear_if_current(binding, capabilities.runtime_id)
+            return False
+        payload = observation.get('start_context')
+        try:
+            context = None if payload is None else NativeStartContext.from_payload(payload)
+            if context is not None:
+                context.require_match(state.binding, capabilities.runtime_id, phase=state.phase)
+        except (ValueError, NativeGuidanceError):
+            self._native_observation_snapshot = None
+            self.source_attitude_history.clear_if_current(binding, capabilities.runtime_id)
+            raise
+        self.commit_aircraft_state(state)
+        if self.get_aircraft_state() != state:
+            return False
+        self._native_observation_snapshot = (context, state)
+        source = observation.get('source_attitude')
+        clock_id = getattr(capabilities, 'source_clock_id', None)
+        if source is None or clock_id is None:
+            self.source_attitude_history.clear()
+        else:
+            try:
+                self.source_attitude_history.commit(source, state,
+                    runtime_id=capabilities.runtime_id, source_clock_id=clock_id)
+            except (TypeError, ValueError):
+                self.source_attitude_history.clear()
+                logger.warning('Native source-attitude evidence rejected; camera alignment is unavailable')
+        return True
+
     def _abort_native_guidance(self) -> None:
         client = getattr(self, "_native_guidance_client", None)
         self._native_guidance_client = None
+        self._native_observation_snapshot = None
+        self.source_attitude_history.clear()
         if client is not None:
             client.abort()
 
@@ -602,7 +692,8 @@ class PX4InterfaceManager:
                 state = AircraftState.from_payload(observation["aircraft_state"])
                 if state.binding != binding or self.get_aircraft_state_binding() != binding:
                     raise NativeGuidanceError("native_aircraft_connection_changed")
-                self.commit_aircraft_state(state)
+                if not self.commit_native_observation(observation):
+                    raise NativeGuidanceError("native_aircraft_state_rejected")
                 if self.get_aircraft_state() != state:
                     raise NativeGuidanceError("native_aircraft_state_rejected")
                 self._native_guidance_client = client

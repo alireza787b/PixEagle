@@ -424,32 +424,42 @@ class AircraftStateOwner:
                 self._snapshot = None
                 self._attitude_packet = None
 
+    def accepts(self, state: AircraftState) -> bool:
+        """Validate current/progressing evidence without renewing a receipt."""
+        with self._lock:
+            return isinstance(state, AircraftState) and (state == self._snapshot or self._accepts_locked(state))
+
+    def _accepts_locked(self, state: AircraftState) -> bool:
+        if (not isinstance(state, AircraftState) or state.binding != self._binding
+                or state.observed_at_monotonic_s > self._clock()):
+            return False
+        timing = state.attitude_timing
+        if timing is not None and timing.publication_received_at_monotonic_s > self._clock():
+            return False
+        previous = self._snapshot
+        if previous is not None and (state.sequence <= previous.sequence
+                or state.observed_at_monotonic_s < previous.observed_at_monotonic_s
+                or state.source != previous.source or state.is_vtol != previous.is_vtol
+                or state.is_tailsitter != previous.is_tailsitter):
+            return False
+        if self._attitude_packet is not None and timing is not None:
+            before, attitude = self._attitude_packet
+            if (timing.publication_timestamp_us < before.publication_timestamp_us
+                    or timing.sample_timestamp_us < before.sample_timestamp_us
+                    or timing.publication_received_at_monotonic_s < before.publication_received_at_monotonic_s
+                    or timing.sample_received_at_monotonic_s < before.sample_received_at_monotonic_s
+                    or (timing.publication_timestamp_us == before.publication_timestamp_us
+                        and (timing != before or state.attitude_body_to_ned != attitude))
+                    or not preserves_attitude_sample(before, attitude, timing, state.attitude_body_to_ned)):
+                return False
+        return True
+
     def commit(self, state: AircraftState) -> bool:
         with self._lock:
-            if state.binding != self._binding:
+            if not self._accepts_locked(state):
                 return False
-            if state.observed_at_monotonic_s > self._clock():
-                return False
-            timing = state.attitude_timing
-            if timing is not None and timing.publication_received_at_monotonic_s > self._clock():
-                return False
-            previous = self._snapshot
-            if previous is not None and (state.sequence <= previous.sequence
-                    or state.observed_at_monotonic_s < previous.observed_at_monotonic_s
-                    or state.source != previous.source or state.is_vtol != previous.is_vtol
-                    or state.is_tailsitter != previous.is_tailsitter):
-                return False
-            if self._attitude_packet is not None and timing is not None:
-                before, attitude = self._attitude_packet
-                if (timing.publication_timestamp_us < before.publication_timestamp_us
-                        or timing.sample_timestamp_us < before.sample_timestamp_us
-                        or timing.publication_received_at_monotonic_s < before.publication_received_at_monotonic_s
-                        or timing.sample_received_at_monotonic_s < before.sample_received_at_monotonic_s
-                        or (timing.publication_timestamp_us == before.publication_timestamp_us
-                            and (timing != before or state.attitude_body_to_ned != attitude))
-                        or not preserves_attitude_sample(before, attitude, timing, state.attitude_body_to_ned)):
-                    return False
             self._snapshot = state
+            timing = state.attitude_timing
             if timing is not None:
                 self._attitude_packet = (timing, state.attitude_body_to_ned)
             return True

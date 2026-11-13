@@ -52,6 +52,27 @@ def test_old_airspeed_does_not_become_fresh_with_a_new_pose():
     assert owner.selected_airspeed(timeout_s=0.5).valid is False
 
 
+def test_read_only_acceptance_does_not_commit_progress_or_refresh_old_evidence():
+    clock = [100.]
+    owner = AircraftStateOwner(clock=lambda: clock[0])
+    assert not owner.accepts(None)
+    state = aircraft_state()
+    owner.bind(state.binding)
+    assert owner.accepts(state)
+    assert owner.snapshot(timeout_s=.5) is None
+    assert owner.commit(state)
+    clock[0] = 100.1
+    next_state = replace(state, sequence=2, observed_at_monotonic_s=100.1)
+    assert owner.accepts(next_state)
+    assert owner.snapshot(timeout_s=.5) is state
+    assert owner.commit(next_state)
+    assert not owner.accepts(state)
+    assert owner.accepts(next_state)
+    clock[0] = 100.7
+    assert owner.accepts(next_state)
+    assert owner.snapshot(timeout_s=.5) is None
+
+
 def test_phase_progress_can_precede_pose_without_refreshing_measurement_age():
     clock = [100.]
     owner = AircraftStateOwner(clock=lambda: clock[0])

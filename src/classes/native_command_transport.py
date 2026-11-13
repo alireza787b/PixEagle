@@ -23,6 +23,13 @@ from classes.native_guidance import (
 class NativeCommandTransport:
     publication_source = "px4_native_external_mode"
 
+    def _commit_observation(self, observation, state):
+        consumer = getattr(self.connection, 'commit_native_observation', None)
+        if callable(consumer):
+            return consumer(observation) is True
+        self.connection.commit_aircraft_state(state)
+        return self.connection.get_aircraft_state() == state
+
     def __init__(self, client, connection, identity, *, circuit_breaker, clock=time.monotonic,
                  on_observation: Callable[[AircraftState | None, dict, CommandIntent], Awaitable[CommandIntent]] | None = None,
                  altitude_limits: AltitudeLimits | None = None):
@@ -157,9 +164,9 @@ class NativeCommandTransport:
         state_rejected = False
         if (incoming is not None and self.client.matches_acquisition(
                 acquisition.identity, acquisition.runtime_id, acquisition.token, acquisition)):
-            self.connection.commit_aircraft_state(incoming)
-            state = self.connection.get_aircraft_state()
-            if state is not None and state != incoming:
+            accepted = self._commit_observation(observation, incoming)
+            state = self.connection.get_aircraft_state() if accepted else None
+            if not accepted or state is not None and state != incoming:
                 state, state_rejected = None, True
         if self.on_observation is not None:
             intent = await self.on_observation(state, observation, intent)
@@ -207,7 +214,8 @@ class NativeCommandTransport:
                     or not self.client.matches_acquisition(
                         acquisition.identity, acquisition.runtime_id, acquisition.token, acquisition)):
                 raise refusal
-            self.connection.commit_aircraft_state(incoming)
+            if not self._commit_observation(observation, incoming):
+                raise refusal
             state = self.connection.get_aircraft_state()
             if state is None or state != incoming:
                 raise refusal

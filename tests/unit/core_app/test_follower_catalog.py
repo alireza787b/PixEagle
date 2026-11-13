@@ -41,8 +41,8 @@ def test_all_registered_implementations_have_explicit_operator_and_command_contr
     assert catalog["fw_attitude_rate"].live_qualified_phases == ()
     native = catalog["fw_navigation_chase"]
     assert native.phase_command_contracts == {"fixed_wing": "fixed_wing_external"}
-    assert native.required_fields == () and native.live_qualified_phases == ()
-    assert native.live_eligibility.reason_code == "profile_not_live_qualified"
+    assert native.required_fields == () and native.live_qualified_phases == ("fixed_wing",)
+    assert native.live_eligibility.eligible
     assert all("multicopter" in item.live_qualified_phases for item in catalog.values()
                if item.airframe_phase == "multicopter")
 
@@ -94,6 +94,54 @@ def test_explicit_transition_qualification_cannot_bypass_the_vtol_release_gate()
     assert profile.live_eligibility.eligible
     assert evaluate_aircraft(profile, "vtol", observed_phase="vtol_transition").reason_code == "following_transition_unavailable"
     assert evaluate_aircraft(profile, "vtol", observed_phase="fixed_wing").reason_code == "vtol_transition_release_unqualified"
+
+
+@pytest.mark.parametrize('mode,phase', [
+    ('mc_velocity_chase', 'multicopter'), ('fw_navigation_chase', 'fixed_wing'),
+    ('gm_velocity_vector', 'multicopter'), ('gm_velocity_vector', 'fixed_wing'),
+])
+def test_vtol_admission_requires_declared_settled_phase_and_explicit_native_proof(mode, phase):
+    profile = get_follower_profile(mode)
+    assert evaluate_aircraft(profile, 'vtol', observed_phase=phase,
+                             native_vtol_verified=True).eligible
+    assert evaluate_aircraft(profile, 'vtol', observed_phase=phase).reason_code == 'vtol_transition_release_unqualified'
+
+
+@pytest.mark.parametrize('proof', [False, None, 0, 1, 'verified', object()])
+def test_truthy_or_missing_native_proof_does_not_admit_vtol(proof):
+    profile = get_follower_profile('gm_velocity_vector')
+    result = evaluate_aircraft(profile, 'vtol', observed_phase='multicopter', native_vtol_verified=proof)
+    assert not result.eligible and result.reason_code == 'vtol_transition_release_unqualified'
+
+
+@pytest.mark.parametrize('phase', [None, 'unknown', 'multicopter_assumed'])
+def test_native_proof_cannot_supply_an_unobserved_settled_phase(phase):
+    result = evaluate_aircraft(get_follower_profile('gm_velocity_vector'), 'vtol',
+                               observed_phase=phase, native_vtol_verified=True)
+    assert not result.eligible and result.reason_code == 'aircraft_phase_unavailable'
+
+
+@pytest.mark.parametrize('proof', [False, True])
+def test_native_proof_never_admits_transition_even_with_a_transition_declaration(proof):
+    profile = replace(get_follower_profile('gm_velocity_vector'), live_qualified_phases=('vtol_transition',))
+    result = evaluate_aircraft(profile, 'vtol', observed_phase='vtol_transition', native_vtol_verified=proof)
+    assert not result.eligible and result.reason_code == 'following_transition_unavailable'
+
+
+@pytest.mark.parametrize('mode,phase', [
+    ('mc_velocity_position', 'multicopter'), ('fw_attitude_rate', 'fixed_wing'),
+    ('mc_velocity_chase', 'fixed_wing'), ('fw_navigation_chase', 'multicopter'),
+])
+def test_native_vtol_proof_cannot_supply_a_missing_native_phase_adapter(mode, phase):
+    result = evaluate_aircraft(get_follower_profile(mode), 'vtol',
+                               observed_phase=phase, native_vtol_verified=True)
+    assert not result.eligible and result.reason_code == 'follower_aircraft_incompatible'
+
+
+def test_native_proof_does_not_replace_the_declared_live_phase_gate():
+    profile = replace(get_follower_profile('mc_velocity_chase'), live_qualified_phases=())
+    result = evaluate_aircraft(profile, 'vtol', observed_phase='multicopter', native_vtol_verified=True)
+    assert not result.eligible and result.reason_code == 'profile_not_live_qualified'
 
 
 @pytest.mark.parametrize("value", [None, "fixed_wing", ["unknown"], ["multicopter", "multicopter"], [True], [{}]])

@@ -1,21 +1,30 @@
 """Deterministic source-clock association; these fixtures are not flight evidence."""
 
 from dataclasses import asdict, replace
+import asyncio
 import math
+from pathlib import Path
+import time
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from classes.aircraft_state import Quaternion
+from classes.aircraft_state import AirframePhase, GuidanceSessionIdentity, Quaternion
 from classes.capture_timing import SourceSampleStamp
 from classes.fixed_camera_calibration import (
     ActiveImageGeometry, FixedCameraCalibration, bind_fixed_camera_calibration, selected_source_signature,
 )
 from classes.frame_publisher import CaptureStamp
 from classes.gazebo_capture import GazeboCameraSettings
-from classes.gazebo_image_alignment import GazeboImageBearingResolver, SourceAttitudeHistory
+from classes import gazebo_image_alignment as alignment
+from classes.gazebo_image_alignment import (
+    GazeboImageBearingResolver, SourceAttitudeHistory, bind_native_image_resolver,
+    native_image_guidance_readiness,
+)
 from classes.guidance_observation import ImageMeasurement, ObservationProvenance
 from classes.source_time_alignment import SourceAttitudeSample
+from tests.fixtures.native_ownership import start_context
 from tests.unit.drone_interface.test_aircraft_state import aircraft_state, attitude_timing
 
 
@@ -119,3 +128,172 @@ def test_stale_raw_attitude_does_not_become_fresh_when_pose_advances(case):
                                       sample_received_at_monotonic_s=100.8))
     with pytest.raises(ValueError, match='alignment_unavailable'):
         case.resolver(case.output, state)
+
+
+@pytest.fixture
+def runtime_case(case, monkeypatch):
+    receipt = time.monotonic()
+    state = replace(case.state, observed_at_monotonic_s=receipt,
+        attitude_timing=attitude_timing(publication_received_at_monotonic_s=receipt,
+                                      sample_received_at_monotonic_s=receipt))
+    capture = replace(case.measurement.provenance.capture, captured_at=receipt)
+    measurement = replace(case.measurement,
+        provenance=replace(case.measurement.provenance, capture=capture))
+    raw = replace(case.raw, received_at_monotonic_s=receipt)
+    case.history.clear()
+    case.history.commit(asdict(raw), state, runtime_id='native', source_clock_id='clock-world')
+    capabilities = SimpleNamespace(runtime_id='native', source_clock_id='clock-world')
+    client = SimpleNamespace(capabilities=capabilities, socket_path=Path('/run/native.sock'),
+        request_timeout_s=.1, engage=AsyncMock(), acquire=AsyncMock(), publish=AsyncMock())
+    context = start_context(GuidanceSessionIdentity('preparing', state.binding, 0), runtime_id='native')
+    connection = SimpleNamespace(native_guidance_client=client, source_attitude_history=case.history,
+        get_telemetry_stale_timeout_s=lambda: .5, get_aircraft_state=Mock(return_value=state),
+        prepare_native_guidance=AsyncMock(), native_start_context=context)
+    app = SimpleNamespace(px4_interface=connection, _image_calibration_binding=case.bound,
+        video_handler=SimpleNamespace(cap=SimpleNamespace(settings=case.settings),
+            _capture_source_signature=Mock(return_value=case.bound.geometry.source_signature)),
+        get_tracker_output=Mock(return_value=SimpleNamespace(image_measurement=measurement)))
+    concrete = SimpleNamespace(setpoint_handler=SimpleNamespace(profile_config={
+        'required_tracker_data': ['POSITION_2D']}), update_rate=50., bind_guidance_input_resolver=Mock())
+    profile = SimpleNamespace(required_tracker_data=('POSITION_2D',),
+        native_phase_contracts=(('fixed_wing', 'fixed_wing_external'),))
+    clock, delays = [receipt], []
+
+    async def advance(delay):
+        delays.append(delay)
+        clock[0] += delay
+        await asyncio.sleep(0)
+
+    # Keep actual resolver receipt checks on the real monotonic clock. Only the
+    # admission wait's budget is advanced deterministically by its awaited poll.
+    monkeypatch.setattr(alignment, 'time', SimpleNamespace(monotonic=lambda: clock[0]))
+    monkeypatch.setattr(alignment, 'asyncio', SimpleNamespace(sleep=advance, wait_for=asyncio.wait_for))
+    return SimpleNamespace(app=app, connection=connection, client=client, concrete=concrete,
+        profile=profile, capabilities=capabilities, state=state, context=context, raw=raw,
+        measurement=measurement, history=case.history, clock=clock, delays=delays)
+
+
+async def test_first_pair_wait_refreshes_observations_without_acquiring_or_replacing_context(runtime_case):
+    run = runtime_case
+    run.history.clear()
+    original = run.context.wire_payload()
+    reads = []
+
+    async def refresh(path):
+        reads.append(path)
+        run.history.commit(asdict(run.raw), run.state,
+            runtime_id='native', source_clock_id='clock-world')
+
+    run.connection.prepare_native_guidance.side_effect = refresh
+    assert native_image_guidance_readiness(run.app, run.profile, run.state) == {
+        'ready': False, 'reason_code': 'source_attitude_alignment_unavailable'}
+    run.connection.prepare_native_guidance.assert_not_awaited()
+    await bind_native_image_resolver(run.app, run.concrete, run.state, run.capabilities)
+    run.concrete.bind_guidance_input_resolver.assert_called_once()
+    resolver = run.concrete.bind_guidance_input_resolver.call_args.args[0]
+    paired = resolver(run.app.get_tracker_output(), run.state)
+    assert paired.source_time.attitude == run.raw
+    assert paired.bearing.provenance.capture == run.measurement.provenance.capture
+    assert reads == [run.client.socket_path] and run.delays == [.02]
+    assert run.connection.native_start_context is run.context
+    assert run.context.wire_payload() == original
+    for action in (run.client.engage, run.client.acquire, run.client.publish):
+        action.assert_not_called()
+    assert native_image_guidance_readiness(run.app, run.profile, run.state) == {
+        'ready': True, 'reason_code': None}
+
+
+async def test_already_qualified_pair_binds_without_sleep_or_native_refresh(runtime_case):
+    run = runtime_case
+    await bind_native_image_resolver(run.app, run.concrete, run.state, run.capabilities)
+    run.concrete.bind_guidance_input_resolver.assert_called_once()
+    run.connection.prepare_native_guidance.assert_not_awaited()
+    assert run.delays == []
+
+
+async def test_first_pair_timeout_does_not_issue_a_refresh_after_deadline(runtime_case):
+    run = runtime_case
+    run.history.clear()
+    run.client.request_timeout_s = .01
+    with pytest.raises(ValueError, match='^source_attitude_alignment_unavailable$'):
+        await bind_native_image_resolver(run.app, run.concrete, run.state, run.capabilities)
+    run.connection.prepare_native_guidance.assert_not_awaited()
+    run.concrete.bind_guidance_input_resolver.assert_not_called()
+    assert len(run.delays) == 1 and run.delays[0] == pytest.approx(.01)
+
+
+async def test_pair_returned_after_original_deadline_cannot_bind(runtime_case):
+    run = runtime_case
+    run.history.clear()
+
+    async def late_refresh(_):
+        run.history.commit(asdict(run.raw), run.state,
+            runtime_id='native', source_clock_id='clock-world')
+        run.clock[0] += run.client.request_timeout_s
+
+    run.connection.prepare_native_guidance.side_effect = late_refresh
+    with pytest.raises(ValueError, match='^source_attitude_alignment_unavailable$'):
+        await bind_native_image_resolver(run.app, run.concrete, run.state, run.capabilities)
+    run.connection.prepare_native_guidance.assert_awaited_once_with(run.client.socket_path)
+    run.concrete.bind_guidance_input_resolver.assert_not_called()
+
+
+async def test_refresh_timeout_is_a_not_ready_result_without_binding(runtime_case):
+    run = runtime_case
+    run.history.clear()
+    run.connection.prepare_native_guidance.side_effect = TimeoutError()
+    with pytest.raises(ValueError, match='^source_attitude_alignment_unavailable$'):
+        await bind_native_image_resolver(run.app, run.concrete, run.state, run.capabilities)
+    run.concrete.bind_guidance_input_resolver.assert_not_called()
+
+
+@pytest.mark.parametrize('defect, reason', [
+    ('clock', 'source_clock_domain_unqualified'),
+    ('geometry', 'physical_capture_timing_unqualified'),
+    ('measurement', 'image_measurement_unavailable'),
+])
+async def test_readiness_and_start_refuse_the_same_invalid_input_without_waiting(runtime_case, defect, reason):
+    run = runtime_case
+    if defect == 'clock':
+        run.capabilities.source_clock_id = 'different-world'
+    elif defect == 'geometry':
+        run.app.video_handler._capture_source_signature.return_value = 'different-source'
+    else:
+        run.app.get_tracker_output.return_value = SimpleNamespace(image_measurement=None)
+    assert native_image_guidance_readiness(run.app, run.profile, run.state) == {
+        'ready': False, 'reason_code': reason}
+    with pytest.raises(ValueError, match='^' + reason + '$'):
+        await bind_native_image_resolver(run.app, run.concrete, run.state, run.capabilities)
+    run.connection.prepare_native_guidance.assert_not_awaited()
+    run.concrete.bind_guidance_input_resolver.assert_not_called()
+    assert run.delays == []
+
+
+def test_readiness_reports_missing_native_client_without_observing_or_acquiring(runtime_case):
+    run = runtime_case
+    run.connection.native_guidance_client = None
+    assert native_image_guidance_readiness(run.app, run.profile, run.state) == {
+        'ready': False, 'reason_code': 'native_aircraft_state_unavailable'}
+    run.app.get_tracker_output.assert_not_called()
+    run.connection.prepare_native_guidance.assert_not_awaited()
+
+
+@pytest.mark.parametrize('unsupported', ['mc', 'angles', 'no_resolver'])
+async def test_irrelevant_phase_or_input_does_not_prepare_image_resolution(runtime_case, unsupported):
+    run = runtime_case
+    state = run.state
+    if unsupported == 'mc':
+        state = replace(state, phase=AirframePhase.MULTICOPTER)
+    elif unsupported == 'angles':
+        run.concrete.setpoint_handler.profile_config['required_tracker_data'] = ['CAMERA_ANGLES']
+        run.profile.required_tracker_data = ('CAMERA_ANGLES',)
+    else:
+        run.concrete.bind_guidance_input_resolver = None
+        run.profile.native_phase_contracts = ()
+    run.app.video_handler = None
+    await bind_native_image_resolver(run.app, run.concrete, state, run.capabilities)
+    assert native_image_guidance_readiness(run.app, run.profile, state) == {
+        'ready': True, 'reason_code': None}
+    run.app.get_tracker_output.assert_not_called()
+    run.connection.prepare_native_guidance.assert_not_awaited()
+    assert run.delays == []

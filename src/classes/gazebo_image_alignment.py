@@ -149,6 +149,40 @@ class GazeboImageBearingResolver:
         return result
 
 
+def _runtime_image_resolver(app, state, capabilities):
+    video = getattr(app, 'video_handler', None)
+    capture = getattr(video, 'cap', None)
+    settings = getattr(capture, 'settings', None)
+    calibration = getattr(app, '_image_calibration_binding', None)
+    if (not isinstance(settings, GazeboCameraSettings)
+            or not isinstance(calibration, BoundFixedCameraCalibration)
+            or video._capture_source_signature(capture) != calibration.geometry.source_signature):
+        raise ValueError('physical_capture_timing_unqualified')
+    connection = app.px4_interface
+    timeout = connection.get_telemetry_stale_timeout_s()
+    return GazeboImageBearingResolver(settings, calibration, getattr(connection, 'source_attitude_history', None),
+        binding=state.binding, runtime_id=capabilities.runtime_id,
+        native_source_clock_id=getattr(capabilities, 'source_clock_id', None), timeout_s=timeout)
+
+
+def native_image_guidance_readiness(app, profile, state):
+    """Expose the same image/clock gate before an operator presses Start."""
+    if (state is None or state.phase is not AirframePhase.FIXED_WING
+            or 'POSITION_2D' not in profile.required_tracker_data
+            or dict(profile.native_phase_contracts).get('fixed_wing') != 'fixed_wing_external'):
+        return {'ready': True, 'reason_code': None}
+    try:
+        client = getattr(app.px4_interface, 'native_guidance_client', None)
+        capabilities = None if client is None else client.capabilities
+        if capabilities is None:
+            raise ValueError('native_aircraft_state_unavailable')
+        resolver = _runtime_image_resolver(app, state, capabilities)
+        resolver(app.get_tracker_output(), state)
+    except ValueError as error:
+        return {'ready': False, 'reason_code': str(error)}
+    return {'ready': True, 'reason_code': None}
+
+
 async def bind_native_image_resolver(app, concrete, state, capabilities):
     """Prepare declared image-bearing input, using only bounded read-only waits."""
     bind = getattr(concrete, 'bind_guidance_input_resolver', None)
@@ -156,19 +190,9 @@ async def bind_native_image_resolver(app, concrete, state, capabilities):
     if (not callable(bind) or 'POSITION_2D' not in required
             or state.phase is not AirframePhase.FIXED_WING):
         return
-    capture = getattr(app.video_handler, 'cap', None)
-    settings = getattr(capture, 'settings', None)
-    calibration = getattr(app, '_image_calibration_binding', None)
-    if (not isinstance(settings, GazeboCameraSettings)
-            or not isinstance(calibration, BoundFixedCameraCalibration)
-            or app.video_handler._capture_source_signature(capture) != calibration.geometry.source_signature):
-        raise ValueError('physical_capture_timing_unqualified')
     connection = app.px4_interface
     client = connection.native_guidance_client
-    timeout = connection.get_telemetry_stale_timeout_s()
-    resolver = GazeboImageBearingResolver(settings, calibration, connection.source_attitude_history,
-        binding=state.binding, runtime_id=capabilities.runtime_id,
-        native_source_clock_id=getattr(capabilities, 'source_clock_id', None), timeout_s=timeout)
+    resolver = _runtime_image_resolver(app, state, capabilities)
     # Waiting for the first qualified pair is observation only. The original
     # Start context is retained independently and rechecked before acquisition.
     deadline = time.monotonic() + client.request_timeout_s
@@ -184,5 +208,13 @@ async def bind_native_image_resolver(app, concrete, state, capabilities):
             if str(error) != 'source_attitude_alignment_unavailable' or time.monotonic() >= deadline:
                 raise
         await asyncio.sleep(min(period, max(0., deadline - time.monotonic())))
-        await connection.prepare_native_guidance(client.socket_path)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise ValueError('source_attitude_alignment_unavailable')
+        try:
+            await asyncio.wait_for(connection.prepare_native_guidance(client.socket_path), timeout=remaining)
+        except TimeoutError as error:
+            raise ValueError('source_attitude_alignment_unavailable') from error
+        if time.monotonic() >= deadline:
+            raise ValueError('source_attitude_alignment_unavailable')
     bind(resolver)
