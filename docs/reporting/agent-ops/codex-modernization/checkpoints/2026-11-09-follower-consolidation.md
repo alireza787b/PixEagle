@@ -8,9 +8,11 @@ Current position (November 13): **S0–S6 component/software checkpoints complet
 S7 following/recovery/ownership qualification remains open.** Native pilot
 transition motion is separate airframe evidence; following ends at transition
 and a settled phase requires a fresh Start. Actual vertical and horizontal MC
-pursuit/release checks pass. Vertical FW pursuit retains a 2.1956 m altitude
-failure against the 2 m gate; horizontal FW Start is refused before acquisition
-by a duplicate-time composite sample in the harness. Neither whole case passes.
+pursuit/release checks pass. The duplicate-time harness refusal is repaired;
+fresh horizontal FW Start, brief loss/restoration and eight-second loss expiry
+are now observed. Whole cases remain failed: active FW altitude error is
+2.09–2.26 m against the 2 m gate, and strict publication attribution retains
+neutral-drain/boundary UNKNOWN cases. No qualified-release claim follows.
 The latest full backend checkpoint passes 6,670/196/155 checks on `3023d351e`;
 later narrow harness and client checks have their own scopes below. QGC candidate
 `89d39998e` is built locally with retained host/baseline gate limitations.
@@ -2003,3 +2005,30 @@ failures remain unchanged. The next test-helper correction must await genuine
 source progress within the original deadline, without widening stability or
 freshness limits. Optional target-loss fixtures then reuse the existing runner
 and continuity policy for reacquisition and expiry; they are not flight evidence.
+
+The completed correction (`f8615943c`) waits for genuine oldest-source progress
+at the existing 50 ms cadence under the original admission deadline. It checks
+every intervening packet without counting duplicate time as another stable
+sample; ownership, phase, binding, reset and time regression still refuse Start.
+Nine new regressions fail before the fix. The combined root tooling, geometry,
+retarget, documentation and hygiene gate passes 662 checks. These are later
+tool-only changes, not another full backend run.
+
+Horizontal R2 then shows same-time composite packets followed by true source
+progress and a real FW acquisition. Its MC active altitude error is 0.2764 m;
+FW remains failed at 2.1035 m (2.1585 m simulator truth). Supported transition
+neutral-drain command form and same-tick native FW boundary records exceed the
+strict auditor's velocity-only/exclusive-form proof. Attribution remains UNKNOWN;
+independent wire and lifecycle review finds no obsolete pursuit, late Hold or
+identity/cleanup failure. Raw results are not rewritten.
+
+Two fresh actual FW fault cases retain the same source/config/native artifacts.
+Brief loss enters COASTING at 4.042 s, REACQUIRING at 5.523 s and ACTIVE at
+6.559 s within one episode, before ordinary confirmed Stop. The long case first
+recovers a brief loss, then requests Hold at 17.026 s after 8.026 s in its second
+loss episode; the native release confirms FW Hold. FW altitude errors remain
+2.0922/2.2615 m, so neither whole case passes. Exact recovery, publication and
+command traces receive separate independent analysis; no retarget, takeover,
+same-application, sensorless or hardware qualification is inferred. Original
+containers are stopped and logs close without dropouts/corruption. Saved public,
+local and private configuration bytes remain unchanged.

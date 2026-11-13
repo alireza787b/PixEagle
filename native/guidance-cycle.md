@@ -41,11 +41,13 @@ MC travel budget. Source traces must independently show loss, confirmation,
 restoration, stable course/speed and observed Hold. Declaring a case is not
 evidence that its recovery behavior passed.
 
-After source/scenario preparation, one read-only native observation refreshes
-the accepted pose before initial projection. It must retain the original
-qualified stable phase/binding and admission deadline; existing projection
-freshness limits still apply. The target clock and old sample receipts are
-never restamped to cover setup latency.
+After source/scenario preparation, read-only native observations refresh the
+accepted pose before initial projection. A composite packet can advance some
+sensors without advancing its oldest constituent. It is checked without adding
+a timed stability sample; the helper waits at the existing 50 ms cadence for
+genuine progress within the original deadline. Invalid intermediate telemetry
+still aborts. The qualified phase/binding and projection freshness limits remain
+unchanged. Target clocks and old sample receipts are never restamped.
 
 The user's clarified scope separates native pilot-maneuver response from
 following ownership. All full raw pose/envelope data and native 2 m failures
@@ -98,9 +100,19 @@ publications: source/scenario setup aged the retained stable-state snapshot.
 That failed capture remains unchanged. The corrected VERTICAL R2 subsequently
 exercises both Starts; MC received cadence and altitude pass, while FW altitude
 fails at 2.1956 m against the 2 m gate. HORIZONTAL R1 verifies MC release but
-refuses FW Start before acquisition when a fresh composite packet has not yet
-advanced its oldest constituent timestamp. Retain both failures; no whole-S7,
-application, sensorless, private-airframe or hardware qualification follows.
+refuses FW Start before acquisition on a duplicate-time composite packet.
+The corrected helper on `f8615943c` subsequently reaches actual FW acquisition.
+Its HORIZONTAL R2 altitude error is 2.1035 m (2.1585 m simulator truth), still a
+failure. Neutral-drain and same-tick native boundary payloads outside the strict
+auditor's supported forms retain UNKNOWN attribution; they are not silently
+counted as pursuit or proof of obsolete commands.
+
+The first actual loss cases on the same source observe brief FW loss,
+confirmation/restoration, and a separate long-loss handoff after 8.026 s with
+correlated native Hold. Original whole-case failures remain: FW altitude errors
+are 2.0922 and 2.2615 m, and strict source-attribution limits remain. Independent
+trace audits accompany these cases; no whole-S7, application, retarget/takeover,
+sensorless, private-airframe or hardware qualification follows.
 
 The existing `.github/workflows/tests.yml` coverage job selects this unmarked
 test module through `pytest tests/`. The smaller unit-only job does not select
