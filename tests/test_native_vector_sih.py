@@ -825,7 +825,7 @@ async def test_delayed_setup_reads_actual_pose_before_projection_without_restamp
         release_pending=False, neutral_drain_active=False)
     packet['vehicle_pose'].update(px4_timestamp_us=1510000, observed_at_monotonic_s=env.now[0])
     client, records = SimpleNamespace(observe=AsyncMock(return_value=packet)), []
-    state = await tool.refresh_component_start(client, connection, window, runtime_id='native-fixture',
+    state = await tool.refresh_component_start(client, connection, [(s, None) for s in window], runtime_id='native-fixture',
         expected_altitude_m=50., deadline=110., log=lambda n, v: records.append((n, v)),
         started=97., clock=lambda: env.now[0])
     fresh = project_component_input(env.fixture, connection.last_packet, state,
@@ -863,7 +863,7 @@ async def test_start_refresh_refuses_unqualified_or_expired_read_before_acquire(
         return packet
     client = SimpleNamespace(observe=AsyncMock(side_effect=observe), engage=AsyncMock())
     with pytest.raises((ValueError, TimeoutError)):
-        await tool.refresh_component_start(client, connection, window, runtime_id='native-fixture',
+        await tool.refresh_component_start(client, connection, [(s, None) for s in window], runtime_id='native-fixture',
             expected_altitude_m=50., deadline=110., log=lambda *args: None, started=97., clock=lambda: env.now[0])
     client.engage.assert_not_awaited()
     if bad == 'deadline': client.observe.assert_not_awaited()
@@ -918,7 +918,7 @@ async def test_start_refresh_waits_for_oldest_source_progress_but_never_retries_
         else: changed['owner_confirmed'] = True
         return changed
     client = SimpleNamespace(observe=AsyncMock(side_effect=observe), engage=AsyncMock())
-    refresh = tool.refresh_component_start(client, connection, window, runtime_id='native-fixture',
+    refresh = tool.refresh_component_start(client, connection, [(s, None) for s in window], runtime_id='native-fixture',
         expected_altitude_m=50., deadline=100.05 if outcome == 'timeout' else 110.,
         log=lambda *args: None, started=97., clock=lambda: env.now[0])
     if outcome in ('progress', 'repeated'):

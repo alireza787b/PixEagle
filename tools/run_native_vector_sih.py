@@ -634,11 +634,11 @@ async def capture_post_transition(client, event, acquisition, *, log, started, f
         if state is not None:
             samples.append(state)
             if state.phase is event.requested_phase and packet.get("nav_state") == 4:
-                if (not window or state.sequence > window[-1].sequence
-                        and state.observed_at_monotonic_s - window[-1].observed_at_monotonic_s >= .49):
-                    window = (window + [state])[-7:]
-                if stable_window(window):
-                    return dict(settled=True, states=[asdict(item) for item in window], publications=publications,
+                if (not window or state.sequence > window[-1][0].sequence
+                        and state.observed_at_monotonic_s - window[-1][0].observed_at_monotonic_s >= .49):
+                    window = (window + [stability_sample(state, packet, captured_at=captured_at)])[-7:]
+                if stable_samples(window):
+                    return dict(settled=True, states=[asdict(item[0]) for item in window], publications=publications,
                                 last_packet=packet, samples=len(samples))
             else:
                 window = []
@@ -975,6 +975,38 @@ def stable_window(states: list[AircraftState], *, minimum_relative_altitude_m=15
                                                    for s in states)))
 
 
+def stability_sample(state: AircraftState, packet, *, captured_at: float) -> tuple[AircraftState, bool | None]:
+    """Retain only feedback belonging to this accepted native snapshot."""
+    flag = None
+    feedback = packet.get("native_guidance_feedback")
+    if isinstance(feedback, dict):
+        received = feedback.get("observed_at_monotonic_s")
+        mode, epoch = packet.get("nav_state"), packet.get("nav_state_timestamp")
+        try:
+            matched_state = AircraftState.from_payload(packet["aircraft_state"]) == state
+        except (KeyError, TypeError, ValueError):
+            matched_state = False
+        if (matched_state and packet.get("fresh") is True and state.fresh(captured_at, .75)
+                and type(feedback.get("airspeed_control_enabled")) is bool
+                and type(received) in (int, float) and math.isfinite(received)
+                and state.observed_at_monotonic_s <= received <= captured_at
+                and captured_at-received <= .75
+                and type(mode) is int and type(epoch) is int and epoch > 0
+                and type(feedback.get("nav_state")) is int and feedback["nav_state"] == mode
+                and type(feedback.get("nav_state_timestamp")) is int and feedback["nav_state_timestamp"] == epoch):
+            flag = feedback["airspeed_control_enabled"]
+    return state, flag
+
+
+def stable_samples(samples, *, expected_altitude_m=None) -> bool:
+    states = [sample[0] for sample in samples]
+    controls = ([sample[1] for sample in samples]
+                if any(state.phase is AirframePhase.FIXED_WING and not state.airspeed.valid for state in states)
+                else None)
+    return stable_window(states, expected_altitude_m=expected_altitude_m,
+                         native_airspeed_control_enabled=controls)
+
+
 class ObservationConnection:
     """Test-only telemetry bridge; all guidance and publication stay in production."""
 
@@ -1021,7 +1053,7 @@ def attach_component_observer(binding, connection, log, *, started: float, clock
 async def refresh_component_start(client, connection, qualified_window, *, runtime_id, expected_altitude_m,
                                   deadline, log, started, clock=time.monotonic):
     """Read actual state after setup; never refresh a retained sample's receipt."""
-    original = qualified_window[-1]
+    original = qualified_window[-1][0]
     previous_pose = connection.last_packet["vehicle_pose"]["px4_timestamp_us"]
     while True:
         remaining = deadline - clock()
@@ -1039,12 +1071,13 @@ async def refresh_component_start(client, connection, qualified_window, *, runti
         state = AircraftState.from_payload(packet["aircraft_state"])
         same_oldest = state.observed_at_monotonic_s == original.observed_at_monotonic_s
         # A composite update is current telemetry, not another timed stability sample.
-        window = [*qualified_window[:-1], state] if same_oldest else [*qualified_window, state]
+        sample = stability_sample(state, packet, captured_at=clock())
+        window = [*qualified_window[:-1], sample] if same_oldest else [*qualified_window, sample]
         pose = packet.get("vehicle_pose", {}).get("px4_timestamp_us")
         if (state.attitude_timing is None or original.attitude_timing is None
                 or state.attitude_timing.quat_reset_counter != original.attitude_timing.quat_reset_counter
                 or type(pose) is not int or pose < previous_pose
-                or not stable_window(window, expected_altitude_m=expected_altitude_m)
+                or not stable_samples(window, expected_altitude_m=expected_altitude_m)
                 or (state != connection.get_aircraft_state() and not connection.commit_aircraft_state(state))
                 or not connection.retain_packet(state, packet)):
             raise ValueError("native_component_start_refresh_not_stable")
@@ -1269,9 +1302,9 @@ async def run(args, isolation):
                 state = AircraftState.from_payload(packet["aircraft_state"])
                 connection.commit_aircraft_state(state)
                 if connection.retain_packet(state, packet):
-                    if not window or state.sequence > window[-1].sequence:
-                        window = (window + [state])[-7:]
-                    if stable_window(window, expected_altitude_m=args.test_altitude):
+                    if not window or state.sequence > window[-1][0].sequence:
+                        window = (window + [stability_sample(state, packet, captured_at=time.monotonic())])[-7:]
+                    if stable_samples(window, expected_altitude_m=args.test_altitude):
                         break
                 else:
                     window = []
@@ -1280,7 +1313,7 @@ async def run(args, isolation):
             await asyncio.sleep(.5)
         else:
             raise ValueError("stable_airborne_window_not_reached")
-        log("stable-flight.jsonl", dict(timestamp=time.monotonic() - started, states=[asdict(s) for s in window]))
+        log("stable-flight.jsonl", dict(timestamp=time.monotonic() - started, states=[asdict(s[0]) for s in window]))
         if getattr(args, "initial_phase", None) is not None and state.phase.value != args.initial_phase:
             raise ValueError("native_component_initial_phase_mismatch")
         require_component_phase(selected, state)

@@ -196,10 +196,23 @@ stable-window default requires valid EAS. The shared predicate now supports
 explicit, per-sample native airspeed-control feedback: fresh unavailable
 observations qualify only with disabled native airspeed control; a valid low
 measurement cannot be bypassed. It also checks progressing samples, aircraft
-identity, altitude reference and bounded receipt association. Callers still own
-absolute packet freshness and matching feedback. This helper is unit tested,
-not a completed no-pitot-from-start flight case. Groundspeed must not masquerade
-as measured airspeed or stall margin.
+identity, altitude reference and bounded receipt association. The vector runner
+now retains each accepted state with that packet's native airspeed-control flag
+through initial FW settling, the pre-projection refresh, and post-transition
+settling. Feedback must match the packet's state, navigation state and epoch,
+with a bounded receipt checked at acceptance. Duplicate-time composite refreshes
+replace the state and flag together without becoming a new stability sample.
+Missing, stale or mismatched feedback cannot qualify unavailable FW airspeed;
+measured EAS and MC settling retain their existing rules.
+
+These caller paths are covered by synthetic packet regressions in
+`tests/test_native_sensorless_callers.py`; run them with
+`PYTHONPATH=src pytest tests/test_native_sensorless_callers.py tests/test_native_vector_sih.py -q -p no:cacheprovider`.
+The existing coverage job selects both modules through `pytest tests/`.
+The native-only baseline Runtime helper remains unchanged. No sensorless fixture,
+variant admission or startup-parameter qualification is established by these
+software checks, and no no-pitot-from-start flight was performed. Groundspeed
+must not masquerade as measured airspeed or stall margin.
 The Gazebo airspeed callback does not currently use the SIH failure-injection
 hook, so an accepted `failure airspeed off` command alone is not evidence of
 sensor absence. No-pitot behavior, pursuit, S7 admission, S8 steep descent,
