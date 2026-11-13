@@ -264,6 +264,65 @@ showed only a 44×1-pixel dark line; its capture PASS and visibility limitation
 remain unchanged. The added world requires its own rendered-frame/visibility
 check before an operator demo and later airborne tracking/following evidence.
 
+### Standard VTOL camera courtyard (resource preparation only)
+
+`standard-vtol-mono-camera-courtyard-v1` is an explicit schema-3 scenario over
+that same stock build/image. It selects unchanged `4004_gz_standard_vtol` and
+`rc.vtol_defaults`: MAV type 22, VTOL type 2, five rotors (four lift plus pusher)
+and three control surfaces. The pinned `rcS` accepts `PX4_SYS_AUTOSTART=4004`
+before filename lookup; `px4-rc.gzsim` separately spawns the distinct
+`standard_vtol_mono_cam` model from `PX4_SIM_MODEL`. No parameter/default or
+firmware file is changed. The descriptor pins both startup scripts.
+
+The new model is exactly two merged stock includes (`standard_vtol`, `mono_cam`)
+and one fixed camera joint. Validation rejects extra links, controllers,
+plugins, altered joints, rotated mounts or undeclared model files. Its SDF and
+model.config plus one new world use the same private, read-only resource mounts
+and full runtime tree/scene verification as the prior target scenario. Stock
+model directories and all previous descriptor/world files stay byte-identical.
+
+The declared camera pose is **[0.12, 0.03, 0.242, 0, 0, 0] relative to
+`base_link` FLU**: 0.12 m forward, 0.03 m left, 0.242 m up. Both the include and
+joint explicitly use that frame, avoiding an inherited model-height offset.
+The mount stays fixed in MC and FW; a standard quadplane needs no tailsitter
+phase rotation. In physical FRD the translation is [0.12, -0.03, -0.242] m.
+The original camera link adds 0.05 kg and its original inertia/offset to the
+5.02500003 kg aircraft: composite link-mass sum **5.07500003 kg**. This payload
+impact is explicit; it is not a claim of identical plant response.
+
+Camera output remains the pinned 1280×960, 30 Hz, 1.74-rad horizontal-FOV sensor
+and H.264 port 5600. Instance 0 image topic is
+`/world/training_courtyard_v1/model/standard_vtol_mono_cam_0/link/camera_link/sensor/camera/image`.
+Future fixed-camera calibration must bind this declared sensor/mount and actual
+capture-path signature/analysis geometry through the existing calibration
+contract. Do not copy the x500 runtime source signature, invent exposure timing,
+or apply an additional phase rotation. This resource slice creates no active
+calibration or image-to-attitude timing qualification.
+
+The offline world preserves the original `aruco` gravity, lighting and
+georeference. New static visual-only objects are:
+
+| Object | World ENU center (m) | Geometry |
+| --- | --- | --- |
+| Initial contrasting board | [35, 25, 10] | 10×10 m vertical, facing -X |
+| Far contrasting board | [150, -45, 12] | 16×16 m vertical, facing -X |
+| Blue/orange buildings | [80, 60, 10], [180, -60, 7] | 20×18×20 m and 20×18×14 m |
+| Parked vehicle props | [45, 32, 0.3], [110, -32, 0.3] | Pinned local rover body mesh and static wheel visuals |
+
+Spawn remains [-6, 0, 0] facing +X. The new visuals leave the central strip
+|y| < 20 m clear; they add no collision, sensor, joint or motion plugin. The
+stock ground/marker remains. They are visual features, not obstacle-avoidance
+or collision protection. No Fuel asset is fetched. Actual render visibility,
+camera occlusion, airborne geometry and tracking response remain untested.
+
+The ordinary training launcher deliberately still refuses MAV type 22. All
+VTOL Follow admission remains closed. MC Chase is currently MC/MAVSDK-only;
+FW Navigation Chase remains experimental and needs the qualified native
+image/timing resolver and adapter connection. The request-time phase/intention
+fence and transition-release qualification are prerequisites for live VTOL
+admission. Following must end on transition and require a fresh explicit Start
+once settled. Scenario availability does not satisfy any of these gates.
+
 ## Next gates
 
 No simulator launch or flight was performed for this verifier extension. Keep

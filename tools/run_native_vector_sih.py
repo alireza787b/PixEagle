@@ -912,7 +912,7 @@ for p in pathlib.Path('/proc').iterdir():
    value=dict(args=args, model=env.get('PX4_SIM_MODEL'), cwd=str((p/'cwd').resolve()),
               environment={k: env.get(k) for k in ('PX4_GZ_WORLD', 'PX4_GZ_MODELS', 'PX4_GZ_WORLDS',
                'GZ_SIM_RESOURCE_PATH', 'GZ_SIM_SYSTEM_PLUGIN_PATH', 'GZ_SIM_SERVER_CONFIG_PATH', 'GZ_PARTITION',
-               'PX4_GZ_MODEL_POSE', 'PX4_VIDEO_HOST_IP')})
+               'PX4_GZ_MODEL_POSE', 'PX4_VIDEO_HOST_IP', 'PX4_SYS_AUTOSTART')})
    if sys.argv[1]=='verify':
     value['binary_sha256']=hashlib.sha256((p/'exe').read_bytes()).hexdigest()
    out.append(value)

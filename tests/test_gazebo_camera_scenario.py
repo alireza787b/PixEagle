@@ -1,5 +1,8 @@
 """Synthetic resource/scene contracts. These tests never launch Gazebo or render pixels."""
 from copy import deepcopy
+from contextlib import redirect_stdout
+import io
+import sys
 import hashlib
 import json
 from pathlib import Path
@@ -15,6 +18,7 @@ from tools import run_native_vector_sih as runner
 
 NAME = "x500-mono-camera-aruco-v1"
 BOARD = "x500-mono-camera-board-v1"
+QUADPLANE = "standard-vtol-mono-camera-courtyard-v1"
 
 
 @pytest.fixture
@@ -239,18 +243,152 @@ def test_added_resource_is_rechecked_before_private_staging(tmp_path, package):
     assert not (tmp_path/'run').exists()
 
 
+def quadplane_package(package):
+    value, manifest, baseline, _ = package
+    root = Path(__file__).resolve().parents[1] / 'native/gazebo'
+    declaration = json.loads((root / 'scenarios' / (QUADPLANE + '.json')).read_text())
+    value.clear()
+    value.update(declaration)
+    packaged = Path(baseline['manifest']).parent / 'packaged'
+    extra = {
+        value['airframe_chain'][0]: '. ${R}etc/init.d/rc.vtol_defaults\nparam set-default SIM_GZ_EN 1\n'
+            'param set-default CA_AIRFRAME 2\nparam set-default CA_ROTOR_COUNT 5\n'
+            'param set-default CA_SV_CS_COUNT 3\nparam set-default VT_TYPE 2\n',
+        value['airframe_chain'][1]: 'param set-default MAV_TYPE 22\n',
+        'etc/init.d-posix/rcS': 'synthetic reviewed autostart fixture',
+        'etc/init.d-posix/px4-rc.gzsim': 'synthetic reviewed spawn fixture',
+        'gazebo/models/standard_vtol/model.sdf': '<sdf><model name="standard_vtol"/></sdf>',
+        'gazebo/models/rover_ackermann/meshes/rover_ackermann_base.dae': 'synthetic local mesh',
+    }
+    for relative, raw in extra.items():
+        path = packaged / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(raw)
+        area, member = relative.split('/', 1)
+        manifest['artifacts'][area][member] = {'sha256': hashlib.sha256(path.read_bytes()).hexdigest(), 'executable': False}
+    members = {*extra, 'gazebo/worlds/aruco.sdf', 'gazebo/server.config'}
+    members.update('gazebo/' + name for name in manifest['artifacts']['gazebo']
+                   if name.startswith(('models/mono_cam/', 'models/arucotag/', 'plugins/')))
+    value['resources'] = {name: manifest['artifacts'][name.split('/', 1)[0]][name.split('/', 1)[1]] for name in members}
+    document = ET.parse(packaged / 'gazebo/worlds/aruco.sdf')
+    world = document.find('world')
+    world.set('name', value['world'])
+    actual = ET.parse(root / value['added_world']['resource'])
+    names = {value['target']['name'], *(item['name'] for item in value['scene_additions'])}
+    for model in actual.findall('./world/model'):
+        if model.get('name') in names:
+            world.append(deepcopy(model))
+    added = {}
+    for name in value['added_model']:
+        relative = f'models/{value["model"]}/{name}'
+        path = scenario.SCENARIOS.parent / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes((root / relative).read_bytes())
+        added[relative] = path
+    world_path = scenario.SCENARIOS.parent / value['added_world']['resource']
+    world_path.parent.mkdir(parents=True, exist_ok=True)
+    document.write(world_path)
+    added[value['added_world']['resource']] = world_path
+    def save(*, repin=False):
+        if repin:
+            value['added_world']['sha256'] = hashlib.sha256(world_path.read_bytes()).hexdigest()
+            for name in value['added_model']:
+                value['added_model'][name]['sha256'] = hashlib.sha256(added[f'models/{value["model"]}/{name}'].read_bytes()).hexdigest()
+        (scenario.SCENARIOS / (QUADPLANE + '.json')).write_text(json.dumps(value))
+    save(repin=True)
+    return value, manifest, baseline, save, added
+
+
+def test_quadplane_uses_stock_airframe_and_exact_camera_only_additions(tmp_path, package):
+    value, manifest, baseline, _, added = quadplane_package(package)
+    before = deepcopy(manifest)
+    checked = scenario.verified_scenario(QUADPLANE, baseline, manifest)
+    assert checked['expected_parameters'] == {'SYS_AUTOSTART': 4004, 'MAV_TYPE': 22,
+        'CA_AIRFRAME': 2, 'CA_ROTOR_COUNT': 5, 'CA_SV_CS_COUNT': 3, 'VT_TYPE': 2, 'SIM_GZ_EN': 1}
+    argv = host.simulation_launch_args('gazebo', baseline, manifest, runtime=tmp_path / 'run',
+        token='owner', name='quadplane', gazebo_scenario=QUADPLANE)
+    assert 'PX4_SYS_AUTOSTART=4004' in argv and 'PX4_SIM_MODEL=gz_standard_vtol_mono_cam' in argv
+    assert 'PX4_GZ_WORLD=training_courtyard_v1' in argv
+    assert set(checked['added_resources']) == set(added) and manifest == before
+    for relative, original in added.items():
+        staged = tmp_path / 'run/scenario' / relative
+        assert staged.read_bytes() == original.read_bytes() and staged.stat().st_mode & 0o777 == 0o444
+        assert f'type=bind,src={staged},dst=/opt/px4/gazebo/{relative},readonly' in argv
+
+
+@pytest.mark.parametrize('change', ['base_model', 'airframe', 'missing_rcs', 'missing_mesh', 'extra_file',
+    'model_hash', 'model_executable', 'model_symlink', 'model_missing', 'camera_frame', 'camera_nan',
+    'camera_rotation', 'joint_type', 'joint_child', 'joint_pose', 'camera_uri', 'base_uri', 'aircraft_override',
+    'wrapper_plugin', 'model_config', 'scene_duplicate', 'scene_pose', 'scene_nan', 'scene_dynamic',
+    'scene_plugin', 'scene_collision', 'scene_remote_uri', 'scene_undeclared_uri', 'scene_frame', 'world_extra'])
+def test_quadplane_cannot_hide_aircraft_camera_or_world_changes(tmp_path, package, change):
+    value, manifest, baseline, save, added = quadplane_package(package)
+    wrapper = added[f'models/{value["model"]}/model.sdf']
+    world_path = added[value['added_world']['resource']]
+    repin = False
+    if change == 'base_model': value['base_model'] = 'quadtailsitter'
+    if change == 'airframe': value['airframe_id'] = 4018
+    if change == 'missing_rcs': del value['resources']['etc/init.d-posix/rcS']
+    if change == 'missing_mesh': del value['resources']['gazebo/models/rover_ackermann/meshes/rover_ackermann_base.dae']
+    if change == 'extra_file': value['added_model']['other.sdf'] = value['added_model']['model.sdf']
+    if change == 'model_hash': value['added_model']['model.sdf']['sha256'] = '0' * 64
+    if change == 'model_executable': wrapper.chmod(0o755)
+    if change == 'model_symlink':
+        target = wrapper.with_suffix('.copy'); wrapper.rename(target); wrapper.symlink_to(target)
+    if change == 'model_missing': wrapper.unlink()
+    if change == 'camera_frame': value['camera_mount']['frame'] = 'optical'
+    if change == 'camera_nan': value['camera_mount']['pose'][0] = float('nan')
+    if change == 'camera_rotation': value['camera_mount']['pose'][4] = 1
+    if change in ('joint_type', 'joint_child', 'joint_pose', 'camera_uri', 'base_uri', 'aircraft_override', 'wrapper_plugin'):
+        doc = ET.parse(wrapper); model = doc.find('model'); joint = model.find('joint'); includes = model.findall('include')
+        if change == 'joint_type': joint.set('type', 'revolute')
+        if change == 'joint_child': joint.find('child').text = 'wrong_link'
+        if change == 'joint_pose': joint.find('pose').text = '1 0 0 0 0 0'
+        if change == 'camera_uri': includes[1].find('uri').text = 'model://gimbal'
+        if change == 'base_uri': includes[0].find('uri').text = 'model://quadtailsitter'
+        if change == 'aircraft_override': ET.SubElement(model, 'link', {'name': 'base_link'})
+        if change == 'wrapper_plugin': ET.SubElement(model, 'plugin', {'name': 'hidden'})
+        doc.write(wrapper); repin = True
+    if change == 'model_config':
+        added[f'models/{value["model"]}/model.config'].write_text('<model><name>wrong</name><sdf>other.sdf</sdf></model>')
+        repin = True
+    if change == 'scene_duplicate': value['scene_additions'].append(value['scene_additions'][0])
+    if change == 'scene_pose': value['scene_additions'][0]['pose'][2] += 1
+    if change == 'scene_nan': value['scene_additions'][0]['pose'][0] = float('nan')
+    if change in ('scene_dynamic', 'scene_plugin', 'scene_collision', 'scene_remote_uri', 'scene_undeclared_uri', 'scene_frame', 'world_extra'):
+        doc = ET.parse(world_path); world = doc.find('world')
+        model = next(m for m in world.findall('model') if m.get('name') == 'parked_car_north')
+        if change == 'scene_dynamic': model.find('static').text = 'false'
+        if change == 'scene_frame': model.find('pose').set('relative_to', 'warehouse_north')
+        if change in ('scene_plugin', 'scene_collision'): ET.SubElement(model, change.removeprefix('scene_'))
+        if change == 'scene_remote_uri': model.find('.//uri').text = 'https://fuel.gazebosim.org/not-pinned'
+        if change == 'scene_undeclared_uri': model.find('.//uri').text = 'model://unlisted/car.dae'
+        if change == 'world_extra': ET.SubElement(world, 'model', {'name': 'hidden'})
+        doc.write(world_path); repin = True
+    save(repin=repin)
+    with pytest.raises(ValueError):
+        host.simulation_launch_args('gazebo', baseline, manifest, runtime=tmp_path / 'run',
+            token='owner', name='quadplane', gazebo_scenario=QUADPLANE)
+    assert not (tmp_path / 'run').exists()
+
+
 RUNTIME_CHANGES = [None, 'model', 'world', 'image', 'binary', 'spawn', 'camera_host',
     'runtime_resources', 'runtime_parent_airframe', 'extra_entity', 'missing_marker', 'extra_topic_model',
     'missing_image', 'extra_image', 'parameter', 'empty_partition']
 
 
-@pytest.mark.parametrize('board,change', [(board, change) for board in (False, True) for change in RUNTIME_CHANGES]
-    + [(True, change) for change in ('world_bytes', 'missing_world_file', 'writable_world', 'missing_world_mount')])
+@pytest.mark.parametrize('board,change', [(board, change) for board in (False, True, 'quadplane') for change in RUNTIME_CHANGES]
+    + [(board, change) for board in (True, 'quadplane') for change in ('world_bytes', 'missing_world_file', 'writable_world', 'missing_world_mount')]
+    + [('quadplane', change) for change in ('autostart', 'wrapper_bytes', 'missing_wrapper_mount')])
 def test_runtime_requires_actual_scenario_and_keeps_original_build(tmp_path, package, monkeypatch, board, change):
-    if board:
+    if board == 'quadplane':
+        value, manifest, baseline, _, _ = quadplane_package(package)
+    elif board:
         value, manifest, baseline, _, _ = board_package(package)
     else:
         value, manifest, baseline, _ = package
+    checked_scenario = scenario.verified_scenario(value['name'], baseline, manifest)
+    expected_params = checked_scenario['expected_parameters']
     monkeypatch.setattr(runner, 'verified_simulation_build', lambda *a, **k: ('gazebo', baseline, manifest))
     environment = {'PX4_GZ_WORLD': value['world'], 'PX4_GZ_MODELS': '/opt/px4/gazebo/models',
         'PX4_GZ_WORLDS': '/opt/px4/gazebo/worlds',
@@ -261,31 +399,39 @@ def test_runtime_requires_actual_scenario_and_keeps_original_build(tmp_path, pac
     if change in ('world', 'spawn', 'camera_host', 'empty_partition'):
         environment[{'world': 'PX4_GZ_WORLD', 'spawn': 'PX4_GZ_MODEL_POSE', 'camera_host': 'PX4_VIDEO_HOST_IP',
                      'empty_partition': 'GZ_PARTITION'}[change]] = ''
+    environment.update(scenario.scenario_environment(checked_scenario))
+    if change in ('spawn', 'camera_host'): environment[{'spawn': 'PX4_GZ_MODEL_POSE', 'camera_host': 'PX4_VIDEO_HOST_IP'}[change]] = ''
+    if change == 'autostart': environment['PX4_SYS_AUTOSTART'] = '4018'
+    actual_model = value['model'] + '_0'
     def read(*args):
         if args[1] == 'inspect':
             mounts = [{'Source': str(tmp_path), 'Destination': '/work'}]
-            if board and change != 'missing_world_mount':
+            for relative in checked_scenario.get('added_resources', {}):
+                if change == 'missing_world_mount' and relative.startswith('worlds/') or change == 'missing_wrapper_mount' and relative.endswith('model.sdf'):
+                    continue
                 mounts.append({'Type': 'bind', 'RW': change == 'writable_world',
-                    'Source': str(tmp_path/'scene/world.sdf'),
-                    'Destination': '/opt/px4/gazebo/worlds/training_board_v1.sdf'})
+                    'Source': str(tmp_path / 'scene' / relative), 'Destination': '/opt/px4/gazebo/' + relative})
             return json.dumps([{'Id': 'original', 'Image': 'wrong' if change == 'image' else baseline['image_id'],
                 'HostConfig': {'NetworkMode': 'none', 'Privileged': False, 'Devices': []},
                 'NetworkSettings': {'Ports': {}}, 'Mounts': mounts}])
         if args[-1] == 'verify':
             return json.dumps([{'args': ['/opt/px4/bin/px4', '-i', '0'], 'cwd': '/work/rootfs',
-                'model': 'gz_quadtailsitter' if change == 'model' else 'gz_x500_mono_cam',
+                'model': 'gz_quadtailsitter' if change == 'model' else 'gz_' + value['model'],
                 'environment': environment, 'binary_sha256': 'bad' if change == 'binary' else baseline['binary_sha256']}])
         if 'python3' in args:
             chain = {name: value['resources'][name]['sha256'] for name in value['airframe_chain']}
             if change == 'runtime_parent_airframe': chain[value['airframe_chain'][1]] = 'bad'
             resources = deepcopy(manifest['artifacts']['gazebo'])
-            if board and change != 'missing_world_file':
-                resources[value['added_world']['resource']] = {
-                    'sha256': 'bad' if change == 'world_bytes' else value['added_world']['sha256'], 'executable': False}
+            resources.update(deepcopy(checked_scenario.get('added_resources', {})))
+            if board:
+                world_file = value['added_world']['resource']
+                if change == 'missing_world_file': del resources[world_file]
+                if change == 'world_bytes': resources[world_file]['sha256'] = 'bad'
+                if change == 'wrapper_bytes': resources[f'models/{value["model"]}/model.sdf']['sha256'] = 'bad'
             return json.dumps({'gazebo': {} if change == 'runtime_resources' else resources,
                 'airframe_sha256': value['resources'][value['airframe_chain'][0]]['sha256'], 'scenario_airframes': chain})
         if 'service' in args:
-            names = [*value['scene_models'], 'x500_mono_cam_0']
+            names = [*value['scene_models'], actual_model]
             if change == 'extra_entity': names.append('other')
             if change == 'missing_marker': names.remove('arucotag')
             return ''.join('model {\n  name: "' + name + '"\n}\n' for name in names)
@@ -297,10 +443,10 @@ def test_runtime_requires_actual_scenario_and_keeps_original_build(tmp_path, pac
             if change == 'missing_image': topics.pop()
             if change == 'extra_image': topics.append('/world/aruco/model/x500_mono_cam_0/link/other/sensor/other/image')
             if change == 'extra_topic_model': topics.append('/model/other/odometry')
-            return '\n'.join(topics).replace('/world/aruco/', '/world/' + value['world'] + '/')
+            return '\n'.join(topics).replace('/world/aruco/', '/world/' + value['world'] + '/').replace('x500_mono_cam_0', actual_model)
         if '/opt/px4/bin/px4-param' in args:
-            return '\n'.join(f'{k}: {v}' for k, v in {'SYS_AUTOSTART': 4010,
-                'MAV_TYPE': 2, 'CA_AIRFRAME': 0, 'CA_ROTOR_COUNT': 6 if change == 'parameter' else 4, 'SIM_GZ_EN': 1}.items())
+            return '\n'.join(f'{k}: {v}' for k, v in {**expected_params,
+                'CA_ROTOR_COUNT': 6 if change == 'parameter' else expected_params['CA_ROTOR_COUNT']}.items())
         assert '/opt/px4/bin/px4-listener' in args
         return 'autopilot_uid: 123456789\n'
     commands = Mock(side_effect=read)
@@ -316,7 +462,31 @@ def test_runtime_requires_actual_scenario_and_keeps_original_build(tmp_path, pac
             checked = runner.verify_simulator('original', 0, socket_path,
                 simulation_build_manifest=Path(baseline['manifest']), gazebo_scenario=value['name'])
             assert checked['firmware_build'] == baseline
-            assert checked['gazebo']['runtime_scenario']['descriptor']['airframe_id'] == 4010
-            assert checked['gazebo']['expected_parameters']['MAV_TYPE'] == 2
-            assert checked['gazebo']['model'] == 'x500_mono_cam_0'
+            assert checked['gazebo']['runtime_scenario']['descriptor']['airframe_id'] == value['airframe_id']
+            assert checked['gazebo']['expected_parameters']['MAV_TYPE'] == expected_params['MAV_TYPE']
+            assert checked['gazebo']['model'] == actual_model
     assert not any(set(call.args) & {'arm', 'takeoff', 'set', '--pub', 'run', 'start'} for call in commands.call_args_list)
+
+
+def test_actual_process_probe_reads_explicit_airframe_environment(tmp_path, monkeypatch):
+    """Execute the read-only probe against synthetic proc files, not a canned result."""
+    process = tmp_path / 'proc/123'
+    process.mkdir(parents=True)
+    (process / 'cmdline').write_bytes(b'/opt/px4/bin/px4\0-i\0' + b'0\0')
+    (process / 'environ').write_bytes(b'PX4_SIM_MODEL=gz_standard_vtol_mono_cam\0PX4_SYS_AUTOSTART=4004\0')
+    (process / 'exe').write_bytes(b'fixture executable')
+    (process / 'cwd').mkdir()
+    def read(*args):
+        script = args[args.index('-c') + 1]
+        script = script.replace("pathlib.Path('/proc')", 'pathlib.Path(' + repr(str(process.parent)) + ')')
+        with monkeypatch.context() as context:
+            context.setattr(sys, 'argv', ['probe', 'verify'])
+            output = io.StringIO()
+            with redirect_stdout(output):
+                exec(compile(script, '<synthetic-proc-probe>', 'exec'), {})
+        return output.getvalue()
+    monkeypatch.setattr(runner, 'command', read)
+    actual = runner.inspect_simulator_process('unused', 0, 1000, simulator='gazebo',
+        baseline={'binary_sha256': hashlib.sha256(b'fixture executable').hexdigest()}, manifest={},
+        scenario={'descriptor': {'model': 'standard_vtol_mono_cam'}})
+    assert actual['environment']['PX4_SYS_AUTOSTART'] == '4004'
