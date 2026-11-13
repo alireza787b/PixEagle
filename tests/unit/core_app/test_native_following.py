@@ -381,7 +381,7 @@ async def test_native_start_rechecks_context_on_flight_owner_before_commands(own
     snapshot = ready_owner(owner, monkeypatch)
     calls = []
 
-    async def start(native_start_guard, *, native_attempt_id, native_aircraft_uid):
+    async def start(native_start_guard, *, native_attempt_id, native_aircraft_uid, native_start_context):
         assert native_attempt_id == "b" * 32 and native_aircraft_uid == "42"
         native_start_guard("before_start")
         owner.telemetry_test["connection_generation"] = "changed"
@@ -622,7 +622,7 @@ async def test_pending_native_start_can_be_stopped_without_waiting_for_activatio
     app._disconnect_px4_internal = AsyncMock(return_value={"steps": ["stopped"], "errors": []})
     entered = asyncio.Event()
 
-    async def slow_start(_guard):
+    async def slow_start(_guard, *, native_start_context):
         entered.set()
         await asyncio.Event().wait()
 

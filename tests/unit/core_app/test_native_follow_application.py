@@ -45,6 +45,7 @@ def app(monkeypatch):
         get_telemetry_stale_timeout_s=Mock(return_value=.75),
         get_aircraft_identity=Mock(return_value={"autopilot_uid": f.state.binding.aircraft_uid,
                                                 "connection_generation": f.state.binding.connection_generation}),
+        native_start_context=f.start_context, native_guidance_client=f.client,
         is_command_connection_ready=Mock(return_value=True),
         start_offboard_mode=AsyncMock(), stop_offboard_mode=AsyncMock(),
     )
@@ -61,7 +62,8 @@ def app(monkeypatch):
     )
     commander_factory = Mock(return_value=commander)
 
-    async def prepare():
+    async def prepare(start_context):
+        assert start_context is f.start_context
         f.binding.continuity = ctrl.target_continuity
         f.binding._context = ctrl._build_target_continuity_context
         ctrl._following_session_id = f.guidance.identity.follow_session_id
@@ -101,7 +103,7 @@ async def test_native_session_seeds_one_publisher_and_preserves_its_phase_contro
     assert continuity.effective_policy["max_coast_time_s"] == 8.
 
 
-async def test_start_refreshes_native_phase_before_catalog_then_uses_one_prepared_client(app):
+async def test_start_does_not_refresh_away_the_original_native_phase_mismatch(app):
     from dataclasses import replace
     from classes.aircraft_state import AirframePhase
     ctrl = app.ctrl
@@ -111,9 +113,11 @@ async def test_start_refreshes_native_phase_before_catalog_then_uses_one_prepare
         return app.f.guidance.phase_owner.capabilities
     ctrl.px4_interface.prepare_native_guidance.side_effect = refresh
     result = await ctrl._connect_px4_on_flight_loop()
-    assert result['errors'] == [] and ctrl.following_active
-    ctrl.px4_interface.prepare_native_guidance.assert_awaited_once()
-    ctrl._prepare_native_follow_binding.assert_awaited_once()
+    assert result['precondition']['code'] == 'native_start_context_changed'
+    assert not ctrl.following_active
+    ctrl.px4_interface.prepare_native_guidance.assert_not_awaited()
+    ctrl._prepare_native_follow_binding.assert_not_called()
+    app.f.client.engage.assert_not_called()
 
 
 async def test_passive_poll_queued_during_real_start_does_not_observe_active_publisher(app):
@@ -196,12 +200,14 @@ async def test_native_preparation_uses_declared_mc_capability_before_acquisition
     monkeypatch.setattr("classes.app_controller.NativeFollowBinding", construct)
     monkeypatch.setattr(Parameters, "AIRFRAME_LAYOUT", "AUTO", raising=False)
     if mc_supported:
-        assert await AppController._prepare_native_follow_binding(ctrl) is binding
+        from tests.fixtures.native_ownership import start_context
+        original = start_context(app.f.guidance.identity, runtime_id=capabilities.runtime_id, phase=state.phase.value)
+        assert await AppController._prepare_native_follow_binding(ctrl, original) is binding
         assert create.call_args.kwargs["initial_phase"] is state.phase
         construct.assert_called_once()
     else:
         with pytest.raises(RuntimeError, match="native_vtol_contract_unavailable"):
-            await AppController._prepare_native_follow_binding(ctrl)
+            await AppController._prepare_native_follow_binding(ctrl, app.f.start_context)
         create.assert_not_called()
         construct.assert_not_called()
     app.f.client.engage.assert_not_called()
@@ -413,7 +419,8 @@ async def test_correlated_pilot_release_clears_cleanup_barrier_without_claiming_
     assert (getattr(ctrl, '_last_following_handoff', None) or {}).get('result') != 'confirmed_hold'
     fresh = fixture(is_vtol=False)
 
-    async def prepare_fresh():
+    async def prepare_fresh(start_context):
+        assert start_context is ctrl.px4_interface.native_start_context
         fresh.binding.continuity = ctrl.target_continuity
         fresh.binding._context = ctrl._build_target_continuity_context
         ctrl._following_session_id = fresh.guidance.identity.follow_session_id

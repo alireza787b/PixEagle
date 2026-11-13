@@ -143,8 +143,8 @@ def test_source_and_evidence_readers_do_not_refresh_an_old_measurement():
 async def test_native_discovery_cannot_engage_after_target_becomes_unusable(app):
     original = app.ctrl._prepare_native_follow_binding.side_effect
 
-    async def prepare():
-        binding = await original()
+    async def prepare(start_context):
+        binding = await original(start_context)
         await asyncio.sleep(0)
         app.ctrl._get_follow_start_readiness.return_value = {"usable_for_following": False, "reason": "target_lost"}
         return binding
@@ -169,8 +169,8 @@ async def test_new_target_or_source_during_native_discovery_requires_fresh_start
     ctrl.get_tracker_output().image_measurement = ctrl.tracking_input_context.at_pixel((319.5, 239.5))
     original = ctrl._prepare_native_follow_binding.side_effect
 
-    async def prepare():
-        binding = await original()
+    async def prepare(start_context):
+        binding = await original(start_context)
         await asyncio.sleep(0)
         if change == "target":
             ctrl._tracking_session_generation += 1
@@ -203,8 +203,8 @@ async def test_new_frame_in_same_geometry_during_discovery_does_not_change_start
     ctrl.get_tracker_output().image_measurement = ctrl.tracking_input_context.at_pixel((319.5, 239.5))
     original = ctrl._prepare_native_follow_binding.side_effect
 
-    async def prepare():
-        binding = await original()
+    async def prepare(start_context):
+        binding = await original(start_context)
         ctrl.tracking_input_context = context(capture_id="2")
         return binding
 
@@ -225,8 +225,8 @@ async def test_video_only_epoch_changes_do_not_invalidate_non_video_target_ident
     ctrl.get_tracker_output().image_measurement = ctrl.tracking_input_context.at_pixel((319.5, 239.5))
     original = ctrl._prepare_native_follow_binding.side_effect
 
-    async def prepare():
-        binding = await original()
+    async def prepare(start_context):
+        binding = await original(start_context)
         ctrl.frame_publisher.control_source_epoch = "source-b"
         return binding
 
@@ -267,9 +267,9 @@ async def test_identity_change_during_acquisition_or_publisher_start_never_activ
         app.commander.stop.assert_awaited_once()
 
 
-async def test_read_only_discovery_precedes_specialized_input_validation(app):
+async def test_read_only_discovery_preserves_captured_context_before_specialized_input_validation(app):
     ctrl = app.ctrl
-    current_state = [None]
+    current_state = [app.f.state]
     original = ctrl._prepare_native_follow_binding.side_effect
     sample = _active_position_output()
     bind_image_source(ctrl, sample)
@@ -285,13 +285,12 @@ async def test_read_only_discovery_precedes_specialized_input_validation(app):
     ctrl._get_follow_start_readiness = lambda: readiness(ctrl)
 
     async def discover(_socket_path):
-        assert current_state[0] is None
-        current_state[0] = app.f.state
+        assert current_state[0] is app.f.state
         return app.f.guidance.phase_owner.capabilities
 
-    async def prepare():
+    async def prepare(start_context):
         assert current_state[0] is app.f.state
-        return await original()
+        return await original(start_context)
 
     ctrl.px4_interface.prepare_native_guidance.side_effect = discover
     ctrl._prepare_native_follow_binding.side_effect = prepare

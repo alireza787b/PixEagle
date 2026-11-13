@@ -170,6 +170,7 @@ class APINativeTargetGuard(BaseModel):
     stream_id: Optional[str] = None
     stream_epoch: Optional[str] = None
     source_epoch: Optional[str] = None
+    start_context_id: Optional[str] = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
 
 class APINativeTargetFrame(BaseModel):

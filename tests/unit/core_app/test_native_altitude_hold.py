@@ -169,7 +169,7 @@ async def test_acquisition_and_later_baseline_use_the_same_preacquisition_refere
         return await original_engage(identity, **kwargs)
 
     f.client.engage.side_effect = engage_after_moving
-    baseline = await f.binding.engage()
+    baseline = await f.binding.engage(start_context=f.start_context)
     supplied = f.client.engage.call_args.kwargs['altitude_reference']
     assert baseline.altitude_hold == supplied
     assert supplied.altitude_amsl_m == initial
@@ -204,7 +204,7 @@ async def test_native_hold_bounds_reject_before_acquisition_even_when_legacy_hei
     assert f.connection.commit_aircraft_state(outside)
 
     with pytest.raises(ValueError, match='altitude_hard_limit'):
-        await f.binding.engage()
+        await f.binding.engage(start_context=f.start_context)
 
     f.client.engage.assert_not_awaited()
     f.client.submit.assert_not_awaited()
@@ -217,7 +217,7 @@ async def test_native_hold_bounds_reject_retained_target_at_publication(target_h
     f = fixture(phase=AirframePhase.MULTICOPTER)
     assert f.binding.transport.altitude_limits is f.guidance.altitude_limits
     f.guidance.fixed_wing.enable_altitude_control = False
-    await f.binding.engage()
+    await f.binding.engage(start_context=f.start_context)
     f.clock[0] += .31
     state = replace(f.connection.get_aircraft_state(), sequence=f.state.sequence + 1,
                     observed_at_monotonic_s=f.clock[0])
@@ -276,7 +276,7 @@ def test_hold_bounds_keep_relative_offset_optional_ceiling_and_safety_opt_out(li
 async def test_hold_bounds_refuse_current_native_excursion_after_acquisition(native_height):
     f = fixture(phase=AirframePhase.MULTICOPTER)
     f.guidance.fixed_wing.enable_altitude_control = False
-    baseline = await f.binding.engage()
+    baseline = await f.binding.engage(start_context=f.start_context)
     state = f.connection.get_aircraft_state()
     offset = state.altitude_amsl_m - state.relative_altitude_m
     outside = replace(state, sequence=state.sequence + 1, relative_altitude_m=native_height,

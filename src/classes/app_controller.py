@@ -27,7 +27,7 @@ from classes.following_observation_source import (
 from classes.aircraft_state import AircraftKind, AircraftLayout, AirframePhase, GuidanceSessionIdentity
 from classes.fixed_wing_guidance_policy import FixedWingGuidancePolicy
 from classes.native_follow_binding import NativeFollowBinding, requires_native_guidance
-from classes.native_guidance import DEFAULT_SOCKET_PATH, NativeGuidanceError, NativeReleaseReceipt
+from classes.native_guidance import DEFAULT_SOCKET_PATH, NativeGuidanceError, NativeReleaseReceipt, NativeStartContext
 from classes.command_preview import (
     COMMAND_PREVIEW_EXECUTION_MODE,
     CommandPreviewCommander,
@@ -103,6 +103,9 @@ except ImportError:
     SmartTracker = None
     SMART_TRACKER_AVAILABLE = False
     logging.warning("SmartTracker not available - AI packages not installed")
+
+
+_NATIVE_START_CONTEXT_UNCAPTURED = object()
 
 
 class AppController:
@@ -3306,7 +3309,32 @@ class AppController:
             result["precondition"] = {"code": decision.reason_code}
             raise ValueError(decision.reason_code)
 
-    async def _prepare_native_follow_binding(self):
+    def _capture_native_start_context(self):
+        """Read the original passive native epoch before startup can await."""
+        profile = Follower.get_mode_info(Parameters.FOLLOWER_MODE)
+        if not profile.get("native_phase_contracts") or self._is_command_preview_configured():
+            return None
+        kind_getter = getattr(self.px4_interface, "get_aircraft_kind", None)
+        kind = kind_getter() if callable(kind_getter) else AircraftKind.UNKNOWN
+        if not isinstance(kind, AircraftKind) or kind in (AircraftKind.UNKNOWN, AircraftKind.MULTICOPTER):
+            return None
+        if not requires_native_guidance(profile, kind,
+                expected_layout=AircraftLayout(getattr(Parameters, "AIRFRAME_LAYOUT", "AUTO"))):
+            return None
+        context = getattr(self.px4_interface, "native_start_context", None)
+        state = self.px4_interface.get_aircraft_state()
+        client = getattr(self.px4_interface, "native_guidance_client", None)
+        capabilities = None if client is None else client.capabilities
+        if not isinstance(context, NativeStartContext) or state is None or capabilities is None:
+            raise NativeGuidanceError("native_start_context_required")
+        context.require_match(state.binding, capabilities.runtime_id, phase=state.phase)
+        return context
+
+    @staticmethod
+    def _native_start_context_failure(error):
+        return {"steps": [], "errors": [str(error)], "precondition": {"code": str(error)}}
+
+    async def _prepare_native_follow_binding(self, start_context):
         """Prepare one owner; only the existing explicit start may engage it."""
         client = self.px4_interface.native_guidance_client
         capabilities = None if client is None else client.capabilities
@@ -3323,10 +3351,15 @@ class AppController:
         layout = AircraftLayout(getattr(Parameters, "AIRFRAME_LAYOUT", "AUTO"))
         if not layout.matches(state):
             raise RuntimeError("aircraft_layout_mismatch")
+        if not isinstance(start_context, NativeStartContext):
+            raise NativeGuidanceError("native_start_context_required")
+        start_context.require_match(state.binding, capabilities.runtime_id, phase=state.phase)
         concrete = self.follower.follower
         create = getattr(concrete, "create_airframe_session", None)
         if not callable(create):
             raise RuntimeError("follower_native_strategy_unavailable")
+        from classes.gazebo_image_alignment import bind_native_image_resolver
+        await bind_native_image_resolver(self, concrete, state, capabilities)
         identity = GuidanceSessionIdentity(self._following_session_id, state.binding, 0)
         guidance = create(
             identity, capabilities,
@@ -3431,12 +3464,18 @@ class AppController:
 
     async def connect_px4(
         self, native_start_guard=None, *, native_attempt_id=None, native_aircraft_uid=None,
+        native_start_context=_NATIVE_START_CONTEXT_UNCAPTURED,
     ) -> Dict[str, any]:
         """Start one follow session on the stable flight owner loop."""
+        if native_start_context is _NATIVE_START_CONTEXT_UNCAPTURED:
+            try:
+                native_start_context = self._capture_native_start_context()
+            except NativeGuidanceError as error:
+                return self._native_start_context_failure(error)
         return await self._run_on_flight_event_loop(
-            self._connect_px4_once_on_flight_loop if native_start_guard is None
-            else lambda: self._connect_px4_once_on_flight_loop(
+            lambda: self._connect_px4_once_on_flight_loop(
                 native_start_guard, native_attempt_id, native_aircraft_uid,
+                native_start_context=native_start_context,
             )
         )
 
@@ -3657,8 +3696,14 @@ class AppController:
 
     async def _connect_px4_once_on_flight_loop(
         self, native_start_guard=None, native_attempt_id=None, native_aircraft_uid=None,
+        *, native_start_context=_NATIVE_START_CONTEXT_UNCAPTURED,
     ) -> Dict[str, Any]:
         """Coalesce concurrent starts and retain an abortable startup task."""
+        if native_start_context is _NATIVE_START_CONTEXT_UNCAPTURED:
+            try:
+                native_start_context = self._capture_native_start_context()
+            except NativeGuidanceError as error:
+                return self._native_start_context_failure(error)
         existing = getattr(self, "_follow_start_task", None)
         if existing is not None and not existing.done():
             if native_start_guard is not None:
@@ -3671,8 +3716,7 @@ class AppController:
         self._native_follow_start_connection_generation = None
 
         start_task = asyncio.create_task(
-            self._connect_px4_on_flight_loop() if native_start_guard is None
-            else self._connect_px4_on_flight_loop(native_start_guard),
+            self._connect_px4_on_flight_loop(native_start_guard, native_start_context=native_start_context),
             name="pixeagle-follow-start",
         )
         self._follow_start_task = start_task
@@ -3852,7 +3896,9 @@ class AppController:
 
         return result
 
-    async def _connect_px4_on_flight_loop(self, native_start_guard=None) -> Dict[str, Any]:
+    async def _connect_px4_on_flight_loop(
+        self, native_start_guard=None, *, native_start_context=_NATIVE_START_CONTEXT_UNCAPTURED,
+    ) -> Dict[str, Any]:
         """
         Enhanced PX4 connection with unified command protocol support.
         Automatically stops existing follower if active before starting a new one.
@@ -3860,6 +3906,11 @@ class AppController:
         Returns:
             Dict with status information including steps taken and any errors
         """
+        if native_start_context is _NATIVE_START_CONTEXT_UNCAPTURED:
+            try:
+                native_start_context = self._capture_native_start_context()
+            except NativeGuidanceError as error:
+                return self._native_start_context_failure(error)
         if native_start_guard is not None and self._is_command_preview_configured():
             return {"steps": [], "errors": ["Native aircraft following requires PX4 execution."],
                     "precondition": {"code": "native_follow_preview_unavailable"}}
@@ -3995,6 +4046,8 @@ class AppController:
                     )
                 if native_required:
                     await self.px4_interface.prepare_native_guidance(DEFAULT_SOCKET_PATH)
+                elif native_start_context is not None:
+                    raise NativeGuidanceError("native_start_context_changed")
                 self._require_live_aircraft_profile(configured_profile, result)
 
                 initial_target_coords = resolve_initial_target_coords(
@@ -4037,7 +4090,7 @@ class AppController:
                 self._require_follow_start_input_identity(start_input_identity, result, stage="after_connection")
                 if native_required:
                     # Discovery supplies real native state, but acquires no mode.
-                    native_binding = await self._prepare_native_follow_binding()
+                    native_binding = await self._prepare_native_follow_binding(native_start_context)
                     self._require_live_aircraft_profile(configured_profile, result)
                     self._require_follow_start_input_identity(start_input_identity, result, stage="after_native_discovery")
                 self._require_follow_start_readiness(
@@ -4066,6 +4119,7 @@ class AppController:
                     # Treat that interval as possibly entered Offboard.
                     if native_required:
                         initial_native_intent = await native_binding.engage(
+                            start_context=native_start_context,
                             before_dispatch=startup_dispatch_guard, on_mode_dispatch=mode_dispatched)
                         self.follower.follower.bind_airframe_session(native_binding.guidance)
                         offboard_result = {"executed": True, "command_owner": "px4_native_external_mode"}

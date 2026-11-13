@@ -23,11 +23,14 @@ from classes.api_v1_paths import (API_V1_NATIVE_FOLLOWING_PATH,
 from classes.api_v1_paths import API_V1_ACTION_NATIVE_FOLLOWER_SELECT_PATH
 from classes.follower_catalog import evaluate_aircraft, evaluate_input, get_follower_catalog
 from classes.airspeed_readiness import evaluate_following_start_airspeed
-from classes.native_guidance import NativeGuidanceError
+from classes.native_guidance import NativeGuidanceError, NativeStartContext
 from classes.parameters import Parameters
 from classes.runtime_identity import INSTANCE_ID, RUNTIME_ID
 from classes.api_v1_following_controls import session_control_snapshot
 from classes.sih_replay import isolated_sih_replay_authorized
+
+
+_START_CONTEXT_UNCAPTURED = object()
 
 
 def _selected_tracker_output(target, manager):
@@ -52,7 +55,8 @@ def _native_observation_reason(error):
     return code if re.fullmatch(r"[a-z][a-z0-9_]{0,127}", code) else "native_aircraft_state_unavailable"
 
 
-def following_snapshot(owner, principal, *, client_control_contract_version: int = 1):
+def following_snapshot(owner, principal, *, client_control_contract_version: int = 1,
+                       _start_context=_START_CONTEXT_UNCAPTURED):
     """Report choices without changing the selected backend profile or aircraft."""
     target = target_state(owner, principal)
     status = owner._get_following_status_snapshot()
@@ -89,6 +93,7 @@ def following_snapshot(owner, principal, *, client_control_contract_version: int
         ))
 
     reasons = []
+    start_context = None
     flight = {}
     context = context_snapshot(owner, principal)
     if not context["association"]["verified"]:
@@ -132,6 +137,15 @@ def following_snapshot(owner, principal, *, client_control_contract_version: int
                 state = owner.app_controller.px4_interface.get_aircraft_state()
                 if state is None:
                     reasons.append("native_aircraft_state_unavailable")
+                try:
+                    capture = getattr(owner.app_controller, "_capture_native_start_context", None)
+                    start_context = (_start_context if _start_context is not _START_CONTEXT_UNCAPTURED
+                                     else capture() if callable(capture) else None)
+                    if not isinstance(start_context, NativeStartContext):
+                        raise NativeGuidanceError("native_start_context_required")
+                except NativeGuidanceError as error:
+                    start_context = None
+                    reasons.append(_native_observation_reason(error))
             aircraft = evaluate_aircraft(profile, flight.get("aircraft_kind"),
                                         observed_phase=None if state is None else state.phase.value)
             if not aircraft.eligible:
@@ -206,7 +220,7 @@ def following_snapshot(owner, principal, *, client_control_contract_version: int
                                                  client_contract_version=client_control_contract_version),
         pending_start_id=getattr(owner.app_controller, "_native_follow_start_attempt_id", None),
         pending_aircraft_uid=getattr(owner.app_controller, "_native_follow_start_aircraft_uid", None),
-        guard=target["guard"],
+        guard=target["guard"] | {"start_context_id": None if start_context is None else start_context.context_id},
     ).model_dump(mode="json")
 
 
@@ -260,10 +274,14 @@ def _request_identity(request, principal):
     return scope, digest
 
 
-def _check_start(owner, request, principal, stage):
+def _check_start(owner, request, principal, stage, *, start_context=_START_CONTEXT_UNCAPTURED):
     if request.native_context.binding_mode != "vehicle" or request.native_context.frame is not None:
         raise NativeTargetError("native_follow_vehicle_required", "Select a verified aircraft; no frame is required.")
-    snapshot = following_snapshot(owner, principal)
+    # Ownership consumes the passive context. These checks retain the original
+    # acquisition epoch while still reading the live target/profile/vehicle guard.
+    acquired = stage in {"after_offboard", "before_activation"}
+    snapshot = following_snapshot(owner, principal,
+        _start_context=start_context if acquired else _START_CONTEXT_UNCAPTURED)
     if request.native_context.guard.model_dump(mode="json") != snapshot["guard"]:
         raise NativeTargetError("native_follow_context_stale", "Target, aircraft or video changed. Refresh following status.")
     if request.profile_generation != snapshot["profile_generation"] or request.profile_mode != snapshot["configured_mode"]:
@@ -271,6 +289,18 @@ def _check_start(owner, request, principal, stage):
     if not snapshot["start_allowed"]:
         reason = snapshot["start_reason_codes"][0]
         raise NativeTargetError(reason, f"Following is not ready ({reason}).")
+    if start_context is _START_CONTEXT_UNCAPTURED:
+        if snapshot["guard"].get("start_context_id") is None:
+            return None
+        capture = getattr(owner.app_controller, "_capture_native_start_context", None)
+        try:
+            original = capture() if callable(capture) else None
+        except NativeGuidanceError as error:
+            raise NativeTargetError("native_follow_context_stale", "Native aircraft context changed. Refresh following status.") from error
+        if not isinstance(original, NativeStartContext) or original.context_id != snapshot["guard"]["start_context_id"]:
+            raise NativeTargetError("native_follow_context_stale", "Native aircraft context changed. Refresh following status.")
+        return original
+    return start_context
 
 
 def _audit(owner, principal, path, outcome, action_type):
@@ -302,13 +332,15 @@ async def native_follow_action(owner, request, response, http_request, *, start)
                 return replay
 
         app = owner.app_controller
+        start_context = None
         if start:
+            start_context = _check_start(owner, request, principal, "before_request")
             try:
                 await app.refresh_native_following_state(_get_persisted_follower_mode(owner))
             except NativeGuidanceError as error:
                 raise NativeTargetError(_native_observation_reason(error),
                     "Native aircraft observations are not ready. Refresh following status.") from error
-            _check_start(owner, request, principal, "before_request")
+            _check_start(owner, request, principal, "after_native_refresh", start_context=start_context)
         else:
             teardown = getattr(app, "_following_teardown_context", None) or {}
             active_match = (
@@ -338,9 +370,11 @@ async def native_follow_action(owner, request, response, http_request, *, start)
         if not request.dry_run:
             if start:
                 result = await app.connect_px4(
-                    native_start_guard=lambda stage: _check_start(owner, request, principal, stage),
+                    native_start_guard=lambda stage: _check_start(owner, request, principal, stage,
+                                                                  start_context=start_context),
                     native_attempt_id=request.start_attempt_id,
                     native_aircraft_uid=request.native_context.guard.aircraft_uid,
+                    native_start_context=start_context,
                 )
             else:
                 result = await app.stop_native_following(request.follow_session_id, request.aircraft_uid)

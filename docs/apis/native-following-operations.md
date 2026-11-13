@@ -68,12 +68,24 @@ Start reports `vehicle_not_armed`, `vehicle_not_airborne` or
 `vehicle_flight_state_unavailable` until the aircraft is ready. It refuses
 replay video, active or incompatible followers, circuit-breaker inhibition and
 changed identities.
+For a native FW/VTOL Start, the following guard additionally carries an optional
+opaque SHA256 `start_context_id`. Clients copy the complete observed guard;
+they do not construct this ID or infer a native mode epoch. The backend captures
+the matching immutable passive native context before startup's first await and
+passes that original context through acquisition. Missing or changed context
+requires fresh status and a new explicit Start; startup never substitutes a
+newer observation after an await. Ordinary pure-MC MAVSDK starts retain their
+existing path and do not require this native field.
 Each Start includes a random 32-hex `start_attempt_id`, which the backend
 exposes while startup is pending so Stop can cancel that exact attempt.
 The guard is checked before startup, before Offboard entry, after the Offboard
 acknowledgement and before following becomes active on PixEagle's flight-owner
 loop. These checks do not replace PX4 failsafes, target-continuity monitoring
 or the existing OffboardCommander cleanup.
+Once native acquisition consumes the passive context, the later checks retain
+its captured ID while still validating the current target, profile and aircraft
+guard. The native acquisition must echo the original context; a transition or
+native mode-intention change cannot be accepted as a fresh baseline implicitly.
 
 `POST /api/v1/actions/native-follow-stop` accepts the backend instance/runtime,
 the observed follow-session ID or pending Start ID and captured aircraft UID.

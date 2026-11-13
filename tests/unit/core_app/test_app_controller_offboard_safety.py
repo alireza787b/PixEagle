@@ -2479,7 +2479,8 @@ async def test_follow_start_called_from_other_loop_runs_on_bound_flight_loop():
     ctrl._follow_start_task = None
     observed = {}
 
-    async def fake_connect():
+    async def fake_connect(_guard, *, native_start_context):
+        assert native_start_context is None
         observed["loop"] = asyncio.get_running_loop()
         observed["thread_id"] = threading.get_ident()
         future = observed["loop"].create_future()
