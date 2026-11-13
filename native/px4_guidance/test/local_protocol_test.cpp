@@ -183,11 +183,11 @@ TEST(LocalProtocol, AltitudeHoldUsesAnExclusiveTypedCommandVariant) {
     }
     auto mixed = valid; mixed["velocity_down_m_s"] = 0.;
     EXPECT_THROW(decodeObjective(mixed, Phase::Multicopter), std::invalid_argument);
-    for (const Json invalid : {Json(true), Json(-1), Json(7.), Json(nullptr), Json("7")}) {
+    for (const Json& invalid : {Json(true), Json(-1), Json(7.), Json(nullptr), Json("7")}) {
         auto malformed = valid; malformed["altitude_reference_generation"] = invalid;
         EXPECT_THROW(decodeObjective(malformed, Phase::Multicopter), std::invalid_argument);
     }
-    for (const Json invalid : {Json(true), Json(nullptr), Json("517")}) {
+    for (const Json& invalid : {Json(true), Json(nullptr), Json("517")}) {
         auto malformed = valid; malformed["altitude_amsl_m"] = invalid;
         EXPECT_THROW(decodeObjective(malformed, Phase::Multicopter), std::invalid_argument);
     }
@@ -198,7 +198,7 @@ TEST(LocalProtocol, AltitudeHoldUsesAnExclusiveTypedCommandVariant) {
 TEST(LocalProtocol, EngagementReferenceIsRequiredTypedAndFloatRepresentable) {
     const Json valid{{"altitude_amsl_m", 517.5}, {"reference_generation", 7u}};
     EXPECT_EQ(decodeAltitudeReference(valid).generation, 7u);
-    for (const Json malformed : {Json(nullptr), Json::object(), Json{{"altitude_amsl_m", 517.5}},
+    for (const Json& malformed : {Json(nullptr), Json::object(), Json{{"altitude_amsl_m", 517.5}},
             Json{{"altitude_amsl_m", 517.5}, {"reference_generation", -1}},
             Json{{"altitude_amsl_m", 517.5}, {"reference_generation", true}},
             Json{{"altitude_amsl_m", 517.5}, {"reference_generation", 7.}},
