@@ -7,16 +7,22 @@ Hardware, installed services and local saved/private configuration are untouched
 Current position (November 13): **S0–S6 component/software checkpoints complete;
 S7 following/recovery/ownership qualification remains open.** Native pilot
 transition motion is separate airframe evidence; following ends at transition
-and a settled phase requires a fresh Start. Actual vertical and horizontal MC
-pursuit/release checks pass. The duplicate-time harness refusal is repaired;
-fresh horizontal FW Start, brief loss/restoration and eight-second loss expiry
-are now observed. Whole cases remain failed: active FW altitude error is
-2.09–2.26 m against the 2 m gate, and strict publication attribution retains
-neutral-drain/boundary UNKNOWN cases. No qualified-release claim follows.
+and a settled phase requires a fresh Start. Both no-pitot normal-following mounts
+support a separately derived source/cadence/pose audit, with FW altitude errors
+of 1.351/1.336 m. Original capture verdicts remain unchanged. Four further
+no-pitot fault cases support FW loss/restoration and configured loss expiry to
+Hold. They do not pass as whole runs: some drain/boundary attribution remains
+UNKNOWN, and the last vertical case exceeds the MC altitude gate at 2.086 m
+before the pilot transition request. Zero requested vertical velocity and
+explicit engagement-altitude hold are different command contracts; the current
+velocity/height discrepancy is not a demonstrated estimator root cause.
+Earlier measured-airspeed FW altitude failures at 2.09–2.26 m are retained.
 The latest full backend checkpoint passes 6,670/196/155 checks on `3023d351e`;
 later narrow harness and client checks have their own scopes below. QGC candidate
 `89d39998e` is built locally with retained host/baseline gate limitations.
-Full application, sensorless, remaining fault, packaging and hardware gates
+Input-contract initialization and passive native-readiness fixes are committed
+locally. Full application, the remaining sensorless/fault matrix, request-time
+phase/intention fencing, vertical-command semantics, packaging and hardware gates
 remain open; VTOL application admission stays closed. See the
 [current S7 findings](#s7-current-diagnostics-and-native-response).
 
