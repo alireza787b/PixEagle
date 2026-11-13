@@ -79,6 +79,9 @@ sections:
         - value: CUSTOM_GSTREAMER
           label: Custom GStreamer
           description: Use the advanced custom GStreamer input pipeline
+        - value: GAZEBO_CAMERA
+          label: Gazebo training camera
+          description: Actual stamped images from the isolated simulator provider
       NATIVE_CAPTURE_RESOLUTION:
         type: boolean
         default: true
@@ -363,6 +366,33 @@ sections:
         - optical_to_body_frd_wxyz
         - distortion_model
         - mount_kind
+        additional_properties: false
+      GAZEBO_CAMERA:
+        type: object
+        default: null
+        description: Private isolated simulator image source and declared sample-clock identity; launcher managed.
+        reload_tier: system_restart
+        reboot_required: true
+        nullable: true
+        properties:
+          socket_path:
+            type: string
+          source_clock_id:
+            type: string
+          world:
+            type: string
+          image_topic:
+            type: string
+          max_attitude_skew_s:
+            type: number
+            min: 1.0e-06
+            unit: seconds
+        required:
+        - socket_path
+        - source_clock_id
+        - world
+        - image_topic
+        - max_attitude_skew_s
         additional_properties: false
       CUSTOM_PIPELINE:
         type: string

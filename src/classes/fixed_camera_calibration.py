@@ -20,7 +20,7 @@ _SIGNATURE = re.compile(r"sha256-v1:[a-f0-9]{64}")
 _REVISION = re.compile(r"[A-Za-z0-9_.-]{1,128}")
 _SOURCE_TYPES = frozenset({
     "VIDEO_FILE", "USB_CAMERA", "RTSP_OPENCV", "RTSP_STREAM", "UDP_STREAM",
-    "HTTP_STREAM", "CSI_CAMERA", "CUSTOM_GSTREAMER",
+    "HTTP_STREAM", "CSI_CAMERA", "CUSTOM_GSTREAMER", "GAZEBO_CAMERA",
 })
 _CALIBRATION_KEYS = frozenset({
     "source_signature", "revision", "pixel_grid", "image_size_px",
@@ -62,7 +62,7 @@ def selected_source_signature(
     """
     if not isinstance(source_type, str) or source_type not in _SOURCE_TYPES:
         raise ValueError("selected_source_type_invalid")
-    if not isinstance(backend, str) or backend not in {"opencv", "gstreamer"}:
+    if not isinstance(backend, str) or backend not in {"opencv", "gstreamer", "gazebo_transport"}:
         raise ValueError("selected_source_backend_invalid")
     if not isinstance(locator, str) or not locator:
         raise ValueError("selected_source_locator_invalid")

@@ -112,7 +112,7 @@ class TestVideoHandlerInitialization:
         }
         mock_parameters.VIDEO_SOURCE_TYPE = "UDP_STREAM"
         mock_parameters.USE_GSTREAMER = True
-        with patch.object(handler, "_initialize_async_udp_capture", return_value=33,
+        with patch.object(handler, "_initialize_async_capture", return_value=33,
                           side_effect=ValueError("receiver unavailable") if open_fails else None):
             if open_fails:
                 with pytest.raises(ValueError, match="receiver unavailable"):
@@ -1151,7 +1151,7 @@ class TestUSBFallbackAndDiagnostics:
         mock_parameters.VIDEO_SOURCE_TYPE = "UDP_STREAM"
         mock_parameters.USE_GSTREAMER = True
 
-        with patch.object(handler, "_start_async_udp_reader") as start_reader:
+        with patch.object(handler, "_start_async_capture_reader") as start_reader:
             with patch('classes.video_handler.cv2.VideoCapture') as video_capture:
                 delay = handler.init_video_source(max_retries=1, retry_delay=0)
 

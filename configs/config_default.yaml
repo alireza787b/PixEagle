@@ -127,6 +127,10 @@ VideoSource:
 
   # Optional measured fixed-camera decoder-grid calibration; null stays uncalibrated.
   FIXED_CAMERA_CALIBRATION: null
+
+  # Optional isolated Gazebo stamped-image provider. The training launcher fills
+  # socket/source identity and measured camera geometry; ordinary installs leave null.
+  GAZEBO_CAMERA: null
   
   # Custom GStreamer pipeline (advanced users)
   # Example: "videotestsrc ! video/x-raw,width=640,height=480 ! videoconvert ! appsink"

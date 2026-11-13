@@ -71,6 +71,7 @@ def prepare(
     follower_execution_mode: str = "PX4",
     allow_recorded_sih_following: bool = False,
     udp_url: str | None = None, enable_altitude_control: bool | None = None,
+    gazebo_camera: dict | None = None, fixed_camera_calibration: dict | None = None,
     username: str = 'sih-operator', password: str | None = None,
 ) -> Path:
     sys.path.insert(0, str(REPOSITORY / 'src'))
@@ -102,7 +103,14 @@ def prepare(
         or dashboard_port == backend_port
     ):
         raise ValueError("Dashboard port must be distinct and in 1024–65535")
-    if udp_url is not None:
+    if gazebo_camera is not None:
+        from classes.gazebo_capture import GazeboCameraSettings
+
+        GazeboCameraSettings.from_mapping(gazebo_camera)
+        if (udp_url is not None or recorded_video is not None or camera_host is not None
+                or rtsp_url is not None or tracking_engine != 'local'):
+            raise ValueError('Choose one simulation video source; Gazebo requires local image tracking')
+    elif udp_url is not None:
         _udp_source(udp_url)
         if recorded_video is not None or camera_host is not None or rtsp_url is not None or tracking_engine != 'local':
             raise ValueError('Choose one simulation video source; UDP requires local image tracking')
@@ -161,7 +169,11 @@ def prepare(
         copied[relative] = _digest(target)
 
     config = yaml.safe_load((directory / "configs/config_default.yaml").read_text(encoding="utf-8"))
-    if udp_url is not None:
+    if gazebo_camera is not None:
+        config['VideoSource'].update(VIDEO_SOURCE_TYPE='GAZEBO_CAMERA', GAZEBO_CAMERA=dict(gazebo_camera),
+            USE_GSTREAMER=False, PIPELINE_MODE='REALTIME', FRAME_ROTATION_DEG=0, FRAME_FLIP_MODE='none')
+        config['GimbalTracker'].update(ENABLED=False, CONTROL_ENABLED=False, MOUNT_TYPE=mount_type)
+    elif udp_url is not None:
         config['VideoSource'].update(VIDEO_SOURCE_TYPE='UDP_STREAM', UDP_URL=udp_url,
             USE_GSTREAMER=True, PIPELINE_MODE='REALTIME', FRAME_ROTATION_DEG=0, FRAME_FLIP_MODE='none')
         config['GimbalTracker'].update(ENABLED=False, CONTROL_ENABLED=False, MOUNT_TYPE=mount_type)
@@ -185,6 +197,11 @@ def prepare(
             ENABLED=True, CONTROL_ENABLED=True, PROVIDER="topotek_sip_udp",
             UDP_HOST=camera_host, MOUNT_TYPE=mount_type,
         )
+    if fixed_camera_calibration is not None:
+        from classes.fixed_camera_calibration import FixedCameraCalibration
+
+        FixedCameraCalibration.from_mapping(fixed_camera_calibration)
+        config['VideoSource']['FIXED_CAMERA_CALIBRATION'] = dict(fixed_camera_calibration)
     model_names = []
     if model is not None:
         sys.path.insert(0, str(REPOSITORY))
@@ -263,7 +280,9 @@ def prepare(
         "camera_host": camera_host, "rtsp_url": rtsp_url,
         "mount_type": mount_type, "follower_mode": follower_mode,
         "tracking_engine": tracking_engine, "models": model_names, "recorded_video": recorded_video,
-        "video_source": 'udp' if udp_url is not None else 'recorded' if recorded_video is not None else 'rtsp',
+        "video_source": ('gazebo' if gazebo_camera is not None else 'udp' if udp_url is not None
+                         else 'recorded' if recorded_video is not None else 'rtsp'),
+        "gazebo_camera": gazebo_camera,
         "udp_url": udp_url, "enable_altitude_control": enable_altitude_control,
         "follower_execution_mode": follower_execution_mode,
         "allow_recorded_sih_following": allow_recorded_sih_following,
@@ -282,7 +301,7 @@ def validate(directory: Path) -> dict:
         raise ValueError("SIH profile directory must be private and not a symlink")
     manifest = json.loads((directory / "profile-manifest.json").read_text(encoding="utf-8"))
     if (manifest.get("version") != 2 or manifest.get("kind") != "simulation-preflight"
-            or manifest.get('video_source') not in {'udp', 'recorded', 'rtsp'}
+            or manifest.get('video_source') not in {'gazebo', 'udp', 'recorded', 'rtsp'}
             or manifest.get("flight_commands_blocked") is not True):
         raise ValueError("Expected a prepared, command-blocked simulation profile")
     for name, expected in manifest["source_files"].items():
@@ -305,6 +324,16 @@ def validate(directory: Path) -> dict:
                 config.get("GimbalTracker", {}).get("UDP_HOST") != manifest.get("camera_host"))
             or config.get("TargetContinuity", {}).get("MODE") != manifest.get("continuity_mode")):
         raise ValueError("SIH profile safety or camera contract changed")
+    if manifest.get('video_source') == 'gazebo':
+        from classes.gazebo_capture import GazeboCameraSettings
+
+        settings = manifest.get('gazebo_camera')
+        GazeboCameraSettings.from_mapping(settings)
+        if (config['VideoSource'].get('VIDEO_SOURCE_TYPE') != 'GAZEBO_CAMERA'
+                or config['VideoSource'].get('GAZEBO_CAMERA') != settings
+                or config['GimbalTracker']['ENABLED'] or config['GimbalTracker']['CONTROL_ENABLED']
+                or manifest.get('tracking_engine') != 'local'):
+            raise ValueError('Gazebo profile source contract changed')
     if manifest.get("recorded_video") is not None:
         if (config["GimbalTracker"]["ENABLED"] or config["GimbalTracker"]["CONTROL_ENABLED"]
                 or config["Tracking"]["DEFAULT_TRACKING_ALGORITHM"] != "CSRT"

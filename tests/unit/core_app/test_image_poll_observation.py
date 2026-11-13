@@ -40,7 +40,7 @@ def image_owner(monkeypatch):
     ctrl.video_handler = video
     ctrl.frame_publisher = FramePublisher()
     video.set_source_listener(ctrl.frame_publisher.invalidate_source)
-    frame = video._get_async_udp_frame()
+    frame = video._get_async_capture_frame()
     stamp, geometry, signature = video.get_capture_context(frame)
     ctrl._publish_tracking_input_frame(frame, capture=stamp, capture_geometry=geometry,
                                        capture_source_signature=signature)
@@ -65,7 +65,7 @@ def readiness(owner):
 
 def test_normal_async_poll_without_new_capture_preserves_the_exact_original_receipt(image_owner):
     o = image_owner
-    cached = o.video._get_async_udp_frame()
+    cached = o.video._get_async_capture_frame()
     receipt = o.video.get_capture_stamp(cached)
     assert receipt.capture_id == o.stamp.capture_id
     assert receipt.captured_at == o.stamp.captured_at == 100.
@@ -79,7 +79,7 @@ def test_no_new_poll_keeps_start_readiness_without_restamping_a_measurement(imag
     o = image_owner
     old = o.output.image_measurement
     timestamp = o.output.timestamp
-    o.video._get_async_udp_frame()
+    o.video._get_async_capture_frame()
     o.clock[0] += .03
     assert readiness(o)['usable_for_following'] is True
     assert o.output.image_measurement is old and o.output.timestamp == timestamp
@@ -89,7 +89,7 @@ def test_no_new_poll_keeps_start_readiness_without_restamping_a_measurement(imag
 
 def test_command_freshness_keeps_only_the_qualified_original_after_no_new_poll(image_owner):
     o = image_owner
-    o.video._get_async_udp_frame()
+    o.video._get_async_capture_frame()
     old = o.output.image_measurement
     timestamp = o.output.timestamp
     o.clock[0] += .03
@@ -102,7 +102,7 @@ def test_command_freshness_keeps_only_the_qualified_original_after_no_new_poll(i
 @pytest.mark.parametrize('change', ['cached', 'restamped', 'capture', 'prediction', 'expired'])
 def test_command_freshness_does_not_qualify_other_cached_or_prediction_outputs(image_owner, change):
     o = image_owner
-    o.video._get_async_udp_frame()
+    o.video._get_async_capture_frame()
     candidate = replace(o.output)
     if change in ('cached', 'capture'):
         measurement = candidate.image_measurement
@@ -130,7 +130,7 @@ def test_unhealthy_async_capture_cannot_reuse_the_waiting_observation(image_owne
         o.video._async_capture_stop.set()
     else:
         o.video._async_latest_frame_time -= o.video._connection_timeout + 1.
-    o.video._get_async_udp_frame()
+    o.video._get_async_capture_frame()
     assert o.video.get_frame_status()['awaiting_new_capture'] is False
     assert readiness(o)['usable_for_following'] is False
     assert not o.ctrl._apply_command_freshness_contract(o.output).tracking_active
@@ -139,7 +139,7 @@ def test_unhealthy_async_capture_cannot_reuse_the_waiting_observation(image_owne
 @pytest.mark.parametrize('change', ['age', 'future', 'source', 'target', 'context', 'measurement', 'shutdown'])
 def test_retained_readiness_does_not_survive_an_invalid_original_observation(image_owner, change):
     o = image_owner
-    o.video._get_async_udp_frame()
+    o.video._get_async_capture_frame()
     if change == 'age':
         o.clock[0] = 100.251
     elif change == 'future':
@@ -192,7 +192,7 @@ def test_api_read_cannot_see_the_middle_of_a_measurement_commit(image_owner, sma
 
 def test_waiting_status_never_recurses_through_the_public_tracker_getter(image_owner):
     o = image_owner
-    o.video._get_async_udp_frame()
+    o.video._get_async_capture_frame()
     o.ctrl.get_tracker_output = Mock(side_effect=AssertionError('recursive freshness read'))
     assert o.ctrl._get_video_frame_status_for_following()['retained_measurement_usable'] is True
     o.ctrl.get_tracker_output.assert_not_called()

@@ -9,6 +9,7 @@ import math
 
 from classes.aircraft_state import Quaternion, Vector3, finite_number
 from classes.frame_publisher import CaptureStamp
+from classes.capture_timing import SourceSampleStamp
 from classes.gimbal_types import GimbalAngleObservation
 
 
@@ -142,7 +143,10 @@ is unknown; uncalibrated pixels remain valid image measurements.
             provenance = dict(values.pop("provenance"))
             if provenance.pop("time_basis") != "backend_receipt":
                 raise ValueError("image_time_basis_invalid")
-            provenance["capture"] = CaptureStamp(**provenance["capture"])
+            capture = dict(provenance["capture"])
+            if capture.get("source_sample") is not None:
+                capture["source_sample"] = SourceSampleStamp(**capture["source_sample"])
+            provenance["capture"] = CaptureStamp(**capture)
             values["provenance"] = ObservationProvenance(**provenance)
             for name in ("pixel_xy", "image_size_px", "image_to_calibration"):
                 if values[name] is not None:

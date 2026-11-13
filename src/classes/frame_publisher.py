@@ -11,6 +11,7 @@ from typing import Optional
 import numpy as np
 import cv2
 
+from classes.capture_timing import SourceSampleStamp
 from classes.runtime_identity import INSTANCE_ID, RUNTIME_ID
 
 
@@ -22,6 +23,11 @@ class CaptureStamp:
     capture_id: Optional[str] = None
     captured_at: Optional[float] = None  # monotonic backend receipt, not sensor exposure
     state: str = "unknown"
+    source_sample: SourceSampleStamp | None = None
+
+    def __post_init__(self):
+        if self.source_sample is not None and not isinstance(self.source_sample, SourceSampleStamp):
+            raise ValueError("capture_source_sample_invalid")
 
 
 @dataclass(frozen=True)
