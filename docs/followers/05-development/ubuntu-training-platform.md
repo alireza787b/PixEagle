@@ -143,7 +143,7 @@ private configuration. Any uncertain ownership/cleanup blocks another Start.
 
 ### Standard quadplane runtime staging
 
-The explicit `standard-vtol-mono-camera-courtyard-v1` scenario selects the stock
+The explicit `standard-vtol-mono-camera-courtyard-v2` scenario selects the stock
 4004 standard VTOL airframe with its reviewed fixed camera wrapper and populated
 world. The launcher requires `--adapter-bundle` and `--adapter-file-manifest` for
 this declared VTOL scenario, verifies the pinned runtime assets and DDS status
@@ -165,3 +165,40 @@ launcher still requires no native adapter.
 The shared adapter implementation is `tools/native_adapter_runtime.py`. New
 source-evidence authorities must pin this dependency along with the caller;
 historical frozen runtime receipts keep their original source authority.
+
+For the standard VTOL camera scenario, `gazebo_camera_provider.py` subscribes to
+actual Gazebo `Image` messages using the Python bindings already installed in the
+verified firmware image. This separate unprivileged process explicitly overrides
+the firmware entrypoint with Python; it never starts another PX4. It shares the
+original simulator network namespace and Gazebo partition. Pixels and the
+original simulation acquisition stamp travel in one bounded private Unix stream;
+the original callback's host monotonic receipt is retained separately. There is
+one latest pending image, one same-user receiver, and no automatic reconnect or
+source-clock reset recovery. No encoder timestamp or guessed delay becomes an
+acquisition stamp.
+
+The private profile selects `GAZEBO_CAMERA`, and QGC displays the backend's normal
+FramePublisher output from those same images. The source descriptor records the
+clock-source file/hash, selected world/model/topic, camera resource hash,
+provider/protocol hashes and original container ID. Native attitude timestamp
+mapping remains independently qualified; a socket or image alone grants none.
+The default MC scenario keeps its UDP path.
+
+The declared pinhole calibration uses the unchanged SDF image size and horizontal
+FOV, plus the fixed optical-to-body rotation. Gazebo's
+[projection conversion](https://github.com/gazebosim/gz-rendering/blob/gz-rendering8/src/Utils.cc#L160)
+places the principal point at half width/height for its symmetric projection.
+The provider requires actual `camera_info` to confirm dimensions, intrinsics
+(within 0.001 pixel for renderer float precision) and zero distortion before
+exposing its socket. The original raw protobuf and callback receipt are retained
+in `camera/camera-info.json`; later calibration changes retire the source. The
+inert descriptor records `actual_camera_info_confirmation=false`; only the
+separate actual startup receipt can confirm it. This is not a physical-camera
+calibration claim.
+
+The v2 scenario has an explicit server-config resource overlay that removes only
+the global stock GstCameraSystem encoder; all other plugins must remain
+structurally identical. It is staged read-only and included in actual runtime
+resource verification. The old v1 descriptor and packaged build remain unchanged.
+The first disarmed bench must independently confirm continuing stamped images
+and absent unused RTP output; software/source checks alone are not that proof.

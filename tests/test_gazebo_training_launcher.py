@@ -182,3 +182,98 @@ def test_desktop_adapter_retains_original_cid_for_cleanup_on_bootstrap_failure(t
     assert not (adapter.output / 'native-adapter-ready.json').exists()
     script = (adapter.output / 'simulator/adapter.sh').read_text()
     assert '/runtime/private/guidance.sock' in script and '/work/ws/install/setup.bash' in script
+
+
+def camera_source_fixture(tmp_path, monkeypatch):
+    import hashlib
+    from types import SimpleNamespace
+    (tmp_path / 'native').mkdir()
+    source = tmp_path / 'context/source/gzbridge.cpp'
+    source.parent.mkdir(parents=True)
+    source.write_text('source-clock-proof')
+    contract = dict(schema_version=1, clock_source='gzbridge.cpp', clock_source_sha256=hashlib.sha256(source.read_bytes()).hexdigest())
+    (tmp_path / 'native/gazebo-camera-runtime.json').write_text(json.dumps(contract))
+    relative = 'gazebo/models/mono_cam/model.sdf'
+    camera = tmp_path / 'packaged' / relative
+    camera.parent.mkdir(parents=True)
+    camera.write_text('<sdf><model><pose>0 0 0 0 0 0</pose><link name="camera_link">'
+        '<sensor name="camera"><pose>0 0 0 0 0 0</pose><camera><horizontal_fov>1.74</horizontal_fov>'
+        '<image><width>1280</width><height>960</height></image></camera></sensor></link></model></sdf>')
+    scenario = dict(expected_parameters={'MAV_TYPE': 22}, descriptor_sha256='scenario', added_resources={'server.config': {}}, descriptor=dict(
+        server_config={'sha256': 'server'},
+        camera={'model': 'mono_cam', 'link': 'camera_link', 'sensor': 'camera'}, world='courtyard', model='quadplane',
+        camera_mount={'pose': [.12, .03, .242, 0, 0, 0]}, resources={relative: {'sha256': hashlib.sha256(camera.read_bytes()).hexdigest()}}))
+    monkeypatch.setattr(training, 'ROOT', tmp_path)
+    from classes import fixed_camera_calibration
+    signature = Mock(return_value='sha256-v1:' + 'a' * 64)
+    monkeypatch.setattr(fixed_camera_calibration, 'selected_source_signature', signature)
+    return SimpleNamespace(build_manifest=tmp_path / 'build.json'), scenario, source, camera, signature
+
+
+def test_camera_config_uses_same_actual_source_and_fixed_body_mount(tmp_path, monkeypatch):
+    import math
+    from classes.fixed_camera_calibration import FixedCameraCalibration
+    args, scenario, _, _, signature = camera_source_fixture(tmp_path, monkeypatch)
+    value = training.camera_training_source(args, scenario, 'token')
+    assert value['config'] == dict(socket_path='/run/pixeagle-camera/camera.sock', source_clock_id='token:courtyard',
+        world='courtyard', image_topic='/world/courtyard/model/quadplane_0/link/camera_link/sensor/camera/image',
+        max_attitude_skew_s=.05)
+    calibration = FixedCameraCalibration.from_mapping(value['calibration'])
+    assert calibration.focal_length_px == (640 / math.tan(.87),) * 2
+    assert calibration.principal_point_px == (640., 480.)
+    assert calibration.optical_to_body.w == calibration.optical_to_body.x == calibration.optical_to_body.y == calibration.optical_to_body.z == .5
+    assert signature.call_args.kwargs['options'] == {'world': 'courtyard', 'pixel_format': 'RGB_INT8'}
+    assert value['actual_camera_info_confirmation'] is False
+
+
+@pytest.mark.parametrize('changed', ['clock', 'resource', 'rotation'])
+def test_camera_source_refuses_unverified_clock_resource_and_mount(tmp_path, monkeypatch, changed):
+    args, scenario, source, camera, _ = camera_source_fixture(tmp_path, monkeypatch)
+    if changed == 'clock': source.write_text('changed')
+    elif changed == 'resource': camera.write_text('changed')
+    else: scenario['descriptor']['camera_mount']['pose'][3] = 1
+    with pytest.raises(ValueError):
+        training.camera_training_source(args, scenario, 'token')
+
+
+def test_mc_training_keeps_existing_udp_source():
+    assert training.camera_training_source(None, {'expected_parameters': {'MAV_TYPE': 2}}, 'token') is None
+
+
+def test_provider_overrides_firmware_entrypoint_and_owns_original_cleanup(tmp_path, monkeypatch):
+    import os
+    import socket
+    runtime = tmp_path / 'run'
+    runtime.mkdir()
+    config = dict(socket_path='/run/pixeagle-camera/camera.sock', source_clock_id='token:world',
+                  world='world', image_topic='/world/world/model/quadplane_0/link/camera_link/sensor/camera/image')
+    launches, created = [], []
+    bound = []
+    def launch(self, argv, name):
+        launches.append(argv)
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.bind(str(runtime / 'camera/camera.sock'))
+        bound.append(sock)
+        (runtime / 'camera/camera-info.json').write_text(json.dumps(dict(actual_camera_info_confirmation=True,
+            source_clock_id=config['source_clock_id'], image_topic=config['image_topic'])))
+        self.created.append('original-camera-cid')
+        return 'original-camera-cid'
+    monkeypatch.setattr(training.OwnedContainerLaunch, 'launch', launch)
+    monkeypatch.setattr(training.host, 'owned_container_info', lambda cid, token: dict(
+        State={'Running': True}, Image='firmware-image', Config={'User': f'{os.getuid()}:{os.getgid()}'},
+        HostConfig={'NetworkMode': 'container:original-primary', 'Privileged': False, 'Devices': []},
+        NetworkSettings={'Ports': {}}))
+    try:
+        mounts = training.start_camera_provider(None, runtime, 'token', 'original-primary',
+            {'image_id': 'firmware-image'}, {'config': config}, created)
+        assert mounts == [(runtime / 'camera', Path('/run/pixeagle-camera'), False)]
+        argv = launches[0]
+        assert argv[argv.index('--entrypoint') + 1] == '/usr/bin/python3'
+        assert argv.index('--entrypoint') < argv.index('firmware-image')
+        assert 'GZ_PARTITION=token' in argv and 'GZ_IP=127.0.0.1' in argv
+        assert '--read-only' in argv and '--privileged' not in argv and '--device' not in argv
+        assert created == ['original-camera-cid']
+        assert json.loads((runtime / 'camera-source.json').read_text())['renderer_or_following_qualified'] is False
+    finally:
+        for sock in bound:
+            sock.close()

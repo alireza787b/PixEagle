@@ -11,6 +11,7 @@ import asyncio
 import configparser
 import ipaddress
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -20,6 +21,7 @@ import subprocess
 import sys
 import time
 import uuid
+import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -27,7 +29,7 @@ sys.path.insert(0, str(ROOT / 'src'))
 
 from tools import sih_isolated_host as host  # noqa: E402
 from tools import run_native_transition_baseline as native_runtime  # noqa: E402
-from tools.native_adapter_runtime import adapter_launch_args  # noqa: E402
+from tools.native_adapter_runtime import adapter_launch_args, OwnedContainerLaunch  # noqa: E402
 from tools.gazebo_scenario import verified_scenario  # noqa: E402
 from tools.prepare_simulation_profile import prepare  # noqa: E402
 from tools.run_native_vector_sih import inspect_simulator_process, verify_gazebo_runtime  # noqa: E402
@@ -181,8 +183,104 @@ def native_training_assets(args, simulator, scenario):
     return assets
 
 
+def camera_training_source(args, scenario, token):
+    """Bind original image time to the verified simulator, never to an RTP receipt."""
+    if scenario['expected_parameters']['MAV_TYPE'] != 22:
+        return None
+    descriptor = scenario['descriptor']
+    if 'server_config' not in descriptor or 'server.config' not in scenario.get('added_resources', {}):
+        raise ValueError('Raw camera training requires its explicit encoder-free server configuration')
+    contract_path = ROOT / 'native/gazebo-camera-runtime.json'
+    contract = json.loads(contract_path.read_text())
+    source = args.build_manifest.resolve().parent / 'context/source' / contract['clock_source']
+    if contract['schema_version'] != 1 or native_runtime.digest(source) != contract['clock_source_sha256']:
+        raise ValueError('Gazebo image clock source contract differs from the verified firmware')
+    camera = descriptor['camera']
+    relative = f'gazebo/models/{camera["model"]}/model.sdf'
+    sdf = args.build_manifest.resolve().parent / 'packaged' / relative
+    if native_runtime.digest(sdf) != descriptor['resources'][relative]['sha256']:
+        raise ValueError('Gazebo calibration camera resource changed')
+    camera_tree = ET.fromstring(sdf.read_bytes())
+    sensor = camera_tree.find(
+        f'./model/link[@name="{camera["link"]}"]/sensor[@name="{camera["sensor"]}"]')
+    optics = sensor.find('camera')
+    if (descriptor.get('camera_mount', {}).get('pose', [])[3:] != [0, 0, 0]
+            or sensor.findtext('pose') != '0 0 0 0 0 0'
+            or camera_tree.findtext('./model/pose', '0 0 0 0 0 0') != '0 0 0 0 0 0'
+            or camera_tree.findtext('./model/link/pose', '0 0 0 0 0 0') != '0 0 0 0 0 0'
+            or optics.find('distortion') is not None
+            or optics.find('lens') is not None):
+        raise ValueError('Training calibration requires the declared fixed unrotated pinhole camera')
+    width, height = int(optics.findtext('image/width')), int(optics.findtext('image/height'))
+    hfov = float(optics.findtext('horizontal_fov'))
+    if min(width, height) <= 0 or not math.isfinite(hfov) or not 0 < hfov < math.pi:
+        raise ValueError('Training camera geometry is invalid')
+    topic = f'/world/{descriptor["world"]}/model/{descriptor["model"]}_0/link/{camera["link"]}/sensor/{camera["sensor"]}/image'
+    source_config = dict(socket_path='/run/pixeagle-camera/camera.sock', source_clock_id=token + ':' + descriptor['world'],
+        world=descriptor['world'], image_topic=topic, max_attitude_skew_s=.05)
+    from classes.fixed_camera_calibration import selected_source_signature
+    signature = selected_source_signature(source_type='GAZEBO_CAMERA', backend='gazebo_transport', locator=topic,
+        options={'world': descriptor['world'], 'pixel_format': 'RGB_INT8'})
+    focal = width / (2 * math.tan(hfov / 2))
+    calibration = dict(source_signature=signature, revision='gazebo-pinhole-' + descriptor['resources'][relative]['sha256'][:16],
+        pixel_grid='decoder_pre_orientation', image_size_px=[width, height], focal_length_px=[focal, focal],
+        principal_point_px=[width / 2, height / 2], optical_to_body_frd_wxyz=[.5, .5, .5, .5],
+        distortion_model='none', mount_kind='fixed')
+    return dict(config=source_config, calibration=calibration, clock_contract=contract,
+        clock_contract_sha256=native_runtime.digest(contract_path), camera_resource_sha256=native_runtime.digest(sdf),
+        scenario_sha256=scenario['descriptor_sha256'], actual_camera_info_confirmation=False,
+        declared_stock_rtp_encoder_disabled=True, server_config_sha256=descriptor['server_config']['sha256'])
+
+
+def start_camera_provider(args, runtime, token, primary, baseline, source, containers):
+    """One source process; original CID cleanup is shared with the full stack."""
+    private = runtime / 'camera'
+    private.mkdir(mode=0o700)
+    config = source['config']
+    source_path = runtime / 'camera-source-input.json'
+    write(source_path, source)
+    provider = ROOT / 'tools/gazebo_camera_provider.py'
+    protocol = ROOT / 'src/classes/gazebo_camera_protocol.py'
+    argv = container_args('pixeagle-training-camera-' + token[:12], token, primary,
+        [(private, '/run/pixeagle-camera', False), (source_path, '/app/camera-source.json', True), (provider, '/app/tools/gazebo_camera_provider.py', True),
+         (protocol, '/app/src/classes/gazebo_camera_protocol.py', True)],
+        dict(GZ_IP='127.0.0.1', GZ_PARTITION=token, HOME='/tmp', PYTHONDONTWRITEBYTECODE='1'), baseline['image_id'])
+    argv[-1:-1] = ['--entrypoint', '/usr/bin/python3']
+    argv += ['/app/tools/gazebo_camera_provider.py', '--socket', config['socket_path'],
+        '--world', config['world'], '--image-topic', config['image_topic'], '--source-clock-id', config['source_clock_id'],
+        '--calibration-file', '/app/camera-source.json']
+    # Reuse original-CID recovery for a lost Docker launch reply, without another lifecycle owner.
+    owner = OwnedContainerLaunch(runtime, token, containers, host.owned_container_info)
+    cid = owner.launch(argv, 'pixeagle-training-camera-' + token[:12])
+    write(runtime / 'camera-source.json', source | dict(container_id=cid, image_id=baseline['image_id'],
+        provider_sha256=native_runtime.digest(provider), protocol_sha256=native_runtime.digest(protocol),
+        renderer_or_following_qualified=False))
+    deadline = time.monotonic() + 10.
+    while time.monotonic() < deadline:
+        info = host.owned_container_info(cid, token)
+        if (not info['State']['Running'] or info['Image'] != baseline['image_id']
+                or info['HostConfig']['NetworkMode'] != 'container:' + primary
+                or info['Config']['User'] != f'{os.getuid()}:{os.getgid()}'
+                or info['HostConfig']['Privileged'] or info['HostConfig'].get('Devices')
+                or info['NetworkSettings']['Ports']):
+            raise ValueError('Original camera provider identity or isolation changed')
+        if (private / 'camera.sock').is_socket() and (private / 'camera-info.json').is_file():
+            confirmation = json.loads((private / 'camera-info.json').read_text())
+            if (confirmation.get('actual_camera_info_confirmation') is not True
+                    or confirmation.get('source_clock_id') != config['source_clock_id']
+                    or confirmation.get('image_topic') != config['image_topic']):
+                raise ValueError('Camera info receipt source binding changed')
+            return [(private, Path('/run/pixeagle-camera'), False)]
+        time.sleep(.05)
+    raise TimeoutError('Camera provider did not create its private endpoint')
+
+
 class TrainingAdapter:
     """Desktop caller of the canonical adapter bootstrap, with its own network authority."""
+    @staticmethod
+    def owned_container_info(cid, token):
+        return host.owned_container_info(cid, token)
+
     command = native_runtime.Runtime.command
     launch = native_runtime.Runtime.launch
     sidecar_info = native_runtime.Runtime.sidecar_info
@@ -250,9 +348,13 @@ def run(args):
     simulator, baseline, manifest = host.verified_simulation_build(args.build_manifest, repository=ROOT)
     scenario = verified_scenario(args.scenario, baseline, manifest)
     assets = native_training_assets(args, simulator, scenario)
+    token = uuid.uuid4().hex
+    camera_source = camera_training_source(args, scenario, token)
     runtime.mkdir(parents=True, mode=0o700)
     profile = runtime / 'backend'
-    prepare(profile, udp_url=f'udp://127.0.0.1:{scenario["descriptor"]["camera"]["udp_port"]}',
+    video = dict(gazebo_camera=camera_source['config'], fixed_camera_calibration=camera_source['calibration']) if camera_source else dict(
+        udp_url=f'udp://127.0.0.1:{scenario["descriptor"]["camera"]["udp_port"]}')
+    prepare(profile, **video,
         follower_mode='mc_velocity_chase', tracking_engine='local', backend_port=args.port,
         dashboard_port=args.dashboard_port if args.dashboard_build else None,
         enable_altitude_control=True, username='admin', password='admin')
@@ -260,7 +362,6 @@ def run(args):
     qgc_settings(runtime / 'qgc/config', f'http://127.0.0.1:{args.port}', identity=qgc_identity)
     for part in ('home', 'cache', 'data', 'runtime'):
         (runtime / 'qgc' / part).mkdir(parents=True, mode=0o700)
-    token = uuid.uuid4().hex
     network_id = None
     relay = None
     frontend = None
@@ -305,6 +406,9 @@ def run(args):
             adapter = TrainingAdapter(args, runtime, token, primary, network_id, baseline, assets, containers)
             adapter.start()
             native_mounts = [(runtime / 'simulator/private', Path('/run/pixeagle'), False)]
+            write(runtime / 'run.json', receipt)
+        if camera_source is not None:
+            native_mounts += start_camera_provider(args, runtime, token, primary, baseline, camera_source, containers)
             write(runtime / 'run.json', receipt)
         shared = [(args.python.parent.parent, args.python.parent.parent, True),
             (args.bin_dir, args.bin_dir, True), (args.router, args.router, True),

@@ -490,3 +490,53 @@ def test_actual_process_probe_reads_explicit_airframe_environment(tmp_path, monk
         baseline={'binary_sha256': hashlib.sha256(b'fixture executable').hexdigest()}, manifest={},
         scenario={'descriptor': {'model': 'standard_vtol_mono_cam'}})
     assert actual['environment']['PX4_SYS_AUTOSTART'] == '4004'
+
+
+def raw_camera_package(package):
+    value, manifest, baseline, _, _ = quadplane_package(package)
+    root = scenario.SCENARIOS.parent
+    original = ('<server_config><plugins><plugin filename="physics"/><plugin filename="sensors"/>'
+        '<plugin entity_name="*" entity_type="world" filename="libGstCameraSystem.so" name="custom::GstCameraSystem"/>'
+        '</plugins></server_config>')
+    packaged = Path(baseline['manifest']).parent / 'packaged/gazebo/server.config'
+    packaged.write_text(original)
+    pin = {'sha256': hashlib.sha256(packaged.read_bytes()).hexdigest(), 'executable': False}
+    manifest['artifacts']['gazebo']['server.config'] = pin
+    value['resources']['gazebo/server.config'] = pin
+    selected = root / 'server.config'
+    selected.write_text('<server_config><plugins><plugin filename="physics"/><plugin filename="sensors"/></plugins></server_config>')
+    value['name'] = 'standard-vtol-mono-camera-courtyard-v2'
+    def save():
+        value['server_config'] = {'sha256': hashlib.sha256(selected.read_bytes()).hexdigest(), 'executable': False}
+        (scenario.SCENARIOS / (value['name'] + '.json')).write_text(json.dumps(value))
+    save()
+    return value, manifest, baseline, selected, save
+
+
+def test_raw_camera_scenario_disables_only_encoder_and_stages_exact_readonly_overlay(tmp_path, package):
+    value, manifest, baseline, selected, _ = raw_camera_package(package)
+    before = deepcopy(manifest)
+    checked = scenario.verified_scenario(value['name'], baseline, manifest)
+    argv = scenario.stage_scenario_resources(checked, tmp_path / 'run')
+    target = tmp_path / 'run/scenario/server.config'
+    assert target.read_bytes() == selected.read_bytes()
+    assert f'type=bind,src={target},dst=/opt/px4/gazebo/server.config,readonly' in argv
+    assert checked['added_resources']['server.config'] == value['server_config']
+    assert before == manifest
+
+
+@pytest.mark.parametrize('change', ['physics', 'sensors', 'extra', 'encoder', 'attributes', 'malformed'])
+def test_repinning_raw_server_cannot_remove_other_systems_or_add_plugins(package, change):
+    value, manifest, baseline, selected, save = raw_camera_package(package)
+    root = ET.parse(selected).getroot()
+    plugins = root.find('plugins')
+    if change in ('physics', 'sensors'):
+        plugins.remove(next(node for node in plugins if node.get('filename') == change))
+    elif change == 'extra': ET.SubElement(plugins, 'plugin', filename='extra')
+    elif change == 'encoder': ET.SubElement(plugins, 'plugin', entity_name='*', entity_type='world',
+        filename='libGstCameraSystem.so', name='custom::GstCameraSystem')
+    elif change == 'attributes': plugins[0].set('enabled', 'false')
+    selected.write_bytes(ET.tostring(root) if change != 'malformed' else b'<bad')
+    save()
+    with pytest.raises(ValueError, match='raw camera'):
+        scenario.verified_scenario(value['name'], baseline, manifest)

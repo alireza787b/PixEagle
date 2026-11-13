@@ -34,7 +34,7 @@ from tools.run_native_vector_sih import (PilotTransitionEvent, native_pilot_tran
     stable_window, transition_source_contract, verify_simulator)
 
 from tools.native_adapter_runtime import (adapter_launch_args, adapter_info, bootstrap_adapter,  # noqa: E402
-    dds_session_ready)
+    dds_session_ready, OwnedContainerLaunch)
 
 GATE_M = 2.
 FRESH_S = .75
@@ -215,39 +215,11 @@ class Runtime:
         self.primary = self.sidecar = self.alias = None
         self.adapter_requested = False
 
-    def command(self, argv, *, check=True, timeout=15):
-        try:
-            result = subprocess.run(argv, text=True, capture_output=True, timeout=timeout)
-            record = dict(argv=argv, returncode=result.returncode, stdout=result.stdout, stderr=result.stderr)
-        except BaseException as error:
-            record = dict(argv=argv, returncode=None, error=type(error).__name__ + ":" + str(error))
-            raise
-        finally:
-            with (self.output / "commands.jsonl").open("a") as stream:
-                stream.write(json.dumps(record) + "\n")
-        if check:
-            result.check_returncode()
-        return result
-
-    def launch(self, argv, name):
-        try:
-            result = self.command(argv)
-            cid = result.stdout.strip()
-            if re.fullmatch(r"[0-9a-f]{64}", cid) is None:
-                raise ValueError("Original full container ID missing from launch reply")
-            self.created.append(cid)
-            shared.owned_container_info(cid, self.token)
-        except BaseException:
-            # A lost docker-run reply may still have created this exact token-owned process.
-            probe = self.command(["docker", "inspect", name], check=False)
-            if probe.returncode == 0:
-                info = json.loads(probe.stdout)[0]
-                cid = info["Id"]
-                shared.owned_container_info(cid, self.token)
-                if cid not in self.created:
-                    self.created.append(cid)
-            raise
-        return cid
+    @staticmethod
+    def owned_container_info(cid, token):
+        return shared.owned_container_info(cid, token)
+    command = OwnedContainerLaunch.command
+    launch = OwnedContainerLaunch.launch
 
     def start(self):
         self.output.mkdir(mode=0o700, parents=True, exist_ok=False)

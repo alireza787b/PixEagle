@@ -64,6 +64,29 @@ def _added_camera_model(value: dict, manifest: dict, files: dict) -> dict:
     return additions
 
 
+def _raw_camera_server(value, files):
+    """Remove only the redundant encoder; every simulation plugin stays identical."""
+    pin = value['server_config']
+    if not isinstance(pin, dict) or set(pin) != {'sha256', 'executable'} or pin['executable'] is not False:
+        raise ValueError('Gazebo raw camera server config requires a nonexecutable hash pin')
+    raw = _read_file(SCENARIOS.parent, 'server.config', pin)
+    try:
+        original = ET.fromstring(files['gazebo/server.config'])
+        selected = ET.fromstring(raw)
+        plugins = original.find('plugins')
+        matches = [item for item in plugins if item.attrib == {
+            'entity_name': '*', 'entity_type': 'world', 'filename': 'libGstCameraSystem.so',
+            'name': 'custom::GstCameraSystem'} and len(item) == 0]
+        if len(matches) != 1:
+            raise ValueError('Gazebo stock encoder plugin is absent or ambiguous')
+        plugins.remove(matches[0])
+        if _canonical(selected) != _canonical(original):
+            raise ValueError('Gazebo raw camera config may remove only the stock encoder')
+    except (ET.ParseError, TypeError) as error:
+        raise ValueError('Gazebo raw camera server config is malformed') from error
+    return {'server.config': pin}
+
+
 def _remove_static_scene_additions(world, declarations, files):
     if not isinstance(declarations, list) or not declarations:
         raise ValueError("Gazebo populated world requires declared static additions")
@@ -211,6 +234,8 @@ def verified_scenario(name: str, baseline: dict, manifest: dict) -> dict:
         fields |= {"added_world", "target"}
     if isinstance(value, dict) and value.get("schema_version") == 3:
         fields |= {"base_model", "added_model", "scene_additions", "camera_mount"}
+        if "server_config" in value:
+            fields.add("server_config")
     if (not isinstance(value, dict) or set(value) != fields or type(value["schema_version"]) is not int
             or value["schema_version"] not in (1, 2, 3) or value["name"] != name):
         raise ValueError("Invalid Gazebo scenario descriptor")
@@ -257,6 +282,8 @@ def verified_scenario(name: str, baseline: dict, manifest: dict) -> dict:
             "gazebo/plugins/libMotorFailurePlugin.so"} <= files.keys()):
         raise ValueError("Gazebo scenario plugin/config closure is incomplete")
     additions = _added_camera_model(value, manifest, files) if value["schema_version"] == 3 else {}
+    if "server_config" in value:
+        additions.update(_raw_camera_server(value, files))
     # Include complete model directories (meshes, textures, configs), not just SDFs.
     for model in value["models"]:
         if not re.fullmatch(r"[a-z][a-z0-9_]*", model):

@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import re
+import subprocess
 import time
 
 
@@ -93,3 +94,44 @@ async def bootstrap_adapter(self, deadline, *, clock=None, sleep=asyncio.sleep):
             break
         await sleep(min(.5, max(0., deadline - clock())))
     raise TimeoutError("Original45s bootstrap budget exhausted; adapter not restarted")
+
+
+class OwnedContainerLaunch:
+    """Record launches and preserve original CIDs for the caller's existing cleanup."""
+    def __init__(self, output, token, created, owned_container_info):
+        self.output, self.token, self.created = output, token, created
+        self.owned_container_info = owned_container_info
+
+    def command(self, argv, *, check=True, timeout=15):
+        try:
+            result = subprocess.run(argv, text=True, capture_output=True, timeout=timeout)
+            record = dict(argv=argv, returncode=result.returncode, stdout=result.stdout, stderr=result.stderr)
+        except BaseException as error:
+            record = dict(argv=argv, returncode=None, error=type(error).__name__ + ":" + str(error))
+            raise
+        finally:
+            with (self.output / "commands.jsonl").open("a") as stream:
+                stream.write(json.dumps(record) + "\n")
+        if check:
+            result.check_returncode()
+        return result
+
+    def launch(self, argv, name):
+        try:
+            result = self.command(argv)
+            cid = result.stdout.strip()
+            if re.fullmatch(r"[0-9a-f]{64}", cid) is None:
+                raise ValueError("Original full container ID missing from launch reply")
+            self.created.append(cid)
+            self.owned_container_info(cid, self.token)
+        except BaseException:
+            # A lost docker-run reply may still have created this exact token-owned process.
+            probe = self.command(["docker", "inspect", name], check=False)
+            if probe.returncode == 0:
+                info = json.loads(probe.stdout)[0]
+                cid = info["Id"]
+                self.owned_container_info(cid, self.token)
+                if cid not in self.created:
+                    self.created.append(cid)
+            raise
+        return cid
