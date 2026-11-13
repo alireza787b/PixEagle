@@ -10,6 +10,7 @@ import pytest
 import yaml
 
 from classes.aircraft_state import AircraftBinding, GuidanceSessionIdentity, AirframePhase
+from classes.native_guidance import NativeGuidanceError
 from tests.fixtures.native_ownership import acquisition, release_receipt
 from tests.unit.drone_interface.test_aircraft_state import aircraft_state
 from tools import run_native_guidance_cycle as cycle
@@ -462,3 +463,104 @@ def test_no_pitot_motion_record_uses_canonical_gate_and_original_bound_states(mo
         assert result['states'] == settled['states'] and result['world_sha256'] == '1' * 64
         assert result['observed_forward_ground_speed_m_s'] == [15.] * 7
         assert gate.call_args.kwargs == {'minimum_m_s': 14.} and projection.call_count == 7
+
+
+def native_fw_edge_log():
+    log, data = synthetic_log(phase=2000000)
+    data['vehicle_status']['vehicle_type'][:] = 2
+    ticks = np.arange(200000, 400001, 50000)
+    data['fixed_wing_lateral_setpoint'] = dict(timestamp=ticks, course=np.ones(5),
+        airspeed_direction=np.full(5, np.nan), lateral_acceleration=np.array([np.nan] * 4 + [.06]))
+    data['fixed_wing_longitudinal_setpoint'] = dict(timestamp=ticks.copy(), altitude=np.full(5, 530.),
+        height_rate=np.full(5, np.nan), equivalent_airspeed=np.array([18.] * 4 + [np.nan]),
+        pitch_direct=np.full(5, np.nan), throttle_direct=np.full(5, np.nan))
+    stamps = data['vehicle_status']['timestamp']
+    data['vehicle_control_mode'] = dict(timestamp=stamps.copy(),
+        flag_control_auto_enabled=stamps >= 400000, flag_control_position_enabled=stamps >= 400000,
+        flag_control_offboard_enabled=np.zeros(len(stamps)))
+    return log, data
+
+
+def audit_native_fw_edge(log, *, outcome='hold_confirmed', nav=4, epoch=400000, source=True):
+    ctx = context()
+    receipt = release_receipt(ctx, outcome=outcome, nav_state=nav, timestamp=epoch)
+    provenance = {'scope': 'SYNTHETIC_ONLY', 'native_hold_nav_state': 4, 'native_fixed_wing_type': 2}
+    with patch('tools.native_guidance_evidence._source_provenance',
+               return_value=provenance, side_effect=None if source else ValueError('changed source')):
+        return ownership_interval(log, asdict(ctx), asdict(receipt), vehicle_type=2, initial_altitude_m=30.,
+                                  publication_counter_delta=4, run_directory='synthetic-only')
+
+
+def test_source_disjoint_native_fw_hold_endpoint_does_not_count_as_external_receipt():
+    log, _ = native_fw_edge_log()
+    result = audit_native_fw_edge(log)
+    assert result['passed'] and result['checks']['native_publication_source_attributed']
+    assert result['native_right_edge']['classification'] == 'native_hold_disjoint'
+    assert result['native_topic_samples'] == {'fixed_wing_lateral_setpoint': 4, 'fixed_wing_longitudinal_setpoint': 4}
+    assert all(item['samples_at_authority_end'] == 1 and item['maximum_gap_s'] == .05
+               and item['interval_us'] == [200000, 400000] for item in result['publication_gaps'].values())
+    assert result['per_command_delivery'].startswith('UNKNOWN')
+    assert 'not resolved' in result['same_tick_publication_order']
+    json.dumps(result, allow_nan=False)
+
+
+@pytest.mark.parametrize('bad', ['external_lateral', 'external_longitudinal', 'missing_lateral', 'missing_longitudinal',
+    'duplicate_lateral', 'duplicate_longitudinal', 'nan_course', 'infinite_acceleration', 'height_rate', 'nan_altitude',
+    'pitch_direct', 'throttle_direct', 'airspeed_direction', 'interior_native', 'last_gap', 'wrong_mode', 'transition',
+    'multicopter', 'offboard', 'no_auto', 'no_position', 'missing_control', 'owner_active', 'owner_rescue',
+    'owner_missing', 'wrong_hold_epoch', 'not_hold_receipt', 'wrong_receipt_mode', 'changed_source'])
+def test_native_fw_right_edge_does_not_hide_ambiguous_or_unqualified_authority(bad):
+    log, data = native_fw_edge_log()
+    lateral, long = data['fixed_wing_lateral_setpoint'], data['fixed_wing_longitudinal_setpoint']
+    vehicle, owned, control = data['vehicle_status'], data['owned_mode_status'], data['vehicle_control_mode']
+    if bad == 'external_lateral': lateral['lateral_acceleration'][-1] = np.nan
+    elif bad == 'external_longitudinal': long['equivalent_airspeed'][-1] = 18.
+    elif bad.startswith('missing_') and bad != 'missing_control':
+        topic = lateral if bad == 'missing_lateral' else long
+        for key in topic: topic[key] = topic[key][:-1]
+    elif bad.startswith('duplicate_'):
+        topic = lateral if bad == 'duplicate_lateral' else long
+        for key in topic: topic[key] = np.r_[topic[key], topic[key][-1]]
+    elif bad == 'nan_course': lateral['course'][-1] = np.nan
+    elif bad == 'infinite_acceleration': lateral['lateral_acceleration'][-1] = np.inf
+    elif bad == 'height_rate': long['height_rate'][-1] = 0.
+    elif bad == 'nan_altitude': long['altitude'][-1] = np.nan
+    elif bad in ('pitch_direct', 'throttle_direct'): long[bad][-1] = 0.
+    elif bad == 'airspeed_direction': lateral['airspeed_direction'][-1] = 0.
+    elif bad == 'interior_native': lateral['lateral_acceleration'][-2] = .06
+    elif bad == 'last_gap':
+        for topic in (lateral, long):
+            for key in topic: topic[key] = topic[key][[0, 1, 4]]
+    elif bad == 'wrong_mode': vehicle['nav_state'][vehicle['timestamp'] >= 400000] = 5
+    elif bad == 'transition': vehicle['in_transition_mode'][vehicle['timestamp'] == 400000] = True
+    elif bad == 'multicopter': vehicle['vehicle_type'][vehicle['timestamp'] == 400000] = 1
+    elif bad == 'offboard': control['flag_control_offboard_enabled'][control['timestamp'] == 400000] = True
+    elif bad == 'no_auto': control['flag_control_auto_enabled'][control['timestamp'] == 400000] = False
+    elif bad == 'no_position': control['flag_control_position_enabled'][control['timestamp'] == 400000] = False
+    elif bad == 'missing_control': del data['vehicle_control_mode']
+    elif bad == 'owner_active': owned['owner_active'][owned['timestamp'] == 400000] = True
+    elif bad == 'owner_rescue': owned['rescue_active'][owned['timestamp'] == 400000] = True
+    elif bad == 'owner_missing':
+        for key in owned: owned[key] = owned[key][owned['timestamp'] != 400000] if key != 'timestamp' else owned[key]
+        owned['timestamp'] = owned['timestamp'][owned['timestamp'] != 400000]
+    try:
+        result = audit_native_fw_edge(log, epoch=450000 if bad == 'wrong_hold_epoch' else 400000,
+            outcome='owner_already_released' if bad == 'not_hold_receipt' else 'hold_confirmed',
+            nav=5 if bad == 'wrong_receipt_mode' else 4, source=bad != 'changed_source')
+    except (ValueError, KeyError, NativeGuidanceError):
+        return
+    assert not result['passed']
+    if bad == 'last_gap':
+        assert not result['checks']['authority_publication_gaps_within_100ms']
+    else:
+        assert not result['checks']['native_publication_source_attributed']
+
+
+def test_fw_hold_endpoint_exception_does_not_apply_to_multicopter():
+    log, data = synthetic_log()
+    topic = data['trajectory_setpoint']
+    for key in topic:
+        topic[key] = np.r_[topic[key], 400000 if key == 'timestamp' else topic[key][-1]]
+    result = audit(log)
+    assert not result['passed'] and result['native_right_edge']['classification'] == 'UNKNOWN'
+    assert result['native_topic_samples'] == {'trajectory_setpoint': 4}

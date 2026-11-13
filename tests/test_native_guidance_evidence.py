@@ -30,11 +30,13 @@ def artifacts(tmp_path, monkeypatch):
     producer = source / 'src/producer.cpp';producer.parent.mkdir(parents=True)
     producer.write_text('SYNTHETIC reviewed producer gate')
     message = source / 'msg/versioned/VehicleStatus.msg';message.parent.mkdir(parents=True)
-    message.write_text('uint8 NAVIGATION_STATE_EXTERNAL1 = 23\nuint8 NAVIGATION_STATE_EXTERNAL8 = 30\n')
+    message.write_text('uint8 NAVIGATION_STATE_EXTERNAL1 = 23\nuint8 NAVIGATION_STATE_EXTERNAL8 = 30\n'
+                       'uint8 NAVIGATION_STATE_AUTO_LOITER = 4\nuint8 VEHICLE_TYPE_FIXED_WING = 2\n')
     script = run / 'simulator/adapter.sh';script.parent.mkdir(parents=True)
     script.write_text('SYNTHETIC sole compiled adapter')
     contract = dict(schema_version=1, runtime_assets_sha256=digest(assets_path), runtime_helper_sha256=digest(helper),
-        sdk_source=sdk, scripts={'adapter.sh': digest(script)}, firmware_files={'src/producer.cpp': digest(producer)})
+        sdk_source=sdk, scripts={'adapter.sh': digest(script)}, firmware_files={
+            'src/producer.cpp': digest(producer), 'msg/versioned/VehicleStatus.msg': digest(message)})
     contract_path = repository / 'native/guidance-evidence-source.json';write(contract_path, contract)
     firmware, spec, packaged = dict(commit='5'*40), dict(target='synthetic'), dict(binary_sha256='6'*64)
     manifest = dict(kind='pixeagle_sih_build', firmware=firmware, build=spec,
@@ -62,13 +64,14 @@ def artifacts(tmp_path, monkeypatch):
     monkeypatch.setattr(builder, 'artifact_manifest', Mock(return_value=packaged))
     monkeypatch.setattr(builder, 'recipe_fingerprint', Mock(return_value='synthetic-recipe'))
     return dict(run=run, bundle=bundle, file_manifest=tmp_path/'bundle.json', repository=repository,
-        producer=producer, script=script, verify=verify, authority=authority, write=write)
+        producer=producer, message=message, script=script, verify=verify, authority=authority, write=write)
 
 
-@pytest.mark.parametrize('bad', [None, 'source', 'script', 'assets', 'sdk', 'capabilities', 'uid', 'image', 'restart', 'missing'])
+@pytest.mark.parametrize('bad', [None, 'source', 'message', 'script', 'assets', 'sdk', 'capabilities', 'uid', 'image', 'restart', 'missing'])
 def test_canonical_artifacts_reuse_validators_and_refuse_changed_producer_or_identity(artifacts, bad):
     a = artifacts
     if bad == 'source': a['producer'].write_text('UNREVIEWED producer')
+    elif bad == 'message': a['message'].write_text('UNREVIEWED field definitions')
     elif bad == 'script': a['script'].write_text('ANOTHER DDS publisher')
     elif bad == 'assets': (a['repository']/'native/baseline-runtime.json').write_text('{}')
     elif bad == 'sdk': a['write'](a['repository']/'native/dependencies.lock.json', {'sources': []})
@@ -91,6 +94,7 @@ def test_canonical_artifacts_reuse_validators_and_refuse_changed_producer_or_ide
     else:
         proof = validate()
         assert proof['artifact_root'] == str(a['run']) and proof['compiled_adapter_sha256'] == '3'*64
+        assert proof['native_hold_nav_state'] == 4 and proof['native_fixed_wing_type'] == 2
         a['verify'].assert_called_once_with(a['bundle'], a['file_manifest'],
             {'adapter_image': 'sha256:'+'2'*64, 'adapter_sha256': '3'*64})
         a['authority'].assert_called_once_with(a['repository'], simulator='sih', resource_variant='stock')

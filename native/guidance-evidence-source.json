@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "scope": "Received-topic cadence only under the canonical isolated Runtime and reviewed producer gates; per-call delivery UNKNOWN",
-  "source_review_sha256": "2e3a6212927b8dc76cca8fc1dba3f38d72e87dc6b899ea323bf42c8f31948607",
+  "source_review_sha256": "350264bd8783215c21abb3d15a30a67551b6d906c3544171df5afef6781e6849",
   "runtime_helper_sha256": "fbbac30be405ddcf00b0afb5efb57a719d254201b3c8f4ac3194e8f49db45217",
   "runtime_assets_sha256": "16e5d076356a18596120c1c71e56de9bcdf109255d4e35e3c4aebd7b5e67f1d1",
   "scripts": {
@@ -21,6 +21,11 @@
     "src/modules/mc_pos_control/MulticopterPositionControl.cpp": "7a7d99cc65655bc7400ca9e99a1b1ce1581d809d50e68d8fbf514c4786063da3",
     "Tools/msg/templates/ucdr/msg.h.em": "1d47571c5b9a5b580c44e5c6b2bd665bfeeb2a63260b886d0dc174ef1ed25b6d",
     "src/modules/ekf2/EKF2.cpp": "158c88664c651e923e49fc484338a923741c71d3fc95ab944624d55915550b28",
-    "src/modules/fw_mode_manager/FixedWingModeManager.cpp": "27b75d7effcf9512fdbb74dc4a2fb7223c7a7b5cdba3a3121f98452ac9b8f1a7"
+    "src/modules/fw_mode_manager/FixedWingModeManager.cpp": "27b75d7effcf9512fdbb74dc4a2fb7223c7a7b5cdba3a3121f98452ac9b8f1a7",
+    "msg/versioned/VehicleStatus.msg": "086519d583f4b606195ccb301e414c2a5de122f0422d246afd705f4f30c96b57",
+    "msg/VehicleControlMode.msg": "621df1162bf1578157523cd57335c55b9f49a86574ee8dc4b31a1e7abf3b4e87",
+    "msg/versioned/OwnedModeStatus.msg": "8d8bbb11e0ae6faa15e8668874ae972399b41ad29239c8d4902a2d6ff630393d",
+    "msg/versioned/FixedWingLateralSetpoint.msg": "4f49b21414f896ab7620116944c824132d6def7f95767070e4c8f119411819c1",
+    "msg/versioned/FixedWingLongitudinalSetpoint.msg": "16ec72d3400d6f80029ee321b7ffd55dd2d472ad950d576738f4dcc501503bae"
   }
 }

@@ -195,3 +195,33 @@ contained accelerating speeds below 14 m/s. The post-transition sampler had not
 received the FW motion condition; the correction passes that same condition to
 its existing wait, without lowering the threshold or extending the deadline.
 The failed capture remains unchanged and contains no FW pursuit acquisition.
+
+## Source-disjoint native Hold endpoint
+
+The closed-log auditor keeps the external authority interval half-open:
+`[activation, native mode-exit epoch)`. Its source checks, both edge gaps and
+100 ms cadence threshold are unchanged. An endpoint row never supplies an
+external receipt or fills a gap.
+
+One narrow FW endpoint form can now be classified separately as
+`native_hold_disjoint`. The exact compiled adapter, SDK and firmware provenance
+must pass. There must be exactly one row on each FW setpoint topic, correlated
+HoldConfirmed at that epoch, and unique same-epoch witnesses showing the original
+owner inactive, FW/nontransition Hold and native auto-position control with
+Offboard disabled. The lateral row must have finite course and acceleration
+with NaN airspeed direction; the longitudinal row must have finite altitude and
+NaN EAS, height rate, pitch and throttle. The compiled adapter's validated
+normal/activation/transition/neutral paths cannot emit this combination;
+the pinned native FMM Hold path can.
+
+`native_right_edge` reports the classification and retained endpoint counts.
+Unknown, mixed, external-shaped, duplicate, missing or uncorrelated endpoints
+remain nonpassing. Native-looking interior rows still fail source attribution;
+MC endpoints have no exception. Independent wire fences, counter plateaus,
+retirement, pose and height checks remain required. No within-tick ordering,
+absence of overwritten publications, or per-call delivery is inferred.
+
+The source and original H2/V1 raw proof is frozen in
+`reports/sitl/follower-consolidation-20261111/software-gates-s7-fw-hold-right-edge-source-review-r1/source-proof.json`.
+The original no-pitot V1 FALSE remains unchanged. Any new replay is a separately
+versioned derived audit, not a replacement capture or broader qualification.

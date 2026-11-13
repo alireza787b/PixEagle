@@ -89,6 +89,8 @@ def _source_provenance(run, acquisition, *, adapter_bundle, adapter_file_manifes
                 or row['sidecar_running'] is not True):
             raise ValueError('native_guidance_runtime_identity_changed')
     return dict(artifact_root=str(run), source_contract_sha256=digest(SOURCE_CONTRACT),
+                native_hold_nav_state=int(re.findall(r'(?m)^uint8 NAVIGATION_STATE_AUTO_LOITER\s*=\s*(\d+)', message)[0]),
+                native_fixed_wing_type=int(re.findall(r'(?m)^uint8 VEHICLE_TYPE_FIXED_WING\s*=\s*(\d+)', message)[0]),
                 build_manifest_sha256=build['manifest_sha256'], compiled_adapter_sha256=assets['adapter_sha256'])
 
 
@@ -110,6 +112,47 @@ def _exclusive_payloads(log, topics, start, end):
         and all_fields(topics[1], ['pitch_direct', 'throttle_direct'], np.isnan)
         and np.all((np.isfinite(long['altitude'][selected]) & np.isnan(long['height_rate'][selected]))
                    | (np.isnan(long['altitude'][selected]) & np.isfinite(long['height_rate'][selected]))))
+
+
+def _right_edge(log, topics, end, acquisition, receipt, source):
+    """Classify recorded endpoint rows only; no ordering or complete-delivery claim."""
+    counts = {name: int(np.sum(log.get_dataset(name).data['timestamp'] == end)) for name in topics}
+    result = dict(classification='none' if not any(counts.values()) else 'UNKNOWN',
+                  timestamp_us=end, samples=counts, included_in_external_cadence=False)
+    if not any(counts.values()) or source is None or topics != (
+            'fixed_wing_lateral_setpoint', 'fixed_wing_longitudinal_setpoint'):
+        return result
+
+    def row(name):
+        data = log.get_dataset(name).data
+        indices = np.flatnonzero(data['timestamp'] == end)
+        if len(indices) != 1:
+            raise ValueError('unique native endpoint witness required')
+        return {field: values[indices[0]] for field, values in data.items()}
+
+    try:
+        hold = source['native_hold_nav_state']
+        lateral, longitudinal = map(row, topics)
+        vehicle, owned, control = map(row, ('vehicle_status', 'owned_mode_status', 'vehicle_control_mode'))
+        correlated = (receipt.outcome == 'hold_confirmed' and receipt.observed_nav_state == hold
+            and receipt.observed_nav_state_timestamp == end
+            and vehicle['nav_state'] == hold and vehicle['nav_state_timestamp'] == end
+            and vehicle['vehicle_type'] == source['native_fixed_wing_type']
+            and vehicle['in_transition_mode'] == 0 and vehicle['accepts_offboard_setpoints'] == 0
+            and owned['owner_active'] == 0 and owned['rescue_active'] == 0 and owned['nav_state'] == hold
+            and owned['acquired_nav_state_timestamp'] == acquisition.activation_timestamp
+            and f"{int(owned['token[0]']):016x}{int(owned['token[1]']):016x}" == acquisition.token
+            and control['flag_control_auto_enabled'] == 1 and control['flag_control_position_enabled'] == 1
+            and control['flag_control_offboard_enabled'] == 0)
+        disjoint = (all(np.isfinite(lateral[name]) for name in ('course', 'lateral_acceleration'))
+            and np.isnan(lateral['airspeed_direction']) and np.isfinite(longitudinal['altitude'])
+            and all(np.isnan(longitudinal[name]) for name in
+                    ('equivalent_airspeed', 'height_rate', 'pitch_direct', 'throttle_direct')))
+        if correlated and disjoint:
+            result['classification'] = 'native_hold_disjoint'
+    except (KeyError, IndexError, TypeError, ValueError):
+        pass  # Missing/ambiguous raw witnesses cannot relax the endpoint refusal.
+    return result
 
 
 def ownership_interval(log, acquisition, receipt, *, vehicle_type, initial_altitude_m,
@@ -206,8 +249,9 @@ def ownership_interval(log, acquisition, receipt, *, vehicle_type, initial_altit
         and np.all(vehicle['nav_state_timestamp'][mode_window] == start)
         and not np.any(vehicle['accepts_offboard_setpoints'][mode_window])
         and not np.any(active & (stamp >= end)))
+    right_edge = _right_edge(log, topics, end, acquisition, receipt, source)
     source_attributed = bool(source is not None and mode_exclusive and _exclusive_payloads(log, topics, start, end)
-        and not any(item.get('samples_at_authority_end', 0) for item in gaps.values()))
+        and right_edge['classification'] in ('none', 'native_hold_disjoint'))
     position = log.get_dataset('vehicle_local_position').data
     home = log.get_dataset('home_position').data
     pose_t = position['timestamp'].astype(np.int64)
@@ -270,6 +314,7 @@ def ownership_interval(log, acquisition, receipt, *, vehicle_type, initial_altit
         source_attribution='exclusive reviewed producer; received-topic cadence' if source_attributed else 'UNKNOWN; not qualified',
         publication_provenance=source, publication_provenance_error=source_error,
         native_counter_delta=publication_counter_delta, native_topic_samples=publication_samples,
+        native_right_edge=right_edge,
         fw_exact_timestamp_matches_diagnostic=fw_timestamp_matches,
         per_command_delivery='UNKNOWN; API calls and logged receipts are different observations',
         full_native_transition_excluded_from_pursuit_gate=True,
