@@ -72,6 +72,8 @@ def test_dry_run_has_no_docker_client_control_or_output_side_effect(tmp_path, mo
     {"parameters": {"MIS_TAKEOFF_ALT": 30, "FW_R_LIM": 10}},
     {"parameters": {"MIS_TAKEOFF_ALT": True}}, {"parameters": {"MIS_TAKEOFF_ALT": 10}},
     {"parameters": {"MIS_TAKEOFF_ALT": float("nan")}},
+    {"parameters": {"MIS_TAKEOFF_ALT": 30, "VT_B_TRANS_DUR": True}},
+    {"parameters": {"MIS_TAKEOFF_ALT": 30, "VT_B_TRANS_DUR": float("nan")}},
     {"forward": {"request_at_s": 8, "capture_s": 8}},
 ])
 def test_fixture_cannot_select_hardware_hide_tuning_or_change_fixed_gate(tmp_path, change):
@@ -83,7 +85,15 @@ def test_fixture_cannot_select_hardware_hide_tuning_or_change_fixed_gate(tmp_pat
     assert tool.GATE_M == 2.
 
 
-def test_boot_overlay_source_order_native_bounds_and_actual_readback(tmp_path):
+def test_slow_back_fixture_changes_only_the_explicit_native_duration():
+    stock = tool.scenario(tool.SCENARIOS / "gazebo-quadtailsitter-hold-cycle.json")
+    slow = tool.scenario(tool.SCENARIOS / "gazebo-quadtailsitter-slow-back-cycle.json")
+    assert slow == stock | {"parameters": {"MIS_TAKEOFF_ALT": 30, "VT_B_TRANS_DUR": 10}}
+    assert tool.GATE_M == 2.
+
+
+@pytest.mark.parametrize("transition_parameter", ["VT_F_TRANS_DUR", "VT_B_TRANS_DUR"])
+def test_boot_overlay_source_order_native_bounds_and_actual_readback(tmp_path, transition_parameter):
     import yaml
     source = tmp_path / "source"
     texts = {"ROMFS/px4fmu_common/init.d-posix/rcS":
@@ -91,7 +101,7 @@ def test_boot_overlay_source_order_native_bounds_and_actual_readback(tmp_path):
         "src/modules/navigator/mission_params.yaml": yaml.safe_dump({"parameters": [{"definitions": {
             "MIS_TAKEOFF_ALT": {"min": 0}}}]}),
         "src/modules/vtol_att_control/vtol_att_control_params.yaml": yaml.safe_dump({"parameters": [{"definitions": {
-            "VT_F_TRANS_DUR": {"min": .1, "max": 20}}}]}), tool.DDS_STATUS_SOURCE: "pinned status source"}
+            transition_parameter: {"min": .1, "max": 20}}}]}), tool.DDS_STATUS_SOURCE: "pinned status source"}
     for name, text in texts.items():
         path = source / name
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -100,12 +110,17 @@ def test_boot_overlay_source_order_native_bounds_and_actual_readback(tmp_path):
     (source / "ROMFS/px4fmu_common/init.d-posix/airframes/10043_sihsim_standard_vtol").write_text("fixture")
     assets = {"bootstrap_files": {name: tool.digest(source / name) for name in texts}}
     fixture = tool.scenario(tool.SCENARIOS / "sih-standard-hold-cycle.json")
+    fixture["parameters"][transition_parameter] = 10
     assert tool.bootstrap_contract(source, fixture, assets)["autostart"] == 10043
-    tool.readback("MIS_TAKEOFF_ALT: 30\n", fixture["parameters"])
+    tool.readback(f"MIS_TAKEOFF_ALT: 30\n{transition_parameter}: 10\n", fixture["parameters"])
     with pytest.raises(ValueError, match="readback"):
-        tool.readback("MIS_TAKEOFF_ALT: 20\n", fixture["parameters"])
-    with pytest.raises(ValueError, match="bounds"):
-        tool.bootstrap_contract(source, fixture | {"parameters": {"MIS_TAKEOFF_ALT": 30, "VT_F_TRANS_DUR": 21}}, assets)
+        tool.readback(f"MIS_TAKEOFF_ALT: 20\n{transition_parameter}: 10\n", fixture["parameters"])
+    with pytest.raises(ValueError, match="readback"):
+        tool.readback(f"MIS_TAKEOFF_ALT: 30\n{transition_parameter}: 5\n", fixture["parameters"])
+    for outside_bounds in (.09, 20.01):
+        with pytest.raises(ValueError, match="bounds"):
+            tool.bootstrap_contract(source, fixture | {"parameters": {
+                "MIS_TAKEOFF_ALT": 30, transition_parameter: outside_bounds}}, assets)
     startup = source / "ROMFS/px4fmu_common/init.d-posix/rcS"
     startup.write_text("navigator start\n" + texts[str(startup.relative_to(source))])
     with pytest.raises(ValueError, match="source changed"):

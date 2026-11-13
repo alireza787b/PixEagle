@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "model": "gz_quadtailsitter",
+  "parameters": {
+    "MIS_TAKEOFF_ALT": 30,
+    "VT_B_TRANS_DUR": 10
+  },
+  "forward": {
+    "request_at_s": 8,
+    "capture_s": 48
+  },
+  "back": {
+    "request_at_s": 8,
+    "capture_s": 48
+  }
+}

@@ -64,7 +64,19 @@ literal `PX4_PARAM_*` overrides after airframe defaults and before simulator,
 commander and Navigator startup. Only a fresh empty parameter store is used;
 readback precedes flight actions. No mid-run MIS write/cache barrier is copied
 forward. `SDLOG_PROFILE=131` and the accepted additive nineteen-topic file are
-fixed; gain, trim and native timeout tuning are not supported.
+fixed; gain, trim and transition failure-timeout overrides are not supported.
+
+The explicit `gazebo-quadtailsitter-slow-back-cycle.json` diagnostic changes
+only `VT_B_TRANS_DUR` from the stock airframe's 5 s to 10 s, retaining the 30 m
+takeoff and both 8 s triggers / 48 s captures. The pinned native parameter
+bounds (0.1–20 s), startup overlay and pre-arm readback apply unchanged.
+Tailsitter code uses this duration for pitch rate and maximum back-transition
+time; doubling it halves the prescribed pitch rate from 18 to 9 degrees/s.
+This single contrast tests maneuver sensitivity. It is not a default or private
+configuration change, a tuning sweep, or evidence of passing the unchanged
+2 m gate. The retained stock and matched patch0003 captures remain failed;
+front-transition performance remains a separate failure. Use the same reviewed
+stock measured-model image when comparing this fixture.
 
 The production native client sends only hello/bind/observe. The existing stable
 predicate still needs seven progressing samples, the same freshness and native

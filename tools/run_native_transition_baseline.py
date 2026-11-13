@@ -36,7 +36,7 @@ from tools.run_native_vector_sih import (PilotTransitionEvent, native_pilot_tran
 GATE_M = 2.
 FRESH_S = .75
 MODELS = {"sihsim_xvert", "sihsim_standard_vtol", "gz_quadtailsitter"}
-PARAMETERS = {"MIS_TAKEOFF_ALT", "VT_F_TRANS_DUR", "VT_F_TR_OL_TM", "VT_ARSP_TRANS"}
+PARAMETERS = {"MIS_TAKEOFF_ALT", "VT_F_TRANS_DUR", "VT_B_TRANS_DUR", "VT_F_TR_OL_TM", "VT_ARSP_TRANS"}
 DDS_STATUS_SOURCE = "src/modules/uxrce_dds_client/uxrce_dds_client.cpp"
 ASSETS = ROOT / "native/baseline-runtime.json"
 SCENARIOS = ROOT / "tools/native_baseline_scenarios"
