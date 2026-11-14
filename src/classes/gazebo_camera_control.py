@@ -19,6 +19,7 @@ import uuid
 
 from classes.capture_timing import SourceSampleStamp
 from classes.gimbal_motion import SIP_MOTION_SETTINGS, resolve_motion
+from classes.gimbal_control import validate_camera_rectangle
 
 
 MAX_CONTROL_BYTES = 16_384
@@ -59,6 +60,8 @@ class PreparedRenderedSelection:
     source_sample: SourceSampleStamp
     x: float
     y: float
+    width: float | None = None
+    height: float | None = None
     token: str | None = None
 
 
@@ -86,8 +89,8 @@ class RenderedCameraControl:
                        or not math.isfinite(v) or not 0 <= v <= 1 for v in (x, y))):
             raise ValueError('rendered_camera_displayed_frame_required')
         if width is not None or height is not None:
-            raise ValueError('Rendered camera supports point selection')
-        return PreparedRenderedSelection(self, self.selection_mode, source_sample, x, y)
+            validate_camera_rectangle(x, y, width, height)
+        return PreparedRenderedSelection(self, self.selection_mode, source_sample, x, y, width, height)
 
     def prepare_selection(self, **kwargs):
         raise ValueError('rendered_camera_displayed_frame_required')
@@ -97,7 +100,8 @@ class RenderedCameraControl:
             raise ValueError('rendered_camera_selection_changed')
         try:
             reply = await asyncio.to_thread(self._request, 'resolve',
-                source_sample=asdict(prepared.source_sample), x=prepared.x, y=prepared.y)
+                source_sample=asdict(prepared.source_sample), x=prepared.x, y=prepared.y,
+                width=prepared.width, height=prepared.height)
         except ValueError as error:
             messages = {
                 'scene_point_unavailable': 'Select a visible scene surface; sky has no simulated target.',

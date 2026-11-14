@@ -240,3 +240,20 @@ interval, cancels latched manual motion and counts gaps. Regressions still
 reject backwards/replaced timestamps. No-op camera pose requests are skipped
 and unchanged GUI snapshots are limited to 10 Hz to avoid unnecessary service
 and filesystem contention. The old failed run is retained unchanged.
+
+The next integrated run remained available with fresh controls and clear
+rendered video. During the operator's incidental check, Center and tilt exposed
+two simulator semantics errors: Home kept camera pan, and manual tilt used
+up-positive elevation against the shared clients' down-positive tilt contract.
+The fixes use observed physical body-forward for Home and convert tilt once;
+mount round-trip regressions cover both presets. Real camera motor dynamics
+remain unqualified. Region selection now validates the whole normalized region
+and uses its scene-center surface, without claiming vendor optical recognition.
+
+A retained fresh-frame selection also encountered a false "fresh camera frame"
+refusal: the async consumer's most recent poll was between acquisitions, while
+the actual capture/retained displayed frame was recent. Camera admission now
+shares one capture-age check for fresh or explicitly waiting connected sources.
+It does not label cached imagery as fresh tracker measurements or weaken frame,
+source, permission or target-generation checks. A genuinely failed/disconnected/
+expired source still rejects.

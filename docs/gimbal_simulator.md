@@ -185,3 +185,13 @@ For more varied test objects, select
 [scene guide](../native/gazebo/README.md) lists its PixEagle-branded ground/air
 targets and waterfront. Static scene art is separate from moving-target and
 aircraft qualification.
+
+Rendered camera direction parity: the shared manual API defines positive pan
+as Right and positive tilt as Down (negative tilt is Up), matching Dashboard
+buttons and QGC's joystick. The simulator converts depression/down into its
+up-positive world elevation exactly once. **Center/Home** aims along the
+configured physical body-forward ray using the observed body quaternion; it
+does not retain the previous camera pan or guess the FW aerodynamic frame.
+Both point and rectangle selection are supported. A rectangle designates its
+scene-center surface; this is an ideal selected-region lock, not a simulation
+of vendor optical recognition or measured bounding-box dynamics.

@@ -127,7 +127,7 @@ async def test_wrong_or_missing_displayed_frame_is_not_latest_pose_selection(sce
 async def test_manual_controls_share_cancel_stop_and_supported_capabilities(scene):
     assert isinstance(scene.control, RenderedCameraControl)
     assert not {'roll', 'zoom'} & set(scene.control.capabilities)
-    assert scene.provider.selection_modes() == [dict(id='classic', label='Camera Classic', point=True, rectangle=False)]
+    assert scene.provider.selection_modes() == [dict(id='classic', label='Camera Classic', point=True, rectangle=True)]
     scene.source.model.lock_point(Vector3(30., 1., -2.))
     @contextmanager
     def admitted():
@@ -155,3 +155,32 @@ def test_bad_packet_cannot_replace_a_target_or_kill_camera_owner(scene):
         assert json.loads(connection.recv(4096))['success'] is False
     assert scene.source.model.target_ned is None
     assert scene.control.stop()
+
+
+async def test_rectangle_and_point_designate_same_scene_center(scene):
+    rectangle = scene.control.prepare_selection_from_frame(x=.5, y=.5, width=.2, height=.2,
+        source_sample=scene.stamp)
+    resolved = await scene.control.resolve_selection(rectangle)
+    await scene.control.execute('select', prepared_selection=resolved)
+    assert scene.source.model.target_ned == Vector3(9., 0., -20.)
+
+
+@pytest.mark.parametrize('extent', [(.8, .2), (None, .2), (.2, float('nan')), (0., .2), (True, .2)])
+def test_invalid_region_cannot_change_existing_target(scene, extent):
+    original = Vector3(30., 1., -2.)
+    scene.source.model.lock_point(original)
+    with pytest.raises(ValueError):
+        scene.control.prepare_selection_from_frame(x=.25, y=.5, width=extent[0], height=extent[1],
+            source_sample=scene.stamp)
+    assert scene.source.model.target_ned is original
+
+
+async def test_home_uses_physical_body_forward_not_previous_camera_pan(scene):
+    body = Quaternion.from_euler(.1, -.3, 1.)
+    pose = replace(scene.source.latest_pose, body_to_ned=body)
+    scene.source.latest_pose = pose
+    await scene.control.execute('home')
+    ray = body.rotate(Vector3(1., 0., 0.))
+    aim = scene.source.model._aim
+    assert (aim.x, aim.y, aim.z) == pytest.approx((ray.x, ray.y, ray.z))
+    assert scene.source.model.target_ned is None

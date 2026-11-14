@@ -171,7 +171,7 @@ class GazeboSipGimbalProvider(SipUdpGimbalProvider):
                 and source.get('world') == self.settings.world)
 
     def selection_modes(self):
-        return ([dict(id='classic', label='Camera Classic', point=True, rectangle=False)]
+        return ([dict(id='classic', label='Camera Classic', point=True, rectangle=True)]
                 if self.manual_control is not None else [])
 
     def get_provider_metadata(self):

@@ -145,3 +145,22 @@ def test_observation_gap_keeps_a_scene_target_without_claiming_motor_motion():
     command = model.observe(after_gap)
     assert command.camera_to_ned == after_gap.camera_to_ned
     assert model.target_ned is target and model.tracking_state is TrackingState.TARGET_SELECTION
+
+
+@pytest.mark.parametrize('axis,value,component,sign', [
+    ('pan', 1., 'y', 1.), ('pan', -1., 'y', -1.),
+    ('tilt', 1., 'z', 1.), ('tilt', -1., 'z', -1.)])
+@pytest.mark.parametrize('mount', ['HORIZONTAL', 'VERTICAL'])
+def test_manual_motion_matches_both_client_direction_contracts(axis, value, component, sign, mount):
+    model = IdealStabilizedGimbal(IdealGimbalSettings(Vector3(0., 0., 0.)))
+    pose = observed()
+    model.observe(pose)
+    model.manual(axis, value, 30.)
+    intent = model.observe(replace(pose, timestamp_us=1_100_000, received_at_monotonic_s=100.1))
+    ray = intent.camera_to_ned.rotate(Vector3(1., 0., 0.))
+    assert getattr(ray, component) * sign > 0
+    measured = replace(pose, camera_to_ned=intent.camera_to_ned)
+    geometry = resolve_angle_geometry({}, mount)
+    angles = measured.angles(geometry)
+    mapped = body_line_of_sight(angles, mount, geometry)
+    assert mapped == pytest.approx((ray.x, ray.y, ray.z))

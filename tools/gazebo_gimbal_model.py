@@ -198,7 +198,9 @@ class IdealStabilizedGimbal:
             if axis == 'pan':
                 bearing += rate * dt
             else:
-                elevation = min(90., max(-90., elevation + rate * dt))
+                # Shared camera API: positive pan is right, positive tilt is
+                # down. Elevation, unlike image Y / depression, is up-positive.
+                elevation = min(90., max(-90., elevation - rate * dt))
             direction = self._aim = _direction(bearing, elevation)
         if self.target_ned is not None and self.tracking_state in (
                 TrackingState.TARGET_SELECTION, TrackingState.TRACKING_ACTIVE):

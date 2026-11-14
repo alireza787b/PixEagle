@@ -9,6 +9,8 @@ import uuid
 
 from classes.capture_timing import SourceSampleStamp
 from classes.gazebo_camera_control import MAX_CONTROL_BYTES
+from classes.gimbal_control import validate_camera_rectangle
+from classes.aircraft_state import Vector3
 from tools.gazebo_camera_provider import private_listener
 
 
@@ -37,8 +39,10 @@ class RenderedSceneControl:
                 raise ValueError('rendered_camera_observation_stale')
             operation, args = request['operation'], request['arguments']
             if operation == 'resolve':
-                if set(args) != {'source_sample', 'x', 'y'}:
+                if set(args) != {'source_sample', 'x', 'y', 'width', 'height'}:
                     raise ValueError('rendered_camera_selection_invalid')
+                if args['width'] is not None or args['height'] is not None:
+                    validate_camera_rectangle(args['x'], args['y'], args['width'], args['height'])
                 sample = SourceSampleStamp(**args['source_sample'])
                 point = self.history.select(sample, args['x'], args['y'])
                 token = uuid.uuid4().hex
@@ -69,9 +73,10 @@ class RenderedSceneControl:
                 elif operation == 'cancel':
                     self.source.model.release_target()
                 else:
-                    ray = pose.direction_ned
+                    ray = pose.body_to_ned.rotate(Vector3(1., 0., 0.))
                     import math
-                    self.source.model.aim(math.degrees(math.atan2(ray.y, ray.x)), 0.)
+                    self.source.model.aim(math.degrees(math.atan2(ray.y, ray.x)),
+                        -math.degrees(math.atan2(ray.z, ray.horizontal_magnitude)))
             else:
                 raise ValueError('rendered_camera_operation_unsupported')
             self.changed()

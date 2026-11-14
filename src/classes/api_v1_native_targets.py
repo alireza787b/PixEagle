@@ -21,7 +21,7 @@ from classes.api_security_types import APIPrincipalKind, APIAuditPolicy, APISens
 from classes.api_v1_actions import ensure_api_action_store, new_api_action_record
 from classes.api_v1_contracts import APINativeTargetState
 from classes.api_v1_integration import context_snapshot
-from classes.gimbal_control import get_gimbal_control_status
+from classes.gimbal_control import get_gimbal_control_status, is_camera_video_live
 from classes.tracking_roi import tracking_point_to_pixels, tracking_roi_to_pixels, TrackingROIError
 from classes.parameters import Parameters
 from classes.camera_runtime import CameraLifecycleBusy
@@ -367,10 +367,7 @@ def _validate_camera_selection_commit(owner, request, principal, entry, reserved
         raise NativeTargetError("native_context_stale", "Camera, aircraft, video, or target changed during selection.")
     video = getattr(owner.app_controller, "video_handler", None)
     if video is not None:
-        frame_status = video.get_frame_status()
-        stamp = frame_status.get("last_successful_frame_time")
-        if (frame_status.get("source") != "fresh" or not isinstance(stamp, (int, float))
-                or not 0 <= time.time() - stamp <= 2):
+        if not is_camera_video_live(video):
             raise NativeTargetError("frame_expired", "Camera video is no longer live. Tap again.")
 
 
