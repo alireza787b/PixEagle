@@ -18,7 +18,7 @@ from classes.setpoint_handler import SetpointHandler
 from classes.attitude_envelope import guard_body_rates
 from classes.aircraft_state import AircraftBinding, AircraftKind, AircraftState, AircraftStateOwner, AirframePhase, Quaternion, finite_number
 from classes.native_guidance import NativeGuidanceClient, NativeGuidanceError
-from classes.gazebo_image_alignment import SourceAttitudeHistory
+from classes.gazebo_guidance_alignment import SourceAttitudeHistory
 from classes.telemetry_observation import AltitudeObservation, AltitudeSourceSample
 
 # Import circuit breaker for testing support

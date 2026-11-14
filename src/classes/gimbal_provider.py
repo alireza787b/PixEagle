@@ -178,6 +178,12 @@ def create_gimbal_provider(
     provider_id = canonicalize_gimbal_provider(provider_config.provider)
 
     if provider_id == TOPOTEK_SIP_UDP_PROVIDER:
+        from classes.gazebo_gimbal_source import GazeboSipGimbalProvider, validate_gazebo_gimbal_config
+        settings = validate_gazebo_gimbal_config(provider_config.settings or {})
+        if settings is not None:
+            return GazeboSipGimbalProvider(settings,
+                connection_timeout=float(provider_config.get('CONNECTION_TIMEOUT', 2.0)),
+                tracking_status_timeout=float(provider_config.get('TRACKING_STATUS_TIMEOUT', 2.0)))
         return SipUdpGimbalProvider(
             control_enabled=provider_config.get("CONTROL_ENABLED", False) is True,
             listen_port=int(provider_config.get("LISTEN_PORT", 9004)),

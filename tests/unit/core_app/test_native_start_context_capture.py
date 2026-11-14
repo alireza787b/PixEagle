@@ -33,6 +33,10 @@ owner = owner_fixture
 @pytest.fixture
 def native_owner(owner, monkeypatch):
     ready_owner(owner, monkeypatch)
+    # This fixture isolates opaque command-epoch guards. Real gimbal/image
+    # acquisition-clock readiness is exercised by the resolver domain tests.
+    monkeypatch.setattr('classes.gazebo_guidance_alignment.native_guidance_input_readiness',
+                        lambda *_: {'ready': True, 'reason_code': None})
     monkeypatch.setattr(Parameters, 'FOLLOWER_MODE', 'gm_velocity_vector')
     owner._get_config_service = lambda: Mock(get_parameter=lambda *_: 'gm_velocity_vector')
     monkeypatch.setattr('classes.api_v1_native_following._selected_tracker_output',
@@ -261,7 +265,7 @@ async def test_prepare_awaits_declared_image_binding_before_creating_session(app
         return app.f.guidance
 
     hook = AsyncMock(side_effect=bind)
-    monkeypatch.setattr('classes.gazebo_image_alignment.bind_native_image_resolver', hook)
+    monkeypatch.setattr('classes.gazebo_guidance_alignment.bind_native_input_resolver', hook)
     concrete.create_airframe_session = Mock(side_effect=create)
     if refused:
         with pytest.raises(NativeGuidanceError, match='physical_capture_timing_unqualified'):

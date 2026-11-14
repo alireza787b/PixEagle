@@ -3359,7 +3359,7 @@ class AppController:
         create = getattr(concrete, "create_airframe_session", None)
         if not callable(create):
             raise RuntimeError("follower_native_strategy_unavailable")
-        from classes.gazebo_image_alignment import bind_native_image_resolver
+        from classes.gazebo_guidance_alignment import bind_native_input_resolver
         expected_input = self._follow_start_input_identity()
 
         def validate_input():
@@ -3369,7 +3369,7 @@ class AppController:
                 raise NativeGuidanceError(str(error)) from error
 
         try:
-            await bind_native_image_resolver(self, concrete, state, capabilities, validate_input=validate_input)
+            await bind_native_input_resolver(self, concrete, state, capabilities, validate_input=validate_input)
         except ValueError as error:
             raise NativeGuidanceError(str(error)) from error
         identity = GuidanceSessionIdentity(self._following_session_id, state.binding, 0)

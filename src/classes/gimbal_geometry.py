@@ -7,8 +7,10 @@ measured. This module does not reinterpret the raw yaw, pitch or roll channels.
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 import math
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Mapping
 
 
@@ -30,6 +32,12 @@ _TOPOTEK_PRESETS = {
     "HORIZONTAL": AngleGeometry("YAW", 1, 0.0, "PITCH", 1, 0.0),
     "VERTICAL": AngleGeometry("ROLL", -1, 0.0, "PITCH", 1, 90.0),
 }
+
+
+def angle_geometry_revision(provider: str, mount: str, geometry: AngleGeometry) -> str:
+    fingerprint = json.dumps({'provider': provider, 'mount': mount, 'mapping': asdict(geometry)},
+                             sort_keys=True, separators=(',', ':'))
+    return 'gimbal-geometry-v1:' + hashlib.sha256(fingerprint.encode()).hexdigest()
 
 
 def migrate_legacy_geometry(config: Mapping) -> dict:

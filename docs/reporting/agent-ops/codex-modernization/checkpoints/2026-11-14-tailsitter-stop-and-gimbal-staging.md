@@ -115,6 +115,30 @@ configuration was modified. The [short tool guide](../../../../gimbal_simulator.
 replaces the old misleading full-hardware-emulation instructions.
 
 This slice does not rotate Gazebo or establish a native FW gimbal timing
-association. Those remain next work, with a fidelity choice pending: measured
-camera mechanics first, or an explicitly ideal stabilized model first. All GUI
-and flight-test processes remain closed. No private camera setting was changed.
+association. All GUI and flight-test processes remain closed. No private camera
+setting was changed.
+
+## Source-time input slice
+
+The operator chose the most practical simulation while the camera is offline.
+Use verified SIP/mount conventions and explicitly ideal stabilized pointing;
+unmeasured motor response, joint travel and image roll remain unqualified.
+
+The Topotek provider now has an optional private simulator transport. It reuses
+the parser, independent GAC/TRC caches and CameraRuntime lifecycle. Original
+source stamps and producer receipts survive tracking; queued/paused data cannot
+gain fresh timestamps. EOF, malformed/reordered packets and clock/incarnation
+changes retire the source. Null `GAZEBO_INPUT` keeps factory UDP behavior.
+
+The renamed shared `gazebo_guidance_alignment.py` binds both image and gimbal
+contracts to retained raw PX4 samples. The same readiness/Start gate checks
+native FW gimbal timing, mount revision, source owner and selection generation.
+Hardware receipt-only input cannot claim simulator source-time qualification.
+No synthetic pixels, latest-pose shortcut or fabricated receive-delay bounds
+were added.
+
+Initial gates: 160 provider/observation tests and 126 alignment/application tests
+pass. Full domain/configuration gates and rendered-camera qualification follow.
+Logs: `gimbal-stamped-input-r1.log`, `gimbal-shared-alignment-r2.log` in the common
+report directory. These are deterministic/local transport checks, not flight
+or rendered-model evidence. The prior FW altitude gate remains open.

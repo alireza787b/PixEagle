@@ -98,3 +98,29 @@ Local UDP tests prove packet transport/decoding, not real camera dynamics,
 mechanical stabilization, optical acquisition, native FW timing or flight safety.
 The [provider integration guide](trackers/05-development/external-gimbal-providers.md)
 remains authoritative for those boundaries.
+
+## Rendered simulator input contract
+
+The rendered integration uses the same Topotek provider/parser, with optional
+`GimbalTracker.GAZEBO_INPUT`. Null (the factory default) retains ordinary UDP.
+This launcher-managed mapping declares a private Unix socket, world,
+source-clock ID and maximum PX4 attitude-sample skew. `CONTROL_ENABLED` stays
+false. Mount definitions and normal camera credential/control APIs are unchanged.
+
+The private envelope carries the SIP packet, actual Gazebo observation time and
+the producer's original monotonic receipt. Angle/status ages remain independent.
+Repeated/reordered samples, clock/incarnation changes, invalid packets and EOF
+retire the input rather than making cached observations fresh. Only angle
+packets attach source timing to a tracker observation.
+
+`gazebo_guidance_alignment.py` uses the existing connection-owned raw PX4
+attitude history for both images and gimbal bearings. FW readiness and Start
+apply the same declared-input gate. Status-only updates retain the original
+angle/attitude pair. Video availability, the latest pose and slider positions
+cannot substitute for observed-camera timing. Hardware UDP retains its
+receipt-only semantics; this does not qualify hardware synchronization.
+
+The input contract is tested offline; rendered-model and full operator
+MC/FW Start/Stop/restart qualification remain pending. The first model will use
+ideal stabilized pointing with configurable finite motion. Unmeasured FL-30
+mechanics and image-roll behavior remain explicit assumptions.

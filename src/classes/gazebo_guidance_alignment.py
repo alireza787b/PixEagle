@@ -1,4 +1,4 @@
-"""Read-only rendered-camera bearing adapter using actual raw PX4 samples."""
+"""Read-only image and gimbal bearing adapters using actual raw PX4 samples."""
 
 from collections import deque
 import asyncio
@@ -8,6 +8,10 @@ import time
 from classes.aircraft_state import AircraftState, AirframePhase, finite_number
 from classes.fixed_camera_calibration import BoundFixedCameraCalibration
 from classes.gazebo_capture import GazeboCameraSettings
+from classes.gazebo_gimbal_source import GazeboGimbalSettings, GazeboSipGimbalProvider
+from classes.gimbal_bearing import gimbal_to_body_bearing
+from classes.gimbal_geometry import angle_geometry_revision, resolve_angle_geometry, resolve_mount_type
+from classes.gimbal_types import GimbalAngleObservation
 from classes.guidance_observation import ImageMeasurement
 from classes.image_bearing import image_to_body_bearing
 from classes.observation_alignment import (
@@ -71,6 +75,16 @@ class SourceAttitudeHistory:
                 return ()
             return tuple(self._samples)
 
+    def match(self, sample, candidates, *, source_clock_id, max_skew_s, now, timeout_s):
+        eligible = [(attitude, state) for attitude, state in candidates
+            if attitude.fresh(now, timeout_s) and state.fresh(now, timeout_s)
+            and abs(attitude.sample_timestamp_us - sample.timestamp_us) * 1e-6 <= max_skew_s]
+        if not eligible:
+            raise ValueError('source_attitude_alignment_unavailable')
+        attitude, state = min(eligible,
+            key=lambda pair: (abs(pair[0].sample_timestamp_us - sample.timestamp_us), pair[0].sample_timestamp_us))
+        return state, SourceTimeAssociation(sample, attitude, source_clock_id, max_skew_s)
+
 
 class GazeboImageBearingResolver:
     def __init__(self, settings, calibration, history, *, binding, runtime_id,
@@ -125,19 +139,13 @@ class GazeboImageBearingResolver:
                 native_runtime_id=self.runtime_id, now_monotonic_s=self.clock(),
                 max_observation_age_s=self.timeout_s, max_attitude_age_s=self.timeout_s)
             return previous
-        candidates = [(attitude, state) for attitude, state in candidates
-            if attitude.fresh(self.clock(), self.timeout_s) and state.fresh(self.clock(), self.timeout_s)
-            and abs(attitude.sample_timestamp_us - sample.timestamp_us) * 1e-6 <= self.settings.max_attitude_skew_s]
-        if not candidates:
-            raise ValueError('source_attitude_alignment_unavailable')
-        attitude, state = min(candidates,
-            key=lambda pair: (abs(pair[0].sample_timestamp_us - sample.timestamp_us), pair[0].sample_timestamp_us))
-        alignment = SourceTimeAssociation(sample, attitude, self.settings.source_clock_id,
-                                          self.settings.max_attitude_skew_s)
+        state, alignment = self.history.match(sample, candidates,
+            source_clock_id=self.settings.source_clock_id, max_skew_s=self.settings.max_attitude_skew_s,
+            now=self.clock(), timeout_s=self.timeout_s)
         bearing = image_to_body_bearing(measurement, self.calibration.calibration)
         binding = AlignmentBinding(provenance.source_id, provenance.capture.source_epoch,
             provenance.geometry_revision, provenance.calibration_revision, provenance.target_generation,
-            self.aircraft_binding, self.runtime_id, attitude.quat_reset_counter)
+            self.aircraft_binding, self.runtime_id, alignment.attitude.quat_reset_counter)
         result = associate_source_timed_bearing(bearing, state, native_runtime_id=self.runtime_id,
             binding=binding, now_monotonic_s=self.clock(), max_observation_age_s=self.timeout_s,
             max_attitude_age_s=self.timeout_s, source_time=alignment,
@@ -146,6 +154,65 @@ class GazeboImageBearingResolver:
             native_runtime_id=self.runtime_id, now_monotonic_s=self.clock(),
             max_observation_age_s=self.timeout_s, max_attitude_age_s=self.timeout_s)
         self._previous, self._measurement = result, measurement
+        return result
+
+
+class GazeboGimbalBearingResolver:
+    def __init__(self, settings, history, *, source, provider_id, mount, geometry,
+                 binding, runtime_id, native_source_clock_id, timeout_s, clock=time.monotonic):
+        if (not isinstance(settings, GazeboGimbalSettings) or not isinstance(history, SourceAttitudeHistory)
+                or native_source_clock_id != settings.source_clock_id or source is None):
+            raise ValueError('source_clock_domain_unqualified')
+        self.settings, self.history = settings, history
+        self.source, self.provider_id = source, provider_id
+        self.mount, self.geometry = mount, geometry
+        self.geometry_revision = angle_geometry_revision(provider_id, mount, geometry)
+        self.aircraft_binding, self.runtime_id = binding, runtime_id
+        self.timeout_s, self.clock = timeout_s, clock
+        self._previous = None
+
+    def __call__(self, output, current_state):
+        observation = getattr(output, 'gimbal_observation', None)
+        if not isinstance(observation, GimbalAngleObservation):
+            raise ValueError('gimbal_observation_unavailable')
+        if (observation.source != self.source or observation.provider_id != self.provider_id
+                or observation.geometry_revision != self.geometry_revision or observation.target_generation is None):
+            raise ValueError('guidance_gimbal_binding_changed')
+        if (not isinstance(current_state, AircraftState) or current_state.binding != self.aircraft_binding
+                or current_state.attitude_timing is None or not current_state.fresh(self.clock(), self.timeout_s)):
+            raise ValueError('guidance_aircraft_binding_changed')
+        sample = observation.source_sample
+        if sample is None or sample.clock_id != self.settings.source_clock_id:
+            raise ValueError('source_clock_domain_unqualified')
+        candidates = self.history.snapshot(binding=self.aircraft_binding, runtime_id=self.runtime_id,
+            source_clock_id=self.settings.source_clock_id, reset_counter=current_state.attitude_timing.quat_reset_counter)
+        if not candidates:
+            raise ValueError('source_attitude_alignment_unavailable')
+        previous = self._previous
+        if previous is not None and observation.target_generation != previous.binding.target_generation:
+            if observation.target_generation < previous.binding.target_generation:
+                raise ValueError('guidance_target_generation_obsolete')
+            previous = None
+        bearing = gimbal_to_body_bearing(observation, mount_type=self.mount,
+                                        geometry=self.geometry, geometry_revision=self.geometry_revision)
+        if previous is not None and observation.angle_receipt_sequence == previous.bearing.provenance.angle_receipt_sequence:
+            # A status-only update retains the exact original raw attitude pair.
+            state, association = previous.attitude_state, previous.source_time
+        else:
+            state, association = self.history.match(sample, candidates,
+                source_clock_id=self.settings.source_clock_id, max_skew_s=self.settings.max_attitude_skew_s,
+                now=self.clock(), timeout_s=self.timeout_s)
+        binding = AlignmentBinding(observation.source.camera_id, observation.source.source_generation,
+            self.geometry_revision, None, observation.target_generation, self.aircraft_binding,
+            self.runtime_id, association.attitude.quat_reset_counter, provider_id=self.provider_id)
+        result = associate_source_timed_bearing(bearing, state, native_runtime_id=self.runtime_id,
+            binding=binding, now_monotonic_s=self.clock(), max_observation_age_s=self.timeout_s,
+            max_attitude_age_s=self.timeout_s, source_time=association,
+            evidence_revision='gazebo-px4-source-clock-v1:' + self.settings.source_clock_id, previous=previous)
+        require_current_bearing_association(result, observation, current_state,
+            native_runtime_id=self.runtime_id, now_monotonic_s=self.clock(),
+            max_observation_age_s=self.timeout_s, max_attitude_age_s=self.timeout_s)
+        self._previous = result
         return result
 
 
@@ -165,10 +232,27 @@ def _runtime_image_resolver(app, state, capabilities):
         native_source_clock_id=getattr(capabilities, 'source_clock_id', None), timeout_s=timeout)
 
 
-def native_image_guidance_readiness(app, profile, state):
-    """Expose the same image/clock gate before an operator presses Start."""
+def _runtime_input_resolver(app, state, capabilities, required):
+    if 'POSITION_2D' in required:
+        return _runtime_image_resolver(app, state, capabilities)
+    runtime = getattr(app, 'camera_runtime', None)
+    provider = getattr(runtime, 'provider', None)
+    if 'GIMBAL_ANGLES' not in required or not isinstance(provider, GazeboSipGimbalProvider):
+        raise ValueError('physical_capture_timing_unqualified')
+    config = runtime.settings
+    mount = resolve_mount_type(config, {}, {}, allowed=('HORIZONTAL', 'VERTICAL'))
+    connection = app.px4_interface
+    return GazeboGimbalBearingResolver(provider.settings, getattr(connection, 'source_attitude_history', None),
+        source=runtime.angle_observation_context(), provider_id=provider.provider_id,
+        mount=mount, geometry=resolve_angle_geometry(config, mount), binding=state.binding,
+        runtime_id=capabilities.runtime_id, native_source_clock_id=getattr(capabilities, 'source_clock_id', None),
+        timeout_s=connection.get_telemetry_stale_timeout_s())
+
+
+def native_guidance_input_readiness(app, profile, state):
+    """Expose the same declared input/clock gate before Start."""
     if (state is None or state.phase is not AirframePhase.FIXED_WING
-            or 'POSITION_2D' not in profile.required_tracker_data
+            or not {'POSITION_2D', 'GIMBAL_ANGLES'}.intersection(profile.required_tracker_data)
             or dict(profile.native_phase_contracts).get('fixed_wing') != 'fixed_wing_external'):
         return {'ready': True, 'reason_code': None}
     try:
@@ -176,23 +260,23 @@ def native_image_guidance_readiness(app, profile, state):
         capabilities = None if client is None else client.capabilities
         if capabilities is None:
             raise ValueError('native_aircraft_state_unavailable')
-        resolver = _runtime_image_resolver(app, state, capabilities)
+        resolver = _runtime_input_resolver(app, state, capabilities, profile.required_tracker_data)
         resolver(app.get_tracker_output(), state)
     except ValueError as error:
         return {'ready': False, 'reason_code': str(error)}
     return {'ready': True, 'reason_code': None}
 
 
-async def bind_native_image_resolver(app, concrete, state, capabilities, *, validate_input=None):
-    """Prepare declared image-bearing input, using only bounded read-only waits."""
+async def bind_native_input_resolver(app, concrete, state, capabilities, *, validate_input=None):
+    """Prepare declared bearing input, using only bounded read-only waits."""
     bind = getattr(concrete, 'bind_guidance_input_resolver', None)
     required = concrete.setpoint_handler.profile_config.get('required_tracker_data', [])
-    if (not callable(bind) or 'POSITION_2D' not in required
+    if (not callable(bind) or not {'POSITION_2D', 'GIMBAL_ANGLES'}.intersection(required)
             or state.phase is not AirframePhase.FIXED_WING):
         return
     connection = app.px4_interface
     client = connection.native_guidance_client
-    resolver = _runtime_image_resolver(app, state, capabilities)
+    resolver = _runtime_input_resolver(app, state, capabilities, required)
     # Waiting for the first qualified pair is observation only. The original
     # Start context is retained independently and rechecked before acquisition.
     deadline = time.monotonic() + client.request_timeout_s

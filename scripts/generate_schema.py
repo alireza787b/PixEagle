@@ -281,6 +281,18 @@ SCHEMA_OVERRIDES = {
     'FW_NAVIGATION_CHASE.FORWARD_REENTRY_BEARING_DEG': {
         'type': 'float', 'min': 0.0, 'max': 180.0, 'step': 1.0, 'unit': 'deg',
         'description': 'Absolute bearing within which the turn-direction latch clears; must be below rearward entry.'},
+    'GimbalTracker.GAZEBO_INPUT': {
+        'type': 'object', 'nullable': True, 'reload_tier': 'system_restart',
+        'description': 'Private isolated simulator SIP source; null keeps normal camera UDP. Launcher managed; camera controls disabled.',
+        'properties': {
+            'socket_path': {'type': 'string'},
+            'source_clock_id': {'type': 'string'},
+            'world': {'type': 'string'},
+            'max_attitude_skew_s': {'type': 'number', 'min': 0.000001, 'unit': 'seconds'},
+        },
+        'required': ['socket_path', 'source_clock_id', 'world', 'max_attitude_skew_s'],
+        'additional_properties': False,
+    },
     'VideoSource.GAZEBO_CAMERA': {
         'type': 'object', 'nullable': True, 'reload_tier': 'system_restart',
         'description': 'Private isolated simulator image source and declared sample-clock identity; launcher managed.',

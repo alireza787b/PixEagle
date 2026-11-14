@@ -78,6 +78,12 @@ IDs must continue to raise `UnknownGimbalProviderError`. Extend grouped
 `configs/config_default.yaml` only as needed; do not change the default
 provider, tracker or `CONTROL_ENABLED` to activate a new integration.
 
+The isolated rendered training source reuses this parser with a private,
+source-stamped input transport. See [simulator input contract](../../gimbal_simulator.md#rendered-simulator-input-contract).
+An optional `GimbalAngleObservation.source_sample` preserves original source
+time independently of receipt time. Absence retains legacy receipt-only
+semantics. Never attach a source stamp reconstructed from latest telemetry.
+
 ## 2. Add Optional Controls
 
 An input-only provider needs no control adapter. For supported camera commands,

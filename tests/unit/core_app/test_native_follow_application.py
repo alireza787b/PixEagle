@@ -563,7 +563,7 @@ async def test_image_startup_refusal_preserves_typed_code_without_acquiring_or_s
     app.manager.follower.setpoint_handler.profile_config = {
         'native_phase_contracts': {'fixed_wing': 'fixed_wing_external'}}
     resolver = AsyncMock(side_effect=ValueError(code))
-    monkeypatch.setattr('classes.gazebo_image_alignment.bind_native_image_resolver', resolver)
+    monkeypatch.setattr('classes.gazebo_guidance_alignment.bind_native_input_resolver', resolver)
     monkeypatch.setattr(Parameters, 'AIRFRAME_LAYOUT', 'AUTO', raising=False)
     result = await ctrl._connect_px4_on_flight_loop()
     assert result['precondition']['code'] == code
@@ -607,7 +607,7 @@ async def test_native_image_preparation_guard_cannot_rebase_onto_replaced_input(
             app_owner.frame_publisher.control_source_epoch = 'replacement-camera'
         validate_input()
 
-    monkeypatch.setattr('classes.gazebo_image_alignment.bind_native_image_resolver', prepare_image)
+    monkeypatch.setattr('classes.gazebo_guidance_alignment.bind_native_input_resolver', prepare_image)
     monkeypatch.setattr(Parameters, 'AIRFRAME_LAYOUT', 'AUTO', raising=False)
     result = await ctrl._connect_px4_on_flight_loop()
     assert result['precondition']['code'] == 'following_input_context_changed'

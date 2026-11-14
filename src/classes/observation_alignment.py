@@ -144,9 +144,11 @@ class AlignedBearing:
             raise ValueError("aligned_bearing_direction_not_unit")
         source_time = self.source_time
         if self.association_kind == 'bounded_source_time':
+            provenance = self.bearing.provenance
+            sample = (provenance.source_sample if isinstance(provenance, GimbalAngleObservation)
+                      else provenance.capture.source_sample)
             if (not isinstance(source_time, SourceTimeAssociation)
-                    or not isinstance(self.bearing.provenance, ObservationProvenance)
-                    or self.bearing.provenance.capture.source_sample != source_time.source_sample
+                    or sample is None or sample != source_time.source_sample
                     or source_time.attitude.quat_reset_counter != binding.quat_reset_counter):
                 raise ValueError('aligned_bearing_source_time_invalid')
             quaternion = source_time.attitude.quaternion

@@ -17,10 +17,10 @@ from classes.fixed_camera_calibration import (
 )
 from classes.frame_publisher import CaptureStamp
 from classes.gazebo_capture import GazeboCameraSettings
-from classes import gazebo_image_alignment as alignment
-from classes.gazebo_image_alignment import (
-    GazeboImageBearingResolver, SourceAttitudeHistory, bind_native_image_resolver,
-    native_image_guidance_readiness,
+from classes import gazebo_guidance_alignment as alignment
+from classes.gazebo_guidance_alignment import (
+    GazeboImageBearingResolver, SourceAttitudeHistory, bind_native_input_resolver,
+    native_guidance_input_readiness,
 )
 from classes.guidance_observation import ImageMeasurement, ObservationProvenance
 from classes.source_time_alignment import SourceAttitudeSample
@@ -224,10 +224,10 @@ async def test_first_pair_wait_refreshes_observations_without_acquiring_or_repla
             runtime_id='native', source_clock_id='clock-world')
 
     run.connection.prepare_native_guidance.side_effect = refresh
-    assert native_image_guidance_readiness(run.app, run.profile, run.state) == {
+    assert native_guidance_input_readiness(run.app, run.profile, run.state) == {
         'ready': False, 'reason_code': 'source_attitude_alignment_unavailable'}
     run.connection.prepare_native_guidance.assert_not_awaited()
-    await bind_native_image_resolver(run.app, run.concrete, run.state, run.capabilities)
+    await bind_native_input_resolver(run.app, run.concrete, run.state, run.capabilities)
     run.concrete.bind_guidance_input_resolver.assert_called_once()
     resolver = run.concrete.bind_guidance_input_resolver.call_args.args[0]
     paired = resolver(run.app.get_tracker_output(), run.state)
@@ -238,13 +238,13 @@ async def test_first_pair_wait_refreshes_observations_without_acquiring_or_repla
     assert run.context.wire_payload() == original
     for action in (run.client.engage, run.client.acquire, run.client.publish):
         action.assert_not_called()
-    assert native_image_guidance_readiness(run.app, run.profile, run.state) == {
+    assert native_guidance_input_readiness(run.app, run.profile, run.state) == {
         'ready': True, 'reason_code': None}
 
 
 async def test_already_qualified_pair_binds_without_sleep_or_native_refresh(runtime_case):
     run = runtime_case
-    await bind_native_image_resolver(run.app, run.concrete, run.state, run.capabilities)
+    await bind_native_input_resolver(run.app, run.concrete, run.state, run.capabilities)
     run.concrete.bind_guidance_input_resolver.assert_called_once()
     run.connection.prepare_native_guidance.assert_not_awaited()
     assert run.delays == []
@@ -260,7 +260,7 @@ async def test_guarded_missing_frame_recovers_only_from_a_new_current_measuremen
         run.app.get_tracker_output.return_value = original_output
 
     run.connection.prepare_native_guidance.side_effect = refresh
-    await bind_native_image_resolver(run.app, run.concrete, run.state, run.capabilities, validate_input=guard)
+    await bind_native_input_resolver(run.app, run.concrete, run.state, run.capabilities, validate_input=guard)
     resolver = run.concrete.bind_guidance_input_resolver.call_args.args[0]
     association = resolver(original_output, run.state)
     assert association.bearing.provenance.capture == run.measurement.provenance.capture
@@ -274,7 +274,7 @@ async def test_guarded_target_loss_expires_inside_original_budget_with_specific_
     run = runtime_case
     run.app.get_tracker_output.return_value = SimpleNamespace(image_measurement=None)
     with pytest.raises(ValueError, match='^image_measurement_unavailable$'):
-        await bind_native_image_resolver(run.app, run.concrete, run.state, run.capabilities, validate_input=Mock())
+        await bind_native_input_resolver(run.app, run.concrete, run.state, run.capabilities, validate_input=Mock())
     assert sum(run.delays) == pytest.approx(run.client.request_timeout_s)
     run.concrete.bind_guidance_input_resolver.assert_not_called()
     for action in (run.client.engage, run.client.acquire, run.client.publish):
@@ -287,7 +287,7 @@ async def test_context_change_during_first_pair_wait_cannot_bind_or_renew_deadli
     run.history.clear()
     guard = Mock(side_effect=[None, ValueError(reason)])
     with pytest.raises(ValueError, match='^' + reason + '$'):
-        await bind_native_image_resolver(run.app, run.concrete, run.state, run.capabilities, validate_input=guard)
+        await bind_native_input_resolver(run.app, run.concrete, run.state, run.capabilities, validate_input=guard)
     assert run.delays == [.02]
     run.connection.prepare_native_guidance.assert_not_awaited()
     run.concrete.bind_guidance_input_resolver.assert_not_called()
@@ -297,7 +297,7 @@ async def test_context_is_rechecked_before_binding_an_already_qualified_pair(run
     run = runtime_case
     guard = Mock(side_effect=[None, ValueError('following_input_context_changed')])
     with pytest.raises(ValueError, match='^following_input_context_changed$'):
-        await bind_native_image_resolver(run.app, run.concrete, run.state, run.capabilities, validate_input=guard)
+        await bind_native_input_resolver(run.app, run.concrete, run.state, run.capabilities, validate_input=guard)
     run.concrete.bind_guidance_input_resolver.assert_not_called()
     assert run.delays == []
 
@@ -311,7 +311,7 @@ async def test_cancelled_first_pair_wait_cannot_refresh_bind_or_acquire(runtime_
 
     monkeypatch.setattr(alignment.asyncio, 'sleep', cancelled)
     with pytest.raises(asyncio.CancelledError):
-        await bind_native_image_resolver(run.app, run.concrete, run.state, run.capabilities, validate_input=Mock())
+        await bind_native_input_resolver(run.app, run.concrete, run.state, run.capabilities, validate_input=Mock())
     run.connection.prepare_native_guidance.assert_not_awaited()
     run.concrete.bind_guidance_input_resolver.assert_not_called()
     for action in (run.client.engage, run.client.acquire, run.client.publish):
@@ -323,7 +323,7 @@ async def test_first_pair_timeout_does_not_issue_a_refresh_after_deadline(runtim
     run.history.clear()
     run.client.request_timeout_s = .01
     with pytest.raises(ValueError, match='^source_attitude_alignment_unavailable$'):
-        await bind_native_image_resolver(run.app, run.concrete, run.state, run.capabilities)
+        await bind_native_input_resolver(run.app, run.concrete, run.state, run.capabilities)
     run.connection.prepare_native_guidance.assert_not_awaited()
     run.concrete.bind_guidance_input_resolver.assert_not_called()
     assert len(run.delays) == 1 and run.delays[0] == pytest.approx(.01)
@@ -340,7 +340,7 @@ async def test_pair_returned_after_original_deadline_cannot_bind(runtime_case):
 
     run.connection.prepare_native_guidance.side_effect = late_refresh
     with pytest.raises(ValueError, match='^source_attitude_alignment_unavailable$'):
-        await bind_native_image_resolver(run.app, run.concrete, run.state, run.capabilities)
+        await bind_native_input_resolver(run.app, run.concrete, run.state, run.capabilities)
     run.connection.prepare_native_guidance.assert_awaited_once_with(run.client.socket_path)
     run.concrete.bind_guidance_input_resolver.assert_not_called()
 
@@ -360,7 +360,7 @@ async def test_refresh_timeout_is_a_not_ready_result_without_binding(runtime_cas
     run.connection.prepare_native_guidance.side_effect = stalled_refresh
     with pytest.raises(ValueError, match='^source_attitude_alignment_unavailable$'):
         await asyncio.wait_for(
-            bind_native_image_resolver(run.app, run.concrete, run.state, run.capabilities), timeout=.25)
+            bind_native_input_resolver(run.app, run.concrete, run.state, run.capabilities), timeout=.25)
     assert cancelled == [True]
     run.connection.prepare_native_guidance.assert_awaited_once_with(run.client.socket_path)
     run.concrete.bind_guidance_input_resolver.assert_not_called()
@@ -379,10 +379,10 @@ async def test_readiness_and_start_refuse_the_same_invalid_input_without_waiting
         run.app.video_handler._capture_source_signature.return_value = 'different-source'
     else:
         run.app.get_tracker_output.return_value = SimpleNamespace(image_measurement=None)
-    assert native_image_guidance_readiness(run.app, run.profile, run.state) == {
+    assert native_guidance_input_readiness(run.app, run.profile, run.state) == {
         'ready': False, 'reason_code': reason}
     with pytest.raises(ValueError, match='^' + reason + '$'):
-        await bind_native_image_resolver(run.app, run.concrete, run.state, run.capabilities)
+        await bind_native_input_resolver(run.app, run.concrete, run.state, run.capabilities)
     run.connection.prepare_native_guidance.assert_not_awaited()
     run.concrete.bind_guidance_input_resolver.assert_not_called()
     assert run.delays == []
@@ -391,7 +391,7 @@ async def test_readiness_and_start_refuse_the_same_invalid_input_without_waiting
 def test_readiness_reports_missing_native_client_without_observing_or_acquiring(runtime_case):
     run = runtime_case
     run.connection.native_guidance_client = None
-    assert native_image_guidance_readiness(run.app, run.profile, run.state) == {
+    assert native_guidance_input_readiness(run.app, run.profile, run.state) == {
         'ready': False, 'reason_code': 'native_aircraft_state_unavailable'}
     run.app.get_tracker_output.assert_not_called()
     run.connection.prepare_native_guidance.assert_not_awaited()
@@ -410,8 +410,8 @@ async def test_irrelevant_phase_or_input_does_not_prepare_image_resolution(runti
         run.concrete.bind_guidance_input_resolver = None
         run.profile.native_phase_contracts = ()
     run.app.video_handler = None
-    await bind_native_image_resolver(run.app, run.concrete, state, run.capabilities)
-    assert native_image_guidance_readiness(run.app, run.profile, state) == {
+    await bind_native_input_resolver(run.app, run.concrete, state, run.capabilities)
+    assert native_guidance_input_readiness(run.app, run.profile, state) == {
         'ready': True, 'reason_code': None}
     run.app.get_tracker_output.assert_not_called()
     run.connection.prepare_native_guidance.assert_not_awaited()

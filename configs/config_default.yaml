@@ -953,6 +953,7 @@ GimbalTracker:
   ENABLED: false               # Opt-in camera provider; ordinary video/local tracking needs no gimbal
   CONTROL_ENABLED: false       # Opt-in manual camera selection and bounded camera controls
   PROVIDER: "topotek_sip_udp"  # Provider implementation for external gimbal input
+  GAZEBO_INPUT: null           # Advanced isolated simulator transport; null retains ordinary UDP
   MOUNT_TYPE: "HORIZONTAL"      # Options: "HORIZONTAL", "VERTICAL" — aircraft installation, not image rotation
   GEOMETRY_OVERRIDE:
     AZIMUTH_AXIS: "AUTO"          # Options: "AUTO", "YAW", "PITCH", "ROLL"

@@ -3361,6 +3361,31 @@ sections:
         - value: topotek_sip_udp
           label: Topotek SIP UDP
           description: Topotek SIP-series UDP frames using GAC, GIC, TRC, and OFT
+      GAZEBO_INPUT:
+        type: object
+        default: null
+        description: Private isolated simulator SIP source; null keeps normal camera UDP. Launcher managed; camera controls
+          disabled.
+        reload_tier: system_restart
+        reboot_required: false
+        nullable: true
+        properties:
+          socket_path:
+            type: string
+          source_clock_id:
+            type: string
+          world:
+            type: string
+          max_attitude_skew_s:
+            type: number
+            min: 1.0e-06
+            unit: seconds
+        required:
+        - socket_path
+        - source_clock_id
+        - world
+        - max_attitude_skew_s
+        additional_properties: false
       MOUNT_TYPE:
         type: string
         default: HORIZONTAL

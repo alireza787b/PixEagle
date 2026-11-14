@@ -160,9 +160,21 @@ def native_vtol_readiness(owner, monkeypatch, *, phase='multicopter', proof=True
 @pytest.mark.parametrize('phase,mode', [('multicopter', 'mc_velocity_chase'),
     ('multicopter', 'gm_velocity_vector'), ('fixed_wing', 'gm_velocity_vector')])
 def test_verified_native_vtol_settled_phase_can_pass_api_admission(owner, monkeypatch, phase, mode):
+    # Phase admission is independent of provider timing. The latter is tested
+    # with the real gimbal resolver and separately below at the API boundary.
+    monkeypatch.setattr('classes.gazebo_guidance_alignment.native_guidance_input_readiness',
+                        lambda *_: {'ready': True, 'reason_code': None})
     snapshot = native_vtol_readiness(owner, monkeypatch, phase=phase, mode=mode)
     assert snapshot['start_allowed'], snapshot['start_reason_codes']
     assert snapshot['guard']['start_context_id']
+    owner.app_controller.refresh_native_following_state.assert_not_awaited()
+    owner.app_controller.px4_interface.connect.assert_not_called()
+
+
+def test_native_fw_gimbal_phase_proof_alone_does_not_qualify_provider_timing(owner, monkeypatch):
+    snapshot = native_vtol_readiness(owner, monkeypatch, phase='fixed_wing')
+    assert not snapshot['start_allowed']
+    assert 'physical_capture_timing_unqualified' in snapshot['start_reason_codes']
     owner.app_controller.refresh_native_following_state.assert_not_awaited()
     owner.app_controller.px4_interface.connect.assert_not_called()
 
@@ -425,6 +437,8 @@ async def test_unexpected_refresh_error_keeps_generic_api_failure(owner, monkeyp
 def test_native_readiness_uses_cached_actual_phase_without_rpc(owner, monkeypatch, phase, reason):
     from classes.aircraft_state import AirframePhase
     from tests.unit.drone_interface.test_aircraft_state import aircraft_state
+    monkeypatch.setattr('classes.gazebo_guidance_alignment.native_guidance_input_readiness',
+                        lambda *_: {'ready': True, 'reason_code': None})
     monkeypatch.setattr(Parameters, 'FOLLOWER_MODE', 'gm_velocity_vector')
     owner._get_config_service = lambda: SimpleNamespace(get_parameter=lambda *_: 'gm_velocity_vector')
     owner.flight_test['aircraft_kind'] = 'fixed_wing'
