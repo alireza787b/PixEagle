@@ -46,7 +46,7 @@ test('fixed-wing airspeed uses native limits and carries its phase generation', 
   axios.get.mockResolvedValue({ data: snapshot([airspeed]) });
   render(<FollowerSessionControls active />);
   fireEvent.click(await screen.findByRole('button', { name: /Requested airspeed 18.0/ }));
-  expect(screen.getByText(/Minimum 12 m\/s/)).toBeInTheDocument();
+  expect(screen.getByText(/Minimum 12.0 m\/s/)).toBeInTheDocument();
   expect(screen.getByText(/Sensorless: actual airspeed/)).toBeInTheDocument();
   expect(screen.queryByText(/Zero stops translation/)).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: /Increase requested speed/ }));
@@ -120,8 +120,11 @@ test.each([NaN, Infinity, -1])('rejects malformed capability value %s', (value) 
   expect(validSessionControls([{ ...control, value }])).toBe(false);
 });
 
-test.each([['3.25', 3.25], ['0.25', .25], ['3.0', 3]])('shows the acknowledged precision %s', (text, value) => {
-  expect(speedText(value)).toBe(text);
+test.each([
+  ['3.3', 3.251234, .5], ['3.25', 3.251234, .25], ['0.25', .25, .25], ['3.0', 3, .5],
+  ['3', 3.251234, 1], ['3.2512', 3.251234, 1e-4], ['3.251234', 3.25123449, 1e-7],
+])('formats %s using the backend step', (text, value, step) => {
+  expect(speedText(value, step)).toBe(text);
 });
 
 test.each(['session', 'revision'])('a held press cannot adjust a changed %s', async (change) => {
@@ -266,4 +269,34 @@ test('a replacement session closes the old numeric editor without submitting it'
     expect(screen.getByRole('button', { name: /Requested 3D speed/ })).toHaveAttribute('aria-expanded', 'false');
     expect(axios.post).not.toHaveBeenCalled();
   } finally { jest.useRealTimers(); }
+});
+
+test('formats FW request, observation and limits without rounding editor or dispatched values', async () => {
+  const airspeed = { ...control, label: 'Airspeed', minimum: 10.2108402252, maximum: 30.123456,
+    value: 18.123456, step: .5, guidance_generation: 4, aircraft_phase: 'fixed_wing',
+    speed_basis: 'equivalent_airspeed', observed_speed_m_s: 15.096123, observed_speed_source: 'sensor' };
+  axios.get.mockResolvedValue({ data: snapshot([airspeed]) });
+  render(<FollowerSessionControls active />);
+  fireEvent.click(await screen.findByRole('button', { name: /Requested airspeed 18.1/ }));
+  expect(screen.getByText(/Minimum 10.2 m\/s/)).toBeInTheDocument();
+  expect(screen.getByText(/Maximum 30.1 m\/s/)).toBeInTheDocument();
+  expect(screen.getByText(/Observed: 15.1 m\/s/)).toBeInTheDocument();
+  expect(screen.getByLabelText('Requested speed (m/s)')).toHaveValue('18.123456');
+  fireEvent.change(screen.getByLabelText('Requested speed (m/s)'), { target: { value: '18.234567' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+  expect(axios.post.mock.calls[0][1]).toEqual(expect.objectContaining({ value: 18.234567 }));
+  await waitFor(() => expect(screen.getByRole('button', { name: /Increase requested speed/ })).not.toBeDisabled());
+  fireEvent.click(screen.getByRole('button', { name: /Increase requested speed/ }));
+  expect(axios.post.mock.calls[1][1]).toEqual(expect.objectContaining({ value: 18.123456 + .5 }));
+  await waitFor(() => expect(screen.getByRole('button', { name: /Increase requested speed/ })).not.toBeDisabled());
+});
+
+test('saved ceiling and command labels use the same advertised quarter-step precision', async () => {
+  axios.get.mockResolvedValue({ data: snapshot([{ ...control, step: .25,
+    configured_maximum: 3.126789, override_active: true, reset_supported: true,
+    effective_command_magnitude: 2.126789 }]) });
+  render(<FollowerSessionControls active />);
+  fireEvent.click(await screen.findByRole('button', { name: /Requested 3D speed 3.0/ }));
+  expect(screen.getByText(/Saved ceiling: 3.13 m\/s/)).toBeInTheDocument();
+  expect(screen.getByText(/Command: 2.13 m\/s/)).toBeInTheDocument();
 });

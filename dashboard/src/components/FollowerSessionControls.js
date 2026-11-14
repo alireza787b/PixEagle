@@ -42,9 +42,15 @@ const controlContext = (snapshot, id) => {
 
 const speedBasisText = (control) => control.speed_basis === 'equivalent_airspeed' ? 'Requested airspeed' : 'Requested 3D speed';
 
-export const speedText = (value) => Number(value.toFixed(6)).toLocaleString('en', {
-  minimumFractionDigits: 1, maximumFractionDigits: 6,
-});
+export const speedText = (value, step) => {
+  if (!Number.isFinite(value)) return 'Unavailable';
+  const [coefficient, exponent = '0'] = String(step).toLowerCase().split('e');
+  const decimalPlaces = (coefficient.split('.')[1]?.length || 0) - Number(exponent);
+  const precision = Math.min(6, Math.max(0, decimalPlaces));
+  return value.toLocaleString('en', {
+    minimumFractionDigits: Math.min(1, precision), maximumFractionDigits: precision,
+  });
+};
 
 export default function FollowerSessionControls({ active, showStop = false }) {
   const { hasScope } = useAuthSession();
@@ -261,7 +267,7 @@ export default function FollowerSessionControls({ active, showStop = false }) {
           <Button variant="outlined" sx={{ minWidth: 44, width: 44, minHeight: 44, flexShrink: 0, p: 0, fontSize: '1.4rem' }} disabled={disabled || control.value <= control.minimum}
             aria-label={`Decrease requested speed by ${control.step} ${control.unit}`}
             {...adjustmentHandlers(control.control_id, -1)}>−</Button>
-          <Button sx={{ minWidth: 80, minHeight: 44, flex: 1, px: 0.5, fontSize: '1rem', whiteSpace: 'nowrap', textTransform: 'none' }} aria-label={`${speedBasisText(control)} ${speedText(control.value)} ${control.unit}, this session. Show details`}
+          <Button sx={{ minWidth: 80, minHeight: 44, flex: 1, px: 0.5, fontSize: '1rem', whiteSpace: 'nowrap', textTransform: 'none' }} aria-label={`${speedBasisText(control)} ${speedText(control.value, control.step)} ${control.unit}, this session. Show details`}
             title="Requested speed · tap to enter a value"
             aria-expanded={expanded === control.control_id}
             onClick={() => {
@@ -269,7 +275,7 @@ export default function FollowerSessionControls({ active, showStop = false }) {
               setEditValue(String(control.value));
               editContext.current = controlContext(currentStatus.current, control.control_id);
             }}>
-            {speedText(control.value)} {control.unit}
+            {speedText(control.value, control.step)} {control.unit}
           </Button>
           <Button variant="outlined" sx={{ minWidth: 44, width: 44, minHeight: 44, flexShrink: 0, p: 0, fontSize: '1.4rem' }}
             disabled={disabled || !control.increase_allowed || (control.maximum !== null && control.value >= control.maximum)}
@@ -298,17 +304,17 @@ export default function FollowerSessionControls({ active, showStop = false }) {
           {!editorCurrent && <Typography variant="caption" role="status">Speed or session changed. Close and reopen the editor.</Typography>}
           <Typography variant="caption" component="p" sx={{ whiteSpace: 'pre-line' }}>{speedBasisText(control)} · this following session.
             {control.description ? `\n${control.description}` : ''}
-            {control.reset_supported ? `\n${control.override_active ? 'Saved speed limits are overridden. Restore reapplies them and keeps or lowers this request.' : 'Saved speed limits apply.'}\nSaved ceiling: ${control.configured_maximum} ${control.unit}.`
-              : control.maximum === null ? ' No configured velocity ceiling.' : ` Maximum ${control.maximum} ${control.unit}.`}
+            {control.reset_supported ? `\n${control.override_active ? 'Saved speed limits are overridden. Restore reapplies them and keeps or lowers this request.' : 'Saved speed limits apply.'}\nSaved ceiling: ${speedText(control.configured_maximum, control.step)} ${control.unit}.`
+              : control.maximum === null ? ' No configured velocity ceiling.' : ` Maximum ${speedText(control.maximum, control.step)} ${control.unit}.`}
             {'\n'}{control.speed_basis === 'equivalent_airspeed'
-              ? `Minimum ${control.minimum} ${control.unit}. PX4 controls the turn and vertical path; this is an airspeed reference, not measured speed. Stop ends following.`
+              ? `Minimum ${speedText(control.minimum, control.step)} ${control.unit}. PX4 controls the turn and vertical path; this is an airspeed reference, not measured speed. Stop ends following.`
               : 'Altitude and rate settings are unchanged. Zero stops translation; Stop ends following.'}
             {control.observed_speed_source === 'native_airspeedless'
               ? '\nSensorless: actual airspeed and stall margin are unavailable.'
               : Number.isFinite(control.observed_speed_m_s)
-                ? `\nObserved: ${speedText(control.observed_speed_m_s)} ${control.unit}${control.observed_speed_source === 'ground_minus_wind' ? ' · wind estimate' : ''}.` : ''}
+                ? `\nObserved: ${speedText(control.observed_speed_m_s, control.step)} ${control.unit}${control.observed_speed_source === 'ground_minus_wind' ? ' · wind estimate' : ''}.` : ''}
             {Number.isFinite(control.effective_command_magnitude)
-              ? `\nCommand: ${control.effective_command_magnitude.toFixed(1)} ${control.unit}.` : ''}
+              ? `\nCommand: ${speedText(control.effective_command_magnitude, control.step)} ${control.unit}.` : ''}
           </Typography>
         </Collapse>
         <Typography variant="caption" role="status">{pending ? 'Updating…' : !fresh ? 'Refreshing…'

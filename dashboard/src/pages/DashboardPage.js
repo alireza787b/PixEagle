@@ -28,7 +28,7 @@ import RecordingQuickControl from '../components/RecordingQuickControl';
 import RecordingIndicator from '../components/RecordingIndicator';
 
 import { videoFeed, endpoints } from '../services/apiEndpoints';
-import { buildActionRequest } from '../services/actionRequests';
+import { buildActionRequest, followingStartFailureMessage } from '../services/actionRequests';
 import { apiFetch, apiFetchJson, getMediaElementCrossOrigin } from '../services/apiClient';
 import {
   useCircuitBreakerStatus,
@@ -218,8 +218,9 @@ const DashboardPage = () => {
       }
 
       if (!response.ok || data.status === 'failure') {
-        setSnackbarMessage(
-          `Operation failed: ${data.error || data.detail?.message || data.message || data.code || 'Unknown error'}`
+        console.error(`Action failed from ${endpoint}:`, data);
+        setSnackbarMessage(isStartEndpoint ? followingStartFailureMessage(data)
+          : `Operation failed: ${data.error || data.detail?.message || data.message || data.code || 'Unknown error'}`
         );
         setSnackbarSeverity('error');
         setSnackbarOpen(true);
