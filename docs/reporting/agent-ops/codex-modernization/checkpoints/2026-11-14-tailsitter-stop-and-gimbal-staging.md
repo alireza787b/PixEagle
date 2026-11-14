@@ -230,3 +230,13 @@ Software slice gate: 683 focused camera/provider/selection/lifecycle/profile/
 launcher/API/Phase 0 tests passed; generated schema matches defaults and the
 critical Python lint gate passes. Results are in
 `rendered-selection-software-r1.log` and `rendered-selection-schema-r1.log`.
+
+Integrated controls validation r1 reached the normal backend and advertised
+fresh camera status, point selection, pan/tilt/Home/Stop and manual gestures.
+It then stopped on a >250 ms observed-pose gap. The ideal actuator incorrectly
+classified that gap as unrecoverable source-clock corruption. The repaired
+model rebases on fresh feedback with zero integration across the missing
+interval, cancels latched manual motion and counts gaps. Regressions still
+reject backwards/replaced timestamps. No-op camera pose requests are skipped
+and unchanged GUI snapshots are limited to 10 Hz to avoid unnecessary service
+and filesystem contention. The old failed run is retained unchanged.

@@ -117,6 +117,7 @@ class IdealStabilizedGimbal:
         self._heading = 0.
         self._previous = None
         self._manual = None
+        self.pose_gaps = 0
 
     def aim(self, azimuth_deg, elevation_deg):
         self._aim = _direction(azimuth_deg, elevation_deg)
@@ -173,9 +174,16 @@ class IdealStabilizedGimbal:
                     raise ValueError('gimbal_pose_rewritten')
                 return None
             dt = (pose.timestamp_us - previous.timestamp_us) * 1e-6
-            if (not 0 < dt <= self.settings.maximum_pose_gap_s
-                    or pose.received_at_monotonic_s <= previous.received_at_monotonic_s):
+            if dt <= 0 or pose.received_at_monotonic_s <= previous.received_at_monotonic_s:
                 raise ValueError('gimbal_pose_progress_invalid')
+            if dt > self.settings.maximum_pose_gap_s:
+                # A missed observation is not a clock reset. Rebase the ideal
+                # actuator on feedback; never integrate/replay manual movement
+                # across the unknown interval. Source ages remain unmodified.
+                self.pose_gaps += 1
+                self._manual = None
+                self._aim = pose.direction_ned
+                dt = 0.
         else:
             dt = 0.
         offset = pose.body_to_ned.rotate(self.settings.camera_offset_body_frd_m)

@@ -105,6 +105,7 @@ class RenderedGimbalSource:
         self.stopped = False
         self.pose_replaced = self.sent = self.client_failures = 0
         self.scene_control = None
+        self._last_state_write = None
 
     def receive(self, message):
         received = self.clock()
@@ -209,11 +210,16 @@ class RenderedGimbalSource:
             self.pending_packets = packets
             self.latest_pose = pose
             self.condition.notify_all()
-        atomic_json(self.private / 'operator-state.json', dict(incarnation=self.incarnation,
+        state = dict(incarnation=self.incarnation,
             control_sequence=self.control_sequence, tracking_state=self.model.tracking_state.name,
-            control_error=self.control_error,
+            control_error=self.control_error, pose_gaps=self.model.pose_gaps,
             pose=asdict(pose), angles_deg=raw, target_ned=None if self.model.target_ned is None else asdict(self.model.target_ned),
-            camera_model=self.camera_model, aircraft_model=self.aircraft_model, mechanics_qualified=False))
+            camera_model=self.camera_model, aircraft_model=self.aircraft_model, mechanics_qualified=False)
+        last = self._last_state_write
+        identity = self.control_sequence, self.model.tracking_state, self.control_error, self.model.pose_gaps
+        if last is None or last[1] != identity or self.clock() - last[0] >= .1:
+            atomic_json(self.private / 'operator-state.json', state)
+            self._last_state_write = self.clock(), identity
         return intent
 
 
@@ -356,6 +362,12 @@ def main():
             pose, camera_id = selected
             intent = source.process(pose)
             if intent is not None:
+                p, q = pose.camera_position_ned, pose.camera_to_ned
+                distance = math.dist((p.x, p.y, p.z),
+                    (intent.position_ned.x, intent.position_ned.y, intent.position_ned.z))
+                alignment = abs(sum(getattr(q, key) * getattr(intent.camera_to_ned, key) for key in ('w', 'x', 'y', 'z')))
+                if distance < 1e-6 and alignment > 1. - 1e-12:
+                    continue  # No-op camera writes add contention, not fidelity.
                 request = pose_request(intent, camera_model=source.camera_model, camera_id=camera_id, message_type=Pose)
                 ok, reply = node.request(f'/world/{config["world"]}/set_pose', request, Pose, Boolean, 20)
                 request_count += 1
@@ -374,6 +386,7 @@ def main():
         print(json.dumps(dict(pose_requests=request_count, unacknowledged_pose_requests=unacknowledged,
             packets_sent=source.sent, replaced_pending_poses=source.pose_replaced, client_failures=source.client_failures,
             mechanics='ideal_stabilized', scene_selection=history.diagnostics(),
+            pose_gaps=source.model.pose_gaps,
             frames_received=stream.frame_id, frames_sent=stream.sent,
             aircraft_commands_sent=False)), flush=True)
 

@@ -80,7 +80,7 @@ def test_lost_target_does_not_claim_perfect_observations_or_renew_lock():
     assert model.target_ned is None and model.tracking_state is TrackingState.DISABLED
 
 
-@pytest.mark.parametrize('changes', [dict(timestamp_us=999_999), dict(timestamp_us=1_500_000),
+@pytest.mark.parametrize('changes', [dict(timestamp_us=999_999),
     dict(received_at_monotonic_s=99.), dict(camera_to_ned=Quaternion.from_euler(0., 0., .1))])
 def test_clock_reset_gap_and_rewritten_pose_fail_instead_of_becoming_motion(changes):
     model = IdealStabilizedGimbal(IdealGimbalSettings(Vector3(0., 0., 0.)))
@@ -119,3 +119,29 @@ def test_reaching_the_point_reports_loss_without_an_undefined_ray():
     intent = model.observe(observed(timestamp_us=1_100_000, received_at_monotonic_s=100.1,
         camera_position_ned=Vector3(20., 0., -20.)))
     assert intent is not None and model.tracking_state is TrackingState.TARGET_LOST
+
+
+def test_observation_gap_rebases_from_feedback_without_replaying_manual_movement():
+    model = IdealStabilizedGimbal(IdealGimbalSettings(Vector3(0., 0., 0.)))
+    pose = observed()
+    model.observe(pose)
+    model.manual('pan', 1., 30.)
+    after_gap = replace(pose, timestamp_us=1_500_000, received_at_monotonic_s=100.5)
+    intent = model.observe(after_gap)
+    assert model.pose_gaps == 1 and model._manual is None
+    assert intent.camera_to_ned == after_gap.camera_to_ned
+    later = model.observe(replace(after_gap, timestamp_us=1_600_000, received_at_monotonic_s=100.6))
+    assert later.camera_to_ned == after_gap.camera_to_ned
+    assert model.tracking_state is TrackingState.DISABLED
+
+
+def test_observation_gap_keeps_a_scene_target_without_claiming_motor_motion():
+    model = IdealStabilizedGimbal(IdealGimbalSettings(Vector3(0., 0., 0.)))
+    pose = observed()
+    model.observe(pose)
+    target = Vector3(10., 10., 0.)
+    model.lock_point(target)
+    after_gap = replace(pose, timestamp_us=1_500_000, received_at_monotonic_s=100.5)
+    command = model.observe(after_gap)
+    assert command.camera_to_ned == after_gap.camera_to_ned
+    assert model.target_ned is target and model.tracking_state is TrackingState.TARGET_SELECTION
