@@ -425,6 +425,28 @@ async def native_target_action(owner, request, response, http_request, action_ty
                             raise NativeTargetError("idempotency_conflict", "This key belongs to a different target request.")
                         response.status_code = 200
                         return replay
+                resolved_camera_selection = None
+                if action_type == "gimbal_control" and request.operation == "select":
+                    from classes.gimbal_control import prepare_gimbal_selection, _provider
+
+                    control = getattr(_provider(app), "manual_control", None)
+                    resolver = getattr(control, "resolve_selection", None)
+                    if callable(resolver):
+                        with app._tracker_model_state_lock, _context_transaction(owner):
+                            preview = _validate_guard(owner, request, principal, action_type)
+                            frame = _validate_frame(owner, request, preview)
+                            try:
+                                prepared = prepare_gimbal_selection(app, request,
+                                    selection_orientation=frame["geometry_key"],
+                                    source_sample=frame["stamped"].capture.source_sample)
+                            except ValueError as exc:
+                                raise NativeTargetError("invalid_target_coordinates", str(exc), 422) from exc
+                        # Provider lookup is read-only. No synchronous model or
+                        # publisher lock may cross IO; admission is checked again below.
+                        try:
+                            resolved_camera_selection = await resolver(prepared)
+                        except (ValueError, RuntimeError) as exc:
+                            raise NativeTargetError("invalid_target_coordinates", str(exc), 422) from exc
                 publisher = getattr(owner, "frame_publisher", None)
                 with app._tracker_model_state_lock, _context_transaction(owner):
                     before = _validate_guard(owner, request, principal, action_type)
@@ -487,9 +509,14 @@ async def native_target_action(owner, request, response, http_request, action_ty
                         from classes.gimbal_control import prepare_gimbal_selection
 
                         try:
-                            prepared_camera_selection = prepare_gimbal_selection(
+                            prepared_camera_selection = resolved_camera_selection or prepare_gimbal_selection(
                                 app, request, selection_orientation=entry["geometry_key"],
+                                source_sample=entry["stamped"].capture.source_sample,
                             )
+                            control = getattr(_provider(app), "manual_control", None) if resolved_camera_selection else None
+                            if resolved_camera_selection and (prepared_camera_selection.control is not control
+                                    or prepared_camera_selection.mode != control.selection_mode):
+                                raise ValueError("Camera selection mode changed; select the target again")
                         except ValueError as exc:
                             raise NativeTargetError("invalid_target_coordinates", str(exc), 422) from exc
                     runtime = getattr(app, "camera_runtime", None)

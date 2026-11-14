@@ -33,6 +33,9 @@ Moving a slider or target never starts aircraft following.
 
 The rendered Mode C checkpoint now has an explicitly ideal stabilized camera
 with actual Gazebo pose feedback, source-stamped SIP input and world-point lock.
+The rendered adapter exposes point selection and camera controls through the
+normal API used by both clients. Private simulator depth holds the designated
+scene point; the production follower receives only angles and tracking state.
 Use the [gimbal tool guide](../../gimbal_simulator.md#rendered-gimbal-training)
 for assumptions and controls. The [coastal scene](../../../native/gazebo/README.md)
 adds varied ground and aerial visual targets without changing aircraft physics.

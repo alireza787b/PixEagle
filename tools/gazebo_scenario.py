@@ -149,6 +149,48 @@ def _remove_instrumentation_camera(world, value):
     world.remove(matches[0])
 
 
+def camera_pose_publisher(instance):
+    plugin = ET.Element('plugin', filename='gz-sim-pose-publisher-system', name='gz::sim::systems::PosePublisher')
+    for name, value in dict(publish_model_pose='true', publish_link_pose='false',
+            use_pose_vector_msg='false', update_frequency='-1', topic=f'/model/{instance}/pose').items():
+        ET.SubElement(plugin, name).text = value
+    return plugin
+
+
+def _rgbd_camera(value, manifest, files):
+    """Explicit depth instrumentation derived from byte-pinned stock optics."""
+    declaration = value['rgbd_camera']
+    if (not isinstance(declaration, dict) or set(declaration) != {'base_model', 'model', 'files', 'update_rate_hz'}
+            or declaration['base_model'] != 'mono_cam' or declaration['model'] != value['camera']['model']
+            or declaration['model'] in manifest['artifacts']['gazebo']
+            or not re.fullmatch(r'[a-z][a-z0-9_]*', declaration['model'])
+            or type(declaration['update_rate_hz']) is not int or not 1 <= declaration['update_rate_hz'] <= 30
+            or set(declaration['files']) != {'model.sdf', 'model.config'}):
+        raise ValueError('Gazebo RGB-D camera declaration invalid')
+    model = declaration['model']
+    additions = {}
+    for name, pin in declaration['files'].items():
+        relative = f'models/{model}/{name}'
+        if relative in manifest['artifacts']['gazebo'] or pin.get('executable') is not False:
+            raise ValueError('Gazebo RGB-D camera cannot replace packaged resources')
+        raw = _read_file(SCENARIOS.parent, relative, pin)
+        files['gazebo/' + relative] = raw
+        additions[relative] = pin
+    base = ET.fromstring(files['gazebo/models/mono_cam/model.sdf'])
+    base.find('model').set('name', model)
+    sensor = base.find('./model/link/sensor')
+    sensor.set('type', 'rgbd_camera')
+    sensor.find('update_rate').text = str(declaration['update_rate_hz'])
+    base.find('model').append(camera_pose_publisher(value['instrumentation_camera']['instance']))
+    if _canonical(base) != _canonical(ET.fromstring(files[f'gazebo/models/{model}/model.sdf'])):
+        raise ValueError('Gazebo RGB-D camera differs from declared stock optical derivative')
+    configuration = ET.fromstring(files[f'gazebo/models/{model}/model.config'])
+    if (configuration.tag != 'model' or configuration.findtext('name') != model
+            or [node.text for node in configuration.findall('sdf')] != ['model.sdf']):
+        raise ValueError('Gazebo RGB-D model configuration invalid')
+    return additions
+
+
 def _added_world(value: dict, manifest: dict, files: dict) -> dict:
     """Permit one additional world, never an override of a packaged resource."""
     addition = value["added_world"]
@@ -300,6 +342,8 @@ def verified_scenario(name: str, baseline: dict, manifest: dict) -> dict:
         fields |= {'scene_additions', 'instrumentation_camera', 'server_config'}
         if 'scene_assets' in value:
             fields.add('scene_assets')
+        if 'rgbd_camera' in value:
+            fields.add('rgbd_camera')
     if (not isinstance(value, dict) or set(value) != fields or type(value["schema_version"]) is not int
             or value["schema_version"] not in (1, 2, 3, 4) or value["name"] != name):
         raise ValueError("Invalid Gazebo scenario descriptor")
@@ -348,6 +392,8 @@ def verified_scenario(name: str, baseline: dict, manifest: dict) -> dict:
     additions = _added_camera_model(value, manifest, files) if value["schema_version"] == 3 else {}
     if value['schema_version'] == 4:
         additions.update(_scene_assets(value, files))
+        if 'rgbd_camera' in value:
+            additions.update(_rgbd_camera(value, manifest, files))
     if "server_config" in value:
         additions.update(_raw_camera_server(value, files))
     # Include complete model directories (meshes, textures, configs), not just SDFs.
@@ -385,7 +431,7 @@ def verified_scenario(name: str, baseline: dict, manifest: dict) -> dict:
         raise ValueError("Gazebo scenario resource closure is invalid") from error
     camera_root = ET.fromstring(files[f'gazebo/models/{camera["model"]}/model.sdf'])
     sensors = camera_root.findall(f'./model/link[@name="{camera["link"]}"]/sensor[@name="{camera["sensor"]}"]')
-    if len(sensors) != 1 or sensors[0].get("type") != "camera":
+    if len(sensors) != 1 or sensors[0].get("type") != ('rgbd_camera' if 'rgbd_camera' in value else 'camera'):
         raise ValueError("Gazebo scenario camera is missing or ambiguous")
     return {"name": name, "descriptor_sha256": hashlib.sha256(raw).hexdigest(), "descriptor": value,
             "expected_parameters": expected, "build_manifest_sha256": baseline["manifest_sha256"],

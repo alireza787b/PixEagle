@@ -289,6 +289,8 @@ SCHEMA_OVERRIDES = {
             'source_clock_id': {'type': 'string'},
             'world': {'type': 'string'},
             'max_attitude_skew_s': {'type': 'number', 'min': 0.000001, 'unit': 'seconds'},
+            'control_contract': {'type': 'string', 'nullable': True, 'enum': ['rendered_scene_v1'],
+                                 'description': 'Private rendered scene control contract; absent/null is input-only.'},
         },
         'required': ['socket_path', 'source_clock_id', 'world', 'max_attitude_skew_s'],
         'additional_properties': False,

@@ -206,7 +206,8 @@ def prepare(
             UDP_HOST=camera_host, MOUNT_TYPE=mount_type,
         )
     if gazebo_gimbal is not None:
-        config['GimbalTracker'].update(ENABLED=True, CONTROL_ENABLED=False,
+        config['GimbalTracker'].update(ENABLED=True,
+            CONTROL_ENABLED=gazebo_gimbal.get('control_contract') == 'rendered_scene_v1',
             PROVIDER='topotek_sip_udp', MOUNT_TYPE=mount_type, GAZEBO_INPUT=dict(gazebo_gimbal))
     if fixed_camera_calibration is not None:
         from classes.fixed_camera_calibration import FixedCameraCalibration
@@ -346,7 +347,7 @@ def validate(directory: Path) -> dict:
         if (config['VideoSource'].get('VIDEO_SOURCE_TYPE') != 'GAZEBO_CAMERA'
                 or config['VideoSource'].get('GAZEBO_CAMERA') != settings
                 or config['GimbalTracker']['ENABLED'] is not (gimbal is not None)
-                or config['GimbalTracker']['CONTROL_ENABLED']
+                or config['GimbalTracker']['CONTROL_ENABLED'] is not bool(gimbal and gimbal.get('control_contract') == 'rendered_scene_v1')
                 or manifest.get('tracking_engine') != ('camera' if gimbal is not None else 'local')
                 or config['GimbalTracker'].get('GAZEBO_INPUT') != gimbal):
             raise ValueError('Gazebo profile source contract changed')

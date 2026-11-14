@@ -3380,6 +3380,12 @@ sections:
             type: number
             min: 1.0e-06
             unit: seconds
+          control_contract:
+            type: string
+            nullable: true
+            enum:
+            - rendered_scene_v1
+            description: Private rendered scene control contract; absent/null is input-only.
         required:
         - socket_path
         - source_clock_id

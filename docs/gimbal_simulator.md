@@ -104,8 +104,10 @@ remains authoritative for those boundaries.
 The rendered integration uses the same Topotek provider/parser, with optional
 `GimbalTracker.GAZEBO_INPUT`. Null (the factory default) retains ordinary UDP.
 This launcher-managed mapping declares a private Unix socket, world,
-source-clock ID and maximum PX4 attitude-sample skew. `CONTROL_ENABLED` stays
-false. Mount definitions and normal camera credential/control APIs are unchanged.
+source-clock ID and maximum PX4 attitude-sample skew. Input-only sources keep
+`CONTROL_ENABLED: false`. The rendered-scene adapter explicitly declares
+`control_contract: rendered_scene_v1` and enables only its implemented controls.
+Mount definitions and normal camera credential/control APIs are unchanged.
 
 The private envelope carries the SIP packet, actual Gazebo observation time and
 the producer's original monotonic receipt. Angle/status ages remain independent.
@@ -126,6 +128,23 @@ pending. Unmeasured FL-30 mechanics and image-roll behavior remain assumptions.
 
 ## Rendered gimbal training
 
+QGC and Dashboard use their ordinary camera point-selection, pan/tilt, Home,
+Cancel and Stop actions. Click a visible scene surface to designate it; the
+camera slews toward that point and reports active tracking only after observed
+camera feedback confirms centering. Retargeting uses the existing continuity
+transaction. Manual movement requires following to be stopped, as on hardware.
+Unsupported roll, zoom and Smart detection are not advertised.
+
+The real-camera contract remains **2D video plus gimbal angles and tracking
+state**. Simulator depth is private scene truth used solely to keep a clicked
+point under the simulated camera. It is never supplied to follower guidance as
+target range or 3D tracker output, and hardware needs no depth sensor. RGB,
+depth and camera pose must match the original displayed frame's simulator
+timestamp exactly; a read-only camera PosePublisher supplies step-rate poses.
+Sky, stale, unpaired or superseded selections preserve the previous target.
+Selection history and prepared tokens are bounded. QGC needs no simulator-,
+vendor- or mounting-specific client branch.
+
 `quadtailsitter-gimbal-camera-courtyard-v1` adds a separate instrumentation
 camera to the unchanged stock tailsitter/world plant. The canonical launcher
 accepts `--scenario quadtailsitter-gimbal-camera-courtyard-v1`,
@@ -136,6 +155,8 @@ never rewritten by this profile.
 
 - **Aim:** world bearing and elevation sliders rotate the rendered view.
   Drag updates are coalesced; only one acknowledged input is outstanding.
+  This is manual pointing and clears simulated lock; click the scene again to
+  acquire a new target. It does not keep the old target while pointing elsewhere.
 - **Horizon:** resets elevation without inferring aircraft flight phase.
 - **Lock current aim:** holds a finite world point along the currently observed
   camera ray at the entered simulated range. Range is a fixture input, not
@@ -145,7 +166,9 @@ never rewritten by this profile.
   input preserves the old target/live source and reports rejection.
 
 The model uses a configurable 90°/s ideal pointing response and a declared
-camera offset. It does not model a qualified joint chain, motor torque,
+camera offset. The training fixture uses `[0.75, 0, -1.1]` m in physical body
+FRD to clear the stock mesh in both phases; this is not hardware calibration.
+It does not model a qualified joint chain, motor torque,
 backlash, obstruction or stabilization plant. Angles come from actual Gazebo
 camera/aircraft pose feedback, never from an assumed successful movement
 request. Camera intents do not move the aircraft. Original source timestamps

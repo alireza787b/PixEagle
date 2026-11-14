@@ -89,7 +89,7 @@ def test_invalid_operator_input_cannot_become_tracking(source, mutation):
 def test_loss_and_release_are_explicit_source_states_without_aircraft_actions(source):
     source.process(pose())
     for index, (operation, fields, expected) in enumerate([
-        ('lock', {'range_m': 25.}, 'TRACKING_ACTIVE'), ('lost', {}, 'TARGET_LOST'), ('release', {}, 'DISABLED')], 1):
+        ('lock', {'range_m': 25.}, 'TARGET_SELECTION'), ('lost', {}, 'TARGET_LOST'), ('release', {}, 'DISABLED')], 1):
         command(source, operation, **fields)
         source.process(replace(pose(), timestamp_us=1_000_000 + index*100_000, received_at_monotonic_s=100. + index*.1))
         value = json.loads((source.private / 'operator-state.json').read_text())

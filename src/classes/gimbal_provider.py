@@ -182,6 +182,7 @@ def create_gimbal_provider(
         settings = validate_gazebo_gimbal_config(provider_config.settings or {})
         if settings is not None:
             return GazeboSipGimbalProvider(settings,
+                control_enabled=provider_config.get('CONTROL_ENABLED', False) is True,
                 connection_timeout=float(provider_config.get('CONNECTION_TIMEOUT', 2.0)),
                 tracking_status_timeout=float(provider_config.get('TRACKING_STATUS_TIMEOUT', 2.0)))
         return SipUdpGimbalProvider(

@@ -298,7 +298,7 @@ class SipGimbalControl:
 def _provider(app):
     runtime = getattr(app, "camera_runtime", None)
     if runtime is not None:
-        return runtime.provider
+        return getattr(runtime, "provider", None)
     tracker = getattr(app, "tracker", None)
     if not getattr(tracker, "is_external_tracker", False):
         return None
@@ -362,7 +362,7 @@ def _camera_point(app, provider, x, y):
                source.get("type") in ("RTSP_OPENCV", "RTSP_STREAM")
                and urlsplit(source.get("url", "")).hostname == provider.gimbal_ip)
     if not matches:
-        raise ValueError("Manual camera selection requires this gimbal's RTSP video")
+        raise ValueError("Selection requires video from this camera")
     frame = video.get_frame_status()
     stamp = frame.get("last_successful_frame_time")
     if (frame.get("source") != "fresh" or not isinstance(stamp, (int, float)) or
@@ -371,7 +371,7 @@ def _camera_point(app, provider, x, y):
     return inverse_video_point(x, y, video._frame_rotation_deg, video._frame_flip_mode)
 
 
-def prepare_gimbal_selection(app, request, *, selection_orientation=None):
+def prepare_gimbal_selection(app, request, *, selection_orientation=None, source_sample=None):
     """Validate adapter geometry before lifecycle or target ownership changes."""
     provider = _provider(app)
     control = getattr(provider, "manual_control", None)
@@ -388,6 +388,9 @@ def prepare_gimbal_selection(app, request, *, selection_orientation=None):
     width, height = request.width, request.height
     if rotation in (90, 270):
         width, height = height, width
+    frame_prepare = getattr(control, "prepare_selection_from_frame", None)
+    if callable(frame_prepare):
+        return frame_prepare(x=x, y=y, width=width, height=height, source_sample=source_sample)
     return prepare(x=x, y=y, width=width, height=height)
 
 

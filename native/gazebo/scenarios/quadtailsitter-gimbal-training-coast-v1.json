@@ -22,7 +22,7 @@
   "models": [
     "quadtailsitter",
     "airspeed",
-    "mono_cam",
+    "training_rgbd_camera",
     "arucotag"
   ],
   "scene_models": [
@@ -206,13 +206,13 @@
   "camera": {
     "link": "camera_link",
     "sensor": "camera",
-    "model": "mono_cam",
+    "model": "training_rgbd_camera",
     "udp_port": 5600
   },
   "added_world": {
     "resource": "worlds/pixeagle_training_coast_v1.sdf",
     "base_resource": "worlds/aruco.sdf",
-    "sha256": "4932a7eb6dad631985d88f39f5e23f24bc9118cc71c83a8b3ee83f2eedea7cd0",
+    "sha256": "55aae2afb3dcb17d3cc435857b70e0472ca445b94d488ac18f6710876a724cd4",
     "executable": false
   },
   "target": {
@@ -627,13 +627,28 @@
       0
     ],
     "offset_body_frd_m": [
+      0.75,
       0,
-      0,
-      -0.34
+      -1.1
     ],
     "pointing_rate_deg_s": 90.0,
     "maximum_pose_gap_s": 0.25,
     "mechanics": "ideal_stabilized"
+  },
+  "rgbd_camera": {
+    "base_model": "mono_cam",
+    "model": "training_rgbd_camera",
+    "update_rate_hz": 20,
+    "files": {
+      "model.sdf": {
+        "sha256": "9d5dae88576e7e0566fffc96fef32e40dae37903a2af9aaae6ec0714946c021d",
+        "executable": false
+      },
+      "model.config": {
+        "sha256": "45cc4d9bc44377f618ac29a0a27981e89d6e23d0032c9a6c30861dffa181e7af",
+        "executable": false
+      }
+    }
   },
   "scene_assets": {
     "models/pixeagle_training_art/materials/textures/pixeagle-banner.png": {

@@ -202,8 +202,11 @@ def camera_training_source(args, scenario, token):
         raise ValueError('Gazebo image clock source contract differs from the verified firmware')
     camera = descriptor['camera']
     relative = f'gazebo/models/{camera["model"]}/model.sdf'
-    sdf = args.build_manifest.resolve().parent / 'packaged' / relative
-    if native_runtime.digest(sdf) != descriptor['resources'][relative]['sha256']:
+    added_camera = relative.removeprefix('gazebo/') in scenario.get('added_resources', {})
+    sdf = (ROOT / 'native' / relative if added_camera else args.build_manifest.resolve().parent / 'packaged' / relative)
+    camera_pin = (scenario['added_resources'][relative.removeprefix('gazebo/')] if added_camera
+                  else descriptor['resources'][relative])
+    if native_runtime.digest(sdf) != camera_pin['sha256']:
         raise ValueError('Gazebo calibration camera resource changed')
     camera_tree = ET.fromstring(sdf.read_bytes())
     sensor = camera_tree.find(
@@ -231,7 +234,7 @@ def camera_training_source(args, scenario, token):
     focal = width / (2 * math.tan(hfov / 2))
     intrinsics = dict(image_size_px=[width, height], focal_length_px=[focal, focal],
                       principal_point_px=[width / 2, height / 2])
-    calibration = None if rotation is None else dict(source_signature=signature, revision='gazebo-pinhole-' + descriptor['resources'][relative]['sha256'][:16],
+    calibration = None if rotation is None else dict(source_signature=signature, revision='gazebo-pinhole-' + camera_pin['sha256'][:16],
         pixel_grid='decoder_pre_orientation', image_size_px=[width, height], focal_length_px=[focal, focal],
         principal_point_px=[width / 2, height / 2],
         optical_to_body_frd_wxyz=[rotation.w, rotation.x, rotation.y, rotation.z],
@@ -292,13 +295,18 @@ def start_gimbal_provider(runtime, profile, token, primary, baseline, scenario, 
     config = yaml.safe_load((profile / 'configs/config.yaml').read_text())['GimbalTracker']
     private = runtime / 'gimbal-source'
     private.mkdir(mode=0o700)
+    camera_private = runtime / 'camera'
+    camera_private.mkdir(mode=0o700)
+    from classes.frame_publisher import FramePublisher
     source = dict(world=camera_source['config']['world'], source_clock_id=camera_source['config']['source_clock_id'],
         aircraft_model=scenario['descriptor']['model'] + '_0',
-        instrumentation_camera=scenario['descriptor']['instrumentation_camera'], gimbal_config=config)
+        instrumentation_camera=scenario['descriptor']['instrumentation_camera'], gimbal_config=config,
+        camera=camera_source, selection_max_age_s=FramePublisher.SELECTION_MAX_AGE_MS / 1000)
     source_path = runtime / 'gimbal-source.json'
     write(source_path, source)
     argv = container_args('pixeagle-training-gimbal-' + token[:12], token, primary,
         [(ROOT, '/app', True), (private, '/run/pixeagle-gimbal', False),
+         (camera_private, '/run/pixeagle-camera', False),
          (source_path, '/run/gimbal-source.json', True)],
         dict(GZ_IP='127.0.0.1', GZ_PARTITION=token, HOME='/tmp', PYTHONDONTWRITEBYTECODE='1'), baseline['image_id'])
     argv[-1:-1] = ['--entrypoint', '/usr/bin/python3']
@@ -314,13 +322,24 @@ def start_gimbal_provider(runtime, profile, token, primary, baseline, scenario, 
                 or info['HostConfig']['Privileged'] or info['HostConfig'].get('Devices')
                 or info['NetworkSettings']['Ports']):
             raise ValueError('Gimbal instrumentation identity or isolation changed')
-        if (private / 'gimbal.sock').is_socket() and (private / 'operator-state.json').is_file():
+        if ((private / 'gimbal.sock').is_socket() and (private / 'operator-state.json').is_file()
+                and (private / 'control.sock').is_socket() and (camera_private / 'camera.sock').is_socket()
+                and (camera_private / 'camera-info.json').is_file()):
+            confirmation = json.loads((camera_private / 'camera-info.json').read_text())
+            if (confirmation.get('actual_camera_info_confirmation') is not True
+                    or confirmation.get('source_clock_id') != camera_source['config']['source_clock_id']
+                    or confirmation.get('image_topic') != camera_source['config']['image_topic']):
+                raise ValueError('Rendered camera intrinsics/source confirmation changed')
             write(runtime / 'gimbal-source-receipt.json', dict(container_id=cid, source=source,
                 mechanics_qualified=False, aircraft_commands_sent=False,
                 source_files={name: native_runtime.digest(ROOT / name) for name in (
                     'tools/gazebo_gimbal_provider.py', 'tools/gazebo_gimbal_model.py',
-                    'tools/gazebo_gimbal_gui.py', 'src/classes/gazebo_gimbal_source.py', 'src/classes/gimbal_geometry.py')}))
-            return [(private, Path('/run/pixeagle-gimbal'), False)]
+                    'tools/gazebo_gimbal_gui.py', 'tools/gazebo_camera_provider.py', 'tools/gazebo_rendered_control.py',
+                    'tools/gazebo_scene_selection.py', 'src/classes/gazebo_camera_control.py',
+                    'src/classes/gazebo_gimbal_source.py', 'src/classes/gimbal_geometry.py')}))
+            write(runtime / 'camera-source.json', camera_source | dict(container_id=cid,
+                image_id=baseline['image_id'], renderer_or_following_qualified=False))
+            return [(private, Path('/run/pixeagle-gimbal'), False), (camera_private, Path('/run/pixeagle-camera'), False)]
         time.sleep(.05)
     raise TimeoutError('Gimbal instrumentation did not supply observed camera feedback')
 
@@ -470,9 +489,11 @@ def run(args):
     video = dict(gazebo_camera=camera_source['config'], fixed_camera_calibration=camera_source['calibration']) if camera_source else dict(
         udp_url=f'udp://127.0.0.1:{scenario["descriptor"]["camera"]["udp_port"]}')
     gimbal = None if rendered_gimbal is None else dict(socket_path='/run/pixeagle-gimbal/gimbal.sock',
-        source_clock_id=camera_source['config']['source_clock_id'], world=camera_source['config']['world'], max_attitude_skew_s=.05)
+        source_clock_id=camera_source['config']['source_clock_id'], world=camera_source['config']['world'],
+        max_attitude_skew_s=.05, control_contract='rendered_scene_v1')
     prepare(profile, **video, gazebo_gimbal=gimbal, mount_type=getattr(args, 'mount_type', 'HORIZONTAL'),
         follower_mode=args.follower_mode, tracking_engine='camera' if rendered_gimbal is not None else 'local', backend_port=args.port,
+        continuity_mode=getattr(args, 'continuity_mode', 'immediate_handoff'),
         dashboard_port=args.dashboard_port if args.dashboard_build else None,
         enable_altitude_control=True, username='admin', password='admin')
     qgc_identity = qgc_build_identity(args.qgc)
@@ -526,7 +547,7 @@ def run(args):
             adapter.start()
             native_mounts = start_native_wire_recorder(args, runtime, profile, token, primary, containers)
             write(runtime / 'run.json', receipt)
-        if camera_source is not None:
+        if camera_source is not None and rendered_gimbal is None:
             native_mounts += start_camera_provider(args, runtime, token, primary, baseline, camera_source, containers)
             write(runtime / 'run.json', receipt)
         if rendered_gimbal is not None:
@@ -640,6 +661,8 @@ def main():
                         help='Initial follower compatible with the selected input; actual aircraft phase still gates Start')
     parser.add_argument('--mount-type', choices=('HORIZONTAL', 'VERTICAL'), default='HORIZONTAL',
                         help='Canonical gimbal installation preset, independent of aircraft phase')
+    parser.add_argument('--continuity-mode', choices=('immediate_handoff', 'bounded_decay'), default='immediate_handoff',
+                        help='Explicit disposable-profile recovery policy; factory and saved configurations are unchanged')
     parser.add_argument('--python', type=Path, required=True)
     parser.add_argument('--bin-dir', type=Path, required=True)
     parser.add_argument('--router', type=Path, required=True)

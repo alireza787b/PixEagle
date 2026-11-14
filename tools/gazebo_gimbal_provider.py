@@ -46,6 +46,12 @@ def atomic_json(path, value):
     temporary.replace(path)
 
 
+def gazebo_pose_to_ned(value):
+    p, q = value.position, value.orientation
+    return Vector3(p.y, p.x, -p.z), ENU_TO_NED.compose(
+        Quaternion(q.w, q.x, q.y, q.z)).compose(FLU_TO_FRD)
+
+
 def observed_pose(message, *, aircraft_model, camera_model, received_at):
     stamp = message.header.stamp
     if stamp.sec < 0 or not 0 <= stamp.nsec < 1_000_000_000:
@@ -59,13 +65,8 @@ def observed_pose(message, *, aircraft_model, camera_model, received_at):
     if len(selected) != 2:
         raise ValueError('gimbal_world_pose_missing')
 
-    def convert(value):
-        p, q = value.position, value.orientation
-        return Vector3(p.y, p.x, -p.z), ENU_TO_NED.compose(
-            Quaternion(q.w, q.x, q.y, q.z)).compose(FLU_TO_FRD)
-
-    body_position, body_q = convert(selected[aircraft_model])
-    camera_position, camera_q = convert(selected[camera_model])
+    body_position, body_q = gazebo_pose_to_ned(selected[aircraft_model])
+    camera_position, camera_q = gazebo_pose_to_ned(selected[camera_model])
     return ObservedGimbalPose(stamp.sec * 1_000_000 + stamp.nsec // 1000, received_at,
         body_position, body_q, camera_position, camera_q), selected[camera_model].id
 
@@ -103,6 +104,7 @@ class RenderedGimbalSource:
         self.error = None
         self.stopped = False
         self.pose_replaced = self.sent = self.client_failures = 0
+        self.scene_control = None
 
     def receive(self, message):
         received = self.clock()
@@ -174,8 +176,14 @@ class RenderedGimbalSource:
         else:
             raise ValueError('gimbal_operator_command_unsupported')
         self.control_sequence, self.last_control = sequence, value
+        if self.scene_control is not None:
+            self.scene_control.changed()
 
     def process(self, pose):
+        with self.condition:
+            return self._process(pose)
+
+    def _process(self, pose):
         # Observe first so a lock is defined from current measured geometry.
         intent = self.model.observe(pose)
         if intent is None:
@@ -238,6 +246,13 @@ def serve_packets(source):
                             source.sent += 1
                 except OSError:
                     source.client_failures += 1
+                finally:
+                    # The backend owns manual motion. Its pipe closing must
+                    # stop the actuator rather than leave a motor rate latched.
+                    with source.condition:
+                        source.model.stop_manual()
+                        if source.scene_control is not None:
+                            source.scene_control.changed()
     finally:
         listener.close()
         if path.exists() and path.stat().st_ino == inode:
@@ -253,28 +268,84 @@ def main():
     from gz.msgs10.pose_v_pb2 import Pose_V
     from gz.msgs10.pose_pb2 import Pose
     from gz.msgs10.boolean_pb2 import Boolean
+    from gz.msgs10.image_pb2 import Image
+    from gz.msgs10.camera_info_pb2 import CameraInfo
+    from tools.gazebo_camera_provider import ImageStream, serve, camera_info_callback
+    from tools.gazebo_scene_selection import DepthObservation, SceneSelectionHistory, ObservedCameraPose
+    from tools.gazebo_rendered_control import RenderedSceneControl, serve_controls
 
     config = json.loads(args.source.read_text())
     source = RenderedGimbalSource(config, args.private)
+    camera = config['camera']
+    camera_private = Path(camera['config']['socket_path']).parent
+    stream = ImageStream(world=config['world'], image_topic=camera['config']['image_topic'],
+                         source_clock_id=config['source_clock_id'])
+    history = SceneSelectionHistory(source_clock_id=config['source_clock_id'],
+        image_incarnation=stream.incarnation, intrinsics=camera['intrinsics'], max_age_s=config['selection_max_age_s'])
+    stream.on_frame = history.image
+    source.scene_control = RenderedSceneControl(source, history)
     signal.signal(signal.SIGTERM, source.stop)
     signal.signal(signal.SIGINT, source.stop)
     node = Node()
     topic = f'/world/{config["world"]}/pose/info'
     if not node.subscribe(Pose_V, topic, source.receive):
         raise ValueError('gimbal_pose_subscription_refused')
-    def packet_worker():
+    def run_worker(function, *arguments):
         try:
-            serve_packets(source)
+            function(*arguments)
         except Exception as error:
             with source.condition:
                 source.error = error
                 source.condition.notify_all()
 
-    worker = threading.Thread(target=packet_worker, name='simulated-sip-source', daemon=True)
-    worker.start()
+    def depth(message):
+        try:
+            history.depth(DepthObservation.from_message(message, received_at_monotonic_s=time.monotonic()))
+        except (ValueError, TypeError) as error:
+            with source.condition:
+                source.error = error
+                source.condition.notify_all()
+
+    def camera_pose(message):
+        try:
+            stamp = message.header.stamp
+            if message.name != source.camera_model or stamp.sec < 0 or not 0 <= stamp.nsec < 1_000_000_000:
+                raise ValueError('rendered_camera_pose_identity_invalid')
+            position, orientation = gazebo_pose_to_ned(message)
+            history.pose(ObservedCameraPose(stamp.sec * 1_000_000 + stamp.nsec // 1000,
+                time.monotonic(), position, orientation))
+        except (ValueError, TypeError) as error:
+            with source.condition:
+                source.error = error
+                source.condition.notify_all()
+
+    image_topic = camera['config']['image_topic']
+    info_topic = image_topic.rsplit('/', 1)[0] + '/camera_info'
+    depth_topic = image_topic.rsplit('/', 1)[0] + '/depth_image'
+    ready = threading.Event()
+    callback = camera_info_callback(stream, camera['intrinsics'], camera_private / 'camera-info.json', ready)
+    subscriptions = [(Image, image_topic, stream.image), (Image, depth_topic, depth), (CameraInfo, info_topic, callback),
+                     (Pose, f'/model/{source.camera_model}/pose', camera_pose)]
+    workers = []
+    for message_type, name, receiver in subscriptions:
+        if not node.subscribe(message_type, name, receiver):
+            raise ValueError('rendered_camera_subscription_refused')
+    for name, function, arguments in [
+            ('simulated-sip-source', serve_packets, (source,)),
+            ('rendered-camera-controls', serve_controls, (source.scene_control,))]:
+        worker = threading.Thread(target=run_worker, args=(function, *arguments), name=name, daemon=True)
+        worker.start()
+        workers.append(worker)
     request_count = unacknowledged = 0
     try:
         while not source.stopped:
+            if stream.error:
+                raise ValueError('rendered_image_source_failed') from stream.error
+            if ready.is_set() and len(workers) == 2:
+                worker = threading.Thread(target=run_worker, args=(serve, stream, Path(camera['config']['socket_path'])),
+                                          name='rendered-rgb-source', daemon=True)
+                worker.start()
+                workers.append(worker)
             with source.condition:
                 source.condition.wait_for(lambda: source.pending_pose is not None or source.error or source.stopped, timeout=.1)
                 if source.error:
@@ -293,12 +364,18 @@ def main():
                 # callback can supply observed angles, never this intent/ACK.
     finally:
         source.stop()
-        worker.join(timeout=1.)
+        stream.stop()
+        for worker in workers:
+            worker.join(timeout=1.)
         node.unsubscribe(topic)
+        for _, name, _ in subscriptions:
+            node.unsubscribe(name)
         del node
         print(json.dumps(dict(pose_requests=request_count, unacknowledged_pose_requests=unacknowledged,
             packets_sent=source.sent, replaced_pending_poses=source.pose_replaced, client_failures=source.client_failures,
-            mechanics='ideal_stabilized', aircraft_commands_sent=False)), flush=True)
+            mechanics='ideal_stabilized', scene_selection=history.diagnostics(),
+            frames_received=stream.frame_id, frames_sent=stream.sent,
+            aircraft_commands_sent=False)), flush=True)
 
 
 if __name__ == '__main__':

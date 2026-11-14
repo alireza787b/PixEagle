@@ -2938,7 +2938,7 @@
       </link>
     </model>
     <include>
-      <uri>model://mono_cam</uri>
+      <uri>model://training_rgbd_camera</uri>
       <name>training_gimbal_camera</name>
       <pose>-6 0 1.4 0 0 0</pose>
       <static>true</static>

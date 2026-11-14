@@ -268,6 +268,10 @@ class VideoHandler:
             "type": source_type,
             "url": getattr(Parameters, "RTSP_URL", "") if source_type in ("RTSP_OPENCV", "RTSP_STREAM") else "",
         }
+        if source_type == 'GAZEBO_CAMERA':
+            from classes.gazebo_capture import GazeboCameraSettings
+            settings = GazeboCameraSettings.from_mapping(getattr(Parameters, 'GAZEBO_CAMERA', None))
+            self.selection_source.update(world=settings.world, source_clock_id=settings.source_clock_id)
         if self._is_video_file_source():
             self._prefetched_frame = None
             self._video_file_playback_state = "opening"

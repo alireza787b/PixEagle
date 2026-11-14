@@ -24,6 +24,7 @@ class GazeboGimbalSettings:
     source_clock_id: str
     world: str
     max_attitude_skew_s: float
+    control_contract: str | None = None
 
     def __post_init__(self):
         if (not isinstance(self.socket_path, str) or not Path(self.socket_path).is_absolute()
@@ -35,10 +36,13 @@ class GazeboGimbalSettings:
         if (isinstance(self.max_attitude_skew_s, bool) or not isinstance(self.max_attitude_skew_s, (float, int))
                 or not math.isfinite(self.max_attitude_skew_s) or self.max_attitude_skew_s <= 0):
             raise ValueError('gazebo_gimbal_skew_invalid')
+        if self.control_contract not in (None, 'rendered_scene_v1'):
+            raise ValueError('gazebo_gimbal_control_contract_invalid')
 
     @classmethod
     def from_mapping(cls, value):
-        if not isinstance(value, dict) or set(value) != set(cls.__dataclass_fields__):
+        if (not isinstance(value, dict) or set(value) not in (
+                set(cls.__dataclass_fields__), set(cls.__dataclass_fields__) - {'control_contract'})):
             raise ValueError('gazebo_gimbal_configuration_invalid')
         return cls(**value)
 
@@ -83,12 +87,13 @@ def validate_gazebo_gimbal_config(config):
     value = config.get('GAZEBO_INPUT')
     if value is None:
         return None
-    if config.get('CONTROL_ENABLED', False) is not False:
+    settings = GazeboGimbalSettings.from_mapping(value)
+    if config.get('CONTROL_ENABLED', False) is not False and settings.control_contract != 'rendered_scene_v1':
         raise ValueError('gazebo_gimbal_controls_unsupported')
     from classes.gimbal_provider import canonicalize_gimbal_provider, TOPOTEK_SIP_UDP_PROVIDER
     if canonicalize_gimbal_provider(config.get('PROVIDER')) != TOPOTEK_SIP_UDP_PROVIDER:
         raise ValueError('gazebo_gimbal_protocol_unsupported')
-    return GazeboGimbalSettings.from_mapping(value)
+    return settings
 
 
 class GazeboSipGimbalProvider(SipUdpGimbalProvider):
@@ -96,13 +101,18 @@ class GazeboSipGimbalProvider(SipUdpGimbalProvider):
 
     requires_queries = False
 
-    def __init__(self, settings, **kwargs):
+    def __init__(self, settings, *, control_enabled=False, **kwargs):
         if not isinstance(settings, GazeboGimbalSettings):
             raise ValueError('gazebo_gimbal_configuration_invalid')
         super().__init__(gimbal_ip='127.0.0.1', control_enabled=False, **kwargs)
         self.settings = settings
         self._previous_packet = None
         self._family_samples = {}
+        if control_enabled:
+            if settings.control_contract != 'rendered_scene_v1':
+                raise ValueError('gazebo_gimbal_controls_unsupported')
+            from classes.gazebo_camera_control import RenderedCameraControl
+            self.manual_control = RenderedCameraControl(self)
 
     def _init_listening_socket(self):
         self._previous_packet = None
@@ -161,7 +171,8 @@ class GazeboSipGimbalProvider(SipUdpGimbalProvider):
                 and source.get('world') == self.settings.world)
 
     def selection_modes(self):
-        return []  # Lock is an explicit training stimulus, not image-based acquisition.
+        return ([dict(id='classic', label='Camera Classic', point=True, rectangle=False)]
+                if self.manual_control is not None else [])
 
     def get_provider_metadata(self):
         result = super().get_provider_metadata()

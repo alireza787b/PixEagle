@@ -57,6 +57,12 @@ def test_finite_point_lock_compensates_aircraft_translation_and_rotation():
     ray = command.camera_to_ned.rotate(Vector3(1., 0., 0.))
     assert (ray.x, ray.y, ray.z) == pytest.approx((expected.x, expected.y, expected.z))
     assert model.target_ned is target
+    assert model.tracking_state is TrackingState.TARGET_SELECTION
+    # A pose request is intent, not observed acquisition. Only later feedback
+    # centering the finite point can establish an active track.
+    centered = replace(pose, timestamp_us=1_200_000, received_at_monotonic_s=100.2,
+                       camera_to_ned=command.camera_to_ned)
+    model.observe(centered)
     assert model.tracking_state is TrackingState.TRACKING_ACTIVE
     assert command.position_ned != pose.camera_position_ned
 

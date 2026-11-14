@@ -186,3 +186,47 @@ subclasses while continuing to reject booleans/nonfinite values. The same
 round-trip fixture is checked through Config Sync and startup validation;
 53 relevant source/profile regressions pass. The failed run remains at
 `training-tailsitter-gimbal-coast-operator-r1`; a fresh run is required.
+
+## Operator-feedback repair: frame-bound rendered selection
+
+The staged coastal r2 operator run exposed an obstructed camera offset and an
+input-only provider, not a complete camera-control acceptance fixture. Its
+`operator-review-20261114/triage.json` and `altitude-review.png` retain actual
+PX4 altitude and command intent separately. Both MC and FW intents were
+observed; missing client speed controls remain an API/UI verification item.
+The private hardware/public factory profiles have not been retuned.
+
+The rendered fixture now declares a mesh-clearance offset and an explicitly
+pinned RGB-D derivative with unchanged stock optics. Depth is hidden simulator
+truth for clicking a finite scene surface; guidance still receives only the
+production gimbal angle and tracking-status observations. This is not a new
+3D hardware tracker or a hardware timing qualification.
+
+One rendered-camera owner composes the existing bounded RGB stream, original
+camera-pose/depth history, normalized camera commands and SIP input. QGC and
+Dashboard continue using shared authenticated selection/control actions, camera
+leases, lifecycle guards and retarget continuity. Provider resolution is
+read-only and asynchronous before lifecycle mutation; original target/frame
+and permission guards are rechecked after the await. Prepared selections are
+bounded and cannot survive Stop, source replacement, another owner's mutation
+or original-frame expiry. Unsupported controls are not advertised. Simulated
+tracking becomes active only after fresh observed boresight alignment.
+
+The first motion probe demonstrated that the normal 50 Hz scene broadcast does
+not align every image stamp. It remains retained as a failed probe. A stock
+read-only PosePublisher attached only to the instrumented camera supplies
+simulation-step poses. The subsequent actual renderer probe passed with maximum
+known-surface reconstruction error 0.000575 m. Source and exact commands are in
+`rgbd-motion-selection-probe-20261114-r2`; no aircraft was present, container
+exited 0 and was removed. This proves the selected scene-point association,
+not aircraft guidance or mechanical FL-30 fidelity.
+
+The launcher can now explicitly choose the existing bounded continuity policy
+with `--continuity-mode bounded_decay`; factory defaults are unchanged.
+Integrated MC/FW Start, retarget, speed UI, altitude response, Stop/restart and
+operator acceptance are still required before calling this checkpoint ready.
+
+Software slice gate: 683 focused camera/provider/selection/lifecycle/profile/
+launcher/API/Phase 0 tests passed; generated schema matches defaults and the
+critical Python lint gate passes. Results are in
+`rendered-selection-software-r1.log` and `rendered-selection-schema-r1.log`.

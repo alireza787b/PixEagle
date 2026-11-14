@@ -27,10 +27,11 @@ from classes.gazebo_camera_protocol import GazeboFrameHeader, MAX_FRAME_BYTES, p
 
 class ImageStream:
     """Only a callback's original image/receipt pair can enter the latest slot."""
-    def __init__(self, *, world, image_topic, source_clock_id, clock=time.monotonic):
+    def __init__(self, *, world, image_topic, source_clock_id, clock=time.monotonic, on_frame=None):
         self.world, self.image_topic, self.source_clock_id = world, image_topic, source_clock_id
         self.incarnation = uuid.uuid4().hex
         self.clock = clock
+        self.on_frame = on_frame
         self.condition = threading.Condition()
         self.latest = None
         self.error = None
@@ -71,6 +72,8 @@ class ImageStream:
                     received_at_monotonic_s=received, width=message.width, height=message.height,
                     stride=message.step, pixel_format='RGB_INT8', payload_length=len(payload),
                     source_frame_id=source_frames[0] if source_frames else None)
+                if self.on_frame is not None:
+                    self.on_frame(header)
                 if self.latest is not None:
                     self.replaced += 1
                 self.frame_id += 1

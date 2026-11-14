@@ -30,6 +30,20 @@ world/texture. The verifier restricts art to bounded nonexecutable PNG files and
 requires declared static props; it does not permit hidden aircraft/plugin
 changes. Do not edit archived run evidence to match a regenerated scene.
 
+The ideal gimbal scenes use a declared RGB-D derivative of the pinned stock
+camera. Its optics and aircraft remain unchanged; the derivative selects 20 Hz
+RGB/depth and adds only Gazebo's read-only camera PosePublisher at simulation
+step rate. Depth remains private simulator truth for clicked-point tracking;
+the PixEagle tracker still receives ordinary gimbal angles and status.
+Regenerate this derivative and both scene descriptors with:
+
+```bash
+PYTHONPATH=src:. python tools/build_gazebo_rgbd_camera.py --packaged /path/to/verified-build/packaged
+```
+
+The validator checks the derivative against the exact declared stock resource,
+including its pose-only plugin. Other camera/aircraft/plugin edits are rejected.
+
 For controls, model assumptions and operator checks see the
 [gimbal training guide](../../docs/gimbal_simulator.md#rendered-gimbal-training)
 and [Ubuntu training workflow](../../docs/followers/05-development/ubuntu-training-platform.md).

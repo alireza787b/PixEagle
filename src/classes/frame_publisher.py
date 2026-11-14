@@ -73,6 +73,8 @@ class FramePublisher:
     Epochs invalidate encoded caches and work finishing after a source reset.
     """
 
+    SELECTION_MAX_AGE_MS = 1500
+
     def __init__(self):
         self._lock = threading.RLock()
         self._current_osd: Optional[StampedFrame] = None
@@ -90,7 +92,7 @@ class FramePublisher:
         self._delivered_selection_bytes = 0
         self.selection_max_bytes = 128 * 1024 * 1024
         self.selection_max_frames = 90
-        self.selection_max_age_ms = 1500
+        self.selection_max_age_ms = self.SELECTION_MAX_AGE_MS
         self.selection_delivery_max_bytes = 96 * 1024 * 1024
         self.selection_delivery_frames_per_client = 3
 
