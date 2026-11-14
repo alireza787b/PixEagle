@@ -120,7 +120,45 @@ angle/attitude pair. Video availability, the latest pose and slider positions
 cannot substitute for observed-camera timing. Hardware UDP retains its
 receipt-only semantics; this does not qualify hardware synchronization.
 
-The input contract is tested offline; rendered-model and full operator
-MC/FW Start/Stop/restart qualification remain pending. The first model will use
-ideal stabilized pointing with configurable finite motion. Unmeasured FL-30
-mechanics and image-roll behavior remain explicit assumptions.
+The input contract and ideal rendered model pass offline and actual Gazebo
+component checks. Full operator MC/FW Start/Stop/restart qualification remains
+pending. Unmeasured FL-30 mechanics and image-roll behavior remain assumptions.
+
+## Rendered gimbal training
+
+`quadtailsitter-gimbal-camera-courtyard-v1` adds a separate instrumentation
+camera to the unchanged stock tailsitter/world plant. The canonical launcher
+accepts `--scenario quadtailsitter-gimbal-camera-courtyard-v1`,
+`--follower-mode gm_velocity_vector` and `--mount-type VERTICAL`; its existing
+runtime/build/adapter/dependency arguments still apply. It opens
+`tools/gazebo_gimbal_gui.py` beside QGC. The ordinary installation defaults are
+never rewritten by this profile.
+
+- **Aim:** world bearing and elevation sliders rotate the rendered view.
+  Drag updates are coalesced; only one acknowledged input is outstanding.
+- **Horizon:** resets elevation without inferring aircraft flight phase.
+- **Lock current aim:** holds a finite world point along the currently observed
+  camera ray at the entered simulated range. Range is a fixture input, not
+  measured/estimated target distance. Aircraft translation and rotation change
+  the required camera orientation. This is synthetic lock, not optical detection.
+- **Simulate loss / Clear lock:** explicit target-state stimuli. An invalid
+  input preserves the old target/live source and reports rejection.
+
+The model uses a configurable 90°/s ideal pointing response and a declared
+camera offset. It does not model a qualified joint chain, motor torque,
+backlash, obstruction or stabilization plant. Angles come from actual Gazebo
+camera/aircraft pose feedback, never from an assumed successful movement
+request. Camera intents do not move the aircraft. Original source timestamps
+and receipts are retained separately from rendered image timestamps.
+
+Start/Stop following stays in QGC/Dashboard. Provider startup begins unlocked.
+Reopening the input GUI cannot replay an old lock; a new provider incarnation
+rejects the old input file. The training launcher owns the GUI/provider and
+closes its whole isolated stack if a required process exits. Use Stop following
+before closing the training stack.
+
+For more varied test objects, select
+`--scenario quadtailsitter-gimbal-training-coast-v1`. The
+[scene guide](../native/gazebo/README.md) lists its PixEagle-branded ground/air
+targets and waterfront. Static scene art is separate from moving-target and
+aircraft qualification.

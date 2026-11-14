@@ -384,3 +384,14 @@ def test_nose_camera_points_up_in_mc_and_at_horizon_in_fw_without_phase_switch(t
     down = fw_attitude.rotate(rotation.rotate(Vector3(0., 1., 0.)))
     for actual, expected in [(forward, (1., 0., 0.)), (right, (0., 1., 0.)), (down, (0., 0., 1.))]:
         assert (actual.x, actual.y, actual.z) == pytest.approx(expected, abs=1e-12)
+
+
+def test_rendered_gimbal_source_has_intrinsics_without_false_fixed_mount_calibration(tmp_path, monkeypatch):
+    args, scenario, _, _, _ = camera_source_fixture(tmp_path, monkeypatch)
+    descriptor = scenario['descriptor']
+    descriptor.pop('camera_mount')
+    descriptor['instrumentation_camera'] = {'instance': 'training_camera'}
+    value = training.camera_training_source(args, scenario, 'token')
+    assert value['calibration'] is None
+    assert value['intrinsics']['image_size_px'] == [1280, 960]
+    assert value['config']['image_topic'] == '/world/courtyard/model/training_camera/link/camera_link/sensor/camera/image'

@@ -31,6 +31,12 @@ angle and tracking-status receipts, source lifecycle and mount identity using
 the [existing provider contract](../../trackers/05-development/external-gimbal-providers.md).
 Moving a slider or target never starts aircraft following.
 
+The rendered Mode C checkpoint now has an explicitly ideal stabilized camera
+with actual Gazebo pose feedback, source-stamped SIP input and world-point lock.
+Use the [gimbal tool guide](../../gimbal_simulator.md#rendered-gimbal-training)
+for assumptions and controls. The [coastal scene](../../../native/gazebo/README.md)
+adds varied ground and aerial visual targets without changing aircraft physics.
+
 The planned desktop entry opens one **PixEagle Simulator** window. Choose the
 input mode and a compatible scenario, then use **Prepare aircraft** to run the
 declared airborne preparation. Show readiness as observed, with a short reason
@@ -259,8 +265,10 @@ until the shared Stop repair has actual simulator evidence.
    retained FL-30/SIP reference and measured vertical-mount bench evidence.
    Retire assumptions in the older standalone simulator that disagree with the
    production packet codec; do not copy a second protocol implementation.
-4. **Rendered mechanical model:** pin a separate tailsitter camera/gimbal
-   resource, with explicit joint axes, ranges and inertia. Use actual PX4 pose
+4. **Rendered model:** the operator accepted an explicitly ideal stabilized
+   model while the camera is offline. Pin a separate instrumentation camera,
+   finite pointing rate and offset; do not invent measured joint mechanics.
+   Use actual Gazebo aircraft/camera pose
    and shared geometry to drive camera orientation. Distinguish a stabilized
    world bearing from a finite world-target lock: attitude compensation alone
    does not track a ground point as the aircraft translates. Reuse independent
@@ -279,7 +287,8 @@ until the shared Stop repair has actual simulator evidence.
    transition-ending-follow, Stop/takeover and subsequent Start. Retain real PX4
    pose, target truth, raw angles, normalized ray, joint pose, command intent
    and terminal receipt in the existing visualization. Explicitly distinguish
-   simulated camera lock from real visual tracking.
+   simulated camera lock from real visual tracking. The first ideal model
+   cannot qualify physical joint saturation or actual motor response.
 7. **Operator test:** start fresh on the ground with the vertical-gimbal
    training overlay, QGC and the GUI. Test MC first, Stop, transition, then a
    new FW Start. Keep the accepted private MC settings separate from the

@@ -72,6 +72,7 @@ def prepare(
     allow_recorded_sih_following: bool = False,
     udp_url: str | None = None, enable_altitude_control: bool | None = None,
     gazebo_camera: dict | None = None, fixed_camera_calibration: dict | None = None,
+    gazebo_gimbal: dict | None = None,
     username: str = 'sih-operator', password: str | None = None,
 ) -> Path:
     sys.path.insert(0, str(REPOSITORY / 'src'))
@@ -103,12 +104,19 @@ def prepare(
         or dashboard_port == backend_port
     ):
         raise ValueError("Dashboard port must be distinct and in 1024–65535")
+    if gazebo_gimbal is not None:
+        from classes.gazebo_gimbal_source import GazeboGimbalSettings
+        GazeboGimbalSettings.from_mapping(gazebo_gimbal)
+        if gazebo_camera is None or tracking_engine != 'camera' or fixed_camera_calibration is not None:
+            raise ValueError('Rendered gimbal requires Gazebo video, external tracking and no fixed-camera calibration')
+        if any(gazebo_gimbal[key] != gazebo_camera.get(key) for key in ('source_clock_id', 'world')):
+            raise ValueError('Rendered video and gimbal must declare the same simulator clock/world')
     if gazebo_camera is not None:
         from classes.gazebo_capture import GazeboCameraSettings
 
         GazeboCameraSettings.from_mapping(gazebo_camera)
         if (udp_url is not None or recorded_video is not None or camera_host is not None
-                or rtsp_url is not None or tracking_engine != 'local'):
+                or rtsp_url is not None or (tracking_engine != 'local' and gazebo_gimbal is None)):
             raise ValueError('Choose one simulation video source; Gazebo requires local image tracking')
     elif udp_url is not None:
         _udp_source(udp_url)
@@ -197,6 +205,9 @@ def prepare(
             ENABLED=True, CONTROL_ENABLED=True, PROVIDER="topotek_sip_udp",
             UDP_HOST=camera_host, MOUNT_TYPE=mount_type,
         )
+    if gazebo_gimbal is not None:
+        config['GimbalTracker'].update(ENABLED=True, CONTROL_ENABLED=False,
+            PROVIDER='topotek_sip_udp', MOUNT_TYPE=mount_type, GAZEBO_INPUT=dict(gazebo_gimbal))
     if fixed_camera_calibration is not None:
         from classes.fixed_camera_calibration import FixedCameraCalibration
 
@@ -284,6 +295,7 @@ def prepare(
         "video_source": ('gazebo' if gazebo_camera is not None else 'udp' if udp_url is not None
                          else 'recorded' if recorded_video is not None else 'rtsp'),
         "gazebo_camera": gazebo_camera,
+        "gazebo_gimbal": gazebo_gimbal,
         "udp_url": udp_url, "enable_altitude_control": enable_altitude_control,
         "follower_execution_mode": follower_execution_mode,
         "allow_recorded_sih_following": allow_recorded_sih_following,
@@ -330,11 +342,19 @@ def validate(directory: Path) -> dict:
 
         settings = manifest.get('gazebo_camera')
         GazeboCameraSettings.from_mapping(settings)
+        gimbal = manifest.get('gazebo_gimbal')
         if (config['VideoSource'].get('VIDEO_SOURCE_TYPE') != 'GAZEBO_CAMERA'
                 or config['VideoSource'].get('GAZEBO_CAMERA') != settings
-                or config['GimbalTracker']['ENABLED'] or config['GimbalTracker']['CONTROL_ENABLED']
-                or manifest.get('tracking_engine') != 'local'):
+                or config['GimbalTracker']['ENABLED'] is not (gimbal is not None)
+                or config['GimbalTracker']['CONTROL_ENABLED']
+                or manifest.get('tracking_engine') != ('camera' if gimbal is not None else 'local')
+                or config['GimbalTracker'].get('GAZEBO_INPUT') != gimbal):
             raise ValueError('Gazebo profile source contract changed')
+        if gimbal is not None:
+            from classes.gazebo_gimbal_source import GazeboGimbalSettings
+            GazeboGimbalSettings.from_mapping(gimbal)
+            if any(gimbal[key] != settings[key] for key in ('world', 'source_clock_id')):
+                raise ValueError('Gazebo gimbal source clock/world changed')
     if manifest.get("recorded_video") is not None:
         if (config["GimbalTracker"]["ENABLED"] or config["GimbalTracker"]["CONTROL_ENABLED"]
                 or config["Tracking"]["DEFAULT_TRACKING_ALGORITHM"] != "CSRT"

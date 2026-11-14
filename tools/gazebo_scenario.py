@@ -11,6 +11,7 @@ import json
 import math
 from pathlib import Path, PurePosixPath
 import re
+import struct
 import xml.etree.ElementTree as ET
 
 SCENARIOS = Path(__file__).resolve().parents[1] / "native/gazebo/scenarios"
@@ -116,11 +117,36 @@ def _remove_static_scene_additions(world, declarations, files):
                 or [float(n) for n in model.findtext("pose", "").split()] != item["pose"]
                 or any(model.findall(".//" + tag) for tag in ("plugin", "sensor", "include", "collision", "joint", "model"))):
             raise ValueError("Gazebo scene additions must be static visual-only props")
-        for uri in model.findall(".//uri"):
+        references = model.findall('.//uri')
+        for tag in ('albedo_map', 'normal_map', 'roughness_map', 'metalness_map', 'emissive_map', 'environment_map', 'light_map'):
+            references.extend(model.findall('.//' + tag))
+        for uri in references:
             member = uri.text or ""
             if not member.startswith("model://") or "gazebo/models/" + member[8:] not in files:
                 raise ValueError("Gazebo scene mesh must be a pinned local model resource")
         world.remove(model)
+
+
+def _remove_instrumentation_camera(world, value):
+    """One movable ideal camera, separate from the unchanged aircraft plant."""
+    from classes.aircraft_state import Vector3
+    from tools.gazebo_gimbal_model import IdealGimbalSettings
+
+    camera = value['instrumentation_camera']
+    if (not isinstance(camera, dict) or set(camera) != {'instance', 'pose', 'offset_body_frd_m',
+            'pointing_rate_deg_s', 'maximum_pose_gap_s', 'mechanics'}
+            or not isinstance(camera['instance'], str) or not re.fullmatch(r'[a-z][a-z0-9_]*', camera['instance'])
+            or camera['instance'] == value['model'] or not _finite_vector(camera['pose'], 6)
+            or not _finite_vector(camera['offset_body_frd_m'], 3) or camera['mechanics'] != 'ideal_stabilized'):
+        raise ValueError('Gazebo instrumentation camera declaration invalid')
+    IdealGimbalSettings(Vector3(*camera['offset_body_frd_m']), camera['pointing_rate_deg_s'], camera['maximum_pose_gap_s'])
+    matches = [node for node in world.findall('include') if node.findtext('name') == camera['instance']]
+    expected = ET.fromstring(f'''<include><uri>model://{value['camera']['model']}</uri>
+        <name>{camera['instance']}</name><pose>{' '.join(str(n) for n in camera['pose'])}</pose>
+        <static>true</static></include>''')
+    if len(matches) != 1 or _canonical(matches[0]) != _canonical(expected):
+        raise ValueError('Gazebo instrumentation camera must match its declared static model include')
+    world.remove(matches[0])
 
 
 def _added_world(value: dict, manifest: dict, files: dict) -> dict:
@@ -163,8 +189,10 @@ def _added_world(value: dict, manifest: dict, files: dict) -> dict:
                 or any(model.findall(".//" + kind) for kind in ("plugin", "sensor", "include", "uri", "collision"))):
             raise ValueError("Gazebo target must match its static visual-only panel declaration")
         world.remove(model)
-        if value["schema_version"] == 3:
+        if value["schema_version"] >= 3:
             _remove_static_scene_additions(world, value["scene_additions"], files)
+        if value['schema_version'] == 4:
+            _remove_instrumentation_camera(world, value)
         base = ET.fromstring(files["gazebo/" + addition["base_resource"]]).find("world")
         if base is None:
             raise ValueError("Gazebo base world is missing")
@@ -187,6 +215,24 @@ def _read_file(packaged: Path, relative: str, entry: dict) -> bytes:
     if entry != {"sha256": hashlib.sha256(raw).hexdigest(), "executable": bool(path.stat().st_mode & 0o111)}:
         raise ValueError(f"Gazebo scenario packaged resource changed: {relative}")
     return raw
+
+
+def _scene_assets(value, files):
+    """Explicit bounded PNG art assets, never executable/plugin/model overrides."""
+    assets = value.get('scene_assets', {})
+    if not isinstance(assets, dict):
+        raise ValueError('Gazebo scene assets must be a pinned texture mapping')
+    for relative, pin in assets.items():
+        if (not isinstance(relative, str) or not re.fullmatch(
+                r'models/pixeagle_training_art/materials/textures/[a-z0-9_-]+\.png', relative)
+                or not isinstance(pin, dict) or pin.get('executable') is not False):
+            raise ValueError('Gazebo scene asset role is limited to nonexecutable local PNG textures')
+        raw = _read_file(SCENARIOS.parent, relative, pin)
+        if (len(raw) < 24 or len(raw) > 4 * 1024 * 1024 or raw[:8] != b'\x89PNG\r\n\x1a\n'
+                or raw[12:16] != b'IHDR' or any(not 1 <= n <= 4096 for n in struct.unpack('>II', raw[16:24]))):
+            raise ValueError('Gazebo scene asset is not a bounded PNG texture')
+        files['gazebo/' + relative] = raw
+    return assets
 
 
 def airframe_identity(scenario: dict, files: dict[str, bytes]) -> dict:
@@ -244,14 +290,18 @@ def verified_scenario(name: str, baseline: dict, manifest: dict) -> dict:
     fields = {"schema_version", "name", "build_manifest_sha256", "image_id", "binary_sha256",
               "model", "world", "airframe_id", "airframe_chain", "identity_parameters", "models",
               "scene_models", "resources", "spawn_pose", "camera"}
-    if isinstance(value, dict) and value.get("schema_version") in (2, 3):
+    if isinstance(value, dict) and value.get("schema_version") in (2, 3, 4):
         fields |= {"added_world", "target"}
     if isinstance(value, dict) and value.get("schema_version") == 3:
         fields |= {"base_model", "added_model", "scene_additions", "camera_mount"}
         if "server_config" in value:
             fields.add("server_config")
+    if isinstance(value, dict) and value.get('schema_version') == 4:
+        fields |= {'scene_additions', 'instrumentation_camera', 'server_config'}
+        if 'scene_assets' in value:
+            fields.add('scene_assets')
     if (not isinstance(value, dict) or set(value) != fields or type(value["schema_version"]) is not int
-            or value["schema_version"] not in (1, 2, 3) or value["name"] != name):
+            or value["schema_version"] not in (1, 2, 3, 4) or value["name"] != name):
         raise ValueError("Invalid Gazebo scenario descriptor")
     if (manifest.get("kind") != "pixeagle_gazebo_build"
             or baseline.get("kind") != "verified_gazebo_source_build"
@@ -296,6 +346,8 @@ def verified_scenario(name: str, baseline: dict, manifest: dict) -> dict:
             "gazebo/plugins/libMotorFailurePlugin.so"} <= files.keys()):
         raise ValueError("Gazebo scenario plugin/config closure is incomplete")
     additions = _added_camera_model(value, manifest, files) if value["schema_version"] == 3 else {}
+    if value['schema_version'] == 4:
+        additions.update(_scene_assets(value, files))
     if "server_config" in value:
         additions.update(_raw_camera_server(value, files))
     # Include complete model directories (meshes, textures, configs), not just SDFs.
@@ -306,7 +358,7 @@ def verified_scenario(name: str, baseline: dict, manifest: dict) -> dict:
                     if k.startswith(f"models/{model}/")}
         if not required or not required <= files.keys():
             raise ValueError("Gazebo scenario model resource closure is incomplete")
-    if value["schema_version"] in (2, 3):
+    if value["schema_version"] in (2, 3, 4):
         additions.update(_added_world(value, manifest, files))
     world_file = f'gazebo/worlds/{value["world"]}.sdf'
     try:
@@ -358,4 +410,4 @@ def scenario_environment(scenario: dict) -> dict[str, str]:
     descriptor = scenario["descriptor"]
     return {"PX4_GZ_MODEL_POSE": ",".join(str(n) for n in descriptor["spawn_pose"]),
             "PX4_VIDEO_HOST_IP": "127.0.0.1",
-            **({"PX4_SYS_AUTOSTART": str(descriptor["airframe_id"])} if descriptor["schema_version"] == 3 else {})}
+            **({"PX4_SYS_AUTOSTART": str(descriptor["airframe_id"])} if descriptor["schema_version"] >= 3 else {})}

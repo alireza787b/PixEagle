@@ -142,3 +142,39 @@ pass. Full domain/configuration gates and rendered-camera qualification follow.
 Logs: `gimbal-stamped-input-r1.log`, `gimbal-shared-alignment-r2.log` in the common
 report directory. These are deterministic/local transport checks, not flight
 or rendered-model evidence. The prior FW altitude gate remains open.
+
+## Rendered ideal model and GUI
+
+Added one ideal world-stabilized pointing model, a separate static camera
+instrumentation role and a local GUI. Source angles derive from actual Gazebo
+camera/aircraft pose feedback; camera pose intents never stand in for measured
+motion. World-point lock uses the explicitly entered fixture range. There is
+no detector, inferred depth, guessed joint mechanics or aircraft command API.
+Bad GUI input preserves current observations/target and reports rejection.
+
+Actual component evidence:
+`reports/sitl/follower-consolidation-20261111/gimbal-render-probe-20261114-r1/`.
+`pose-and-image-receipt.json` and the before/after PNGs show moved camera pose
+and changed rendered pixels. `gui-source-receipt.json` confirms real Tk aim,
+finite lock, loss and release through the production SIP parser/CameraRuntime.
+`gui-observed-source.jsonl` retains original stamps and receipts. Both owned
+containers exited zero and were removed; the aircraft remained on the ground
+with no aircraft commands sent.
+
+A camera pose request may be applied despite a missing reply; only observed
+pose feedback supplies angles. The Python probe's initial shutdown abort was
+resolved by disposing transport explicitly before interpreter shutdown; final
+probe and provider exits were zero. Earlier failed probes remain retained.
+
+459 focused renderer/launcher/configuration/Phase 0 checks pass, plus 188
+coastal scene/asset/role checks (counts overlap). Logs are
+`gimbal-render-software-final-r1.log` and `gimbal-coastal-world-gates-r1.log`.
+Native aircraft-following, full QGC operator Stop/restart and the unchanged FW
+altitude gate remain separate acceptance items.
+
+The operator additionally requested a richer PixEagle world. A reproducible
+coastal scene adds branded signs/road art, cars, balloons, airship and vessels.
+It uses pinned locally generated art and static visual props; moving objects,
+hydrodynamics and collision qualification are not implied. See
+`native/gazebo/README.md`. A fresh ground-start QGC/gimbal stack follows the
+remaining software checks and actual scene-render inspection.

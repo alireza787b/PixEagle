@@ -235,3 +235,36 @@ def test_profile_uses_catalog_compatible_mc_followers(tmp_path):
     prepare(directory, udp_url='udp://127.0.0.1:5600', tracking_engine='local',
             follower_mode='mc_velocity_ground')
     assert validate(directory)['follower_mode'] == 'mc_velocity_ground'
+
+
+@pytest.mark.parametrize('mount', ['HORIZONTAL', 'VERTICAL'])
+def test_rendered_gimbal_keeps_video_and_external_observation_contracts_separate(tmp_path, mount):
+    camera = dict(socket_path='/run/pixeagle-camera/camera.sock', source_clock_id='test-clock',
+        world='training', image_topic='/camera/image', max_attitude_skew_s=.05)
+    gimbal = dict(socket_path='/run/pixeagle-gimbal/gimbal.sock', source_clock_id='test-clock',
+        world='training', max_attitude_skew_s=.05)
+    directory = tmp_path / 'rendered'
+    prepare(directory, gazebo_camera=camera, gazebo_gimbal=gimbal, mount_type=mount,
+        tracking_engine='camera', follower_mode='gm_velocity_vector', enable_altitude_control=True,
+        username='admin', password='admin')
+    config = yaml.safe_load((directory / 'configs/config.yaml').read_text())
+    assert validate(directory)['gazebo_gimbal'] == gimbal
+    assert config['VideoSource']['GAZEBO_CAMERA'] == camera
+    assert config['VideoSource']['FIXED_CAMERA_CALIBRATION'] is None
+    assert config['GimbalTracker']['GAZEBO_INPUT'] == gimbal
+    assert config['GimbalTracker']['MOUNT_TYPE'] == mount
+    assert config['GimbalTracker']['ENABLED'] and not config['GimbalTracker']['CONTROL_ENABLED']
+    assert config['Tracking']['DEFAULT_TRACKING_ALGORITHM'] == 'Gimbal'
+    assert config['FOLLOWER_CIRCUIT_BREAKER'] is True
+
+
+@pytest.mark.parametrize('field', ['world', 'source_clock_id'])
+def test_rendered_gimbal_refuses_another_world_or_clock_before_snapshot(tmp_path, field):
+    camera = dict(socket_path='/run/camera.sock', source_clock_id='test-clock', world='training',
+        image_topic='/camera/image', max_attitude_skew_s=.05)
+    gimbal = dict(socket_path='/run/gimbal.sock', source_clock_id='test-clock', world='training', max_attitude_skew_s=.05)
+    gimbal[field] = 'another'
+    with pytest.raises(ValueError, match='same simulator clock/world'):
+        prepare(tmp_path / 'bad', gazebo_camera=camera, gazebo_gimbal=gimbal,
+            tracking_engine='camera', follower_mode='gm_velocity_vector')
+    assert not (tmp_path / 'bad').exists()

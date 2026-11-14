@@ -209,7 +209,8 @@ def camera_training_source(args, scenario, token):
     sensor = camera_tree.find(
         f'./model/link[@name="{camera["link"]}"]/sensor[@name="{camera["sensor"]}"]')
     optics = sensor.find('camera')
-    rotation = fixed_camera_optical_to_body(descriptor.get('camera_mount'))
+    instrumentation = descriptor.get('instrumentation_camera')
+    rotation = None if instrumentation is not None else fixed_camera_optical_to_body(descriptor.get('camera_mount'))
     if (sensor.findtext('pose') != '0 0 0 0 0 0'
             or camera_tree.findtext('./model/pose', '0 0 0 0 0 0') != '0 0 0 0 0 0'
             or camera_tree.findtext('./model/link/pose', '0 0 0 0 0 0') != '0 0 0 0 0 0'
@@ -220,19 +221,22 @@ def camera_training_source(args, scenario, token):
     hfov = float(optics.findtext('horizontal_fov'))
     if min(width, height) <= 0 or not math.isfinite(hfov) or not 0 < hfov < math.pi:
         raise ValueError('Training camera geometry is invalid')
-    topic = f'/world/{descriptor["world"]}/model/{descriptor["model"]}_0/link/{camera["link"]}/sensor/{camera["sensor"]}/image'
+    camera_model = instrumentation['instance'] if instrumentation is not None else descriptor['model'] + '_0'
+    topic = f'/world/{descriptor["world"]}/model/{camera_model}/link/{camera["link"]}/sensor/{camera["sensor"]}/image'
     source_config = dict(socket_path='/run/pixeagle-camera/camera.sock', source_clock_id=token + ':' + descriptor['world'],
         world=descriptor['world'], image_topic=topic, max_attitude_skew_s=.05)
     from classes.fixed_camera_calibration import selected_source_signature
     signature = selected_source_signature(source_type='GAZEBO_CAMERA', backend='gazebo_transport', locator=topic,
         options={'world': descriptor['world'], 'pixel_format': 'RGB_INT8'})
     focal = width / (2 * math.tan(hfov / 2))
-    calibration = dict(source_signature=signature, revision='gazebo-pinhole-' + descriptor['resources'][relative]['sha256'][:16],
+    intrinsics = dict(image_size_px=[width, height], focal_length_px=[focal, focal],
+                      principal_point_px=[width / 2, height / 2])
+    calibration = None if rotation is None else dict(source_signature=signature, revision='gazebo-pinhole-' + descriptor['resources'][relative]['sha256'][:16],
         pixel_grid='decoder_pre_orientation', image_size_px=[width, height], focal_length_px=[focal, focal],
         principal_point_px=[width / 2, height / 2],
         optical_to_body_frd_wxyz=[rotation.w, rotation.x, rotation.y, rotation.z],
         distortion_model='none', mount_kind='fixed')
-    return dict(config=source_config, calibration=calibration, clock_contract=contract,
+    return dict(config=source_config, calibration=calibration, intrinsics=intrinsics, clock_contract=contract,
         clock_contract_sha256=native_runtime.digest(contract_path), camera_resource_sha256=native_runtime.digest(sdf),
         scenario_sha256=scenario['descriptor_sha256'], actual_camera_info_confirmation=False,
         declared_stock_rtp_encoder_disabled=True, server_config_sha256=descriptor['server_config']['sha256'])
@@ -254,7 +258,7 @@ def start_camera_provider(args, runtime, token, primary, baseline, source, conta
     argv[-1:-1] = ['--entrypoint', '/usr/bin/python3']
     argv += ['/app/tools/gazebo_camera_provider.py', '--socket', config['socket_path'],
         '--world', config['world'], '--image-topic', config['image_topic'], '--source-clock-id', config['source_clock_id'],
-        '--calibration-file', '/app/camera-source.json']
+        '--intrinsics-file', '/app/camera-source.json']
     # Reuse original-CID recovery for a lost Docker launch reply, without another lifecycle owner.
     owner = OwnedContainerLaunch(runtime, token, containers, host.owned_container_info)
     cid = owner.launch(argv, 'pixeagle-training-camera-' + token[:12])
@@ -279,6 +283,46 @@ def start_camera_provider(args, runtime, token, primary, baseline, source, conta
             return [(private, Path('/run/pixeagle-camera'), False)]
         time.sleep(.05)
     raise TimeoutError('Camera provider did not create its private endpoint')
+
+
+def start_gimbal_provider(runtime, profile, token, primary, baseline, scenario, camera_source, containers):
+    """One ideal instrumentation owner; no aircraft publisher is added."""
+    import yaml
+
+    config = yaml.safe_load((profile / 'configs/config.yaml').read_text())['GimbalTracker']
+    private = runtime / 'gimbal-source'
+    private.mkdir(mode=0o700)
+    source = dict(world=camera_source['config']['world'], source_clock_id=camera_source['config']['source_clock_id'],
+        aircraft_model=scenario['descriptor']['model'] + '_0',
+        instrumentation_camera=scenario['descriptor']['instrumentation_camera'], gimbal_config=config)
+    source_path = runtime / 'gimbal-source.json'
+    write(source_path, source)
+    argv = container_args('pixeagle-training-gimbal-' + token[:12], token, primary,
+        [(ROOT, '/app', True), (private, '/run/pixeagle-gimbal', False),
+         (source_path, '/run/gimbal-source.json', True)],
+        dict(GZ_IP='127.0.0.1', GZ_PARTITION=token, HOME='/tmp', PYTHONDONTWRITEBYTECODE='1'), baseline['image_id'])
+    argv[-1:-1] = ['--entrypoint', '/usr/bin/python3']
+    argv += ['/app/tools/gazebo_gimbal_provider.py', '--source', '/run/gimbal-source.json', '--private', '/run/pixeagle-gimbal']
+    owner = OwnedContainerLaunch(runtime, token, containers, host.owned_container_info)
+    cid = owner.launch(argv, 'pixeagle-training-gimbal-' + token[:12])
+    deadline = time.monotonic() + 10.
+    while time.monotonic() < deadline:
+        info = host.owned_container_info(cid, token)
+        if (not info['State']['Running'] or info['Image'] != baseline['image_id']
+                or info['HostConfig']['NetworkMode'] != 'container:' + primary
+                or info['Config']['User'] != f'{os.getuid()}:{os.getgid()}'
+                or info['HostConfig']['Privileged'] or info['HostConfig'].get('Devices')
+                or info['NetworkSettings']['Ports']):
+            raise ValueError('Gimbal instrumentation identity or isolation changed')
+        if (private / 'gimbal.sock').is_socket() and (private / 'operator-state.json').is_file():
+            write(runtime / 'gimbal-source-receipt.json', dict(container_id=cid, source=source,
+                mechanics_qualified=False, aircraft_commands_sent=False,
+                source_files={name: native_runtime.digest(ROOT / name) for name in (
+                    'tools/gazebo_gimbal_provider.py', 'tools/gazebo_gimbal_model.py',
+                    'tools/gazebo_gimbal_gui.py', 'src/classes/gazebo_gimbal_source.py', 'src/classes/gimbal_geometry.py')}))
+            return [(private, Path('/run/pixeagle-gimbal'), False)]
+        time.sleep(.05)
+    raise TimeoutError('Gimbal instrumentation did not supply observed camera feedback')
 
 
 def start_native_wire_recorder(args, runtime, profile, token, primary, containers):
@@ -418,12 +462,17 @@ def run(args):
     assets = native_training_assets(args, simulator, scenario)
     token = uuid.uuid4().hex
     camera_source = camera_training_source(args, scenario, token)
+    rendered_gimbal = scenario['descriptor'].get('instrumentation_camera')
+    if rendered_gimbal is not None:
+        subprocess.run([str(args.python), '-c', 'import tkinter'], check=True, capture_output=True)
     runtime.mkdir(parents=True, mode=0o700)
     profile = runtime / 'backend'
     video = dict(gazebo_camera=camera_source['config'], fixed_camera_calibration=camera_source['calibration']) if camera_source else dict(
         udp_url=f'udp://127.0.0.1:{scenario["descriptor"]["camera"]["udp_port"]}')
-    prepare(profile, **video,
-        follower_mode=args.follower_mode, tracking_engine='local', backend_port=args.port,
+    gimbal = None if rendered_gimbal is None else dict(socket_path='/run/pixeagle-gimbal/gimbal.sock',
+        source_clock_id=camera_source['config']['source_clock_id'], world=camera_source['config']['world'], max_attitude_skew_s=.05)
+    prepare(profile, **video, gazebo_gimbal=gimbal, mount_type=getattr(args, 'mount_type', 'HORIZONTAL'),
+        follower_mode=args.follower_mode, tracking_engine='camera' if rendered_gimbal is not None else 'local', backend_port=args.port,
         dashboard_port=args.dashboard_port if args.dashboard_build else None,
         enable_altitude_control=True, username='admin', password='admin')
     qgc_identity = qgc_build_identity(args.qgc)
@@ -433,6 +482,7 @@ def run(args):
     network_id = None
     relay = None
     frontend = None
+    gimbal_gui = None
     containers = []
     receipt = dict(kind='isolated-gazebo-training-v1', source_commit=host.command('git', '-C', str(ROOT), 'rev-parse', 'HEAD'),
         scenario=scenario, firmware_build=baseline, commands_blocked_at_start=True,
@@ -479,6 +529,9 @@ def run(args):
         if camera_source is not None:
             native_mounts += start_camera_provider(args, runtime, token, primary, baseline, camera_source, containers)
             write(runtime / 'run.json', receipt)
+        if rendered_gimbal is not None:
+            native_mounts += start_gimbal_provider(runtime, profile, token, primary, baseline, scenario, camera_source, containers)
+            write(runtime / 'run.json', receipt)
         shared = [(args.python.parent.parent, args.python.parent.parent, True),
             (args.bin_dir, args.bin_dir, True), (args.router, args.router, True),
             ('/usr/lib/x86_64-linux-gnu', '/mnt/hostlibs', True)]
@@ -509,6 +562,11 @@ def run(args):
                                    executable=str(args.tcp_relay))
         write(runtime / 'run.json', receipt)
         wait_backend(profile)
+        if rendered_gimbal is not None:
+            with (runtime / 'gimbal-gui.log').open('xb') as log:
+                gimbal_gui = subprocess.Popen([str(args.python), str(ROOT / 'tools/gazebo_gimbal_gui.py'),
+                    '--private', str(runtime / 'gimbal-source')], stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+            receipt['gimbal_gui'] = dict(pid=gimbal_gui.pid, private=str(runtime / 'gimbal-source'))
         if args.dashboard_build:
             if (not (args.dashboard_build / 'index.html').is_file() or not args.dashboard_server.is_file()):
                 raise ValueError('Built Dashboard or installed production serve executable is missing')
@@ -539,12 +597,13 @@ def run(args):
         print(f'QGC opened. Backend: http://127.0.0.1:{args.port} · isolated simulation only', flush=True)
         print(f'Credentials and logs: {profile} · Ctrl-C closes this owned stack', flush=True)
         while (relay.poll() is None and (frontend is None or frontend.poll() is None)
+                and (gimbal_gui is None or gimbal_gui.poll() is None)
                 and all(host.owned_container_info(cid, token)['State']['Running'] for cid in containers)):
             time.sleep(1)
         raise RuntimeError('A training component stopped; inspect retained logs')
     finally:
         closed = []
-        for child in (frontend, relay):
+        for child in (gimbal_gui, frontend, relay):
             if child is not None:
                 try:
                     stop_child_group(child)
@@ -578,7 +637,9 @@ def main():
     parser.add_argument('--adapter-file-manifest', type=Path)
     parser.add_argument('--scenario', default='x500-mono-camera-aruco-v1')
     parser.add_argument('--follower-mode', default='mc_velocity_chase',
-                        help='Initial local-image follower; actual aircraft phase still gates Start')
+                        help='Initial follower compatible with the selected input; actual aircraft phase still gates Start')
+    parser.add_argument('--mount-type', choices=('HORIZONTAL', 'VERTICAL'), default='HORIZONTAL',
+                        help='Canonical gimbal installation preset, independent of aircraft phase')
     parser.add_argument('--python', type=Path, required=True)
     parser.add_argument('--bin-dir', type=Path, required=True)
     parser.add_argument('--router', type=Path, required=True)

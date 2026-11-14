@@ -98,14 +98,14 @@ class ImageStream:
             return result
 
 
-def private_listener(path):
+def private_listener(path, *, socket_kind=socket.SOCK_STREAM):
     """Never unlink a pre-existing endpoint or replace another provider."""
     parent = path.parent.stat()
     if not stat.S_ISDIR(parent.st_mode) or parent.st_uid != os.getuid() or stat.S_IMODE(parent.st_mode) != 0o700:
         raise ValueError('Camera socket requires its same-user private 0700 directory')
     if path.exists() or path.is_symlink():
         raise ValueError('Camera socket endpoint already exists')
-    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    listener = socket.socket(socket.AF_UNIX, socket_kind)
     try:
         listener.bind(str(path))
         path.chmod(0o600)
@@ -209,14 +209,14 @@ def main():
     parser.add_argument('--world', required=True)
     parser.add_argument('--image-topic', required=True)
     parser.add_argument('--source-clock-id', required=True)
-    parser.add_argument('--calibration-file', required=True, type=Path)
+    parser.add_argument('--intrinsics-file', required=True, type=Path)
     args = parser.parse_args()
     # Bindings are supplied by the verified Harmonic image, never installed at startup.
     from gz.transport13 import Node
     from gz.msgs10.image_pb2 import Image
     from gz.msgs10.camera_info_pb2 import CameraInfo
     stream = ImageStream(world=args.world, image_topic=args.image_topic, source_clock_id=args.source_clock_id)
-    calibration = json.loads(args.calibration_file.read_text())['calibration']
+    calibration = json.loads(args.intrinsics_file.read_text())['intrinsics']
     node = Node()
     signal.signal(signal.SIGTERM, stream.stop)
     signal.signal(signal.SIGINT, stream.stop)

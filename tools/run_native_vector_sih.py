@@ -877,7 +877,8 @@ print(json.dumps(out))
                        f"/world/{world}/model/{model}/link/base_link/sensor/imu_sensor/imu"}
     if scenario:
         camera = spec["camera"]
-        required_topics.add(f'/world/{world}/model/{model}/link/{camera["link"]}/sensor/{camera["sensor"]}/image')
+        camera_model = spec.get('instrumentation_camera', {}).get('instance', model)
+        required_topics.add(f'/world/{world}/model/{camera_model}/link/{camera["link"]}/sensor/{camera["sensor"]}/image')
     allowed_topic_models = set(scene_models) if scenario else {model}
     if (not required_topics <= observed_topics
             or set(re.findall(r"(?m)^/world/([^/]+)/", topics)) != {world}
