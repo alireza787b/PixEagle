@@ -165,6 +165,17 @@ class Quaternion:
                        vector.y + w * ty + z * tx - x * tz,
                        vector.z + w * tz + x * ty - y * tx)
 
+    def compose(self, other: "Quaternion") -> "Quaternion":
+        """Compose rotations, applying ``other`` first and this rotation last."""
+        values = (
+            self.w * other.w - self.x * other.x - self.y * other.y - self.z * other.z,
+            self.w * other.x + self.x * other.w + self.y * other.z - self.z * other.y,
+            self.w * other.y - self.x * other.z + self.y * other.w + self.z * other.x,
+            self.w * other.z + self.x * other.y - self.y * other.x + self.z * other.w,
+        )
+        norm = math.hypot(*values)
+        return Quaternion(*(value / norm for value in values))
+
     @property
     def heading_rad(self) -> float:
         forward = self.rotate(Vector3(1.0, 0.0, 0.0))

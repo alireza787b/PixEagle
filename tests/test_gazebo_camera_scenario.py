@@ -243,12 +243,16 @@ def test_added_resource_is_rechecked_before_private_staging(tmp_path, package):
     assert not (tmp_path/'run').exists()
 
 
-def quadplane_package(package):
+def quadplane_package(package, scenario_name=QUADPLANE):
     value, manifest, baseline, _ = package
     root = Path(__file__).resolve().parents[1] / 'native/gazebo'
-    declaration = json.loads((root / 'scenarios' / (QUADPLANE + '.json')).read_text())
+    declaration = json.loads((root / 'scenarios' / (scenario_name + '.json')).read_text())
     value.clear()
     value.update(declaration)
+    baseline.update(image_id=value['image_id'], binary_sha256=value['binary_sha256'],
+                    manifest_sha256=value['build_manifest_sha256'])
+    manifest['image_id'] = value['image_id']
+    manifest['artifacts']['binary_sha256'] = value['binary_sha256']
     packaged = Path(baseline['manifest']).parent / 'packaged'
     extra = {
         value['airframe_chain'][0]: '. ${R}etc/init.d/rc.vtol_defaults\nparam set-default SIM_GZ_EN 1\n'
@@ -260,6 +264,21 @@ def quadplane_package(package):
         'gazebo/models/standard_vtol/model.sdf': '<sdf><model name="standard_vtol"/></sdf>',
         'gazebo/models/rover_ackermann/meshes/rover_ackermann_base.dae': 'synthetic local mesh',
     }
+    if value['base_model'] == 'quadtailsitter':
+        extra[value['airframe_chain'][0]] = ('. ${R}etc/init.d/rc.vtol_defaults\nparam set-default MAV_TYPE 20\n'
+            'param set-default SIM_GZ_EN 1\nparam set-default CA_AIRFRAME 4\nparam set-default CA_ROTOR_COUNT 4\n'
+            'param set-default CA_SV_CS_COUNT 0\nparam set-default VT_TYPE 0\n')
+        del extra['gazebo/models/standard_vtol/model.sdf']
+        extra['gazebo/models/quadtailsitter/model.sdf'] = ('<sdf><model name="quadtailsitter">'
+            '<include><uri>model://airspeed</uri></include></model></sdf>')
+        extra['gazebo/models/airspeed/model.sdf'] = '<sdf><model name="airspeed"/></sdf>'
+    if 'server_config' in value:
+        raw = (root / 'server.config').read_bytes()
+        server = ET.fromstring(raw)
+        ET.SubElement(server.find('plugins'), 'plugin', dict(entity_name='*', entity_type='world',
+            filename='libGstCameraSystem.so', name='custom::GstCameraSystem'))
+        extra['gazebo/server.config'] = ET.tostring(server).decode()
+        (scenario.SCENARIOS.parent / 'server.config').write_bytes(raw)
     for relative, raw in extra.items():
         path = packaged / relative
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -294,7 +313,7 @@ def quadplane_package(package):
             value['added_world']['sha256'] = hashlib.sha256(world_path.read_bytes()).hexdigest()
             for name in value['added_model']:
                 value['added_model'][name]['sha256'] = hashlib.sha256(added[f'models/{value["model"]}/{name}'].read_bytes()).hexdigest()
-        (scenario.SCENARIOS / (QUADPLANE + '.json')).write_text(json.dumps(value))
+        (scenario.SCENARIOS / (scenario_name + '.json')).write_text(json.dumps(value))
     save(repin=True)
     return value, manifest, baseline, save, added
 
@@ -636,3 +655,35 @@ def test_metadata_scenarios_refuse_previous_build_before_reads(tmp_path, old_nam
     with pytest.raises(ValueError, match='exact verified stock build'):
         scenario.verified_scenario(new_name, baseline, manifest)
     assert list(tmp_path.iterdir()) == []
+
+
+def test_airframe_identity_resolves_literal_child_defaults_in_shell_order():
+    name = 'etc/init.d-posix/airframes/4018_gz_quadtailsitter'
+    base = 'etc/init.d/rc.vtol_defaults'
+    value = dict(airframe_id=4018, model='quadtailsitter_nose_cam', base_model='quadtailsitter',
+        airframe_chain=[name, base], identity_parameters=['MAV_TYPE'])
+    files = {name: ('. ${R}' + base + '\nparam set-default MAV_TYPE 20\n').encode(),
+             base: b'param set-default MAV_TYPE 22\n'}
+    assert scenario.airframe_identity(value, files) == {'SYS_AUTOSTART': 4018, 'MAV_TYPE': 20}
+    for duplicate in (name, base):
+        changed = files | {duplicate: files[duplicate] + b'param set-default MAV_TYPE 20\n'}
+        with pytest.raises(ValueError, match='identity is ambiguous'):
+            scenario.airframe_identity(value, changed)
+
+
+def test_tailsitter_uses_stock_plant_with_one_rotated_pinned_camera(tmp_path, package):
+    name = 'quadtailsitter-nose-camera-courtyard-v1'
+    value, manifest, baseline, _, additions = quadplane_package(package, name)
+    original = deepcopy(manifest)
+    checked = scenario.verified_scenario(name, baseline, manifest)
+    assert checked['expected_parameters'] == dict(SYS_AUTOSTART=4018, MAV_TYPE=20,
+        CA_AIRFRAME=4, CA_ROTOR_COUNT=4, CA_SV_CS_COUNT=0, VT_TYPE=0, SIM_GZ_EN=1)
+    argv = host.simulation_launch_args('gazebo', baseline, manifest, runtime=tmp_path/'run',
+        token='owner', name='tailsitter', gazebo_scenario=name)
+    assert 'PX4_SYS_AUTOSTART=4018' in argv and 'PX4_SIM_MODEL=gz_quadtailsitter_nose_cam' in argv
+    assert value['camera_mount']['pose'][4] == pytest.approx(-1.5707963267948966)
+    assert manifest == original
+    assert set(checked['added_resources']) == {*additions, 'server.config'}
+    assert not {'--privileged', '--device', '-p'} & set(argv)
+    for relative in checked['added_resources']:
+        assert (tmp_path/'run/scenario'/relative).stat().st_mode & 0o777 == 0o444

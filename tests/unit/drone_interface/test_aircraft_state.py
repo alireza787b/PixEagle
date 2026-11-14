@@ -297,3 +297,17 @@ def test_tailsitter_virtual_fw_frame_is_invariant_with_combined_yaw_roll_and_pit
     wrong_double_rotation = Quaternion(*q_nf).rotate(physical_ray)
     assert (direct.x, direct.y, direct.z) != pytest.approx(
         (wrong_double_rotation.x, wrong_double_rotation.y, wrong_double_rotation.z))
+
+
+@pytest.mark.parametrize('scale', [1., 1.0004, .9996])
+def test_quaternion_composition_matches_successive_rotations_and_normalizes(scale):
+    first = Quaternion.from_euler(.3, -.5, .8)
+    second = Quaternion.from_euler(-.2, .7, -.4)
+    first = Quaternion(*(v * scale for v in (first.w, first.x, first.y, first.z)))
+    second = Quaternion(*(v * scale for v in (second.w, second.x, second.y, second.z)))
+    ray = Vector3(.2, .3, .9)
+    direct = first.rotate(second.rotate(ray))
+    composed = first.compose(second)
+    actual = composed.rotate(ray)
+    assert (actual.x, actual.y, actual.z) == pytest.approx((direct.x, direct.y, direct.z), abs=1e-12)
+    assert math.hypot(composed.w, composed.x, composed.y, composed.z) == pytest.approx(1.)

@@ -30,7 +30,7 @@ sys.path.insert(0, str(ROOT / 'src'))
 from tools import sih_isolated_host as host  # noqa: E402
 from tools import run_native_transition_baseline as native_runtime  # noqa: E402
 from tools.native_adapter_runtime import adapter_launch_args, OwnedContainerLaunch  # noqa: E402
-from tools.gazebo_scenario import verified_scenario  # noqa: E402
+from tools.gazebo_scenario import fixed_camera_optical_to_body, verified_scenario  # noqa: E402
 from tools.prepare_simulation_profile import prepare  # noqa: E402
 from tools.run_native_vector_sih import inspect_simulator_process, verify_gazebo_runtime  # noqa: E402
 
@@ -164,13 +164,16 @@ def stop_child_group(relay):
 
 def native_training_assets(args, simulator, scenario):
     """Runtime availability never grants profile or phase admission."""
-    if simulator != 'gazebo' or scenario['expected_parameters'].get('MAV_TYPE') not in (2, 22):
-        raise ValueError('Training requires a declared MC or standard VTOL Gazebo scenario')
+    from classes.aircraft_state import AircraftKind, aircraft_kind_from_mavlink
+
+    kind = aircraft_kind_from_mavlink(scenario['expected_parameters'].get('MAV_TYPE'))
+    if simulator != 'gazebo' or kind not in (AircraftKind.MULTICOPTER, AircraftKind.VTOL):
+        raise ValueError('Training requires a declared MC or VTOL Gazebo scenario')
     bundle, manifest = getattr(args, 'adapter_bundle', None), getattr(args, 'adapter_file_manifest', None)
     if bool(bundle) != bool(manifest):
         raise ValueError('Native adapter bundle and file manifest must be supplied together')
     if not bundle:
-        if scenario['expected_parameters']['MAV_TYPE'] == 22:
+        if kind is AircraftKind.VTOL:
             raise ValueError('Declared VTOL training requires the verified native adapter')
         return None
     assets = json.loads(native_runtime.ASSETS.read_text())
@@ -185,7 +188,9 @@ def native_training_assets(args, simulator, scenario):
 
 def camera_training_source(args, scenario, token):
     """Bind original image time to the verified simulator, never to an RTP receipt."""
-    if scenario['expected_parameters']['MAV_TYPE'] != 22:
+    from classes.aircraft_state import AircraftKind, aircraft_kind_from_mavlink
+
+    if aircraft_kind_from_mavlink(scenario['expected_parameters']['MAV_TYPE']) is not AircraftKind.VTOL:
         return None
     descriptor = scenario['descriptor']
     if 'server_config' not in descriptor or 'server.config' not in scenario.get('added_resources', {}):
@@ -204,13 +209,13 @@ def camera_training_source(args, scenario, token):
     sensor = camera_tree.find(
         f'./model/link[@name="{camera["link"]}"]/sensor[@name="{camera["sensor"]}"]')
     optics = sensor.find('camera')
-    if (descriptor.get('camera_mount', {}).get('pose', [])[3:] != [0, 0, 0]
-            or sensor.findtext('pose') != '0 0 0 0 0 0'
+    rotation = fixed_camera_optical_to_body(descriptor.get('camera_mount'))
+    if (sensor.findtext('pose') != '0 0 0 0 0 0'
             or camera_tree.findtext('./model/pose', '0 0 0 0 0 0') != '0 0 0 0 0 0'
             or camera_tree.findtext('./model/link/pose', '0 0 0 0 0 0') != '0 0 0 0 0 0'
             or optics.find('distortion') is not None
             or optics.find('lens') is not None):
-        raise ValueError('Training calibration requires the declared fixed unrotated pinhole camera')
+        raise ValueError('Training calibration requires the declared fixed pinhole sensor frames')
     width, height = int(optics.findtext('image/width')), int(optics.findtext('image/height'))
     hfov = float(optics.findtext('horizontal_fov'))
     if min(width, height) <= 0 or not math.isfinite(hfov) or not 0 < hfov < math.pi:
@@ -224,7 +229,8 @@ def camera_training_source(args, scenario, token):
     focal = width / (2 * math.tan(hfov / 2))
     calibration = dict(source_signature=signature, revision='gazebo-pinhole-' + descriptor['resources'][relative]['sha256'][:16],
         pixel_grid='decoder_pre_orientation', image_size_px=[width, height], focal_length_px=[focal, focal],
-        principal_point_px=[width / 2, height / 2], optical_to_body_frd_wxyz=[.5, .5, .5, .5],
+        principal_point_px=[width / 2, height / 2],
+        optical_to_body_frd_wxyz=[rotation.w, rotation.x, rotation.y, rotation.z],
         distortion_model='none', mount_kind='fixed')
     return dict(config=source_config, calibration=calibration, clock_contract=contract,
         clock_contract_sha256=native_runtime.digest(contract_path), camera_resource_sha256=native_runtime.digest(sdf),
@@ -417,7 +423,7 @@ def run(args):
     video = dict(gazebo_camera=camera_source['config'], fixed_camera_calibration=camera_source['calibration']) if camera_source else dict(
         udp_url=f'udp://127.0.0.1:{scenario["descriptor"]["camera"]["udp_port"]}')
     prepare(profile, **video,
-        follower_mode='mc_velocity_chase', tracking_engine='local', backend_port=args.port,
+        follower_mode=args.follower_mode, tracking_engine='local', backend_port=args.port,
         dashboard_port=args.dashboard_port if args.dashboard_build else None,
         enable_altitude_control=True, username='admin', password='admin')
     qgc_identity = qgc_build_identity(args.qgc)
@@ -571,6 +577,8 @@ def main():
     parser.add_argument('--adapter-bundle', type=Path, help='Exact reviewed native runtime bundle (required for VTOL)')
     parser.add_argument('--adapter-file-manifest', type=Path)
     parser.add_argument('--scenario', default='x500-mono-camera-aruco-v1')
+    parser.add_argument('--follower-mode', default='mc_velocity_chase',
+                        help='Initial local-image follower; actual aircraft phase still gates Start')
     parser.add_argument('--python', type=Path, required=True)
     parser.add_argument('--bin-dir', type=Path, required=True)
     parser.add_argument('--router', type=Path, required=True)

@@ -1,13 +1,12 @@
 # Ubuntu visual training platform plan
 
-**Status: MC operator check passed; combined VTOL qualification in progress.**
-Camera rendering and normal UDP ingestion have passed a disarmed check. The
-full application, UI and airborne workflow are still being qualified; this does not establish flight
-qualification. The [follower consolidation plan](follower-consolidation-plan.md)
-remains authoritative for scope, admission, continuity and acceptance. The
-current native engagement-altitude hold correction and pre-request source
-phase/intention fence must be reviewed and qualified before full VTOL Start
-through the application UI. Existing failures remain recorded.
+**Status: MC and standard-quadplane operator checks accepted; fixed-nose
+tailsitter is the next operator checkpoint.** The accepted quadplane run covered
+MC Chase, FW Navigation Chase, session-speed changes and confirmed Hold after
+Stop. The [checkpoint](../../reporting/agent-ops/codex-modernization/checkpoints/2026-11-14-quadplane-acceptance-tailsitter.md)
+records the evidence and remaining boundaries. This is simulator qualification,
+not physical-aircraft acceptance. The [follower consolidation plan](follower-consolidation-plan.md)
+remains authoritative; earlier failed evidence is retained.
 
 Use the ordinary supervised PixEagle application, custom QGroundControl (QGC)
 and actual PX4/Gazebo SITL, with a visible world, camera view and moving ground
@@ -112,7 +111,7 @@ for evidence playback; do not turn it into another action client.
 The initial `tools/run_gazebo_training.py --execute` launcher opens ordinary QGC
 and Gazebo with a fresh private profile. Supply the verified build manifest,
 scenario, QGC/Qt and installed Python/runtime paths shown by `--help`. It starts
-MC Velocity Chase with explicit altitude guidance, CSRT, a local RTP camera and
+MC Velocity Chase by default, with explicit altitude guidance, CSRT, a local RTP camera and
 the circuit breaker active. The local-only training account is `admin/admin`.
 Sign-in, vehicle preparation, target selection and following remain distinct
 normal operator actions. The MC Chase session-speed row uses the same capability
@@ -143,7 +142,7 @@ private configuration. Any uncertain ownership/cleanup blocks another Start.
 
 ### Standard quadplane runtime staging
 
-The explicit `standard-vtol-mono-camera-courtyard-v3` scenario selects the stock
+The explicit `standard-vtol-mono-camera-courtyard-v4` scenario selects the stock
 4004 standard VTOL airframe with its reviewed fixed camera wrapper and populated
 world. The launcher requires `--adapter-bundle` and `--adapter-file-manifest` for
 this declared VTOL scenario, verifies the pinned runtime assets and DDS status
@@ -210,6 +209,40 @@ and FW airspeed reference retain their separate limits and phase generations.
 Source history, passive Start context and current aircraft state share one
 connection owner. Delayed older replies cannot retire newer evidence; repeated
 reads cannot renew sample age or replay an action.
+
+### Fixed nose camera on a tailsitter
+
+Select `--scenario quadtailsitter-nose-camera-courtyard-v1` and
+`--follower-mode fw_navigation_chase` with the same verified native adapter.
+The scenario uses stock airframe 4018, one fixed `mono_cam`, and the populated
+courtyard. It adds the camera's 0.050 kg mass and declared inertia; it does not
+retune the stock aircraft. The aircraft starts disarmed on the ground. Take off
+in MC, transition through QGC, wait for settled FW, select a visible feature and
+Start. Then test speed adjustment and Stop. Transition always ends following;
+another Start is explicit. Initial circuit breaker remains on until the operator
+disables it for this isolated simulator. Altitude guidance is explicitly enabled
+in this training overlay, without changing factory or private profiles.
+
+In hover the fixed nose camera looks upward; this is the installed geometry,
+not missing video. In forward flight it sees the horizon. This first case is
+FW-only image tracking; it does not claim useful MC image tracking from a
+sky-facing camera. The later steerable/vertical-gimbal test is separate.
+
+One scenario `camera_mount.pose` defines the fixed six-coordinate SDF pose in
+`base_link_flu`. The same pose positions the Gazebo camera and derives its
+optical-to-physical-body FRD quaternion. Gazebo cameras look along +X, whereas
+the image optical frame looks along +Z ([Gazebo camera reference](https://gazebosim.org/api/sdformat/14/classsdf_1_1SDF__VERSION__NAMESPACE_1_1Camera.html)).
+The nose pose is `[0, 0, 0.34, 0, -pi/2, 0]`; its optical center points along
+physical body -Z. Full physical aircraft attitude then maps this ray into NED.
+PX4's separate FW control-frame rotation is not reapplied to camera calibration.
+Tests cover both image-axis signs and nonzero mount roll/pitch/yaw.
+
+Other fixed tilt angles use this same calibration path, with an explicitly
+pinned model/scenario. The position is a physical attachment; bearing-only
+guidance does not infer range or implement lever-arm range compensation. There
+is currently one active camera. A future dual-camera installation must provide
+each source's own calibration and use the existing source/epoch invalidation;
+automatic dual-camera switching is not implemented by this test.
 
 The declared pinhole calibration uses the unchanged SDF image size and horizontal
 FOV, plus the fixed optical-to-body rotation. Gazebo's

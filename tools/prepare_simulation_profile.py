@@ -57,8 +57,8 @@ def _follower_profile(mode: str, engine: str):
     profile = get_follower_profile(mode)
     requirement = {'camera': 'GIMBAL_ANGLES', 'local': 'POSITION_2D'}.get(engine)
     if (requirement is None or requirement not in profile.required_tracker_data
-            or not profile.live_eligibility_for('multicopter').eligible):
-        raise ValueError('Follower must match the selected tracking engine and qualified MC phase')
+            or not profile.live_eligibility.eligible):
+        raise ValueError('Follower must match the selected tracking engine and have a qualified flight phase')
     return profile
 
 

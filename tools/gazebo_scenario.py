@@ -25,18 +25,29 @@ def _canonical(node):
     return ET.canonicalize(ET.tostring(node, encoding="unicode"), strip_text=True)
 
 
+def fixed_camera_optical_to_body(mount):
+    """SDF camera +X/left/up mounting → optical right/down/forward → physical FRD."""
+    from classes.aircraft_state import Quaternion
+
+    if (not isinstance(mount, dict) or set(mount) != {"frame", "pose"}
+            or mount["frame"] != "base_link_flu" or not _finite_vector(mount["pose"], 6)):
+        raise ValueError("Gazebo fixed camera requires a finite base_link_flu mount pose")
+    flu_to_frd = Quaternion(0., 1., 0., 0.)
+    optical_to_camera_flu = Quaternion(.5, -.5, .5, -.5)
+    camera_to_base_flu = Quaternion.from_euler(*mount["pose"][3:])
+    return flu_to_frd.compose(camera_to_base_flu).compose(optical_to_camera_flu)
+
+
 def _added_camera_model(value: dict, manifest: dict, files: dict) -> dict:
     """One fixed camera wrapper; the stock aircraft and camera remain byte-exact."""
     mount, declared = value["camera_mount"], value["added_model"]
+    fixed_camera_optical_to_body(mount)
     if not {"etc/init.d-posix/rcS", "etc/init.d-posix/px4-rc.gzsim"} <= files.keys():
         raise ValueError("Gazebo composite requires its pinned autostart and model-spawn scripts")
-    if (not isinstance(mount, dict) or set(mount) != {"frame", "pose"}
-            or mount["frame"] != "base_link_flu" or not _finite_vector(mount["pose"], 6)
-            or mount["pose"][3:] != [0, 0, 0]
-            or not isinstance(declared, dict) or set(declared) != {"model.sdf", "model.config"}
+    if (not isinstance(declared, dict) or set(declared) != {"model.sdf", "model.config"}
             or value["base_model"] == value["model"] or value["base_model"] not in value["models"]
             or value["camera"]["model"] in (value["base_model"], value["model"])):
-        raise ValueError("Gazebo camera wrapper requires a declared stock base and fixed unrotated mount")
+        raise ValueError("Gazebo camera wrapper requires a declared stock base and fixed mount")
     additions = {}
     for name, pin in declared.items():
         relative = f'models/{value["model"]}/{name}'
@@ -185,7 +196,7 @@ def airframe_identity(scenario: dict, files: dict[str, bytes]) -> dict:
     first = f'etc/init.d-posix/airframes/{scenario["airframe_id"]}_gz_{base_model}'
     if not chain or chain[0] != first or len(set(chain)) != len(chain):
         raise ValueError("Gazebo scenario airframe chain differs from its model/ID")
-    visited, expected = [], {"SYS_AUTOSTART": scenario["airframe_id"]}
+    visited, expected, assignments = [], {"SYS_AUTOSTART": scenario["airframe_id"]}, set()
 
     def visit(name):
         if name in visited or name not in chain:
@@ -204,8 +215,11 @@ def airframe_identity(scenario: dict, files: dict[str, bytes]) -> dict:
             for key in scenario["identity_parameters"]:
                 if re.search(rf"\b{key}\b", line):
                     value = re.fullmatch(rf"param\s+set-default\s+{key}\s+([+-]?[0-9]+)", line)
-                    if depth or key in expected or value is None:
+                    if depth or key == "SYS_AUTOSTART" or (name, key) in assignments or value is None:
                         raise ValueError(f"Gazebo scenario identity is ambiguous: {key}")
+                    # PX4 airframes may override literal defaults from their
+                    # included family defaults. Same-file duplicates still refuse.
+                    assignments.add((name, key))
                     expected[key] = int(value[1])
             if re.match(r"^(?:fi|esac|done)\b", line):
                 depth -= 1

@@ -105,10 +105,10 @@ def test_vtol_adapter_is_required_before_staging_or_launch(tmp_path, monkeypatch
     commands.assert_not_called()
 
 
-@pytest.mark.parametrize('kind', [1, 19, 20, 21, None])
+@pytest.mark.parametrize('kind', [1, 0, 999, None])
 def test_undeclared_aircraft_families_are_not_implicitly_training_ready(kind):
     from types import SimpleNamespace
-    with pytest.raises(ValueError, match='declared MC or standard VTOL'):
+    with pytest.raises(ValueError, match='declared MC or VTOL'):
         training.native_training_assets(SimpleNamespace(), 'gazebo', {'expected_parameters': {'MAV_TYPE': kind}})
 
 
@@ -218,7 +218,7 @@ def camera_source_fixture(tmp_path, monkeypatch):
     scenario = dict(expected_parameters={'MAV_TYPE': 22}, descriptor_sha256='scenario', added_resources={'server.config': {}}, descriptor=dict(
         server_config={'sha256': 'server'},
         camera={'model': 'mono_cam', 'link': 'camera_link', 'sensor': 'camera'}, world='courtyard', model='quadplane',
-        camera_mount={'pose': [.12, .03, .242, 0, 0, 0]}, resources={relative: {'sha256': hashlib.sha256(camera.read_bytes()).hexdigest()}}))
+        camera_mount={'frame': 'base_link_flu', 'pose': [.12, .03, .242, 0, 0, 0]}, resources={relative: {'sha256': hashlib.sha256(camera.read_bytes()).hexdigest()}}))
     monkeypatch.setattr(training, 'ROOT', tmp_path)
     from classes import fixed_camera_calibration
     signature = Mock(return_value='sha256-v1:' + 'a' * 64)
@@ -247,7 +247,7 @@ def test_camera_source_refuses_unverified_clock_resource_and_mount(tmp_path, mon
     args, scenario, source, camera, _ = camera_source_fixture(tmp_path, monkeypatch)
     if changed == 'clock': source.write_text('changed')
     elif changed == 'resource': camera.write_text('changed')
-    else: scenario['descriptor']['camera_mount']['pose'][3] = 1
+    else: scenario['descriptor']['camera_mount']['pose'][3] = float('nan')
     with pytest.raises(ValueError):
         training.camera_training_source(args, scenario, 'token')
 
@@ -340,3 +340,47 @@ def test_desktop_mount_identity_ignores_only_list_order(tmp_path, monkeypatch, c
     else:
         with pytest.raises(ValueError, match='identity or isolation'):
             adapter.primary_info()
+
+
+@pytest.mark.parametrize('kind', [19, 20, 21, 22, 23, 24, 47])
+def test_all_declared_vtol_types_require_the_existing_native_owner(kind):
+    from types import SimpleNamespace
+    with pytest.raises(ValueError, match='requires the verified native adapter'):
+        training.native_training_assets(SimpleNamespace(), 'gazebo', {'expected_parameters': {'MAV_TYPE': kind}})
+
+
+@pytest.mark.parametrize('angles,expected', [
+    ((0., 0., 0.), ((1., 0., 0.), (0., 1., 0.), (0., 0., 1.))),
+    ((0., -1.5707963267948966, 0.), ((0., 0., -1.), (0., 1., 0.), (1., 0., 0.))),
+    ((0., .5235987755982988, 0.), ((.8660254037844386, 0., .5), (0., 1., 0.), (-.5, 0., .8660254037844386))),
+    ((0., 0., 1.5707963267948966), ((0., -1., 0.), (1., 0., 0.), (0., 0., 1.))),
+    ((1.5707963267948966, 0., 0.), ((1., 0., 0.), (0., 0., 1.), (0., -1., 0.))),
+])
+def test_calibration_mount_rotation_preserves_independent_optical_axes(tmp_path, monkeypatch, angles, expected):
+    from classes.aircraft_state import Vector3
+    from classes.fixed_camera_calibration import FixedCameraCalibration
+    args, scenario, _, _, _ = camera_source_fixture(tmp_path, monkeypatch)
+    scenario['descriptor']['camera_mount']['pose'][3:] = list(angles)
+    value = training.camera_training_source(args, scenario, 'token')
+    rotation = FixedCameraCalibration.from_mapping(value['calibration']).optical_to_body
+    for optical, body in zip((Vector3(0, 0, 1), Vector3(1, 0, 0), Vector3(0, 1, 0)), expected):
+        actual = rotation.rotate(optical)
+        assert (actual.x, actual.y, actual.z) == pytest.approx(body, abs=1e-12)
+
+
+def test_nose_camera_points_up_in_mc_and_at_horizon_in_fw_without_phase_switch(tmp_path, monkeypatch):
+    import math
+    from classes.aircraft_state import Quaternion, Vector3
+    from classes.fixed_camera_calibration import FixedCameraCalibration
+    args, scenario, _, _, _ = camera_source_fixture(tmp_path, monkeypatch)
+    scenario['expected_parameters']['MAV_TYPE'] = 20
+    scenario['descriptor']['camera_mount']['pose'] = [0., 0., .34, 0., -math.pi / 2, 0.]
+    rotation = FixedCameraCalibration.from_mapping(training.camera_training_source(args, scenario, 'token')['calibration']).optical_to_body
+    ray = rotation.rotate(Vector3(0., 0., 1.))
+    assert (ray.x, ray.y, ray.z) == pytest.approx((0., 0., -1.), abs=1e-12)
+    fw_attitude = Quaternion.from_euler(0., -math.pi / 2, 0.)
+    forward = fw_attitude.rotate(ray)
+    right = fw_attitude.rotate(rotation.rotate(Vector3(1., 0., 0.)))
+    down = fw_attitude.rotate(rotation.rotate(Vector3(0., 1., 0.)))
+    for actual, expected in [(forward, (1., 0., 0.)), (right, (0., 1., 0.)), (down, (0., 0., 1.))]:
+        assert (actual.x, actual.y, actual.z) == pytest.approx(expected, abs=1e-12)

@@ -8,6 +8,16 @@ import yaml
 from tools.prepare_simulation_profile import prepare, validate
 
 
+def test_fixed_wing_image_profile_can_be_preselected_without_fabricating_aircraft_phase(tmp_path):
+    directory = tmp_path / 'fw'
+    prepare(directory, recorded_video='test4.mp4', tracking_engine='local',
+            follower_mode='fw_navigation_chase', enable_altitude_control=True)
+    config = yaml.safe_load((directory / 'configs/config.yaml').read_text())
+    assert config['Follower']['FOLLOWER_MODE'] == 'fw_navigation_chase'
+    assert config['FOLLOWER_CIRCUIT_BREAKER'] is True
+    assert validate(directory)['follower_mode'] == 'fw_navigation_chase'
+
+
 def test_stamped_gazebo_profile_is_explicit_and_keeps_commands_blocked(tmp_path):
     settings = dict(socket_path='/run/pixeagle-camera/camera.sock', source_clock_id='test-world',
         world='training', image_topic='/camera/image', max_attitude_skew_s=.05)

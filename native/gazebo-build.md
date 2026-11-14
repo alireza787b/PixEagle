@@ -315,13 +315,31 @@ stock ground/marker remains. They are visual features, not obstacle-avoidance
 or collision protection. No Fuel asset is fetched. Actual render visibility,
 camera occlusion, airborne geometry and tracking response remain untested.
 
-The ordinary training launcher deliberately still refuses MAV type 22. All
-VTOL Follow admission remains closed. MC Chase is currently MC/MAVSDK-only;
-FW Navigation Chase remains experimental and needs the qualified native
-image/timing resolver and adapter connection. The request-time phase/intention
-fence and transition-release qualification are prerequisites for live VTOL
-admission. Following must end on transition and require a fresh explicit Start
-once settled. Scenario availability does not satisfy any of these gates.
+The ordinary training launcher now admits declared VTOL kinds only with the
+verified native adapter and calibrated stamped-image source. MC Chase remains
+MAVSDK-based for pure MC; the isolated VTOL path uses one native owner. FW
+Navigation Chase requires its native image/timing resolver and request-time
+phase/intention fence. Following ends on transition and requires a fresh explicit
+Start once settled. The standard-quadplane operator run passed these normal
+application workflows; see the [acceptance checkpoint](../docs/reporting/agent-ops/codex-modernization/checkpoints/2026-11-14-quadplane-acceptance-tailsitter.md).
+Scenario availability alone grants no flight authority or hardware qualification.
+
+### Tailsitter fixed-nose camera
+
+`quadtailsitter-nose-camera-courtyard-v1` reuses the pinned 4018 stock plant and
+populated courtyard. Its wrapper adds only the pinned camera and fixed joint.
+The camera weighs 0.050 kg, with inertia diagonal 0.00004 kg m² and camera-frame
+inertial offset [0.03, 0.03, 0.03] m. Its base-link FLU mount is
+`[0, 0, 0.34, 0, -pi/2, 0]`. The image is 1280×960, horizontal FOV 1.74 rad,
+30 Hz. The training server overlay removes the unused stock video encoder.
+
+The scenario's fixed mount supplies the calibration quaternion through one
+canonical rotation composition. It looks skyward in MC hover and forward in FW;
+there is no phase-switched mount or second tailsitter rotation. Ordered literal
+defaults are resolved in shell include order (VTOL defaults specify MAV type 22,
+4018 overrides it to 20); ambiguous same-file assignments, computed values and
+conditional identity remain rejected. Runtime parameters are independently
+verified. See the [operator guide](../docs/followers/05-development/ubuntu-training-platform.md#fixed-nose-camera-on-a-tailsitter).
 
 ## Next gates
 
