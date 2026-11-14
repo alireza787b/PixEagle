@@ -158,7 +158,8 @@ class RenderedCameraControl:
         if operation == 'set_mode':
             if selection_mode != 'classic':
                 raise ValueError('rendered_camera_selection_mode_unsupported')
-            self._request('cancel')
+            with selection_guard() if selection_guard else nullcontext():
+                self._request('cancel')
             self.owns_tracking = False
         elif operation == 'stop':
             return dict(success=self.stop(), message='Camera movement stopped.')
@@ -168,9 +169,12 @@ class RenderedCameraControl:
                 raise ValueError('rendered_camera_direction_invalid')
             with self._lock:
                 epoch = self._epoch
-                self._request('manual', axis=operation,
-                    value=direction * speed / self.motion_settings['max_speed_deg_s'],
-                    maximum_speed_deg_s=self.motion_settings['max_speed_deg_s'])
+                with selection_guard() if selection_guard else nullcontext():
+                    self._request('cancel')
+                    self.owns_tracking = False
+                    self._request('manual', axis=operation,
+                        value=direction * speed / self.motion_settings['max_speed_deg_s'],
+                        maximum_speed_deg_s=self.motion_settings['max_speed_deg_s'])
             try:
                 await asyncio.sleep(duration / 1000)
             finally:
@@ -178,6 +182,7 @@ class RenderedCameraControl:
                     if self._epoch == epoch:
                         self.stop()
         else:
-            self._request(operation)
+            with selection_guard() if selection_guard else nullcontext():
+                self._request(operation)
             self.owns_tracking = False
         return dict(success=True, message='Camera command accepted.')

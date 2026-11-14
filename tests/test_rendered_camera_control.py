@@ -184,3 +184,25 @@ async def test_home_uses_physical_body_forward_not_previous_camera_pan(scene):
     aim = scene.source.model._aim
     assert (aim.x, aim.y, aim.z) == pytest.approx((ray.x, ray.y, ray.z))
     assert scene.source.model.target_ned is None
+
+
+async def test_finite_step_releases_camera_lock_and_stops_after_pulse(scene):
+    scene.source.model.lock_point(Vector3(30., 2., -10.))
+    result = await scene.control.execute('tilt', direction=-1, speed_deg_s=10, duration_ms=100)
+    assert result['success']
+    assert scene.source.model.target_ned is None and scene.source.model._manual is None
+
+
+@pytest.mark.parametrize('operation', ['home', 'pan'])
+async def test_obsolete_manual_guard_prevents_last_device_write(scene, operation):
+    original = Vector3(30., 2., -10.)
+    scene.source.model.lock_point(original)
+    @contextmanager
+    def revoked():
+        raise ValueError('gesture retired')
+        yield
+    with pytest.raises(ValueError, match='gesture retired'):
+        await scene.control.execute(operation, direction=1 if operation=='pan' else None,
+                                    selection_guard=revoked)
+    assert scene.source.model.target_ned is original
+    assert scene.source.model._manual is None
