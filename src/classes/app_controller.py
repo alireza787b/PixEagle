@@ -3438,6 +3438,7 @@ class AppController:
         except Exception as exc:
             self._following_offboard_cleanup_required = True
             result["errors"].append(f"Native command owner cleanup failed: {exc}")
+            logging.error("Native command owner release unconfirmed: %s", exc)
 
     def _get_command_preview_readiness(
         self,

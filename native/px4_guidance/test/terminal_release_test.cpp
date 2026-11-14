@@ -1,5 +1,7 @@
 #include <pixeagle/owned_mode_contract.hpp>
 #include <gtest/gtest.h>
+#include <functional>
+#include <vector>
 
 using namespace pixeagle;
 
@@ -51,6 +53,43 @@ TEST(TerminalRelease, NativeHoldWithoutOriginalTerminalProofCannotResolveRelease
     EXPECT_TRUE(source.pursuit_ended);
     EXPECT_EQ(source.releaseReceipt("runtime", hold_mode, status.actual_epoch).at("outcome"), "unconfirmed");
     EXPECT_THROW(source.requirePursuit(), std::invalid_argument);
+}
+
+TEST(TerminalRelease, DroppedReleaseCanRetryOnlyWithinItsFrozenNativeWindow) {
+    auto source = context(); CommandLease lease; acquirePursuit(lease, source);
+    source.endPursuit(lease);
+    const auto status = evidence(source);
+    const std::uint64_t issued = 1000000, expires = 1500000;
+    EXPECT_FALSE(releaseRetransmissionPermitted(source, status, issued, expires, issued));
+    for (const auto clock : {1100000u, 1200000u, 1400000u}) {
+        EXPECT_TRUE(releaseRetransmissionPermitted(source, status, issued, expires, clock));
+        EXPECT_FALSE(lease.identity());
+        EXPECT_THROW(source.requirePursuit(), std::invalid_argument);
+    }
+    EXPECT_FALSE(releaseRetransmissionPermitted(source, status, issued, expires, expires));
+    EXPECT_FALSE(releaseRetransmissionPermitted(source, status, issued, expires, expires + 1));
+    EXPECT_FALSE(releaseRetransmissionPermitted(source, status, 0, expires, 1100000));
+    EXPECT_FALSE(releaseRetransmissionPermitted(source, status, issued, expires + 1, 1100000));
+    EXPECT_FALSE(releaseRetransmissionPermitted(source, status, expires, issued, 1100000));
+    EXPECT_TRUE(source.observeTerminalRelease(released(source), hold_mode, lease));
+    EXPECT_FALSE(releaseRetransmissionPermitted(source, status, issued, expires, 1100000));
+}
+
+TEST(TerminalRelease, ReleaseRetransmissionCannotFollowStaleReplacementOrTakeoverEvidence) {
+    const std::vector<std::function<void(NativeActivationEvidence&)>> changes{
+        [](auto& v) { v.fresh = false; },
+        [](auto& v) { v.aircraft_matches = false; }, [](auto& v) { ++v.acquired_epoch; },
+        [](auto& v) { ++v.vehicle_epoch; }, [](auto& v) { v.vehicle_mode = hold_mode; },
+        [](auto& v) { v.rescue = true; }, [](auto& v) { v.armed = false; },
+        [](auto& v) { ++v.registration_id; }, [](auto& v) { v.incarnation = {1, 1}; },
+        [](auto& v) { v.state = OwnershipReceiptState::Superseded; },
+        [](auto& v) { v.owner_active = false; },
+    };
+    for (const auto& change : changes) {
+        auto source = context(); CommandLease lease; source.endPursuit(lease);
+        auto status = evidence(source); change(status);
+        EXPECT_FALSE(releaseRetransmissionPermitted(source, status, 1000000, 1500000, 1100000));
+    }
 }
 
 TEST(TerminalRelease, FirstExactReceiptResolvesPendingAndRevokesPursuitInEitherCallbackOrder) {

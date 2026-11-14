@@ -1639,8 +1639,11 @@ async def run(args, isolation):
                 handoff_reason, handoff_time = decision.reason_code, elapsed
                 break
             await asyncio.sleep(.05)
-        await stop_component_publisher(commander)
         native_publications = binding.transport.observed_publications
+        # Match App's operator Stop: invalidate pursuit immediately, then join
+        # the publisher and reconcile the original native acquisition after EOF.
+        commander.activate_failsafe_defaults("operator_stop_pending")
+        await stop_component_publisher(commander)
         handoff = await binding.stop(handoff_reason or "isolated_sih_complete")
         supervisor.record_handoff_result(success=handoff["executed"], detail=handoff["reason"])
         log("handoff.jsonl", dict(timestamp=time.monotonic() - follow_start, result=handoff,

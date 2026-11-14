@@ -264,6 +264,12 @@ void ExternalMode::observeOwnership() {
         _activation_hold.reset();
         revoke();
         _neutral_drain_failure.clear();
+    } else if (_release_request && releaseRetransmissionPermitted(context, activationEvidence(),
+            _release_request->source_clock_us, _release_request->expires_at_us, status.source_clock_us)) {
+        // Retry only on progressing native status, with the original payload and
+        // deadline. Firmware deduplicates it against the exact acquisition.
+        _ownership_publisher->publish(*_release_request);
+        ++_release_dispatch_count;
     }
 }
 
@@ -278,6 +284,13 @@ Json ExternalMode::acquisition(const std::string& runtime) const {
 Json ExternalMode::releaseReceipt(const std::string& runtime) const {
     if (!_ownership_context) return nullptr;
     return _ownership_context->releaseReceipt(runtime, _ownership_status.nav_state, _ownership_status.nav_state_timestamp);
+}
+
+Json ExternalMode::releaseDiagnostics() const {
+    return {{"dispatch_count", _release_dispatch_count},
+        {"source_clock_us", _ownership_status.source_clock_us}, {"receipt_state", _ownership_status.state},
+        {"request_source_clock_us", _release_request ? _release_request->source_clock_us : 0},
+        {"request_expires_at_us", _release_request ? _release_request->expires_at_us : 0}};
 }
 
 void ExternalMode::requestOwnership(bool release) {
@@ -309,7 +322,7 @@ void ExternalMode::requestOwnership(bool release) {
     request.expires_at_us = release ? ownershipDeadline(request.source_clock_us, now, now + _request_timeout_s) : context.expires;
     request.target_system = _status.system_id;
     request.target_component = _status.component_id;
-    if (release) _release_request = request;
+    if (release) { _release_request = request; ++_release_dispatch_count; }
     _ownership_publisher->publish(request);
 }
 
@@ -362,6 +375,7 @@ void ExternalMode::requestActivation(const Identity& identity, OwnershipToken to
         own_registration};
     _ownership_context->start_context = start_context;
     _release_request.reset();
+    _release_dispatch_count = 0;
     _engagement_phase = phaseOf(hold);
     _neutral_drain_failure.clear();
     _activation_hold = std::move(hold);

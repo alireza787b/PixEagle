@@ -44,6 +44,7 @@ public:
     bool registrationConfirmed() const { return _registration_proof.ready() && ownedContractAvailable(); }
     Json acquisition(const std::string& runtime) const;
     Json releaseReceipt(const std::string& runtime) const;
+    Json releaseDiagnostics() const;
     bool acquisitionOutstanding() const;
     std::uint64_t publications() const { return _publications; }
     using NeutralProvider = std::function<std::optional<NativeNeutralInput>()>;
@@ -80,6 +81,7 @@ private:
     std::optional<OwnershipContext> _ownership_context;
     RegistrationProof _registration_proof;
     std::optional<px4_msgs::msg::OwnedModeRequest> _release_request;
+    std::uint64_t _release_dispatch_count{};
     px4_msgs::msg::VehicleStatus _status{};
     px4_msgs::msg::VtolVehicleStatus _vtol_status{};
     double _status_received{-1.}, _vtol_received{-1.};

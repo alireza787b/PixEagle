@@ -241,14 +241,32 @@ class Runtime:
         self.primary = self.launch(argv, "pe-native-" + self.token + "-px4")
         sidecar = adapter_launch_args(work, self.args.adapter_bundle, self.assets, token=self.token,
             primary=self.primary, label=shared.LABEL, name="pe-native-" + self.token + "-adapter")
+        drop_count = getattr(self.args, 'release_drop_count', 0)
+        from tools.native_owned_request_fault import ReleaseDropPolicy
+        ReleaseDropPolicy(drop_count)
+        if drop_count:
+            adapter_script = work / 'adapter.sh'
+            adapter_script.write_text(adapter_script.read_text().replace(' --ros-args ',
+                ' --ros-args -r /fmu/in/owned_mode_request:=/pixeagle_sitl/owned_mode_request '))
+            fault_source = ROOT / 'tools/native_owned_request_fault.py'
+            (work / 'owned-request-fault.py').write_bytes(fault_source.read_bytes())
+            (work / 'owned-request-fault.sh').write_text('set -eo pipefail\nsource /work/ws/install/setup.bash\n'
+                f'exec python3 -u /runtime/owned-request-fault.py --drop-releases {drop_count}'
+                ' > /runtime/owned-request-fault.jsonl 2>&1\n')
         self.sidecar = self.launch(sidecar, "pe-native-" + self.token + "-adapter")
+        if drop_count:
+            self.command(['docker', 'exec', '-d', '-e', f'PIXEAGLE_SITL_OWNED_REQUEST_FAULT={self.token}',
+                '--user', f'{os.getuid()}:{os.getgid()}',
+                self.sidecar, 'bash', '/runtime/owned-request-fault.sh'], timeout=15.)
         write(self.output / "host-manifest.json", dict(primary=self.primary, sidecar=self.sidecar,
             owner_token=self.token, simulator=self.simulator, fixture=self.fixture,
             simulation_build=self.baseline, adapter_image=self.assets["adapter_image"],
             startup_parameters=startup, fresh_parameter_store_before_boot=True,
             logger_sha256=digest(logger), socket_alias=str(self.socket),
             tool_sha256=digest(Path(__file__)), runtime_assets_sha256=digest(ASSETS),
-            runtime_dependencies={"tools/native_adapter_runtime.py": digest(ROOT / "tools/native_adapter_runtime.py")}))
+            runtime_dependencies={"tools/native_adapter_runtime.py": digest(ROOT / "tools/native_adapter_runtime.py")},
+            ownership_fault=dict(drop_initial_releases_per_acquisition=drop_count,
+                source_sha256=digest(ROOT / 'tools/native_owned_request_fault.py') if drop_count else None)))
 
     def sidecar_info(self):
         return adapter_info(self, shared.owned_container_info)

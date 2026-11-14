@@ -110,6 +110,7 @@ int main(int argc, char** argv) {
                     {"vehicle_pose", observations.pose(now)},
                     {"native_guidance_feedback", observations.commandFeedback(now)},
                     {"release_pending", mode.releasePending()}, {"neutral_drain_active", mode.neutralDrainActive()},
+                    {"release_dispatch", mode.releaseDiagnostics()},
                     {"neutral_drain_failure", mode.neutralDrainFailure()},
                     {"nav_state", mode.status().nav_state}, {"nav_state_timestamp", mode.status().nav_state_timestamp},
                     {"release_receipt", mode.releaseReceipt(runtime)}};

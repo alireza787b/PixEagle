@@ -233,6 +233,14 @@ inline bool neutralDrainPermitted(const OwnershipContext& context, const NativeA
             || evidence.state == OwnershipReceiptState::Releasing);
 }
 
+inline bool releaseRetransmissionPermitted(const OwnershipContext& context, const NativeActivationEvidence& evidence,
+        std::uint64_t original_clock, std::uint64_t original_expiry, std::uint64_t observed_clock) {
+    return original_clock > 0 && original_expiry > original_clock
+        && original_expiry - original_clock <= maximum_ownership_window_us
+        && observed_clock > original_clock && observed_clock < original_expiry
+        && neutralDrainPermitted(context, evidence);
+}
+
 // Waiting is not authority: only exactOriginalActivation may authorize startup
 // publication. This uses the original engagement deadline, never another timer.
 inline bool startupActivationMayWait(const OwnershipContext& context, const NativeActivationEvidence& evidence,

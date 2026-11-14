@@ -8,11 +8,16 @@ setup yet**. Existing multicopter following continues through MAVSDK.
 PX4 owns coordinated turns, energy management, attitude/rate control and VTOL
 transition. The adapter publishes navigation objectives, not a second TECS or
 attitude controller. There must not be simultaneous MAVSDK and DDS command
-publishers. VTOL admission remains closed: the accepted
+publishers. Hardware VTOL admission remains closed: the accepted
 [consolidation plan](../docs/followers/05-development/follower-consolidation-plan.md)
 ends following on transition and requires a fresh Start afterward. Historical
 phase-retaining cycle reports below do not qualify the terminal release path;
 actual transition-preserving authority release remains S7 work.
+
+The isolated standard-quadplane operator workflow is accepted. The fixed-nose
+tailsitter operator accepted pursuit but reported failed Stop; that release
+repair remains a separate acceptance gate. Historical component results below
+must not be read as acceptance of that application failure.
 
 | Boundary | Contract |
 | --- | --- |
@@ -169,6 +174,15 @@ configurable for advanced use; the native operation cap stays 500 ms. These
 clocks are not assumed equivalent during paused or scaled SIH. Duplicates renew neither
 deadline nor receipt freshness. A deadline-crossing activation remains unresolved
 until native release is observed; an ineligible Hold cannot claim success.
+
+A release request is retransmitted unchanged on progressing native ownership
+status while its original 500 ms source-clock window and exact original
+Acquired/Releasing authority remain valid. No new timer, acquisition, deadline
+or user command is created. Terminal proof, takeover, rescue, retirement or
+expiry prevents retransmission. This covers the common native Stop, EOF and
+phase-exit path. The existing `observe` diagnostics include dispatch count,
+original request clock/expiry and current receipt state without exposing tokens.
+An RPC timeout still means unconfirmed release; it cannot be relabelled Hold.
 
 Firmware incarnation uses 128 bits from the platform's secure random provider.
 POSIX uses `/dev/urandom`; NuttX requires its linked random-pool provider. Missing,
