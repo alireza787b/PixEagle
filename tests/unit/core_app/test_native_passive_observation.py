@@ -164,7 +164,7 @@ async def test_real_client_runtime_change_retires_passive_binding_before_any_com
 @pytest.mark.parametrize('change', ['connection', 'telemetry', 'identity'])
 async def test_old_native_reply_cannot_commit_or_clear_replacement_generation(connection, monkeypatch, change):
     client, old = native_client(connection);entered, release = asyncio.Event(), asyncio.Event()
-    async def delayed():
+    async def delayed(**kwargs):
         entered.set();await release.wait()
         return dict(fresh=True, owner_confirmed=False, rescue_active=False, aircraft_state=asdict(old))
     client.observe.side_effect = delayed
@@ -192,7 +192,7 @@ async def test_cancelled_passive_read_does_not_leave_ready_cached_pose(connectio
     monkeypatch.setattr('classes.px4_interface_manager.NativeGuidanceClient', lambda _: client)
     await connection.prepare_native_guidance(Path('/private/guidance.sock'))
     entered = asyncio.Event()
-    async def pending():
+    async def pending(**kwargs):
         entered.set();await asyncio.Event().wait()
     client.observe.side_effect = pending
     task = asyncio.create_task(connection.prepare_native_guidance(Path('/private/guidance.sock')))

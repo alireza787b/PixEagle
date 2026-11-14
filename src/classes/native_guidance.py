@@ -361,6 +361,10 @@ class NativeGuidanceClient:
         return self._identity
 
     @property
+    def passive_observation_allowed(self) -> bool:
+        return self._identity is None and not self._acquisition_pending
+
+    @property
     def acquisition_context(self) -> NativeAcquisitionContext | None:
         return self._acquisition
 
@@ -470,8 +474,12 @@ class NativeGuidanceClient:
         finally:
             observer.abort()
 
-    async def observe(self) -> dict:
+    async def observe(self, *, passive: bool = False) -> dict | None:
         async with self._lock:
+            # Check after taking the RPC lock: acquisition may have completed
+            # while a passive reader was waiting for the previous exchange.
+            if passive and not self.passive_observation_allowed:
+                return None
             result = await self._exchange("observe", {})
             try:
                 for name in ("owner_confirmed", "fresh", "rescue_active"):

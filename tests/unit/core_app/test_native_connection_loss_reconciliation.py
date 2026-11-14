@@ -14,7 +14,7 @@ from classes.native_follow_binding import NativeFollowBinding
 from classes.native_guidance import NativeGuidanceClient
 from classes.safety_types import AltitudeLimits
 from classes.vector_guidance_session import VectorGuidanceSession
-from tests.fixtures.native_ownership import release_receipt
+from tests.fixtures.native_ownership import release_receipt, start_context
 from tests.unit.core_app.test_fixed_wing_continuity import evidence
 from tests.unit.core_app.test_native_follow_application import app as app
 from tests.unit.core_app.test_native_follow_binding import CONFIG
@@ -46,13 +46,17 @@ async def native_application(app, native_server):
         observation_timeout_s=.75, initial_phase=AirframePhase.FIXED_WING, clock=lambda: 100.,
     )
     ctrl = app.ctrl
+    ctrl.px4_interface.native_start_context = start_context(original)
+    ctrl.px4_interface.native_guidance_client = client
+    ctrl.px4_interface.get_aircraft_state.return_value = state
     ctrl.px4_interface.get_aircraft_identity.return_value = {
         "autopilot_uid": original.binding.aircraft_uid,
         "connection_generation": original.binding.connection_generation,
     }
     bindings = []
 
-    async def prepare():
+    async def prepare(start_context):
+        assert start_context is ctrl.px4_interface.native_start_context
         binding = NativeFollowBinding(
             guidance, connection, client, ctrl.target_continuity,
             profile_name="gm_velocity_vector", continuity_config=CONFIG,
@@ -127,7 +131,8 @@ async def test_connection_loss_keeps_original_binding_and_barrier_without_matchi
         changed_identity = replace(acquisition.identity,
             binding=replace(acquisition.identity.binding, aircraft_uid="replacement-aircraft"))
         native.behavior["release_receipt"] = release_receipt(
-            replace(acquisition, identity=changed_identity)).wire_payload()
+            replace(acquisition, identity=changed_identity,
+                    start_context=replace(acquisition.start_context, binding=changed_identity.binding))).wire_payload()
     before = len(native.requests)
     await lose_mavsdk(native)
     operations = post_loss_operations(native, before)
@@ -162,7 +167,7 @@ async def test_connection_loss_does_not_abort_or_release_a_current_replacement_a
     state = binding.connection.get_aircraft_state()
     reference = AltitudeHoldReference(state.altitude_amsl_m, state.altitude_reference_generation)
     await native.client.engage(native.original, circuit_breaker_active=False, ownership_token="e" * 32,
-                               altitude_reference=reference)
+                               altitude_reference=reference, start_context=start_context(native.original))
     replacement = native.client.acquisition_context
     assert replacement != original
     before = len(native.requests)
@@ -185,7 +190,7 @@ async def test_preacquire_no_dispatch_remains_a_legitimate_local_only_cleanup(na
     ctrl = native.ctrl
     ctrl._refresh_target_continuity_policy()
     ctrl._reset_target_continuity("partial_start")
-    binding = await ctrl._prepare_native_follow_binding()
+    binding = await ctrl._prepare_native_follow_binding(ctrl.px4_interface.native_start_context)
     assert not binding.acquire_dispatched
     result = {"steps": [], "errors": []}
     before = len(native.requests)

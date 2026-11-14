@@ -239,13 +239,15 @@ async def test_prepare_awaits_declared_image_binding_before_creating_session(app
     ctrl.follower = app.manager
     ctrl._following_session_id = app.f.guidance.identity.follow_session_id
     ctrl._following_continuity_config = CONFIG
+    ctrl._freeze_following_observation_source()
     ctrl._get_target_continuity_supervisor = Mock(return_value=app.f.continuity)
     concrete = app.manager.follower
     concrete.setpoint_handler.profile_config = {'native_phase_contracts': {
         'multicopter': 'velocity_body_offboard', 'fixed_wing': 'fixed_wing_external'}}
     calls = []
 
-    async def bind(actual_app, follower, state, capabilities):
+    async def bind(actual_app, follower, state, capabilities, *, validate_input):
+        validate_input()
         assert actual_app is ctrl and follower is concrete and state is app.f.state
         assert capabilities is app.f.client.capabilities
         calls.append('bind')
@@ -262,7 +264,7 @@ async def test_prepare_awaits_declared_image_binding_before_creating_session(app
     monkeypatch.setattr('classes.gazebo_image_alignment.bind_native_image_resolver', hook)
     concrete.create_airframe_session = Mock(side_effect=create)
     if refused:
-        with pytest.raises(ValueError, match='physical_capture_timing_unqualified'):
+        with pytest.raises(NativeGuidanceError, match='physical_capture_timing_unqualified'):
             await AppController._prepare_native_follow_binding(ctrl, original)
         concrete.create_airframe_session.assert_not_called()
     else:

@@ -88,7 +88,7 @@ async def test_native_preparation_is_observation_only_and_reconnect_revokes_its_
 @pytest.mark.asyncio
 async def test_native_preparation_refuses_aircraft_changed_during_status_read(connection, monkeypatch):
     state = aircraft_state(binding=connection.get_aircraft_state_binding())
-    async def changed_aircraft():
+    async def changed_aircraft(**kwargs):
         connection._aircraft_identity_revision += 1
         return {"fresh": True, "rescue_active": False, "owner_confirmed": False, "aircraft_state": asdict(state)}
     client = SimpleNamespace(session_identity=None, capabilities=None, connect=AsyncMock(), bind=AsyncMock(),

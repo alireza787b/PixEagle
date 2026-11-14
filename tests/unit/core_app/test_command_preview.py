@@ -176,8 +176,8 @@ def test_live_refusal_recommends_preview_only_when_its_transport_is_supported(mo
 
     monkeypatch.setattr(Parameters, "FOLLOWER_MODE", mode)
     result = {"errors": []}
-    assert AppController._refuse_unqualified_live_profile(SimpleNamespace(px4_interface=None),
-                                                        FollowerFactory.get_follower_info(mode), result)
+    profile = FollowerFactory.get_follower_info(mode) | {"live_qualified_phases": []}
+    assert AppController._refuse_unqualified_live_profile(SimpleNamespace(px4_interface=None), profile, result)
     assert result["precondition"]["code"] == "continuity_profile_not_live_qualified"
     assert ("COMMAND_PREVIEW" in result["precondition"]["reason"]) is hint
     assert result["errors"] == [result["precondition"]["reason"]]

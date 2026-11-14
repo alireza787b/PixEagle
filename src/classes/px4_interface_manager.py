@@ -219,6 +219,7 @@ class PX4InterfaceManager:
     DEFAULT_TELEMETRY_MAX_SKEW_S = 0.25
     DEFAULT_MAVLINK2REST_CYCLE_TIMEOUT_S = 1.0
     DEFAULT_OWNED_TASK_STOP_TIMEOUT_S = 2.0
+    NATIVE_OBSERVATION_PERIOD_S = .02
     # Hold the first accepted setpoint long enough to establish PX4 proof-of-life.
     OFFBOARD_PRIME_DURATION_S = 1.1
     MAVSDK_TELEMETRY_STREAM_NAMES = ("position", "attitude", "velocity_ned")
@@ -262,6 +263,7 @@ class PX4InterfaceManager:
         self._telemetry_generation = 0
         self._aircraft_state_owner = AircraftStateOwner()
         self._native_guidance_client = None
+        self._native_observation_task = None
         self._native_observation_snapshot = None
         self._source_attitude_history = SourceAttitudeHistory()
         self._native_guidance_lock = asyncio.Lock()
@@ -593,7 +595,8 @@ class PX4InterfaceManager:
         capabilities = None if client is None else client.capabilities
         current = self.get_aircraft_state()
         if (snapshot is None or capabilities is None or current is None
-                or client.session_identity is not None):
+                or client.session_identity is not None
+                or getattr(client, 'passive_observation_allowed', True) is not True):
             return None
         context, state = snapshot
         if (context is None or current.binding != state.binding or current.phase is not state.phase
@@ -654,12 +657,54 @@ class PX4InterfaceManager:
         return True
 
     def _abort_native_guidance(self) -> None:
+        task = getattr(self, '_native_observation_task', None)
+        if task is not None and not task.done():
+            task.cancel()
         client = getattr(self, "_native_guidance_client", None)
         self._native_guidance_client = None
         self._native_observation_snapshot = None
         self.source_attitude_history.clear()
         if client is not None:
             client.abort()
+
+    def _ensure_native_observation_task(self, client, binding):
+        task = getattr(self, '_native_observation_task', None)
+        if task is None or task.done():
+            self._native_observation_task = asyncio.create_task(
+                self._observe_native_passively(client, binding), name='PixEagleNativeObservations')
+
+    async def _observe_native_passively(self, client, binding):
+        """Keep source history at the native status cadence, independent of UI reads.
+
+        The socket owner serializes observation with acquisition. Once owned,
+        only the existing command publisher observes; this task sends no action.
+        """
+        try:
+            while self._native_guidance_client is client and self.get_aircraft_state_binding() == binding:
+                await asyncio.sleep(self.NATIVE_OBSERVATION_PERIOD_S)
+                async with self._native_guidance_lock:
+                    if self._native_guidance_client is not client or self.get_aircraft_state_binding() != binding:
+                        return
+                    observation = await client.observe(passive=True)
+                    if self._native_guidance_client is not client or self.get_aircraft_state_binding() != binding:
+                        return
+                    if (observation is None or client.session_identity is not None
+                            or getattr(client, 'passive_observation_allowed', True) is not True):
+                        continue
+                    if (observation.get('fresh') is not True or observation.get('rescue_active') is not False
+                            or observation.get('owner_confirmed') is not False
+                            or not self.commit_native_observation(observation)):
+                        raise NativeGuidanceError('native_aircraft_state_unavailable')
+        except asyncio.CancelledError:
+            raise
+        except (NativeGuidanceError, ValueError, TypeError, KeyError):
+            if self._native_guidance_client is client and self.get_aircraft_state_binding() == binding:
+                self._native_guidance_client = None
+                self._native_observation_snapshot = None
+                self.source_attitude_history.clear()
+                self._aircraft_state_owner.bind(None)
+                client.abort()
+                logger.warning('Passive native observations unavailable; fresh discovery is required')
 
     async def prepare_native_guidance(self, socket_path: Path):
         """Read-only native discovery, bound to this verified aircraft connection.
@@ -669,7 +714,8 @@ class PX4InterfaceManager:
         """
         async with self._native_guidance_lock:
             previous = self._native_guidance_client
-            if previous is not None and previous.session_identity is not None:
+            if previous is not None and (previous.session_identity is not None
+                    or getattr(previous, 'passive_observation_allowed', True) is not True):
                 raise NativeGuidanceError("native_follow_session_already_owned")
             binding = self.get_aircraft_state_binding()
             if binding is None:
@@ -677,6 +723,9 @@ class PX4InterfaceManager:
             client = previous
             try:
                 if client is None or client.capabilities is None:
+                    if not await self._cancel_owned_task(
+                            getattr(self, '_native_observation_task', None), label='Previous native observation worker'):
+                        raise NativeGuidanceError('native_observation_cleanup_pending')
                     if client is not None:
                         await client.close()
                     client = NativeGuidanceClient(socket_path)
@@ -685,7 +734,11 @@ class PX4InterfaceManager:
                     await client.bind(binding)
                 else:
                     capabilities = client.capabilities
-                observation = await client.observe()
+                observation = await client.observe(passive=True)
+                if observation is None:
+                    # An acquisition won the RPC lock. Passive discovery must
+                    # neither replace its context nor close its owned socket.
+                    return capabilities
                 if (observation.get("fresh") is not True or observation.get("rescue_active") is not False
                         or observation.get("owner_confirmed") is not False):
                     raise NativeGuidanceError("native_aircraft_state_unavailable")
@@ -697,10 +750,16 @@ class PX4InterfaceManager:
                 if self.get_aircraft_state() != state:
                     raise NativeGuidanceError("native_aircraft_state_rejected")
                 self._native_guidance_client = client
+                self._ensure_native_observation_task(client, binding)
                 return capabilities
             except BaseException as error:
                 if self._native_guidance_client is client:
                     self._native_guidance_client = None
+                    task = getattr(self, '_native_observation_task', None)
+                    if task is not None and not task.done():
+                        task.cancel()
+                    self._native_observation_snapshot = None
+                    self.source_attitude_history.clear()
                 if self.get_aircraft_state_binding() == binding:
                     self._aircraft_state_owner.bind(None)
                 if client is not None:
@@ -2253,14 +2312,20 @@ class PX4InterfaceManager:
             getattr(self, "_sender_quiesce_task", None) is not None
             and not self._sender_quiesce_task.done()
         )
+        native_observer_alive = bool(
+            getattr(self, '_native_observation_task', None) is not None
+            and not self._native_observation_task.done()
+        )
         alive_count = (
             int(sender_quiesce_alive)
+            + int(native_observer_alive)
             + int(telemetry_supervisor_alive)
             + int(connection_monitor_alive)
             + sum(int(alive) for alive in stream_workers.values())
         )
         return {
             "sender_quiesce_alive": sender_quiesce_alive,
+            "native_observer_alive": native_observer_alive,
             "telemetry_supervisor_alive": telemetry_supervisor_alive,
             "connection_monitor_alive": connection_monitor_alive,
             "mavsdk_stream_workers": stream_workers,
@@ -2270,13 +2335,15 @@ class PX4InterfaceManager:
 
     async def _cancel_telemetry_update_task(self):
         """Cancel and join the owned telemetry supervisor task."""
+        native_stopped = await self._cancel_owned_task(
+            getattr(self, '_native_observation_task', None), label='Native observation worker')
         supervisor_stopped = await self._cancel_owned_task(
             self.update_task,
             label="PX4 telemetry supervisor",
             timeout_s=self.DEFAULT_OWNED_TASK_STOP_TIMEOUT_S * 2.0,
         )
         streams_stopped = await self._cancel_mavsdk_stream_tasks()
-        return supervisor_stopped and streams_stopped
+        return native_stopped and supervisor_stopped and streams_stopped
 
     async def _cancel_connection_monitor_task(self):
         """Cancel and join the owned MAVSDK connection monitor."""

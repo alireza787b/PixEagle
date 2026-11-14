@@ -22,7 +22,7 @@ from classes.target_continuity import (
     TargetContinuitySupervisor,
 )
 from classes.vector_guidance_session import VectorGuidanceSession
-from tests.fixtures.native_ownership import release_receipt
+from tests.fixtures.native_ownership import release_receipt, start_context
 from tests.unit.core_app.test_fixed_wing_continuity import evidence
 from tests.unit.core_app.test_native_connection_loss_reconciliation import (
     native_application as _native_application_fixture,
@@ -70,7 +70,7 @@ async def component(native_server):
     binding = NativeFollowBinding(guidance, connection, client, continuity,
         profile_name="gm_velocity_vector", continuity_config=CONFIG, target_evidence=evidence,
         context=lambda: base, circuit_breaker=lambda: False, clock=lambda: now[0])
-    intent = await binding.engage()
+    intent = await binding.engage(start_context=start_context(original))
     assert guidance.phase_owner.state is PhaseSessionState.PURSUIT
     observed, failed = [], []
     original_observer = binding.on_observation
@@ -183,7 +183,7 @@ async def test_original_transport_does_not_abort_replacement_acquisition(compone
     await c.client.bind(c.original.binding)
     reference = AltitudeHoldReference(c.initial.altitude_amsl_m, c.initial.altitude_reference_generation)
     await c.client.engage(c.original, circuit_breaker_active=False, ownership_token="e" * 32,
-                         altitude_reference=reference)
+                         altitude_reference=reference, start_context=start_context(c.original))
     replacement = c.client.acquisition_context
     c.behavior["release_receipt"] = None
     c.behavior["owner_confirmed"] = True
@@ -209,8 +209,8 @@ async def test_one_actual_commander_attempt_runs_existing_app_terminal_cleanup(n
     ctrl = native.ctrl
     prepare = ctrl._prepare_native_follow_binding.side_effect
 
-    async def immediate_confirmation():
-        binding = await prepare()
+    async def immediate_confirmation(start_context):
+        binding = await prepare(start_context)
         binding.guidance.phase_owner.confirmation_s = 0.
         return binding
 
@@ -331,7 +331,7 @@ async def test_replacement_between_reply_and_binding_callback_preserves_new_clie
         await c.client.bind(c.original.binding)
         reference = AltitudeHoldReference(c.initial.altitude_amsl_m, c.initial.altitude_reference_generation)
         await c.client.engage(c.original, circuit_breaker_active=False, ownership_token="e" * 32,
-                             altitude_reference=reference)
+                             altitude_reference=reference, start_context=start_context(c.original))
         c.behavior["release_receipt"] = None
         return await original_observer(*args)
 

@@ -250,6 +250,74 @@ async def test_already_qualified_pair_binds_without_sleep_or_native_refresh(runt
     assert run.delays == []
 
 
+async def test_guarded_missing_frame_recovers_only_from_a_new_current_measurement(runtime_case):
+    run = runtime_case
+    original_output = run.app.get_tracker_output.return_value
+    run.app.get_tracker_output.return_value = SimpleNamespace(image_measurement=None)
+    guard = Mock()
+
+    async def refresh(_):
+        run.app.get_tracker_output.return_value = original_output
+
+    run.connection.prepare_native_guidance.side_effect = refresh
+    await bind_native_image_resolver(run.app, run.concrete, run.state, run.capabilities, validate_input=guard)
+    resolver = run.concrete.bind_guidance_input_resolver.call_args.args[0]
+    association = resolver(original_output, run.state)
+    assert association.bearing.provenance.capture == run.measurement.provenance.capture
+    assert guard.call_count >= 3
+    assert run.delays == [.02]
+    for action in (run.client.engage, run.client.acquire, run.client.publish):
+        action.assert_not_called()
+
+
+async def test_guarded_target_loss_expires_inside_original_budget_with_specific_reason(runtime_case):
+    run = runtime_case
+    run.app.get_tracker_output.return_value = SimpleNamespace(image_measurement=None)
+    with pytest.raises(ValueError, match='^image_measurement_unavailable$'):
+        await bind_native_image_resolver(run.app, run.concrete, run.state, run.capabilities, validate_input=Mock())
+    assert sum(run.delays) == pytest.approx(run.client.request_timeout_s)
+    run.concrete.bind_guidance_input_resolver.assert_not_called()
+    for action in (run.client.engage, run.client.acquire, run.client.publish):
+        action.assert_not_called()
+
+
+@pytest.mark.parametrize('reason', ['following_input_context_changed', 'native_start_context_changed'])
+async def test_context_change_during_first_pair_wait_cannot_bind_or_renew_deadline(runtime_case, reason):
+    run = runtime_case
+    run.history.clear()
+    guard = Mock(side_effect=[None, ValueError(reason)])
+    with pytest.raises(ValueError, match='^' + reason + '$'):
+        await bind_native_image_resolver(run.app, run.concrete, run.state, run.capabilities, validate_input=guard)
+    assert run.delays == [.02]
+    run.connection.prepare_native_guidance.assert_not_awaited()
+    run.concrete.bind_guidance_input_resolver.assert_not_called()
+
+
+async def test_context_is_rechecked_before_binding_an_already_qualified_pair(runtime_case):
+    run = runtime_case
+    guard = Mock(side_effect=[None, ValueError('following_input_context_changed')])
+    with pytest.raises(ValueError, match='^following_input_context_changed$'):
+        await bind_native_image_resolver(run.app, run.concrete, run.state, run.capabilities, validate_input=guard)
+    run.concrete.bind_guidance_input_resolver.assert_not_called()
+    assert run.delays == []
+
+
+async def test_cancelled_first_pair_wait_cannot_refresh_bind_or_acquire(runtime_case, monkeypatch):
+    run = runtime_case
+    run.history.clear()
+
+    async def cancelled(_):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(alignment.asyncio, 'sleep', cancelled)
+    with pytest.raises(asyncio.CancelledError):
+        await bind_native_image_resolver(run.app, run.concrete, run.state, run.capabilities, validate_input=Mock())
+    run.connection.prepare_native_guidance.assert_not_awaited()
+    run.concrete.bind_guidance_input_resolver.assert_not_called()
+    for action in (run.client.engage, run.client.acquire, run.client.publish):
+        action.assert_not_called()
+
+
 async def test_first_pair_timeout_does_not_issue_a_refresh_after_deadline(runtime_case):
     run = runtime_case
     run.history.clear()

@@ -3360,7 +3360,18 @@ class AppController:
         if not callable(create):
             raise RuntimeError("follower_native_strategy_unavailable")
         from classes.gazebo_image_alignment import bind_native_image_resolver
-        await bind_native_image_resolver(self, concrete, state, capabilities)
+        expected_input = self._follow_start_input_identity()
+
+        def validate_input():
+            try:
+                self._require_follow_start_input_identity(expected_input, {}, stage="native_image_preparation")
+            except RuntimeError as error:
+                raise NativeGuidanceError(str(error)) from error
+
+        try:
+            await bind_native_image_resolver(self, concrete, state, capabilities, validate_input=validate_input)
+        except ValueError as error:
+            raise NativeGuidanceError(str(error)) from error
         identity = GuidanceSessionIdentity(self._following_session_id, state.binding, 0)
         guidance = create(
             identity, capabilities,
@@ -3907,11 +3918,12 @@ class AppController:
         Returns:
             Dict with status information including steps taken and any errors
         """
+        native_context_error = None
         if native_start_context is _NATIVE_START_CONTEXT_UNCAPTURED:
             try:
                 native_start_context = self._capture_native_start_context()
             except NativeGuidanceError as error:
-                return self._native_start_context_failure(error)
+                native_context_error = error
         if native_start_guard is not None and self._is_command_preview_configured():
             return {"steps": [], "errors": ["Native aircraft following requires PX4 execution."],
                     "precondition": {"code": "native_follow_preview_unavailable"}}
@@ -3935,6 +3947,8 @@ class AppController:
                 result["errors"].append("A previous follow teardown is still unresolved.")
                 result["precondition"] = {"code": "following_stop_pending"}
                 return result
+            if native_context_error is not None:
+                return self._native_start_context_failure(native_context_error)
             if native_start_guard is not None:
                 try:
                     native_start_guard("before_start")
@@ -4244,6 +4258,8 @@ class AppController:
                 )
                 raise
             except Exception as e:
+                if isinstance(e, NativeGuidanceError):
+                    result.setdefault("precondition", {"code": str(e)})
                 error_msg = f"Failed to connect/start offboard mode: {e}"
                 logging.error(error_msg)
                 result["errors"].append(error_msg)

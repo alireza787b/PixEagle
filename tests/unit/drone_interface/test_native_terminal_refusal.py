@@ -18,16 +18,26 @@ from classes.aircraft_state import AircraftState, AircraftStateOwner
 from classes.command_dispatch_guard import DispatchRefused, DispatchRefusalKind
 from classes.native_follow_binding import NativeFollowBinding
 from classes.native_guidance import (
-    PROTOCOL_VERSION, NativeBackendRefusal, NativeCapabilities, NativeGuidanceClient, NativeGuidanceError,
+    PROTOCOL_VERSION, NativeBackendRefusal, NativeCapabilities, NativeGuidanceClient, NativeGuidanceError, NativeStartContext,
 )
 from classes.offboard_commander import OffboardCommander
 from classes.target_continuity import ContinuityContext, ContinuityPolicy, TargetContinuitySupervisor
+from tests.fixtures.native_ownership import project_recorded_acquisition
 from tests.unit.core_app.test_fixed_wing_continuity import evidence
 from tests.unit.core_app.test_native_follow_binding import CONFIG
 from tests.unit.followers.test_vector_guidance_session import session
 
 FIXTURE = json.loads((Path(__file__).parents[2] / 'fixtures/native/transition-intent-refusal-r5.json').read_text())
-PROJECTED_CAPABILITIES = FIXTURE['capabilities'] | {'multicopter_altitude_hold_supported': True}
+# Project only this test's envelopes; keep the archived capture immutable.
+FIXTURE = deepcopy(FIXTURE)
+for name in ('healthy_observation', 'released_observation'):
+    payload = FIXTURE[name]['value']['payload']
+    payload['start_context'] = None
+    if payload['release_receipt'] is not None:
+        receipt = payload['release_receipt']
+        receipt['acquisition'] = project_recorded_acquisition(receipt['acquisition'])
+PROJECTED_CAPABILITIES = FIXTURE['capabilities'] | {
+    'external_mode_api_version': 2, 'multicopter_altitude_hold_supported': True, 'source_clock_id': None}
 
 
 @pytest.fixture
@@ -123,7 +133,7 @@ async def binding_for_race(race_server, monkeypatch):
     binding = NativeFollowBinding(guidance, connection, client, continuity, profile_name='gm_velocity_vector',
         continuity_config=CONFIG, target_evidence=lambda: evidence(), context=lambda: base,
         circuit_breaker=lambda: False, clock=lambda: now[0])
-    intent = await binding.engage()
+    intent = await binding.engage(start_context=NativeStartContext.from_payload(context['start_context']))
     return binding, client, requests, behavior, intent, now
 
 

@@ -183,7 +183,7 @@ def native_image_guidance_readiness(app, profile, state):
     return {'ready': True, 'reason_code': None}
 
 
-async def bind_native_image_resolver(app, concrete, state, capabilities):
+async def bind_native_image_resolver(app, concrete, state, capabilities, *, validate_input=None):
     """Prepare declared image-bearing input, using only bounded read-only waits."""
     bind = getattr(concrete, 'bind_guidance_input_resolver', None)
     required = concrete.setpoint_handler.profile_config.get('required_tracker_data', [])
@@ -200,21 +200,33 @@ async def bind_native_image_resolver(app, concrete, state, capabilities):
     if update_rate <= 0:
         raise ValueError('guidance_input_update_rate_invalid')
     period = 1. / update_rate
+    retryable = {'source_attitude_alignment_unavailable'}
+    if validate_input is not None:
+        # A missing frame may recover only within the original target/source
+        # identity. No retained or predicted measurement becomes fresh here.
+        retryable.add('image_measurement_unavailable')
     while True:
+        if validate_input is not None:
+            validate_input()
         try:
             resolver(app.get_tracker_output(), connection.get_aircraft_state())
             break
         except ValueError as error:
-            if str(error) != 'source_attitude_alignment_unavailable' or time.monotonic() >= deadline:
+            reason = str(error)
+            if reason not in retryable or time.monotonic() >= deadline:
                 raise
         await asyncio.sleep(min(period, max(0., deadline - time.monotonic())))
+        if validate_input is not None:
+            validate_input()
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            raise ValueError('source_attitude_alignment_unavailable')
+            raise ValueError(reason)
         try:
             await asyncio.wait_for(connection.prepare_native_guidance(client.socket_path), timeout=remaining)
         except TimeoutError as error:
-            raise ValueError('source_attitude_alignment_unavailable') from error
+            raise ValueError(reason) from error
         if time.monotonic() >= deadline:
-            raise ValueError('source_attitude_alignment_unavailable')
+            raise ValueError(reason)
+    if validate_input is not None:
+        validate_input()
     bind(resolver)

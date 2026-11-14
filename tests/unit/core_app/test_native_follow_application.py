@@ -554,3 +554,65 @@ async def test_repeated_continuity_stop_records_one_original_completion(app):
     await asyncio.gather(first, second)
     supervisor.record_handoff_result.assert_called_once_with(success=True, detail="native_owner_released")
     app.f.client.handoff.assert_awaited_once()
+
+
+@pytest.mark.parametrize('code', ['image_measurement_unavailable', 'source_attitude_alignment_unavailable'])
+async def test_image_startup_refusal_preserves_typed_code_without_acquiring_or_sending_hold(app, monkeypatch, code):
+    ctrl = app.ctrl
+    ctrl._prepare_native_follow_binding = AppController._prepare_native_follow_binding.__get__(ctrl, AppController)
+    app.manager.follower.setpoint_handler.profile_config = {
+        'native_phase_contracts': {'fixed_wing': 'fixed_wing_external'}}
+    resolver = AsyncMock(side_effect=ValueError(code))
+    monkeypatch.setattr('classes.gazebo_image_alignment.bind_native_image_resolver', resolver)
+    monkeypatch.setattr(Parameters, 'AIRFRAME_LAYOUT', 'AUTO', raising=False)
+    result = await ctrl._connect_px4_on_flight_loop()
+    assert result['precondition']['code'] == code
+    assert any(code in error for error in result['errors'])
+    assert not ctrl.following_active
+    assert ctrl._native_follow_binding is None
+    resolver.assert_awaited_once()
+    app.manager.follower.create_airframe_session.assert_not_called()
+    app.f.client.engage.assert_not_called()
+    app.f.client.handoff.assert_not_called()
+    ctrl.px4_interface.start_offboard_mode.assert_not_called()
+    ctrl.px4_interface.stop_offboard_mode.assert_not_called()
+    app.commander.start.assert_not_called()
+
+
+async def test_native_startup_error_does_not_replace_an_existing_specific_precondition(app):
+    from classes.native_guidance import NativeGuidanceError
+
+    def refuse(profile, result):
+        result['precondition'] = {'code': 'following_input_context_changed', 'stage': 'before_offboard'}
+        raise NativeGuidanceError('native_start_context_changed')
+    app.ctrl._require_live_aircraft_profile = refuse
+    result = await app.ctrl._connect_px4_on_flight_loop()
+    assert result['precondition'] == {'code': 'following_input_context_changed', 'stage': 'before_offboard'}
+    app.f.client.engage.assert_not_called()
+    app.ctrl.px4_interface.stop_offboard_mode.assert_not_called()
+
+
+@pytest.mark.parametrize('change', ['target', 'source'])
+async def test_native_image_preparation_guard_cannot_rebase_onto_replaced_input(app, monkeypatch, change):
+    ctrl = app.ctrl
+    ctrl._prepare_native_follow_binding = AppController._prepare_native_follow_binding.__get__(ctrl, AppController)
+    app.manager.follower.setpoint_handler.profile_config = {
+        'native_phase_contracts': {'fixed_wing': 'fixed_wing_external'}}
+
+    async def prepare_image(app_owner, concrete, state, capabilities, *, validate_input):
+        validate_input()
+        if change == 'target':
+            app_owner._tracking_session_generation = getattr(app_owner, '_tracking_session_generation', 0) + 1
+        else:
+            app_owner.frame_publisher.control_source_epoch = 'replacement-camera'
+        validate_input()
+
+    monkeypatch.setattr('classes.gazebo_image_alignment.bind_native_image_resolver', prepare_image)
+    monkeypatch.setattr(Parameters, 'AIRFRAME_LAYOUT', 'AUTO', raising=False)
+    result = await ctrl._connect_px4_on_flight_loop()
+    assert result['precondition']['code'] == 'following_input_context_changed'
+    assert not ctrl.following_active
+    app.manager.follower.create_airframe_session.assert_not_called()
+    app.f.client.engage.assert_not_called()
+    app.f.client.handoff.assert_not_called()
+    ctrl.px4_interface.stop_offboard_mode.assert_not_called()
