@@ -165,6 +165,11 @@ def test_startup_and_config_sync_preview_share_simulator_validation(source):
     candidate['GimbalTracker']['GAZEBO_INPUT'] = asdict(source[0].settings)
     assert ConfigService.get_instance().validate_config_mapping(candidate).valid
     Parameters._validate_dependent_config(candidate, strict=True)
+    # The supervised startup uses round-trip YAML scalars, not plain JSON floats.
+    from ruamel.yaml import YAML
+    roundtrip = YAML().load(yaml.safe_dump(candidate))
+    assert ConfigService.get_instance().validate_config_mapping(roundtrip).valid
+    Parameters._validate_dependent_config(roundtrip, strict=True)
     candidate['GimbalTracker']['CONTROL_ENABLED'] = True
     result = ConfigService.get_instance().validate_config_mapping(candidate)
     assert not result.valid and any('controls_unsupported' in message for message in result.errors)

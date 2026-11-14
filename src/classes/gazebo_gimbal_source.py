@@ -32,7 +32,7 @@ class GazeboGimbalSettings:
         for value in (self.source_clock_id, self.world):
             if not isinstance(value, str) or not value or value.strip() != value or len(value) > 256:
                 raise ValueError('gazebo_gimbal_source_identity_invalid')
-        if (type(self.max_attitude_skew_s) not in (float, int)
+        if (isinstance(self.max_attitude_skew_s, bool) or not isinstance(self.max_attitude_skew_s, (float, int))
                 or not math.isfinite(self.max_attitude_skew_s) or self.max_attitude_skew_s <= 0):
             raise ValueError('gazebo_gimbal_skew_invalid')
 

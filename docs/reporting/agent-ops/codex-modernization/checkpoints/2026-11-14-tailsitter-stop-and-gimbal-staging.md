@@ -178,3 +178,11 @@ It uses pinned locally generated art and static visual props; moving objects,
 hydrodynamics and collision qualification are not implied. See
 `native/gazebo/README.md`. A fresh ground-start QGC/gimbal stack follows the
 remaining software checks and actual scene-render inspection.
+
+The first coastal full-stack launch retired cleanly before QGC opened: startup
+uses round-trip YAML numeric subclasses, while the new simulator skew validator
+incorrectly required a plain built-in float. It now accepts finite numeric
+subclasses while continuing to reject booleans/nonfinite values. The same
+round-trip fixture is checked through Config Sync and startup validation;
+53 relevant source/profile regressions pass. The failed run remains at
+`training-tailsitter-gimbal-coast-operator-r1`; a fresh run is required.
