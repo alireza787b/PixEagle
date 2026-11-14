@@ -95,3 +95,26 @@ comparison, not automatic authority for a newer tailsitter FW overlay.
 Hardware reconnection is unnecessary for the initial software slices. Request
 it only when an unmeasured physical convention blocks qualification or at the
 later operator hardware checkpoint.
+
+## Protocol/GUI slice completed
+
+The existing `tools/gimbal_simulator.py` is now an input stimulus with one UDP
+worker, production enums/checksum and independent GAC/TRC cadence. Captured
+hardware packets decode through the real provider parser. Incorrect headers,
+fabricated OFT angle broadcasts, duplicate enums, automatic package installation
+and unmeasured smoothing/pattern motion were removed. The compact GUI uses the
+existing installation configuration and shared inverse angle convention; both
+mounts were exercised with real Tk layout/worker cleanup. It provides explicit
+simulated lock/loss, Center and independent sample-freeze controls.
+
+207 protocol/geometry/provider/documentation tests pass, including actual local
+UDP delivery and unchanged forward geometry. See `gimbal-protocol-parity-final-r2.log`
+and `gimbal-tk-smoke.log` in the common report directory. Tk was staged locally
+from Ubuntu packages for this host check; no system package/service or runtime
+configuration was modified. The [short tool guide](../../../../gimbal_simulator.md)
+replaces the old misleading full-hardware-emulation instructions.
+
+This slice does not rotate Gazebo or establish a native FW gimbal timing
+association. Those remain next work, with a fidelity choice pending: measured
+camera mechanics first, or an explicitly ideal stabilized model first. All GUI
+and flight-test processes remain closed. No private camera setting was changed.

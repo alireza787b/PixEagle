@@ -201,6 +201,18 @@ def require_finite_body_angles(angular) -> tuple[float, float, float]:
     return tuple(values)
 
 
+def body_bearing_to_angles(azimuth_deg, depression_deg, geometry: AngleGeometry,
+                           reference_angles=(0.0, 0.0, 0.0)) -> tuple[float, float, float]:
+    """Invert the configured angle convention, not mechanical joint kinematics."""
+    azimuth, depression, _ = require_finite_body_angles((azimuth_deg, depression_deg, 0.0))
+    if not isinstance(geometry, AngleGeometry) or abs(azimuth) > 180 or abs(depression) > 90:
+        raise InvalidGimbalGeometry("A normalized body bearing and resolved geometry are required")
+    channels = dict(zip(("YAW", "PITCH", "ROLL"), require_finite_body_angles(reference_angles)))
+    channels[geometry.azimuth_axis] = geometry.azimuth_zero_deg + geometry.azimuth_sign * azimuth
+    channels[geometry.depression_axis] = geometry.depression_zero_deg + geometry.depression_sign * depression
+    return require_finite_body_angles(tuple(channels[axis] for axis in ("YAW", "PITCH", "ROLL")))
+
+
 def body_line_of_sight(
     angular, mount_type: str, geometry: AngleGeometry | None = None
 ) -> tuple[float, float, float]:
@@ -209,9 +221,9 @@ def body_line_of_sight(
     The vertical Topotek convention follows the observed base-pitched-up-90°
     installation: pitch 90° and roll 0° look forward; positive raw roll pans
     left and decreasing raw pitch elevates the lens. Raw yaw rotates the image
-    about the optical axis and does not steer the ray. Horizontal and tilted
-    conventions preserve the vector follower's previous yaw/pitch meaning;
-    their physical installations still require separate qualification.
+    about the optical axis and does not steer the ray. The horizontal convention
+    preserves the vector follower's established yaw/pitch meaning; its physical
+    installation still requires separate qualification.
     """
     yaw_deg, pitch_deg, roll_deg = require_finite_body_angles(angular)
     mapping = geometry or resolve_angle_geometry({}, mount_type)
