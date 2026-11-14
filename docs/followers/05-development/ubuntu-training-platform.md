@@ -244,6 +244,48 @@ is currently one active camera. A future dual-camera installation must provide
 each source's own calibration and use the existing source/epoch invalidation;
 automatic dual-camera switching is not implemented by this test.
 
+### Next checkpoint: vertical external gimbal on the tailsitter
+
+Implement and verify these slices in order. Do not reopen the operator stack
+until the shared Stop repair has actual simulator evidence.
+
+1. **Shared release repair:** correlate the retained failed Stop with native
+   receipt and PX4 mode evidence. Test packet loss, delayed status, EOF, Stop,
+   takeover and a fresh subsequent Start. A local sender stopping is not Hold.
+2. **Mount documentation:** use the [single installation guide](../../trackers/06-integration/camera-mounting.md).
+   Preserve factory defaults and the private profile; no client axis branches.
+3. **Protocol fixture:** use the real `topotek_sip_udp` parser/control adapter,
+   canonical vertical preset and independent angle/lock receipts. Pin the
+   retained FL-30/SIP reference and measured vertical-mount bench evidence.
+   Retire assumptions in the older standalone simulator that disagree with the
+   production packet codec; do not copy a second protocol implementation.
+4. **Rendered mechanical model:** pin a separate tailsitter camera/gimbal
+   resource, with explicit joint axes, ranges and inertia. Use actual PX4 pose
+   and shared geometry to drive camera orientation. Distinguish a stabilized
+   world bearing from a finite world-target lock: attitude compensation alone
+   does not track a ground point as the aircraft translates. Reuse independent
+   world-target truth for the target-lock case. Unknown motor rates, travel
+   limits and stabilization dynamics remain declared simulation assumptions
+   until backed by vendor data or measurements; protocol parity alone cannot
+   establish an exact mechanical replica.
+5. **Small training GUI:** intuitive left/right and up/down aim, angle readout,
+   Reset, explicit simulated lock/loss and freeze/disconnect injection. Aim
+   changes must rotate the rendered camera and update independent measured
+   angles. Keep raw protocol axes in details, especially the vertical mount's
+   roll-derived azimuth. Reuse the camera runtime/provider lifecycle and one
+   simulation owner. GUI closure cannot renew stale tracking or resume flight.
+6. **Deterministic and actual SITL gates:** both mounts, MC/FW attitude changes,
+   mechanical saturation, target lock/loss, retargets, transport outages,
+   transition-ending-follow, Stop/takeover and subsequent Start. Retain real PX4
+   pose, target truth, raw angles, normalized ray, joint pose, command intent
+   and terminal receipt in the existing visualization. Explicitly distinguish
+   simulated camera lock from real visual tracking.
+7. **Operator test:** start fresh on the ground with the vertical-gimbal
+   training overlay, QGC and the GUI. Test MC first, Stop, transition, then a
+   new FW Start. Keep the accepted private MC settings separate from the
+   experimental FW overlay. Request hardware only for unmeasured camera
+   mechanics/timing or the later physical checkpoint.
+
 The declared pinhole calibration uses the unchanged SDF image size and horizontal
 FOV, plus the fixed optical-to-body rotation. Gazebo's
 [projection conversion](https://github.com/gazebosim/gz-rendering/blob/gz-rendering8/src/Utils.cc#L160)

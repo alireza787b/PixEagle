@@ -90,13 +90,12 @@ geometry or motor/image rotation. Raw camera telemetry remains unchanged.
 
 For ordinary cameras, `VideoSource.FRAME_ROTATION_DEG` and `FRAME_FLIP_MODE`
 orient the video, while each normal follower declares its viewing assumptions.
-For example, Ground is intended for downward/oblique views; Chase assumes a
-forward fixed camera. Ground's existing `IS_CAMERA_GIMBALED` correction describes
-stabilization, not the camera-owned tracker engine. There is no universal
-fixed-camera horizontal/vertical installation transform equivalent to the
-gimbal angle presets. `Setpoint.CAMERA_YAW_OFFSET` is not a replacement for a
-complete installation rotation. Do not guess an axis swap for unsupported
-mounts; arbitrary mounting geometry remains later scope.
+Ground is intended for downward/oblique views; Chase assumes a forward fixed
+camera. Native FW image guidance separately uses the source-bound
+`VideoSource.FIXED_CAMERA_CALIBRATION`; it does not silently change legacy MC
+image-error semantics. See [camera mounting](camera-mounting.md) for the setting
+matrix, tilted cameras and tailsitter frame handling. Ground's existing
+`IS_CAMERA_GIMBALED` correction describes stabilization, not tracker ownership.
 
 ## Qualification boundaries
 

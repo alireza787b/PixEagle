@@ -72,6 +72,13 @@ in `aircraft_state.py`; the HTML renderer consumes those vectors and must not
 add another quaternion/axis transform. Missing heading keeps command direction
 unknown, rather than substituting level flight.
 
+Camera installation work starts with
+`docs/trackers/06-integration/camera-mounting.md`. Keep display orientation,
+source-bound fixed-camera calibration, provider raw-angle mapping and actual
+aircraft phase separate. Use the physical quaternion for camera rays; never
+apply PX4's FW tailsitter control-frame rotation twice. Simulator gimbal or
+protocol emulation must not be reported as measured hardware mechanics.
+
 ## API And MCP Rules
 
 - New public JSON APIs belong under `/api/v1/...`.

@@ -2,6 +2,13 @@
 
 Status values: `open`, `in_progress`, `blocked`, `done`, `deferred`.
 
+2026-11-14 tailsitter Stop: pursuit was operator-accepted, but native release
+remained unconfirmed. The shared frozen-request retransmission repair and
+separate fixed-camera/gimbal staging are tracked in the
+[Stop checkpoint](checkpoints/2026-11-14-tailsitter-stop-and-gimbal-staging.md).
+Do not mark the whole tailsitter case accepted from pursuit or component Hold
+alone; retain the independent FW altitude-response finding and pending GUI test.
+
 2026-11-14 native Start repair: passive sampling, typed refusal display and target-readiness notification are covered by the [offline repair checkpoint](checkpoints/2026-11-14-follow-start-readiness.md). Fresh operator acceptance and declarative VTOL recipe composition remain open under PXE-0181.
 
 PXE-0171 update (2026-09-19): automatic BGR/NV12 selection is implemented;
