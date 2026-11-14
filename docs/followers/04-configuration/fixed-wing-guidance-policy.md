@@ -6,9 +6,11 @@ The same policy is intended for native FW objectives produced from gimbal rays
 or image tracking. Input geometry remains specific to each tracker contract.
 
 Current consolidation policy ends following on transition and requires a new
-Start afterward. VTOL admission remains gated pending transition-preserving
-release. Phase-retaining cycles below are historical evidence, not the current
-operator contract; see the [consolidation plan](../05-development/follower-consolidation-plan.md).
+Start afterward. The [standard VTOL application checkpoint](../../reporting/agent-ops/codex-modernization/checkpoints/2026-11-13-vtol-training-app.md) records bounded Gazebo
+MC/FW Start, speed, Stop and transition release. Physical-camera timing and
+sensorless hardware remain separate gates. Phase-retaining cycles below are
+historical evidence, not the current operator contract; see the
+[consolidation plan](../05-development/follower-consolidation-plan.md).
 
 | Setting | Factory value | Meaning |
 | --- | --- | --- |
@@ -150,8 +152,8 @@ aircraft profiles.
 | --- | --- |
 | Pure MC | Existing MC vector math and MAVSDK owner |
 | Pure FW | Native course, vertical-path and airspeed strategy |
-| Settled VTOL MC or FW | Intended reuse of the corresponding strategy; admission remains gated until S7 |
-| Standard VTOL or tailsitter during transition | End following and release to PX4; require a fresh Start afterward; actual S7 qualification pending |
+| Settled VTOL MC or FW | Reuse the qualified phase strategy with native ownership and source readiness; current image training selects MC/FW profiles explicitly |
+| Standard VTOL or tailsitter during transition | End following and release to PX4; require a fresh Start afterward; qualification remains specific to the recorded airframe/source |
 | Different gimbal or mounting | Provider adapter and mounting geometry produce the same physical ray |
 
 There is no separate tailsitter pursuit law. Public defaults provide the base

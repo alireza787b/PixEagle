@@ -2,6 +2,8 @@
 
 Status values: `open`, `in_progress`, `blocked`, `done`, `deferred`.
 
+2026-11-14 native Start repair: passive sampling, typed refusal display and target-readiness notification are covered by the [offline repair checkpoint](checkpoints/2026-11-14-follow-start-readiness.md). Fresh operator acceptance and declarative VTOL recipe composition remain open under PXE-0181.
+
 PXE-0171 update (2026-09-19): automatic BGR/NV12 selection is implemented;
 explicit templates remain authoritative. See the
 [implementation and validation checkpoint](checkpoints/2026-09-19-csi-auto-capture.md).

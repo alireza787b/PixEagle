@@ -71,8 +71,9 @@ unsupported. Unknown execution contracts fail closed.
 An observed PX4 transition ends following. Tracking and video may remain active,
 but a new Start requires settled phase and fresh target checks, with a new
 session and recovery budget. Safe native publication during authority release
-does not continue pursuit. Actual transition-preserving authority release is
-still under qualification and live VTOL application admission remains closed.
+does not continue pursuit. The [standard VTOL application checkpoint](../../reporting/agent-ops/codex-modernization/checkpoints/2026-11-13-vtol-training-app.md) records this bounded Gazebo workflow;
+physical-camera timing, other installations and the complete fault matrix remain
+separate qualification work.
 See the [current plan](../05-development/follower-consolidation-plan.md) and
 [shared FW policy](../04-configuration/fixed-wing-guidance-policy.md).
 

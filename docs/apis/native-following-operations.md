@@ -76,6 +76,14 @@ passes that original context through acquisition. Missing or changed context
 requires fresh status and a new explicit Start; startup never substitutes a
 newer observation after an await. Ordinary pure-MC MAVSDK starts retain their
 existing path and do not require this native field.
+Passive native observations are sampled by the connection owner, independently
+of browser/QGC polling. The same socket serializes reads and acquisition;
+passive reads yield while acquisition or command ownership is active. Sampling
+retains original source timestamps and does not relax observation freshness or
+image/attitude alignment. The existing bounded first-pair wait may accept a new
+measured frame from the unchanged source/target; it cannot refresh an old frame,
+renew its deadline or acquire control before a qualified pair exists.
+
 Each Start includes a random 32-hex `start_attempt_id`, which the backend
 exposes while startup is pending so Stop can cancel that exact attempt.
 The guard is checked before startup, before Offboard entry, after the Offboard

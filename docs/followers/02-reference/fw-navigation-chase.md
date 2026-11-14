@@ -4,12 +4,14 @@
 native PX4 **course, equivalent-airspeed reference and vertical-path intent**.
 PX4 handles coordinated turns, energy management and attitude control.
 
-**Status:** registered experimental implementation; live following remains
-closed (`live_qualified_phases: []`). Deterministic strategy/fixture tests do not
-qualify a camera installation or actual aircraft response. See the
-[qualification inventory](../05-development/follower-sih-validation-matrix.md).
-Local `COMMAND_PREVIEW` is unavailable for its native-only contract; use the
-isolated native SIH runner for component evidence.
+**Status:** experimental implementation with `live_qualified_phases: [fixed_wing]`.
+The [standard VTOL application checkpoint](../../reporting/agent-ops/codex-modernization/checkpoints/2026-11-13-vtol-training-app.md)
+records normal Start, speed adjustment and Stop with an actual Gazebo-rendered
+camera and qualified simulated source-clock association. This is bounded
+source/runtime evidence, not physical-camera timing, sensorless hardware or
+general aircraft qualification. The [qualification inventory](../05-development/follower-sih-validation-matrix.md)
+records the other verification layers. Local `COMMAND_PREVIEW` is unavailable
+for this native-only contract.
 
 ```text
 measured image pixel + exact calibration + qualified sample-time attitude
@@ -36,8 +38,11 @@ publisher and continuity owner also support external Vector input.
 
 Groundspeed supplies navigation data, never measured EAS. Missing airspeed does
 not establish stall margin. Relative-altitude protection is estimator/home
-referenced, not terrain clearance. VTOL admission remains closed pending its
-separate transition-release qualification.
+referenced, not terrain clearance. The recorded standard-VTOL workflow selects
+MC Chase and FW Navigation Chase separately while following is inactive.
+Transition ends following; settled-phase readiness permits a fresh Start.
+Configured MC/FW recipe resolution is proposed, not implemented; there is no
+automatic strategy switch or resume.
 
 ## Configuration
 
@@ -69,8 +74,9 @@ altitude-guidance-off, altitude safeguards and circuit breaker remain unchanged.
 
 Physical capture currently lacks a qualified exposure/attitude association.
 Calibration alone cannot remove that readiness restriction. The default
-constructor creates no native owner or commands; controlled SIH injects an
-explicit sample association. See [creating a follower](../05-development/creating-followers.md)
+constructor creates no native owner or commands. Controlled SIH injects an
+explicit sample association; the recorded Gazebo application path uses its
+qualified simulated source-clock association. See [creating a follower](../05-development/creating-followers.md)
 and the [shared FW policy](../04-configuration/fixed-wing-guidance-policy.md).
 
 Repeated reads of one image retain its original capture and paired attitude.

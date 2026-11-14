@@ -271,3 +271,25 @@ Docker's returned list order is not part of mount identity. Changes to source,
 destination, write permission, mount type or propagation, and missing/duplicate
 records still refuse startup. The retained first VTOL bench failure remains
 unchanged; this comparison correction alone is not a successful runtime claim.
+
+### Readiness repair and next operator check
+
+See the [2026-11-14 repair checkpoint](../../reporting/agent-ops/codex-modernization/checkpoints/2026-11-14-follow-start-readiness.md).
+The connection now collects passive native samples independently of UI polling;
+QGC's following eligibility updates when target state changes or expires.
+Freshness and timing tolerances are unchanged. Session-speed labels use the
+backend step's precision; requests retain their exact acknowledged values.
+
+The current image training scenario still selects MC Chase or FW Navigation
+Chase explicitly. Automatic selection from an installed VTOL recipe is planned,
+not implemented by these repairs. A recipe must reference qualified catalog
+strategies, resolve once from fresh PX4 phase at Start, and instantiate only one
+follower. It must not rewrite global configuration during a transition. Both
+standard VTOL and tailsitter use the same phase/ownership contract; camera
+visibility, mount geometry and source qualification remain independent.
+
+After an interrupted host shutdown, old ground-ready receipts and launch hashes
+are historical. Verify original container cleanup and regenerate the launcher
+pins against the repaired backend, Dashboard and QGC before a new run. Never
+adopt a previous run or replay its Start. Keep simulation stopped until the
+operator requests the next session.

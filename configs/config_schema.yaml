@@ -3777,8 +3777,8 @@ sections:
           description: Pursues a gimbal-designated target with multicopter or native fixed-wing guidance
         - value: fw_navigation_chase
           label: FW Navigation Chase
-          description: Calibrated image pursuit through native PX4 course, airspeed and vertical-path control; live qualification
-            pending
+          description: Calibrated image pursuit through native PX4 course, airspeed and vertical-path control; qualified image
+            timing and native ownership required
         - value: fw_attitude_rate
           label: FW Attitude Rate
           description: Fixed-wing visual guidance with L1/TECS-inspired rate and thrust control
