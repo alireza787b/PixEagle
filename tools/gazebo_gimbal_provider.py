@@ -30,11 +30,8 @@ from classes.gimbal_control import sip_frame  # noqa: E402
 from classes.gimbal_geometry import resolve_angle_geometry, resolve_mount_type  # noqa: E402
 from tools.gazebo_camera_provider import private_listener  # noqa: E402
 from tools.gazebo_gimbal_model import IdealGimbalSettings, IdealStabilizedGimbal, ObservedGimbalPose  # noqa: E402
+from tools.gazebo_geometry import ENU_TO_NED, FLU_TO_FRD, RigidPose  # noqa: E402
 from tools.gimbal_simulator import angle_hex  # noqa: E402
-
-
-ENU_TO_NED = Quaternion(0., math.sqrt(.5), math.sqrt(.5), 0.)
-FLU_TO_FRD = Quaternion(0., 1., 0., 0.)
 
 
 def atomic_json(path, value):
@@ -47,9 +44,7 @@ def atomic_json(path, value):
 
 
 def gazebo_pose_to_ned(value):
-    p, q = value.position, value.orientation
-    return Vector3(p.y, p.x, -p.z), ENU_TO_NED.compose(
-        Quaternion(q.w, q.x, q.y, q.z)).compose(FLU_TO_FRD)
+    return RigidPose.from_message(value).ned_frd()
 
 
 def observed_pose(message, *, aircraft_model, camera_model, received_at):

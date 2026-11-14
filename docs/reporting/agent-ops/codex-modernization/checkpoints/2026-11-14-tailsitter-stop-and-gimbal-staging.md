@@ -257,3 +257,41 @@ shares one capture-age check for fresh or explicitly waiting connected sources.
 It does not label cached imagery as fresh tracker measurements or weaken frame,
 source, permission or target-generation checks. A genuinely failed/disconnected/
 expired source still rejects.
+
+## Superseded rendered attachment — next repair (2026-11-15)
+
+The operator rejected hover lock jitter and a camera left behind during fast
+MC/FW motion in the later staged runs. The separate static camera moved by
+world `set_pose` calls is **not an accepted flight fixture**. All desktop stacks
+are closed. Do not relaunch that mechanism or call the camera repairs ready.
+The current camera API/mount/selection improvements remain useful, but do not
+qualify attachment or pursuit response.
+
+Official PX4 `x500_gimbal` attaches the stock articulated gimbal with a fixed
+joint; Gazebo's JointPositionController explicitly supports ideal velocity-command
+positioning without PID. We will reuse those standard mechanisms, with separately
+pinned training resources, an explicit lightweight payload and source-observed
+link/camera transforms. No custom world-position follower/plugin or second
+camera guidance/aircraft publisher is needed. References:
+
+- https://github.com/PX4/PX4-gazebo-models/blob/main/models/x500_gimbal/model.sdf
+- https://docs.px4.io/main/en/sim_gazebo_gz/vehicles
+- https://gazebosim.org/api/sim/8/classgz_1_1sim_1_1systems_1_1JointPositionController.html
+
+`tools/gazebo_joint_gimbal.py`, `gazebo_gimbal_resources.py` and
+`gazebo_geometry.py` establish the declared ZXY mechanism and shared ENU/FLU
+boundary. 200 focused kinematics/resource/provider tests pass. An actual
+**gravity-free carrier fixture**, not PX4 flight, passed 1998 observed pose rows
+at measured approximately 0/5/20/40 m/s. Camera/body distance stayed below
+1.228 m, and settled pointing error below 0.045°. Exact source, input commands,
+observations and bounds are retained in `attached-gimbal-bench-r1`; container
+exited 0 and was removed. This proves that component approach, not the final
+stock tailsitter payload, limits, selection or operator workflow.
+
+Next: pin a composite aircraft + physically attached gimbal scenario, feed
+actual link/sensor observations through the existing SIP provider, replace the
+world-pose actuator with joint targets, and remove the obsolete detached-camera
+runtime branch. Then repeat MC/FW camera/pursuit/Stop gates before operator use.
+The real camera remains 2D video plus gimbal angles/status. Hidden renderer depth
+can remain simulator-only scene truth; no depth or 3D tracker requirement is
+added to hardware. Camera mechanical properties remain explicit assumptions.
