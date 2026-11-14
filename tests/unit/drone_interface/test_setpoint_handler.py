@@ -709,7 +709,7 @@ def native_intent(**changes):
 
 
 class TestNativeFollowerCommandSchema:
-    def test_canonical_native_contract_is_gated_and_has_no_scalar_defaults(self):
+    def test_canonical_native_contract_has_explicit_phase_permission_and_no_scalar_defaults(self):
         from classes.fixed_wing_vector_guidance import FixedWingCommand
 
         schema = TestFollowerCommandSchemaContract._canonical_schema()
@@ -723,8 +723,8 @@ class TestNativeFollowerCommandSchema:
         native_profiles = [profile for profile in schema['follower_profiles'].values()
                            if schema['control_types'][profile['control_type']]['transport'] == 'px4_native']
         assert native_profiles
-        assert all(profile['required_fields'] == [] and profile['live_qualified_phases'] == []
-                   for profile in native_profiles)
+        assert all(profile['required_fields'] == [] for profile in native_profiles)
+        assert schema['follower_profiles']['fw_navigation_chase']['live_qualified_phases'] == ['fixed_wing']
 
     @pytest.mark.parametrize('mutate,match', [
         (lambda schema: schema['control_types']['fixed_wing_external'].__setitem__('mavsdk_method', 'set_velocity_body'),

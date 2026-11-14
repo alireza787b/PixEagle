@@ -259,6 +259,7 @@ def test_video_source_type_override_directly_defines_dashboard_options():
         'HTTP_STREAM',
         'CSI_CAMERA',
         'CUSTOM_GSTREAMER',
+        'GAZEBO_CAMERA',
     ]
 
 
@@ -600,6 +601,7 @@ def test_video_source_type_options_in_schema():
         'HTTP_STREAM',
         'CSI_CAMERA',
         'CUSTOM_GSTREAMER',
+        'GAZEBO_CAMERA',
     ]
 
 

@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from tests.fixtures.native_ownership import acquisition, release_receipt
+from tests.fixtures.native_ownership import acquisition, release_receipt, start_context
 import yaml
 
 from classes.aircraft_state import AircraftStateOwner, AirframePhase, AirspeedObservation, GuidanceSessionIdentity, Quaternion, Vector3
@@ -127,9 +127,9 @@ def target(env, world, *, generation=3, tailsitter_camera=False):
     return env.output
 
 
-def test_registered_foundation_still_has_no_live_phase_permission():
+def test_registered_native_image_profile_declares_only_fixed_wing_phase_permission():
     schema = SetpointHandler.load_and_validate_schema(ROOT / "configs/follower_commands.yaml")
-    assert schema["follower_profiles"]["fw_navigation_chase"]["live_qualified_phases"] == []
+    assert schema["follower_profiles"]["fw_navigation_chase"]["live_qualified_phases"] == ["fixed_wing"]
     assert schema["follower_profiles"]["fw_navigation_chase"]["control_type"] == "fixed_wing_external"
 
 
@@ -307,14 +307,14 @@ async def publication_environment(env, monkeypatch):
         validate_before_dispatch(kwargs.get("on_mode_dispatch"))
         client.session_identity = identity
         client.acquisition_context = acquisition(identity, runtime_id=env.session.phase_owner.capabilities.runtime_id,
-            token=kwargs["ownership_token"])
+            token=kwargs["ownership_token"], start=kwargs["start_context"])
         client.acquisition_token = client.acquisition_context.token
         client.handoff.return_value = release_receipt(client.acquisition_context)
         return {"owner_confirmed": True, "runtime_id": client.acquisition_context.runtime_id,
                 "acquisition": client.acquisition_context.wire_payload()}
 
     client.engage = AsyncMock(side_effect=engage)
-    await binding.engage()
+    await binding.engage(start_context=start_context(env.session.identity, runtime_id=RUNTIME))
     assert binding.acquire_dispatched
     commander = OffboardCommander(connection, env.follower.setpoint_handler,
                                   command_transport=binding.transport, command_ttl_s=.3)

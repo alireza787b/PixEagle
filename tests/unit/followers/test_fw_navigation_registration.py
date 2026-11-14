@@ -73,13 +73,14 @@ def test_missing_or_malformed_profile_geometry_has_no_constructor_fallback(publi
             FollowerFactory.create_follower(PROFILE, SimpleNamespace(is_command_preview=False), (0., 0.))
 
 
-def test_catalog_advertises_input_selection_separately_from_closed_live_gate():
+def test_catalog_separates_declared_phase_permission_from_native_vtol_and_input_gates():
     profile = get_follower_profile(PROFILE)
     assert profile.implementation_available
     assert profile.family == 'fixed_wing' and profile.visibility == 'experimental'
     assert profile.phase_command_contracts == {'fixed_wing': 'fixed_wing_external'}
-    assert profile.live_qualified_phases == ()
-    assert evaluate_aircraft(profile, 'fixed_wing').reason_code == 'profile_not_live_qualified'
+    assert profile.live_qualified_phases == ('fixed_wing',)
+    assert evaluate_aircraft(profile, 'fixed_wing').eligible
+    assert evaluate_aircraft(profile, 'vtol', observed_phase='fixed_wing', native_vtol_verified=True).eligible
     assert evaluate_aircraft(profile, 'multicopter').reason_code == 'follower_aircraft_incompatible'
     assert evaluate_aircraft(profile, 'vtol', observed_phase='fixed_wing').reason_code == 'vtol_transition_release_unqualified'
     assert evaluate_input(profile, get_schema_manager(), 'POSITION_2D', tracker_name='CSRTTracker').eligible
