@@ -104,11 +104,11 @@ def test_registration_preserves_public_starter_settings(defaults):
 def test_registered_profile_uses_shared_altitude_permission_and_safety_identity(published):
     config = deepcopy(published)
     config['Follower']['FollowerOverrides'][SECTION] = {'ENABLE_ALTITUDE_CONTROL': True}
-    config['Safety']['FollowerOverrides'][SECTION] = {'MIN_ALTITUDE': 12.0}
+    config['Safety']['FollowerOverrides'][SECTION] = {'MIN_ALTITUDE': 40.0}
     Parameters.publish_config_mapping(config)
     follower = FollowerFactory.create_follower(PROFILE, SimpleNamespace(is_command_preview=False), (0., 0.))
     assert follower.enable_altitude_control is True
-    assert follower.altitude_limits.min_altitude == 12.0
+    assert follower.altitude_limits.min_altitude == 40.0
     assert follower.altitude_limits.safety_enabled is True
 
 

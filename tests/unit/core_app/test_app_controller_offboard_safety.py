@@ -2783,7 +2783,7 @@ async def test_start_offboard_mode_api_reports_failure_when_controller_returns_e
     handler.logger = MagicMock()
     handler.app_controller = SimpleNamespace(
         following_active=False,
-        px4_interface=SimpleNamespace(current_altitude=10.0),
+        px4_interface=SimpleNamespace(current_altitude=40.0),
         tracker=object(),
         video_handler=SimpleNamespace(
             get_frame_status=lambda: {

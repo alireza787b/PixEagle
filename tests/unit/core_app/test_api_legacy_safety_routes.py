@@ -506,7 +506,7 @@ async def test_follower_safety_limits_preserve_explicit_absent_ceiling(monkeypat
         limits = response_body(await routes.get_follower_safety_limits(FakeHandler(), "FW_NAVIGATION_CHASE"))
         assert limits["altitude"]["max"] is None
         assert limits["altitude"]["source"] == "GlobalLimits"
-        assert limits["altitude"]["min"] == 3.0
+        assert limits["altitude"]["min"] == 30.0
     finally:
         SafetyManager.reset_instance()
 

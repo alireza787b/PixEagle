@@ -30,7 +30,9 @@ a new evidence directory. Existing runs are never overwritten.
 
 1. Sign into QGC with the disposable lab account `admin/admin`.
 2. Flight commands start blocked. In this isolated simulator, permit following
-   through Options when ready, then take off manually.
+   through Options when ready, then take off manually. With the public 30 m
+   relative-altitude floor and 2 m warning buffer, settle above 32 m before
+   Start (40 m is convenient for these training scenarios).
 3. Select a visible object, Start following, adjust supported speed controls,
    then test Stop and a fresh Start. Stop must report confirmed Hold.
 4. For quadplane image tracking, select MC Chase in settled MC and FW Navigation

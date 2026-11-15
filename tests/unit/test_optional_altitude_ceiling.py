@@ -25,7 +25,9 @@ from classes.followers.mc_velocity_chase_follower import MCVelocityChaseFollower
 @pytest.fixture
 def config():
     path = Path(__file__).resolve().parents[2] / "configs/config_default.yaml"
-    return yaml.safe_load(path.read_text())
+    saved = yaml.safe_load(path.read_text())
+    saved["Safety"]["GlobalLimits"]["MIN_ALTITUDE"] = 3.0
+    return saved
 
 
 @pytest.fixture

@@ -9109,7 +9109,7 @@ sections:
       GlobalLimits:
         type: object
         default:
-          MIN_ALTITUDE: 3.0
+          MIN_ALTITUDE: 30.0
           MAX_ALTITUDE: 120.0
           ALTITUDE_WARNING_BUFFER: 2.0
           ALTITUDE_SAFETY_ENABLED: true
@@ -9146,7 +9146,7 @@ sections:
         properties:
           MIN_ALTITUDE:
             type: float
-            default: 3.0
+            default: 30.0
             description: Absolute minimum permitted altitude above the configured reference
             reload_tier: follower_restart
             reboot_required: false

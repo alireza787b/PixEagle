@@ -76,8 +76,8 @@ PX4 command dispatch.
    `beginner_lab` profile and starts the dashboard plus main app. Developers who
    need only the profile can run `make setup-profile
    PROFILE=follower_command_preview` and start the runtime themselves.
-   The beginner profile selects `mc_velocity_chase` so forward and steering
-   intents are visible during replay; the standalone preview profile preserves
+   The beginner profile selects `mc_velocity_position` for stationary yaw-centering
+   intent during replay; the standalone preview profile preserves
    the follower already selected by the operator.
 2. Open the dashboard and select a classic or Smart target.
 3. Confirm the action panel says **Start Follower Test**, not Start Following.
@@ -120,8 +120,8 @@ dashboard distinguishes these states:
 `mc_velocity_position` intentionally commands zero forward and lateral speed.
 It maintains position and only changes yaw rate and optional altitude, so a
 centered target can produce a valid all-zero intent. The beginner lab profile
-selects `mc_velocity_chase` to make forward and steering intent changes easier
-to see. This is a demonstration choice, not a different safety boundary.
+also selects `mc_velocity_position`; zero translation is expected. An expert
+can explicitly select Chase to inspect forward-motion intent in command preview.
 
 ### Retargeting During A Test
 

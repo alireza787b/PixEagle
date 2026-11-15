@@ -1214,12 +1214,9 @@ GM_VELOCITY_VECTOR:
 
   # === Altitude Safety (Optional Enforcement) ===
   # Enable altitude monitoring and enforcement
-  # Uses unified naming: MIN_ALTITUDE, MAX_ALTITUDE (overrides Safety.GlobalLimits if set)
-  # Resolution: Follower Override → Safety.GlobalLimits → Hardcoded Fallbacks
+  # Resolution: tighter Safety.FollowerOverrides → Safety.GlobalLimits → fallback
   # ALTITUDE_SAFETY_ENABLED, RTL_ON_ALTITUDE_VIOLATION, EMERGENCY_STOP_ENABLED, MAX_SAFETY_VIOLATIONS
   # are now sourced from Safety.GlobalLimits (with per-follower overrides in Safety.FollowerOverrides)
-  # MIN_ALTITUDE: 3.0                     # Override global minimum altitude (meters)
-  # MAX_ALTITUDE: 120.0                   # Override global maximum altitude (meters)
   # ALTITUDE_CHECK_INTERVAL override: 1.0s (set in Follower.FollowerOverrides.GM_VELOCITY_VECTOR)
 
   # === Performance ===
@@ -1775,7 +1772,7 @@ Safety:
   # ===========================================================================
   GlobalLimits:
     # Altitude relative to the estimator/home reference; not terrain clearance
-    MIN_ALTITUDE: 3.0                    # Minimum permitted relative altitude
+    MIN_ALTITUDE: 30.0                   # Shared beginner floor for MC and FW; not terrain clearance
     MAX_ALTITUDE: 120.0                  # Maximum permitted relative altitude
     ALTITUDE_WARNING_BUFFER: 2.0         # Warning zone before hard limits
     ALTITUDE_SAFETY_ENABLED: true        # Enable altitude enforcement
@@ -1810,9 +1807,9 @@ Safety:
   # FollowerOverrides:
   #   MC_VELOCITY_CHASE:
   #     MAX_VELOCITY_FORWARD: 0.25       # Tighter than the 0.5 m/s envelope
-  #     MIN_ALTITUDE: 5.0                # Stricter minimum for chase mode
+  #     MIN_ALTITUDE: 35.0               # Stricter than the shared 30 m floor
   #   FW_ATTITUDE_RATE:
-  #     MIN_ALTITUDE: 30.0               # Higher floor for fixed-wing safety
+  #     MIN_ALTITUDE: 40.0               # Stricter floor for a configured test site
   #     MAX_ALTITUDE: 100.0              # Tighter than the 120 m envelope
   #   MC_VELOCITY_GROUND:
   #     MIN_ALTITUDE: 40.0               # Higher minimum for ground view mode

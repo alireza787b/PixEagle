@@ -28,6 +28,8 @@ def environment(monkeypatch):
 
     def build(mount, profile=None, altitude=False):
         config = deepcopy(defaults)
+        # This component fixture's independent world geometry flies at 20 m.
+        config['Safety']['GlobalLimits']['MIN_ALTITUDE'] = 3.0
         config['GimbalTracker']['MOUNT_TYPE'] = mount
         if profile is not None:
             config['Follower']['FOLLOWER_MODE'] = profile

@@ -74,6 +74,23 @@ def test_nested_writes_preserve_custom_siblings_and_sparse_absence(nested_servic
     }
 
 
+def test_saved_private_floor_is_preserved_until_explicit_factory_adoption(nested_service, monkeypatch):
+    service = nested_service
+    path = ["Safety", "GlobalLimits", "MIN_ALTITUDE"]
+    assert service.set_path(path, 3.0).valid
+    assert service.get_effective_defaults()["Safety"]["GlobalLimits"]["MIN_ALTITUDE"] == 30.0
+    previous = service.get_effective_defaults()
+    previous["Safety"]["GlobalLimits"]["MIN_ALTITUDE"] = 3.0
+    monkeypatch.setattr(service, "get_sync_meta", lambda: {"defaults_snapshot": previous})
+    report = build_defaults_sync_report(service)
+    assert path in [row["path"] for row in report["changed_defaults"]]
+    assert service.get_config()["Safety"]["GlobalLimits"]["MIN_ALTITUDE"] == 3.0
+    plan = build_defaults_sync_plan(service, [ConfigSyncOperation(op_type="ADOPT_DEFAULT", path=path)])
+    assert plan["valid"], plan["errors"]
+    assert plan["operations"][0]["target_value"] == 30.0
+    assert service.get_config()["Safety"]["GlobalLimits"]["MIN_ALTITUDE"] == 3.0
+
+
 @pytest.mark.parametrize("path,value", [
     (GENERAL_ALPHA, 2.0), (GENERAL_ALPHA, True), (GENERAL_ALPHA, None),
     (["Follower", "General", "NOT_DECLARED"], 1),

@@ -67,7 +67,7 @@ class SafetyManager:
 
     # Hardcoded fallbacks for safety (used if config is missing)
     _FALLBACKS = {
-        'MIN_ALTITUDE': 3.0,
+        'MIN_ALTITUDE': 30.0,
         'MAX_ALTITUDE': 120.0,
         'ALTITUDE_WARNING_BUFFER': 2.0,
         'MAX_VELOCITY': 1.0,

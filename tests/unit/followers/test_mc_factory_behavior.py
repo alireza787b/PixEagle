@@ -35,7 +35,7 @@ def factory():
             configure(config)
         Parameters.publish_config_mapping(config)
         controller = SimpleNamespace(
-            is_command_preview=False, current_altitude=30., current_pitch=0.,
+            is_command_preview=False, current_altitude=40., current_pitch=0.,
             current_roll=0., current_ground_speed=0.,
             get_orientation=lambda: (0., 0., 0.),
             is_command_connection_ready=lambda **kwargs: True,
@@ -134,7 +134,7 @@ def test_ground_pid_tuning_matches_command_axis(factory):
     assert follower.pid_y.Kp == .7
 
 
-@pytest.mark.parametrize("altitude,expected", [(False, 30.), (True, 33.)])
+@pytest.mark.parametrize("altitude,expected", [(False, 40.), (True, 43.)])
 def test_mc_rates_respect_altitude_guidance_permission_for_saved_offset(factory, altitude, expected):
     def configure(config):
         config["MC_ATTITUDE_RATE"]["TARGET_ALTITUDE_OFFSET"] = 3.
