@@ -4,7 +4,7 @@
 status** to the ordinary Topotek provider. It is a protocol/GUI development
 tool, not a physical FL-30 replica, optical tracker or aircraft simulator.
 This standalone tool does not move a Gazebo camera. The articulated rendered
-integration is described below and in the [tailsitter training slices](followers/05-development/ubuntu-training-platform.md#next-checkpoint-vertical-external-gimbal-on-the-tailsitter).
+integration is described below and in the [tailsitter training slices](followers/05-development/ubuntu-training-platform.md#inputs-frames-and-replacement-cameras).
 
 ## Run
 

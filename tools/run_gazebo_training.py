@@ -167,15 +167,17 @@ def native_training_assets(args, simulator, scenario):
     from classes.aircraft_state import AircraftKind, aircraft_kind_from_mavlink
 
     kind = aircraft_kind_from_mavlink(scenario['expected_parameters'].get('MAV_TYPE'))
-    if simulator != 'gazebo' or kind not in (AircraftKind.MULTICOPTER, AircraftKind.VTOL):
-        raise ValueError('Training requires a declared MC or VTOL Gazebo scenario')
+    if simulator != 'gazebo' or kind not in (AircraftKind.MULTICOPTER, AircraftKind.FIXED_WING, AircraftKind.VTOL):
+        raise ValueError('Training requires a declared MC, FW or VTOL Gazebo scenario')
+    if kind is AircraftKind.MULTICOPTER:
+        # Ordinary MC uses MAVSDK. Shared machine dependency paths must not
+        # opt it into native FW/VTOL registration or bootstrap requirements.
+        return None
     bundle, manifest = getattr(args, 'adapter_bundle', None), getattr(args, 'adapter_file_manifest', None)
     if bool(bundle) != bool(manifest):
         raise ValueError('Native adapter bundle and file manifest must be supplied together')
     if not bundle:
-        if kind is AircraftKind.VTOL:
-            raise ValueError('Declared VTOL training requires the verified native adapter')
-        return None
+        raise ValueError('Declared FW/VTOL training requires the verified native adapter')
     assets = json.loads(native_runtime.ASSETS.read_text())
     native_runtime.verify_adapter(bundle.resolve(), manifest, assets)
     source = args.build_manifest.resolve().parent / 'context/source'
@@ -190,7 +192,7 @@ def camera_training_source(args, scenario, token):
     """Bind original image time to the verified simulator, never to an RTP receipt."""
     from classes.aircraft_state import AircraftKind, aircraft_kind_from_mavlink
 
-    if aircraft_kind_from_mavlink(scenario['expected_parameters']['MAV_TYPE']) is not AircraftKind.VTOL:
+    if aircraft_kind_from_mavlink(scenario['expected_parameters']['MAV_TYPE']) not in (AircraftKind.FIXED_WING, AircraftKind.VTOL):
         return None
     max_skew = getattr(args, 'max_attitude_skew_s', .1)
     if type(max_skew) not in (int, float) or not math.isfinite(max_skew) or max_skew <= 0:
@@ -502,7 +504,8 @@ def run(args):
         follower_mode=args.follower_mode, tracking_engine='camera' if rendered_gimbal is not None else 'local', backend_port=args.port,
         continuity_mode=getattr(args, 'continuity_mode', 'immediate_handoff'),
         dashboard_port=args.dashboard_port if args.dashboard_build else None,
-        enable_altitude_control=True, frame_rotation_deg=getattr(args, 'frame_rotation_deg', 0),
+        enable_altitude_control=getattr(args, 'altitude_control', 'on') == 'on',
+        frame_rotation_deg=getattr(args, 'frame_rotation_deg', 0),
         username='admin', password='admin')
     qgc_identity = qgc_build_identity(args.qgc)
     qgc_settings(runtime / 'qgc/config', f'http://127.0.0.1:{args.port}', identity=qgc_identity)
@@ -669,9 +672,11 @@ def main():
                         help='Maximum measured simulator camera/PX4 source-time mismatch (default: 0.1 s)')
     parser.add_argument('--frame-rotation-deg', type=int, choices=(0, 90, 180, 270), default=0,
                         help='Decoder image orientation only; never changes the physical mount or angle geometry')
+    parser.add_argument('--altitude-control', choices=('on', 'off'), default='on',
+                        help='Target-directed vertical guidance in this disposable qualification profile')
     parser.add_argument('--runtime', type=Path, required=True)
     parser.add_argument('--build-manifest', type=Path, required=True)
-    parser.add_argument('--adapter-bundle', type=Path, help='Exact reviewed native runtime bundle (required for VTOL)')
+    parser.add_argument('--adapter-bundle', type=Path, help='Exact reviewed native runtime bundle (required for FW/VTOL)')
     parser.add_argument('--adapter-file-manifest', type=Path)
     parser.add_argument('--scenario', default='x500-mono-camera-aruco-v1')
     parser.add_argument('--follower-mode', default='mc_velocity_chase',

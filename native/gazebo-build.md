@@ -339,7 +339,7 @@ there is no phase-switched mount or second tailsitter rotation. Ordered literal
 defaults are resolved in shell include order (VTOL defaults specify MAV type 22,
 4018 overrides it to 20); ambiguous same-file assignments, computed values and
 conditional identity remain rejected. Runtime parameters are independently
-verified. See the [operator guide](../docs/followers/05-development/ubuntu-training-platform.md#fixed-nose-camera-on-a-tailsitter).
+verified. See the [operator guide](../docs/followers/05-development/ubuntu-training-platform.md#inputs-frames-and-replacement-cameras).
 
 ## Next gates
 

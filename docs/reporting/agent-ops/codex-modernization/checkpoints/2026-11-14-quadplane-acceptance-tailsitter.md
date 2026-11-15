@@ -46,6 +46,6 @@ and FW image guidance. The two Phase 0 suites passed 74 tests; generated schema,
 critical Python lint and whitespace checks passed. Logs are
 `tailsitter-geometry-gate-final.log` and `tailsitter-phase0.log` beside the run.
 Actual tailsitter rendering and operator pursuit acceptance are the next gate.
-The [training guide](../../../../followers/05-development/ubuntu-training-platform.md#fixed-nose-camera-on-a-tailsitter)
+The [training guide](../../../../followers/05-development/ubuntu-training-platform.md#inputs-frames-and-replacement-cameras)
 describes the expected sky-facing MC view, FW workflow and future multi-camera
 boundary. Gimbal tracking and physical-aircraft acceptance remain later tests.

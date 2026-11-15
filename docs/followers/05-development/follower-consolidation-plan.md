@@ -5,6 +5,10 @@ component/software checkpoints are complete; S7 ownership/transition work is in 
 installation and release qualification remain separate. Follow the [checkpoint](../../reporting/agent-ops/codex-modernization/checkpoints/2026-11-09-follower-consolidation.md)
 for actual verification; later slices and qualification remain pending.
 
+Current operator/application results are maintained in the
+[training workflow matrix](ubuntu-training-platform.md#what-is-actually-qualified).
+They do not close the separate release and hardware gates in this plan.
+
 This is the single plan for consolidating follower definitions, configuration,
 clients and MC/FW/VTOL composition. It extends the
 [modernization blueprint](../../architecture/pixeagle-modernization-blueprint.md)

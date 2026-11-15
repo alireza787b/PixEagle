@@ -1,6 +1,9 @@
 # Follower qualification inventory
 
-Reviewed 2026-11-14. The [raw-backed evidence selector](../02-reference/follower-visual-guide.md)
+Reviewed 2026-11-15. Rendered application/operator scope is summarized in the
+[training workflow matrix](ubuntu-training-platform.md#what-is-actually-qualified);
+it does not promote the component cases below to full hardware qualification.
+ The [raw-backed evidence selector](../02-reference/follower-visual-guide.md)
 retains the MC image cases; the [consolidation checkpoint](../../reporting/agent-ops/codex-modernization/checkpoints/2026-11-09-follower-consolidation.md)
 records renewed S5/S6 image/gimbal/native-FW evidence pending S10's unified selector.
 This page records behavior and broader gates.

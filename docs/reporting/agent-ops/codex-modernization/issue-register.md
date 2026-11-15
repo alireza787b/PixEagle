@@ -467,3 +467,12 @@ remain open. Integration work is unpublished.
   choice without replay. Matching backend configuration acknowledges it.
   All 550 Dashboard tests, build/lint and 74 API checks pass. VTOL admission,
   actual deployment and remaining client work are unchanged.
+
+- **2026-11-15 — Reusable operator launcher and native FW ground setup:**
+  beginner menu exposes MC, conventional FW and standard quadplane; advanced
+  tailsitter profiles remain explicit. Stock Cessna resource admission, native
+  adapter startup, camera provenance and independent identity pass ground checks.
+  Standalone FW airborne operator acceptance remains pending. Shared dependency
+  recipes no longer opt pure MC into native FW/VTOL ownership. See the
+  [workflow recap](checkpoints/2026-11-15-training-workflow-recap.md) for evidence,
+  exact scope, visual-fidelity limits and remaining release gates.

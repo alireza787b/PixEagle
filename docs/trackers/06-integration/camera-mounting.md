@@ -38,7 +38,7 @@ focal lengths, principal point, distortion model and installation revision.
 Its quaternion maps optical right/down/forward into **physical body FRD**.
 Changing source, crop, calibration or clock invalidates the appropriate media
 and measurement context. A working video stream alone does not establish these
-facts. The [Gazebo launcher](../../followers/05-development/ubuntu-training-platform.md#fixed-nose-camera-on-a-tailsitter)
+facts. The [Gazebo launcher](../../followers/05-development/ubuntu-training-platform.md#inputs-frames-and-replacement-cameras)
 fills measured renderer calibration from its pinned scenario automatically.
 
 For a Gazebo fixed camera, advanced scenario authors edit `camera_mount.pose`

@@ -211,3 +211,21 @@ these mode capabilities; clients do not infer them from the vendor name.
 The same camera routes now support captured native control ownership and
 cross-client arbitration. See [Native camera controls](../../apis/native-camera-controls.md)
 for guard, Stop, lease and mock-fixture details. All AppController consumers use the shared owner.
+
+## Reuse the training fixture
+
+The [Ubuntu training workflow](../../followers/05-development/ubuntu-training-platform.md#inputs-frames-and-replacement-cameras)
+separates mechanical SDF attachment, provider raw-angle mapping, display
+orientation and the physical aircraft quaternion. A new protocol or joint chain
+belongs behind those declared adapters; it is not a new copy of Vector or a QGC
+vendor branch. Begin with packet fixtures and independent reference rays, then
+use the existing headless scenario/actual-pose evidence path. Readiness in one
+simulated mechanism does not qualify another camera's limits or timing.
+
+Before replacing the FL-30, retain the model/firmware, raw packet bytes and units,
+known physical +forward/+right/+down directions, angular/lock sample rates and
+ages, mount/override revision, selection/retarget behavior and leased Stop
+measurements. Hardware with no acquisition clock remains receipt-timed; do not
+invent exposure timestamps from current video or aircraft state. Native FW
+association needs its own supported timing qualification. The 2D image plus
+angle/status contract does not require a new camera to supply 3D pose or range.

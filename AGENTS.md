@@ -115,3 +115,11 @@ Checkpoint reports should include:
 
 Vendor-specific agent files, if added later, should be thin pointers to this
 file rather than duplicate operating specs.
+
+For repeatable visual training, use `tools/launch_training.py` and the
+[training guide](docs/followers/05-development/ubuntu-training-platform.md).
+Beginner menus exclude advanced tailsitter/gimbal presets. Agents select explicit
+profiles and can use `--headless`; that starts an isolated stack, never flight.
+Review the qualification matrix before claiming an airframe/input combination
+passed. Preserve failed evidence, actual PX4 pose and original measurement clocks;
+a rendered workflow or successful submission is not hardware qualification.

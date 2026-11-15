@@ -105,10 +105,19 @@ def test_vtol_adapter_is_required_before_staging_or_launch(tmp_path, monkeypatch
     commands.assert_not_called()
 
 
-@pytest.mark.parametrize('kind', [1, 0, 999, None])
+def test_shared_dependency_recipe_does_not_enable_native_adapter_for_pure_mc(tmp_path,monkeypatch):
+    from types import SimpleNamespace
+    verify=Mock(side_effect=AssertionError('Pure MC has no native owner'))
+    monkeypatch.setattr(training.native_runtime,'verify_adapter',verify)
+    args=SimpleNamespace(adapter_bundle=tmp_path/'unused',adapter_file_manifest=tmp_path/'unused.json')
+    assert training.native_training_assets(args,'gazebo',{'expected_parameters':{'MAV_TYPE':2}}) is None
+    verify.assert_not_called()
+
+
+@pytest.mark.parametrize('kind', [0, 999, None])
 def test_undeclared_aircraft_families_are_not_implicitly_training_ready(kind):
     from types import SimpleNamespace
-    with pytest.raises(ValueError, match='declared MC or VTOL'):
+    with pytest.raises(ValueError, match='declared MC, FW or VTOL'):
         training.native_training_assets(SimpleNamespace(), 'gazebo', {'expected_parameters': {'MAV_TYPE': kind}})
 
 
@@ -120,7 +129,8 @@ def test_incomplete_adapter_authority_refuses(part, tmp_path):
                                         {'expected_parameters': {'MAV_TYPE': 22}})
 
 
-def test_adapter_preflight_checks_bundle_and_source_before_image(tmp_path, monkeypatch):
+@pytest.mark.parametrize('kind', [1, 22])
+def test_adapter_preflight_checks_bundle_and_source_before_image(tmp_path, monkeypatch, kind):
     from types import SimpleNamespace
     args = SimpleNamespace(adapter_bundle=tmp_path / 'bundle', adapter_file_manifest=tmp_path / 'files',
                            build_manifest=tmp_path / 'build.json')
@@ -134,13 +144,13 @@ def test_adapter_preflight_checks_bundle_and_source_before_image(tmp_path, monke
     bundle, image = Mock(), Mock()
     monkeypatch.setattr(training.native_runtime, 'verify_adapter', bundle)
     monkeypatch.setattr(training.native_runtime, 'verify_adapter_image', image)
-    assert training.native_training_assets(args, 'gazebo', {'expected_parameters': {'MAV_TYPE': 22}}) == assets
+    assert training.native_training_assets(args, 'gazebo', {'expected_parameters': {'MAV_TYPE': kind}}) == assets
     bundle.assert_called_once_with(args.adapter_bundle, args.adapter_file_manifest, assets)
     image.assert_called_once_with(assets)
     image.reset_mock()
     source.write_text('changed status parser contract')
     with pytest.raises(ValueError, match='bootstrap source'):
-        training.native_training_assets(args, 'gazebo', {'expected_parameters': {'MAV_TYPE': 22}})
+        training.native_training_assets(args, 'gazebo', {'expected_parameters': {'MAV_TYPE': kind}})
     image.assert_not_called()
 
 
@@ -226,10 +236,12 @@ def camera_source_fixture(tmp_path, monkeypatch):
     return SimpleNamespace(build_manifest=tmp_path / 'build.json'), scenario, source, camera, signature
 
 
-def test_camera_config_uses_same_actual_source_and_fixed_body_mount(tmp_path, monkeypatch):
+@pytest.mark.parametrize('kind', [1, 22])
+def test_camera_config_uses_same_actual_source_and_fixed_body_mount(tmp_path, monkeypatch, kind):
     import math
     from classes.fixed_camera_calibration import FixedCameraCalibration
     args, scenario, _, _, signature = camera_source_fixture(tmp_path, monkeypatch)
+    scenario['expected_parameters']['MAV_TYPE'] = kind
     value = training.camera_training_source(args, scenario, 'token')
     assert value['config'] == dict(socket_path='/run/pixeagle-camera/camera.sock', source_clock_id='token:courtyard',
         world='courtyard', image_topic='/world/courtyard/model/quadplane_0/link/camera_link/sensor/camera/image',
@@ -356,8 +368,8 @@ def test_desktop_mount_identity_ignores_only_list_order(tmp_path, monkeypatch, c
             adapter.primary_info()
 
 
-@pytest.mark.parametrize('kind', [19, 20, 21, 22, 23, 24, 47])
-def test_all_declared_vtol_types_require_the_existing_native_owner(kind):
+@pytest.mark.parametrize('kind', [1, 19, 20, 21, 22, 23, 24, 47])
+def test_declared_fw_and_vtol_types_require_the_existing_native_owner(kind):
     from types import SimpleNamespace
     with pytest.raises(ValueError, match='requires the verified native adapter'):
         training.native_training_assets(SimpleNamespace(), 'gazebo', {'expected_parameters': {'MAV_TYPE': kind}})

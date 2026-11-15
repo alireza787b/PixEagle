@@ -81,7 +81,7 @@ binary changed in this repair.
 
 The [camera mounting guide](../../../../trackers/06-integration/camera-mounting.md)
 is the single setting/frame reference for users and agents. The
-[training plan](../../../../followers/05-development/ubuntu-training-platform.md#next-checkpoint-vertical-external-gimbal-on-the-tailsitter)
+[training plan](../../../../followers/05-development/ubuntu-training-platform.md#inputs-frames-and-replacement-cameras)
 orders shared Stop qualification, protocol parity, a pinned mechanical renderer,
 the small aim/lock GUI, deterministic/actual SITL checks and operator acceptance.
 
