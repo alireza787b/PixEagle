@@ -28,7 +28,7 @@ def scene(tmp_path):
     now = [100.]
     pose = ObservedGimbalPose(1_000_000, 100., Vector3(0., 0., -20.), Quaternion(1., 0., 0., 0.),
                              Vector3(0., 0., -20.), Quaternion(1., 0., 0., 0.))
-    model = IdealStabilizedGimbal(IdealGimbalSettings(Vector3(0., 0., 0.)))
+    model = IdealStabilizedGimbal(IdealGimbalSettings())
     model.observe(pose)
     source = SimpleNamespace(private=tmp_path, incarnation='b'*32, condition=threading.Condition(),
         model=model, latest_pose=pose, stopped=False, error=None, clock=lambda: now[0])

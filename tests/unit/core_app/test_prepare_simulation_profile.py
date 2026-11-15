@@ -18,21 +18,31 @@ def test_fixed_wing_image_profile_can_be_preselected_without_fabricating_aircraf
     assert validate(directory)['follower_mode'] == 'fw_navigation_chase'
 
 
-def test_stamped_gazebo_profile_is_explicit_and_keeps_commands_blocked(tmp_path):
+@pytest.mark.parametrize('rotation', [0, 90, 180, 270])
+def test_stamped_gazebo_profile_is_explicit_and_keeps_commands_blocked(tmp_path, rotation):
     settings = dict(socket_path='/run/pixeagle-camera/camera.sock', source_clock_id='test-world',
         world='training', image_topic='/camera/image', max_attitude_skew_s=.05)
     directory = tmp_path / 'gazebo'
     prepare(directory, gazebo_camera=settings, tracking_engine='local', follower_mode='mc_velocity_chase',
-            enable_altitude_control=True)
+            enable_altitude_control=True, frame_rotation_deg=rotation)
     config = yaml.safe_load((directory / 'configs/config.yaml').read_text())
     assert config['VideoSource']['VIDEO_SOURCE_TYPE'] == 'GAZEBO_CAMERA'
     assert config['VideoSource']['GAZEBO_CAMERA'] == settings
+    assert config['VideoSource']['FRAME_ROTATION_DEG'] == rotation
     assert config['FOLLOWER_CIRCUIT_BREAKER'] is True
     assert config['Follower']['General']['ENABLE_ALTITUDE_CONTROL'] is True
     assert config['Follower']['FollowerOverrides']['MC_VELOCITY_CHASE']['ENABLE_ALTITUDE_CONTROL'] is True
     assert not config['GimbalTracker']['ENABLED']
     assert not config['GimbalTracker']['CONTROL_ENABLED']
     assert validate(directory)['video_source'] == 'gazebo'
+
+
+@pytest.mark.parametrize('rotation', [True, 45, -90, 90.0])
+def test_profile_refuses_ambiguous_display_rotation_before_staging(tmp_path, rotation):
+    with pytest.raises(ValueError, match='Frame rotation'):
+        prepare(tmp_path / 'invalid', recorded_video='test4.mp4', tracking_engine='local',
+                follower_mode='mc_velocity_chase', frame_rotation_deg=rotation)
+    assert not (tmp_path / 'invalid').exists()
 
 
 def test_stamped_gazebo_and_udp_sources_cannot_be_combined(tmp_path):

@@ -192,6 +192,9 @@ def camera_training_source(args, scenario, token):
 
     if aircraft_kind_from_mavlink(scenario['expected_parameters']['MAV_TYPE']) is not AircraftKind.VTOL:
         return None
+    max_skew = getattr(args, 'max_attitude_skew_s', .1)
+    if type(max_skew) not in (int, float) or not math.isfinite(max_skew) or max_skew <= 0:
+        raise ValueError('Training attitude skew must be a finite positive duration')
     descriptor = scenario['descriptor']
     if 'server_config' not in descriptor or 'server.config' not in scenario.get('added_resources', {}):
         raise ValueError('Raw camera training requires its explicit encoder-free server configuration')
@@ -212,9 +215,9 @@ def camera_training_source(args, scenario, token):
     sensor = camera_tree.find(
         f'./model/link[@name="{camera["link"]}"]/sensor[@name="{camera["sensor"]}"]')
     optics = sensor.find('camera')
-    instrumentation = descriptor.get('instrumentation_camera')
+    instrumentation = descriptor.get('articulated_camera')
     rotation = None if instrumentation is not None else fixed_camera_optical_to_body(descriptor.get('camera_mount'))
-    if (sensor.findtext('pose') != '0 0 0 0 0 0'
+    if ((instrumentation is None and sensor.findtext('pose') != '0 0 0 0 0 0')
             or camera_tree.findtext('./model/pose', '0 0 0 0 0 0') != '0 0 0 0 0 0'
             or camera_tree.findtext('./model/link/pose', '0 0 0 0 0 0') != '0 0 0 0 0 0'
             or optics.find('distortion') is not None
@@ -224,10 +227,11 @@ def camera_training_source(args, scenario, token):
     hfov = float(optics.findtext('horizontal_fov'))
     if min(width, height) <= 0 or not math.isfinite(hfov) or not 0 < hfov < math.pi:
         raise ValueError('Training camera geometry is invalid')
-    camera_model = instrumentation['instance'] if instrumentation is not None else descriptor['model'] + '_0'
+    camera_model = descriptor['model'] + '_0'
     topic = f'/world/{descriptor["world"]}/model/{camera_model}/link/{camera["link"]}/sensor/{camera["sensor"]}/image'
     source_config = dict(socket_path='/run/pixeagle-camera/camera.sock', source_clock_id=token + ':' + descriptor['world'],
-        world=descriptor['world'], image_topic=topic, max_attitude_skew_s=.05)
+        world=descriptor['world'], image_topic=topic,
+        max_attitude_skew_s=max_skew)
     from classes.fixed_camera_calibration import selected_source_signature
     signature = selected_source_signature(source_type='GAZEBO_CAMERA', backend='gazebo_transport', locator=topic,
         options={'world': descriptor['world'], 'pixel_format': 'RGB_INT8'})
@@ -300,7 +304,8 @@ def start_gimbal_provider(runtime, profile, token, primary, baseline, scenario, 
     from classes.frame_publisher import FramePublisher
     source = dict(world=camera_source['config']['world'], source_clock_id=camera_source['config']['source_clock_id'],
         aircraft_model=scenario['descriptor']['model'] + '_0',
-        instrumentation_camera=scenario['descriptor']['instrumentation_camera'], gimbal_config=config,
+        articulated_geometry=scenario['articulated_geometry'],
+        camera_mount=scenario['descriptor']['camera_mount'], gimbal_config=config,
         camera=camera_source, selection_max_age_s=FramePublisher.SELECTION_MAX_AGE_MS / 1000)
     source_path = runtime / 'gimbal-source.json'
     write(source_path, source)
@@ -336,6 +341,7 @@ def start_gimbal_provider(runtime, profile, token, primary, baseline, scenario, 
                     'tools/gazebo_gimbal_provider.py', 'tools/gazebo_gimbal_model.py',
                     'tools/gazebo_gimbal_gui.py', 'tools/gazebo_camera_provider.py', 'tools/gazebo_rendered_control.py',
                     'tools/gazebo_scene_selection.py', 'src/classes/gazebo_camera_control.py',
+                    'tools/gazebo_joint_gimbal.py', 'tools/gazebo_geometry.py',
                     'src/classes/gazebo_gimbal_source.py', 'src/classes/gimbal_geometry.py')}))
             write(runtime / 'camera-source.json', camera_source | dict(container_id=cid,
                 image_id=baseline['image_id'], renderer_or_following_qualified=False))
@@ -465,6 +471,7 @@ def require_free_loopback_port(port):
 
 def run(args):
     runtime = args.runtime.absolute()
+    operator_ui = not getattr(args, 'no_operator_ui', False)
     if runtime.exists():
         raise ValueError('Choose a fresh runtime directory; existing evidence is never overwritten')
     if bool(args.dashboard_build) != bool(args.dashboard_server):
@@ -481,8 +488,8 @@ def run(args):
     assets = native_training_assets(args, simulator, scenario)
     token = uuid.uuid4().hex
     camera_source = camera_training_source(args, scenario, token)
-    rendered_gimbal = scenario['descriptor'].get('instrumentation_camera')
-    if rendered_gimbal is not None:
+    rendered_gimbal = scenario['descriptor'].get('articulated_camera')
+    if rendered_gimbal is not None and operator_ui:
         subprocess.run([str(args.python), '-c', 'import tkinter'], check=True, capture_output=True)
     runtime.mkdir(parents=True, mode=0o700)
     profile = runtime / 'backend'
@@ -490,12 +497,13 @@ def run(args):
         udp_url=f'udp://127.0.0.1:{scenario["descriptor"]["camera"]["udp_port"]}')
     gimbal = None if rendered_gimbal is None else dict(socket_path='/run/pixeagle-gimbal/gimbal.sock',
         source_clock_id=camera_source['config']['source_clock_id'], world=camera_source['config']['world'],
-        max_attitude_skew_s=.05, control_contract='rendered_scene_v1')
+        max_attitude_skew_s=camera_source['config']['max_attitude_skew_s'], control_contract='rendered_scene_v1')
     prepare(profile, **video, gazebo_gimbal=gimbal, mount_type=getattr(args, 'mount_type', 'HORIZONTAL'),
         follower_mode=args.follower_mode, tracking_engine='camera' if rendered_gimbal is not None else 'local', backend_port=args.port,
         continuity_mode=getattr(args, 'continuity_mode', 'immediate_handoff'),
         dashboard_port=args.dashboard_port if args.dashboard_build else None,
-        enable_altitude_control=True, username='admin', password='admin')
+        enable_altitude_control=True, frame_rotation_deg=getattr(args, 'frame_rotation_deg', 0),
+        username='admin', password='admin')
     qgc_identity = qgc_build_identity(args.qgc)
     qgc_settings(runtime / 'qgc/config', f'http://127.0.0.1:{args.port}', identity=qgc_identity)
     for part in ('home', 'cache', 'data', 'runtime'):
@@ -507,7 +515,7 @@ def run(args):
     containers = []
     receipt = dict(kind='isolated-gazebo-training-v1', source_commit=host.command('git', '-C', str(ROOT), 'rev-parse', 'HEAD'),
         scenario=scenario, firmware_build=baseline, commands_blocked_at_start=True,
-        token=token, containers=containers, qgc_identity=qgc_identity, started_at=time.time())
+        token=token, containers=containers, qgc_identity=qgc_identity, operator_ui_enabled=operator_ui, started_at=time.time())
     write(runtime / 'run.json', receipt)
     try:
         network_id = host.create_owned_internal_network('pixeagle-training-' + token[:12], token)
@@ -583,7 +591,7 @@ def run(args):
                                    executable=str(args.tcp_relay))
         write(runtime / 'run.json', receipt)
         wait_backend(profile)
-        if rendered_gimbal is not None:
+        if rendered_gimbal is not None and operator_ui:
             with (runtime / 'gimbal-gui.log').open('xb') as log:
                 gimbal_gui = subprocess.Popen([str(args.python), str(ROOT / 'tools/gazebo_gimbal_gui.py'),
                     '--private', str(runtime / 'gimbal-source')], stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
@@ -597,25 +605,28 @@ def run(args):
                     env=os.environ | {'NO_UPDATE_NOTIFIER': '1'}, stdout=log, stderr=subprocess.STDOUT,
                     start_new_session=True)
             receipt['dashboard'] = dict(pid=frontend.pid, build=str(args.dashboard_build), port=args.dashboard_port)
-        qt = args.qt.absolute()
-        gst = args.gstreamer_lib.absolute()
-        qgc_environment = dict(HOME=runtime / 'qgc/home', XDG_CONFIG_HOME=runtime / 'qgc/config',
-            XDG_CACHE_HOME=runtime / 'qgc/cache', XDG_DATA_HOME=runtime / 'qgc/data',
-            XDG_RUNTIME_DIR=runtime / 'qgc/runtime', QT_QPA_PLATFORM='xcb',
-            LD_LIBRARY_PATH=f'{qt}/lib:{gst}:/mnt/hostlibs',
-            GST_PLUGIN_PATH=f'{gst}/gstreamer-1.0:/mnt/hostlibs/gstreamer-1.0',
-            GST_PLUGIN_SCANNER='/mnt/hostlibs/gstreamer1.0/gstreamer-1.0/gst-plugin-scanner')
-        qgc = host.command(*container_args('pixeagle-training-qgc-' + token[:12], token, primary,
-            [(runtime / 'qgc', runtime / 'qgc', False), (args.qgc.parent, args.qgc.parent, True),
-             (args.qgc.parent.parent / 'qml', args.qgc.parent.parent / 'qml', True),
-             (qt, qt, True), (gst, gst, True),
-             ('/usr/lib/x86_64-linux-gnu', '/mnt/hostlibs', True)],
-            qgc_environment, host.WORKER_IMAGE, display=True), str(args.qgc), '--logging', 'PixEagleLog.debug=true')
-        containers.append(qgc)
-        write(runtime / 'run.json', receipt)
-        host.command('docker', 'exec', '--detach', '--user', str(os.getuid()), primary,
-                     'gz', 'sim', '-g')
-        print(f'QGC opened. Backend: http://127.0.0.1:{args.port} · isolated simulation only', flush=True)
+        if operator_ui:
+            qt = args.qt.absolute()
+            gst = args.gstreamer_lib.absolute()
+            qgc_environment = dict(HOME=runtime / 'qgc/home', XDG_CONFIG_HOME=runtime / 'qgc/config',
+                XDG_CACHE_HOME=runtime / 'qgc/cache', XDG_DATA_HOME=runtime / 'qgc/data',
+                XDG_RUNTIME_DIR=runtime / 'qgc/runtime', QT_QPA_PLATFORM='xcb',
+                LD_LIBRARY_PATH=f'{qt}/lib:{gst}:/mnt/hostlibs',
+                GST_PLUGIN_PATH=f'{gst}/gstreamer-1.0:/mnt/hostlibs/gstreamer-1.0',
+                GST_PLUGIN_SCANNER='/mnt/hostlibs/gstreamer1.0/gstreamer-1.0/gst-plugin-scanner')
+            qgc = host.command(*container_args('pixeagle-training-qgc-' + token[:12], token, primary,
+                [(runtime / 'qgc', runtime / 'qgc', False), (args.qgc.parent, args.qgc.parent, True),
+                 (args.qgc.parent.parent / 'qml', args.qgc.parent.parent / 'qml', True),
+                 (qt, qt, True), (gst, gst, True),
+                 ('/usr/lib/x86_64-linux-gnu', '/mnt/hostlibs', True)],
+                qgc_environment, host.WORKER_IMAGE, display=True), str(args.qgc), '--logging', 'PixEagleLog.debug=true')
+            containers.append(qgc)
+            write(runtime / 'run.json', receipt)
+            host.command('docker', 'exec', '--detach', '--user', str(os.getuid()), primary,
+                         'gz', 'sim', '-g')
+            print(f'QGC opened. Backend: http://127.0.0.1:{args.port} · isolated simulation only', flush=True)
+        else:
+            print(f'Validation backend ready: http://127.0.0.1:{args.port} · operator windows disabled', flush=True)
         print(f'Credentials and logs: {profile} · Ctrl-C closes this owned stack', flush=True)
         while (relay.poll() is None and (frontend is None or frontend.poll() is None)
                 and (gimbal_gui is None or gimbal_gui.poll() is None)
@@ -652,6 +663,12 @@ def run(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--execute', action='store_true')
+    parser.add_argument('--no-operator-ui', action='store_true',
+                        help='Software validation only: start no QGC, gimbal GUI or Gazebo GUI window')
+    parser.add_argument('--max-attitude-skew-s', type=float, default=.1,
+                        help='Maximum measured simulator camera/PX4 source-time mismatch (default: 0.1 s)')
+    parser.add_argument('--frame-rotation-deg', type=int, choices=(0, 90, 180, 270), default=0,
+                        help='Decoder image orientation only; never changes the physical mount or angle geometry')
     parser.add_argument('--runtime', type=Path, required=True)
     parser.add_argument('--build-manifest', type=Path, required=True)
     parser.add_argument('--adapter-bundle', type=Path, help='Exact reviewed native runtime bundle (required for VTOL)')

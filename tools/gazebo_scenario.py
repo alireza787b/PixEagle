@@ -57,13 +57,18 @@ def _added_camera_model(value: dict, manifest: dict, files: dict) -> dict:
         files["gazebo/" + relative] = _read_file(SCENARIOS.parent, relative, pin)
         additions[relative] = pin
     pose = " ".join(str(n) for n in mount["pose"])
+    articulated = value.get('articulated_camera') is not None
+    child = 'cgo3_mount_link' if articulated else value['camera']['link']
     expected = ET.fromstring(f'''<sdf version="1.10"><model name="{value['model']}">
       <include merge="true"><uri>model://{value['base_model']}</uri></include>
       <include merge="true"><uri>model://{value['camera']['model']}</uri>
         <pose relative_to="base_link">{pose}</pose></include>
-      <joint name="CameraJoint" type="fixed"><parent>base_link</parent><child>{value['camera']['link']}</child>
+      <joint name="CameraJoint" type="fixed"><parent>base_link</parent><child>{child}</child>
         <pose relative_to="base_link">{pose}</pose></joint>
     </model></sdf>''')
+    if articulated:
+        from tools.gazebo_gimbal_resources import joint_pose_publisher, joint_state_publisher
+        expected.find('model').extend((joint_pose_publisher(), joint_state_publisher()))
     try:
         actual = ET.fromstring(files[f'gazebo/models/{value["model"]}/model.sdf'])
         config = ET.fromstring(files[f'gazebo/models/{value["model"]}/model.config'])
@@ -74,6 +79,36 @@ def _added_camera_model(value: dict, manifest: dict, files: dict) -> dict:
     except ET.ParseError as error:
         raise ValueError("Gazebo camera wrapper is malformed") from error
     return additions
+
+
+def _articulated_camera(value, manifest, files):
+    from tools.gazebo_gimbal_resources import derive_joint_gimbal
+    declaration = value['articulated_camera']
+    if (not isinstance(declaration, dict) or set(declaration) != {
+            'base_model', 'optics_model', 'mechanics', 'rate_deg_s', 'mass_scale', 'limits_rad', 'files'}
+            or declaration['base_model'] != 'gimbal' or declaration['optics_model'] != 'mono_cam'
+            or declaration['mechanics'] != 'ideal_joint_velocity'
+            or set(declaration['files']) != {'model.sdf', 'model.config'}):
+        raise ValueError('Gazebo articulated camera declaration invalid')
+    name = value['camera']['model']
+    expected, geometry = derive_joint_gimbal(files['gazebo/models/gimbal/model.sdf'],
+        files['gazebo/models/mono_cam/model.sdf'], name=name, rate_deg_s=declaration['rate_deg_s'],
+        mass_scale=declaration['mass_scale'], limits_rad=declaration['limits_rad'])
+    additions = {}
+    for member, pin in declaration['files'].items():
+        relative = f'models/{name}/{member}'
+        if relative in manifest['artifacts']['gazebo'] or pin.get('executable') is not False:
+            raise ValueError('Gazebo articulated camera cannot replace packaged resources')
+        raw = _read_file(SCENARIOS.parent, relative, pin)
+        if member == 'model.sdf' and _canonical(ET.fromstring(raw)) != _canonical(ET.fromstring(expected)):
+            raise ValueError('Gazebo articulated camera differs from declared stock derivative')
+        if member == 'model.config':
+            config = ET.fromstring(raw)
+            if config.findtext('name') != name or [n.text for n in config.findall('sdf')] != ['model.sdf']:
+                raise ValueError('Gazebo articulated camera model configuration invalid')
+        additions[relative] = pin
+        files['gazebo/' + relative] = raw
+    return additions, geometry
 
 
 def _raw_camera_server(value, files):
@@ -127,70 +162,6 @@ def _remove_static_scene_additions(world, declarations, files):
         world.remove(model)
 
 
-def _remove_instrumentation_camera(world, value):
-    """One movable ideal camera, separate from the unchanged aircraft plant."""
-    from classes.aircraft_state import Vector3
-    from tools.gazebo_gimbal_model import IdealGimbalSettings
-
-    camera = value['instrumentation_camera']
-    if (not isinstance(camera, dict) or set(camera) != {'instance', 'pose', 'offset_body_frd_m',
-            'pointing_rate_deg_s', 'maximum_pose_gap_s', 'mechanics'}
-            or not isinstance(camera['instance'], str) or not re.fullmatch(r'[a-z][a-z0-9_]*', camera['instance'])
-            or camera['instance'] == value['model'] or not _finite_vector(camera['pose'], 6)
-            or not _finite_vector(camera['offset_body_frd_m'], 3) or camera['mechanics'] != 'ideal_stabilized'):
-        raise ValueError('Gazebo instrumentation camera declaration invalid')
-    IdealGimbalSettings(Vector3(*camera['offset_body_frd_m']), camera['pointing_rate_deg_s'], camera['maximum_pose_gap_s'])
-    matches = [node for node in world.findall('include') if node.findtext('name') == camera['instance']]
-    expected = ET.fromstring(f'''<include><uri>model://{value['camera']['model']}</uri>
-        <name>{camera['instance']}</name><pose>{' '.join(str(n) for n in camera['pose'])}</pose>
-        <static>true</static></include>''')
-    if len(matches) != 1 or _canonical(matches[0]) != _canonical(expected):
-        raise ValueError('Gazebo instrumentation camera must match its declared static model include')
-    world.remove(matches[0])
-
-
-def camera_pose_publisher(instance):
-    plugin = ET.Element('plugin', filename='gz-sim-pose-publisher-system', name='gz::sim::systems::PosePublisher')
-    for name, value in dict(publish_model_pose='true', publish_link_pose='false',
-            use_pose_vector_msg='false', update_frequency='-1', topic=f'/model/{instance}/pose').items():
-        ET.SubElement(plugin, name).text = value
-    return plugin
-
-
-def _rgbd_camera(value, manifest, files):
-    """Explicit depth instrumentation derived from byte-pinned stock optics."""
-    declaration = value['rgbd_camera']
-    if (not isinstance(declaration, dict) or set(declaration) != {'base_model', 'model', 'files', 'update_rate_hz'}
-            or declaration['base_model'] != 'mono_cam' or declaration['model'] != value['camera']['model']
-            or declaration['model'] in manifest['artifacts']['gazebo']
-            or not re.fullmatch(r'[a-z][a-z0-9_]*', declaration['model'])
-            or type(declaration['update_rate_hz']) is not int or not 1 <= declaration['update_rate_hz'] <= 30
-            or set(declaration['files']) != {'model.sdf', 'model.config'}):
-        raise ValueError('Gazebo RGB-D camera declaration invalid')
-    model = declaration['model']
-    additions = {}
-    for name, pin in declaration['files'].items():
-        relative = f'models/{model}/{name}'
-        if relative in manifest['artifacts']['gazebo'] or pin.get('executable') is not False:
-            raise ValueError('Gazebo RGB-D camera cannot replace packaged resources')
-        raw = _read_file(SCENARIOS.parent, relative, pin)
-        files['gazebo/' + relative] = raw
-        additions[relative] = pin
-    base = ET.fromstring(files['gazebo/models/mono_cam/model.sdf'])
-    base.find('model').set('name', model)
-    sensor = base.find('./model/link/sensor')
-    sensor.set('type', 'rgbd_camera')
-    sensor.find('update_rate').text = str(declaration['update_rate_hz'])
-    base.find('model').append(camera_pose_publisher(value['instrumentation_camera']['instance']))
-    if _canonical(base) != _canonical(ET.fromstring(files[f'gazebo/models/{model}/model.sdf'])):
-        raise ValueError('Gazebo RGB-D camera differs from declared stock optical derivative')
-    configuration = ET.fromstring(files[f'gazebo/models/{model}/model.config'])
-    if (configuration.tag != 'model' or configuration.findtext('name') != model
-            or [node.text for node in configuration.findall('sdf')] != ['model.sdf']):
-        raise ValueError('Gazebo RGB-D model configuration invalid')
-    return additions
-
-
 def _added_world(value: dict, manifest: dict, files: dict) -> dict:
     """Permit one additional world, never an override of a packaged resource."""
     addition = value["added_world"]
@@ -233,8 +204,6 @@ def _added_world(value: dict, manifest: dict, files: dict) -> dict:
         world.remove(model)
         if value["schema_version"] >= 3:
             _remove_static_scene_additions(world, value["scene_additions"], files)
-        if value['schema_version'] == 4:
-            _remove_instrumentation_camera(world, value)
         base = ET.fromstring(files["gazebo/" + addition["base_resource"]]).find("world")
         if base is None:
             raise ValueError("Gazebo base world is missing")
@@ -332,20 +301,18 @@ def verified_scenario(name: str, baseline: dict, manifest: dict) -> dict:
     fields = {"schema_version", "name", "build_manifest_sha256", "image_id", "binary_sha256",
               "model", "world", "airframe_id", "airframe_chain", "identity_parameters", "models",
               "scene_models", "resources", "spawn_pose", "camera"}
-    if isinstance(value, dict) and value.get("schema_version") in (2, 3, 4):
+    if isinstance(value, dict) and value.get("schema_version") in (2, 3, 5):
         fields |= {"added_world", "target"}
-    if isinstance(value, dict) and value.get("schema_version") == 3:
+    if isinstance(value, dict) and value.get("schema_version") in (3, 5):
         fields |= {"base_model", "added_model", "scene_additions", "camera_mount"}
         if "server_config" in value:
             fields.add("server_config")
-    if isinstance(value, dict) and value.get('schema_version') == 4:
-        fields |= {'scene_additions', 'instrumentation_camera', 'server_config'}
-        if 'scene_assets' in value:
-            fields.add('scene_assets')
-        if 'rgbd_camera' in value:
-            fields.add('rgbd_camera')
+        if value['schema_version'] == 5:
+            fields.add('articulated_camera')
+            if 'scene_assets' in value:
+                fields.add('scene_assets')
     if (not isinstance(value, dict) or set(value) != fields or type(value["schema_version"]) is not int
-            or value["schema_version"] not in (1, 2, 3, 4) or value["name"] != name):
+            or value["schema_version"] not in (1, 2, 3, 5) or value["name"] != name):
         raise ValueError("Invalid Gazebo scenario descriptor")
     if (manifest.get("kind") != "pixeagle_gazebo_build"
             or baseline.get("kind") != "verified_gazebo_source_build"
@@ -356,7 +323,7 @@ def verified_scenario(name: str, baseline: dict, manifest: dict) -> dict:
             or manifest.get("artifacts", {}).get("binary_sha256") != value["binary_sha256"]):
         raise ValueError("Gazebo scenario requires its exact verified stock build")
     if (any(not isinstance(value[key], str) or not re.fullmatch(r"[a-z][a-z0-9_]*", value[key])
-            for key in (("model", "world", "base_model") if value["schema_version"] == 3 else ("model", "world"))) or type(value["airframe_id"]) is not int
+            for key in (("model", "world", "base_model") if value["schema_version"] in (3, 5) else ("model", "world"))) or type(value["airframe_id"]) is not int
             or value["airframe_id"] <= 0):
         raise ValueError("Invalid Gazebo scenario model/world/airframe")
     pose = value["spawn_pose"]
@@ -389,11 +356,14 @@ def verified_scenario(name: str, baseline: dict, manifest: dict) -> dict:
     if (not plugins <= files.keys() or not {"gazebo/server.config", "gazebo/plugins/libGstCameraSystem.so",
             "gazebo/plugins/libMotorFailurePlugin.so"} <= files.keys()):
         raise ValueError("Gazebo scenario plugin/config closure is incomplete")
-    additions = _added_camera_model(value, manifest, files) if value["schema_version"] == 3 else {}
-    if value['schema_version'] == 4:
+    geometry = None
+    additions = {}
+    if value['schema_version'] == 5:
+        additions, geometry = _articulated_camera(value, manifest, files)
+    if value['schema_version'] in (3, 5):
+        additions.update(_added_camera_model(value, manifest, files))
+    if value['schema_version'] == 5:
         additions.update(_scene_assets(value, files))
-        if 'rgbd_camera' in value:
-            additions.update(_rgbd_camera(value, manifest, files))
     if "server_config" in value:
         additions.update(_raw_camera_server(value, files))
     # Include complete model directories (meshes, textures, configs), not just SDFs.
@@ -404,7 +374,7 @@ def verified_scenario(name: str, baseline: dict, manifest: dict) -> dict:
                     if k.startswith(f"models/{model}/")}
         if not required or not required <= files.keys():
             raise ValueError("Gazebo scenario model resource closure is incomplete")
-    if value["schema_version"] in (2, 3, 4):
+    if value["schema_version"] in (2, 3, 5):
         additions.update(_added_world(value, manifest, files))
     world_file = f'gazebo/worlds/{value["world"]}.sdf'
     try:
@@ -431,10 +401,11 @@ def verified_scenario(name: str, baseline: dict, manifest: dict) -> dict:
         raise ValueError("Gazebo scenario resource closure is invalid") from error
     camera_root = ET.fromstring(files[f'gazebo/models/{camera["model"]}/model.sdf'])
     sensors = camera_root.findall(f'./model/link[@name="{camera["link"]}"]/sensor[@name="{camera["sensor"]}"]')
-    if len(sensors) != 1 or sensors[0].get("type") != ('rgbd_camera' if 'rgbd_camera' in value else 'camera'):
+    if len(sensors) != 1 or sensors[0].get("type") != ('rgbd_camera' if geometry else 'camera'):
         raise ValueError("Gazebo scenario camera is missing or ambiguous")
     return {"name": name, "descriptor_sha256": hashlib.sha256(raw).hexdigest(), "descriptor": value,
             "expected_parameters": expected, "build_manifest_sha256": baseline["manifest_sha256"],
+            **({'articulated_geometry': geometry} if geometry is not None else {}),
             **({"added_resources": additions} if additions else {})}
 
 

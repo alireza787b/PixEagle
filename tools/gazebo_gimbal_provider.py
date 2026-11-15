@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Ideal rendered gimbal: observed Gazebo poses → stamped production SIP packets.
 
-Only the declared instrumentation camera may receive a pose intent. No PX4,
-MAVLink, aircraft action, camera motor or public HTTP endpoint is available.
+Only the declared articulated camera joints receive position targets. No PX4,
+MAVLink, aircraft action or world-position command is available.
 """
 
 from dataclasses import asdict
@@ -30,8 +30,26 @@ from classes.gimbal_control import sip_frame  # noqa: E402
 from classes.gimbal_geometry import resolve_angle_geometry, resolve_mount_type  # noqa: E402
 from tools.gazebo_camera_provider import private_listener  # noqa: E402
 from tools.gazebo_gimbal_model import IdealGimbalSettings, IdealStabilizedGimbal, ObservedGimbalPose  # noqa: E402
-from tools.gazebo_geometry import ENU_TO_NED, FLU_TO_FRD, RigidPose  # noqa: E402
+from tools.gazebo_geometry import FLU_TO_FRD, acquisition_us  # noqa: E402
+from tools.gazebo_joint_gimbal import ZxyJointChain, attached_observation, inverse  # noqa: E402
+from tools.gazebo_scene_selection import ObservedCameraPose  # noqa: E402
 from tools.gimbal_simulator import angle_hex  # noqa: E402
+
+
+TELEMETRY_INTERVAL_S = .02
+
+
+def send_latest_packets(connection, packets):
+    """A slow consumer loses telemetry samples, never camera ownership."""
+    sent = 0
+    for packet in packets:
+        try:
+            if connection.send(packet) != len(packet):
+                raise OSError('gimbal_packet_write_incomplete')
+        except BlockingIOError:
+            break
+        sent += 1
+    return sent
 
 
 def atomic_json(path, value):
@@ -43,48 +61,18 @@ def atomic_json(path, value):
     temporary.replace(path)
 
 
-def gazebo_pose_to_ned(value):
-    return RigidPose.from_message(value).ned_frd()
-
-
-def observed_pose(message, *, aircraft_model, camera_model, received_at):
-    stamp = message.header.stamp
-    if stamp.sec < 0 or not 0 <= stamp.nsec < 1_000_000_000:
-        raise ValueError('gimbal_world_stamp_invalid')
-    selected = {}
-    for value in message.pose:
-        if value.name in (aircraft_model, camera_model):
-            if value.name in selected:
-                raise ValueError('gimbal_world_pose_ambiguous')
-            selected[value.name] = value
-    if len(selected) != 2:
-        raise ValueError('gimbal_world_pose_missing')
-
-    body_position, body_q = gazebo_pose_to_ned(selected[aircraft_model])
-    camera_position, camera_q = gazebo_pose_to_ned(selected[camera_model])
-    return ObservedGimbalPose(stamp.sec * 1_000_000 + stamp.nsec // 1000, received_at,
-        body_position, body_q, camera_position, camera_q), selected[camera_model].id
-
-
-def pose_request(intent, *, camera_model, camera_id, message_type):
-    value = message_type(name=camera_model, id=camera_id)
-    p = intent.position_ned
-    value.position.x, value.position.y, value.position.z = p.y, p.x, -p.z
-    q = ENU_TO_NED.compose(intent.camera_to_ned).compose(FLU_TO_FRD)
-    value.orientation.w, value.orientation.x, value.orientation.y, value.orientation.z = q.w, q.x, q.y, q.z
-    return value
-
-
 class RenderedGimbalSource:
     def __init__(self, config, private, *, clock=time.monotonic):
         self.config, self.private, self.clock = config, private, clock
-        mechanics = config['instrumentation_camera']
-        self.camera_model = mechanics['instance']
+        self.mechanics = config['articulated_geometry']
         self.aircraft_model = config['aircraft_model']
-        if self.camera_model == self.aircraft_model:
-            raise ValueError('gimbal_camera_must_be_separate_instrumentation')
-        self.model = IdealStabilizedGimbal(IdealGimbalSettings(Vector3(*mechanics['offset_body_frd_m']),
-            mechanics['pointing_rate_deg_s'], mechanics['maximum_pose_gap_s']))
+        self.camera_model = self.aircraft_model + '::' + self.mechanics['camera_link']
+        self.model = IdealStabilizedGimbal(IdealGimbalSettings())
+        self.kinematics = ZxyJointChain(Quaternion.from_euler(*config['camera_mount']['pose'][3:]),
+            Quaternion.from_euler(*self.mechanics['sensor_pose_link_flu'][3:]),
+            tuple(tuple(v) for v in self.mechanics['limits_rad']))
+        self.latest_joints = None
+        self.actuation_error = None
         camera = config['gimbal_config']
         mount = resolve_mount_type(camera, {}, {}, allowed=('HORIZONTAL', 'VERTICAL'))
         self.geometry = resolve_angle_geometry(camera, mount)
@@ -99,14 +87,20 @@ class RenderedGimbalSource:
         self.error = None
         self.stopped = False
         self.pose_replaced = self.sent = self.client_failures = 0
+        self.telemetry_dropped = 0
+        self._last_telemetry = None
         self.scene_control = None
         self._last_state_write = None
 
     def receive(self, message):
         received = self.clock()
         try:
-            pose, camera_id = observed_pose(message, aircraft_model=self.aircraft_model,
-                                            camera_model=self.camera_model, received_at=received)
+            pose = attached_observation(message, aircraft_model=self.aircraft_model,
+                body_link=self.mechanics['body_link'], camera_link=self.mechanics['camera_link'],
+                sensor_pose_link_flu=self.mechanics['sensor_pose_link_flu'], received_at=received)
+            if self.scene_control is not None:
+                self.scene_control.history.pose(ObservedCameraPose(pose.timestamp_us,
+                    pose.received_at_monotonic_s, pose.camera_position_ned, pose.camera_to_ned))
             with self.condition:
                 if self.stopped or self.error:
                     return
@@ -118,13 +112,47 @@ class RenderedGimbalSource:
                 if self.pending_pose is not None:
                     self.pose_replaced += 1
                 self.last_pose_time = pose.timestamp_us
-                self.pending_pose = pose, camera_id
+                self.pending_pose = pose
                 self.condition.notify_all()
         except Exception as error:
             with self.condition:
                 self.error = error
                 self.pending_pose = self.pending_packets = None
                 self.condition.notify_all()
+
+    def receive_joints(self, message):
+        try:
+            stamp = acquisition_us(message.header)
+            measured = {}
+            for joint in message.joint:
+                if joint.name in self.mechanics['joint_names']:
+                    if joint.name in measured or not joint.HasField('axis1') or not math.isfinite(joint.axis1.position):
+                        raise ValueError('gimbal_joint_observation_invalid')
+                    measured[joint.name] = joint.axis1.position
+            if len(measured) != len(self.mechanics['joint_names']):
+                raise ValueError('gimbal_joint_observation_missing')
+            values = tuple(measured[name] for name in self.mechanics['joint_names'])
+            with self.condition:
+                previous = self.latest_joints
+                if previous is not None and stamp <= previous[0]:
+                    if stamp < previous[0] or values != previous[1]:
+                        raise ValueError('gimbal_joint_observation_rewritten')
+                    return
+                self.latest_joints = stamp, values, self.clock()
+                self.condition.notify_all()
+        except (ValueError, TypeError) as error:
+            with self.condition:
+                self.error = error
+                self.condition.notify_all()
+
+    def joint_targets(self, pose, orientation):
+        with self.condition:
+            measured = self.latest_joints
+        if (measured is None or abs(measured[0] - pose.timestamp_us) * 1e-6 > self.model.settings.maximum_pose_gap_s
+                or not 0 <= self.clock() - measured[2] <= self.model.settings.maximum_pose_gap_s):
+            raise ValueError('gimbal_joint_feedback_unavailable')
+        relative = inverse(pose.body_to_ned).compose(orientation)
+        return self.kinematics.pointing_targets(FLU_TO_FRD.rotate(relative.rotate(Vector3(1., 0., 0.))), measured[1])
 
     def stop(self, *_):
         with self.condition:
@@ -202,16 +230,19 @@ class RenderedGimbalSource:
             packets.append(GazeboGimbalPacket(self.config['world'], sample,
                 pose.received_at_monotonic_s, frame.decode('ascii')).encode())
         with self.condition:
-            self.pending_packets = packets
+            last = self._last_telemetry
+            if last is None or pose.received_at_monotonic_s - last[0] >= TELEMETRY_INTERVAL_S or last[1] != self.model.tracking_state:
+                self.pending_packets = packets
+                self._last_telemetry = pose.received_at_monotonic_s, self.model.tracking_state
             self.latest_pose = pose
             self.condition.notify_all()
         state = dict(incarnation=self.incarnation,
             control_sequence=self.control_sequence, tracking_state=self.model.tracking_state.name,
-            control_error=self.control_error, pose_gaps=self.model.pose_gaps,
+            control_error=self.control_error, actuation_error=self.actuation_error, pose_gaps=self.model.pose_gaps,
             pose=asdict(pose), angles_deg=raw, target_ned=None if self.model.target_ned is None else asdict(self.model.target_ned),
             camera_model=self.camera_model, aircraft_model=self.aircraft_model, mechanics_qualified=False)
         last = self._last_state_write
-        identity = self.control_sequence, self.model.tracking_state, self.control_error, self.model.pose_gaps
+        identity = self.control_sequence, self.model.tracking_state, self.control_error, self.actuation_error, self.model.pose_gaps
         if last is None or last[1] != identity or self.clock() - last[0] >= .1:
             atomic_json(self.private / 'operator-state.json', state)
             self._last_state_write = self.clock(), identity
@@ -232,7 +263,8 @@ def serve_packets(source):
                 _, uid, _ = struct.unpack('3i', connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
                 if uid != os.getuid():
                     continue
-                connection.settimeout(.1)
+                connection.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 4096)
+                connection.setblocking(False)
                 with source.condition:
                     source.pending_packets = None  # No retained angle is replayed to a new backend.
                 try:
@@ -242,9 +274,10 @@ def serve_packets(source):
                         with source.condition:
                             source.condition.wait_for(lambda: source.pending_packets is not None or source.stopped or source.error, timeout=.1)
                             packets, source.pending_packets = source.pending_packets, None
-                        for packet in packets or ():
-                            connection.sendall(packet)
-                            source.sent += 1
+                        packets = packets or ()
+                        sent = send_latest_packets(connection, packets)
+                        source.sent += sent
+                        source.telemetry_dropped += len(packets) - sent
                 except OSError:
                     source.client_failures += 1
                 finally:
@@ -267,8 +300,8 @@ def main():
     args = parser.parse_args()
     from gz.transport13 import Node
     from gz.msgs10.pose_v_pb2 import Pose_V
-    from gz.msgs10.pose_pb2 import Pose
-    from gz.msgs10.boolean_pb2 import Boolean
+    from gz.msgs10.model_pb2 import Model
+    from gz.msgs10.double_pb2 import Double
     from gz.msgs10.image_pb2 import Image
     from gz.msgs10.camera_info_pb2 import CameraInfo
     from tools.gazebo_camera_provider import ImageStream, serve, camera_info_callback
@@ -288,7 +321,7 @@ def main():
     signal.signal(signal.SIGTERM, source.stop)
     signal.signal(signal.SIGINT, source.stop)
     node = Node()
-    topic = f'/world/{config["world"]}/pose/info'
+    topic = f'/model/{source.aircraft_model}/pose'
     if not node.subscribe(Pose_V, topic, source.receive):
         raise ValueError('gimbal_pose_subscription_refused')
     def run_worker(function, *arguments):
@@ -307,26 +340,13 @@ def main():
                 source.error = error
                 source.condition.notify_all()
 
-    def camera_pose(message):
-        try:
-            stamp = message.header.stamp
-            if message.name != source.camera_model or stamp.sec < 0 or not 0 <= stamp.nsec < 1_000_000_000:
-                raise ValueError('rendered_camera_pose_identity_invalid')
-            position, orientation = gazebo_pose_to_ned(message)
-            history.pose(ObservedCameraPose(stamp.sec * 1_000_000 + stamp.nsec // 1000,
-                time.monotonic(), position, orientation))
-        except (ValueError, TypeError) as error:
-            with source.condition:
-                source.error = error
-                source.condition.notify_all()
-
     image_topic = camera['config']['image_topic']
     info_topic = image_topic.rsplit('/', 1)[0] + '/camera_info'
     depth_topic = image_topic.rsplit('/', 1)[0] + '/depth_image'
     ready = threading.Event()
     callback = camera_info_callback(stream, camera['intrinsics'], camera_private / 'camera-info.json', ready)
     subscriptions = [(Image, image_topic, stream.image), (Image, depth_topic, depth), (CameraInfo, info_topic, callback),
-                     (Pose, f'/model/{source.camera_model}/pose', camera_pose)]
+                     (Model, f'/world/{config["world"]}/model/{source.aircraft_model}/joint_state', source.receive_joints)]
     workers = []
     for message_type, name, receiver in subscriptions:
         if not node.subscribe(message_type, name, receiver):
@@ -337,7 +357,10 @@ def main():
         worker = threading.Thread(target=run_worker, args=(function, *arguments), name=name, daemon=True)
         worker.start()
         workers.append(worker)
-    request_count = unacknowledged = 0
+    publishers = [node.advertise(f'/model/{source.aircraft_model}/training/gimbal_{role}', Double)
+                  for role in ('yaw', 'roll', 'pitch')]
+    joint_writes = 0
+    previous_targets = None
     try:
         while not source.stopped:
             if stream.error:
@@ -354,21 +377,22 @@ def main():
                 selected, source.pending_pose = source.pending_pose, None
             if selected is None:
                 continue
-            pose, camera_id = selected
+            pose = selected
             intent = source.process(pose)
             if intent is not None:
-                p, q = pose.camera_position_ned, pose.camera_to_ned
-                distance = math.dist((p.x, p.y, p.z),
-                    (intent.position_ned.x, intent.position_ned.y, intent.position_ned.z))
-                alignment = abs(sum(getattr(q, key) * getattr(intent.camera_to_ned, key) for key in ('w', 'x', 'y', 'z')))
-                if distance < 1e-6 and alignment > 1. - 1e-12:
-                    continue  # No-op camera writes add contention, not fidelity.
-                request = pose_request(intent, camera_model=source.camera_model, camera_id=camera_id, message_type=Pose)
-                ok, reply = node.request(f'/world/{config["world"]}/set_pose', request, Pose, Boolean, 20)
-                request_count += 1
-                unacknowledged += not (ok and reply.data)
-                # Reply uncertainty is diagnostic. Only a later world-pose
-                # callback can supply observed angles, never this intent/ACK.
+                try:
+                    targets = source.joint_targets(pose, intent.camera_to_ned)
+                    if targets != previous_targets:
+                        for publisher, target in zip(publishers, targets):
+                            publisher.publish(Double(data=target))
+                        previous_targets = targets
+                        joint_writes += 1
+                    source.actuation_error = None
+                except ValueError as error:
+                    source.actuation_error = str(error)
+                    source.model.stop_manual()
+                    if source.model.target_ned is not None:
+                        source.model.lose_target()
     finally:
         source.stop()
         stream.stop()
@@ -377,10 +401,12 @@ def main():
         node.unsubscribe(topic)
         for _, name, _ in subscriptions:
             node.unsubscribe(name)
+        publishers.clear()
         del node
-        print(json.dumps(dict(pose_requests=request_count, unacknowledged_pose_requests=unacknowledged,
+        print(json.dumps(dict(joint_target_writes=joint_writes,
             packets_sent=source.sent, replaced_pending_poses=source.pose_replaced, client_failures=source.client_failures,
-            mechanics='ideal_stabilized', scene_selection=history.diagnostics(),
+            telemetry_dropped=source.telemetry_dropped,
+            mechanics='ideal_joint_velocity', scene_selection=history.diagnostics(),
             pose_gaps=source.model.pose_gaps,
             frames_received=stream.frame_id, frames_sent=stream.sent,
             aircraft_commands_sent=False)), flush=True)

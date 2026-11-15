@@ -78,6 +78,10 @@ source-bound fixed-camera calibration, provider raw-angle mapping and actual
 aircraft phase separate. Use the physical quaternion for camera rays; never
 apply PX4's FW tailsitter control-frame rotation twice. Simulator gimbal or
 protocol emulation must not be reported as measured hardware mechanics.
+Rendered cameras must be physically attached through the declared model/joint
+hierarchy. Do not make a detached camera chase the aircraft with world-pose
+service calls. Prefer standard Gazebo controllers and observed link/sensor
+feedback; actuator targets never substitute for measured camera pose.
 
 ## API And MCP Rules
 

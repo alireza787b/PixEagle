@@ -25,7 +25,7 @@ from classes.gimbal_control import validate_camera_rectangle
 MAX_CONTROL_BYTES = 16_384
 
 
-def exchange(path, incarnation, operation, arguments):
+def exchange(path, incarnation, operation, arguments, *, timeout_s=.05):
     request_id = uuid.uuid4().hex
     request = dict(version=1, request_id=request_id, incarnation=incarnation,
                    operation=operation, arguments=arguments)
@@ -34,7 +34,7 @@ def exchange(path, incarnation, operation, arguments):
         raise ValueError('rendered_camera_request_too_large')
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET) as connection:
-            connection.settimeout(.05)
+            connection.settimeout(timeout_s)
             connection.connect(str(path))
             _, uid, _ = struct.unpack('3i', connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
             if uid != os.getuid():
@@ -76,12 +76,12 @@ class RenderedCameraControl:
         self._lock = threading.RLock()
         self._epoch = 0
 
-    def _request(self, operation, **arguments):
+    def _request(self, operation, *, timeout_s=.05, **arguments):
         packet = self.provider._previous_packet
         if not self.provider.running or packet is None:
             raise ValueError('rendered_camera_source_unavailable')
         return exchange(Path(self.provider.settings.socket_path).with_name('control.sock'),
-                        packet.source_sample.source_incarnation, operation, arguments)
+                        packet.source_sample.source_incarnation, operation, arguments, timeout_s=timeout_s)
 
     def prepare_selection_from_frame(self, *, x, y, source_sample, width=None, height=None):
         if (not isinstance(source_sample, SourceSampleStamp)
@@ -99,7 +99,7 @@ class RenderedCameraControl:
         if prepared.control is not self or prepared.mode != self.selection_mode:
             raise ValueError('rendered_camera_selection_changed')
         try:
-            reply = await asyncio.to_thread(self._request, 'resolve',
+            reply = await asyncio.to_thread(self._request, 'resolve', timeout_s=.5,
                 source_sample=asdict(prepared.source_sample), x=prepared.x, y=prepared.y,
                 width=prepared.width, height=prepared.height)
         except ValueError as error:

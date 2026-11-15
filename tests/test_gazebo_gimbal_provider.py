@@ -3,6 +3,7 @@
 from dataclasses import replace
 import json
 import math
+import socket
 from types import SimpleNamespace
 
 import pytest
@@ -11,7 +12,7 @@ from classes.aircraft_state import Quaternion, Vector3
 from classes.gazebo_gimbal_source import GazeboGimbalPacket
 from classes.gimbal_interface import GimbalInterface
 from tools.gazebo_gimbal_model import ObservedGimbalPose
-from tools.gazebo_gimbal_provider import RenderedGimbalSource, atomic_json, observed_pose, pose_request
+from tools.gazebo_gimbal_provider import RenderedGimbalSource, atomic_json, send_latest_packets
 
 
 @pytest.fixture
@@ -19,8 +20,10 @@ def source(tmp_path):
     tmp_path.chmod(0o700)
     return RenderedGimbalSource(dict(world='training', source_clock_id='clock', aircraft_model='quad_0',
         gimbal_config=dict(PROVIDER='topotek_sip_udp', MOUNT_TYPE='VERTICAL'),
-        instrumentation_camera=dict(instance='test_camera', offset_body_frd_m=[0., 0., -.34],
-            pointing_rate_deg_s=90., maximum_pose_gap_s=.25)), tmp_path, clock=lambda: 100.)
+        camera_mount=dict(frame='base_link_flu', pose=[0.,0.,0.,0.,0.,0.]),
+        articulated_geometry=dict(body_link='base_link',camera_link='camera_link',
+            sensor_pose_link_flu=[0.,0.,0.,0.,0.,0.], limits_rad=[[-10.,10.],[-1.,1.],[-3.,3.]],
+            joint_names=['yaw_joint','roll_joint','pitch_joint'])), tmp_path, clock=lambda: 100.)
 
 
 def pose():
@@ -97,32 +100,54 @@ def test_loss_and_release_are_explicit_source_states_without_aircraft_actions(so
         assert value['mechanics_qualified'] is False
 
 
-def protobuf_pose(name, xyz, q, identifier):
-    return SimpleNamespace(name=name, id=identifier,
-        position=SimpleNamespace(**dict(zip(('x', 'y', 'z'), xyz))),
-        orientation=SimpleNamespace(**dict(zip(('w', 'x', 'y', 'z'), q))))
+def test_telemetry_is_bounded_without_reducing_pose_processing(source):
+    source.process(pose())
+    first = source.pending_packets
+    source.pending_packets = None
+    source.process(replace(pose(), timestamp_us=1_004_000, received_at_monotonic_s=100.004))
+    assert source.pending_packets is None
+    assert source.latest_pose.timestamp_us == 1_004_000
+    source.process(replace(pose(), timestamp_us=1_024_000, received_at_monotonic_s=100.024))
+    assert source.pending_packets != first
+    assert GazeboGimbalPacket.decode(source.pending_packets[0]).source_sample.timestamp_us == 1_024_000
+    source.pending_packets = None
+    command(source, 'lock', range_m=40.)
+    source.process(replace(pose(), timestamp_us=1_028_000, received_at_monotonic_s=100.028))
+    assert source.pending_packets is not None  # State changes are immediate.
 
 
-def test_world_frame_roundtrip_has_no_airframe_or_mount_specific_rotation():
-    body = protobuf_pose('quad_0', (2., 3., 4.), (1., 0., 0., 0.), 10)
-    camera = protobuf_pose('camera', (2., 3., 5.), (math.cos(.2), 0., 0., math.sin(.2)), 20)
-    message = SimpleNamespace(header=SimpleNamespace(stamp=SimpleNamespace(sec=1, nsec=123_000_000)), pose=[body, camera])
-    observed, identifier = observed_pose(message, aircraft_model='quad_0', camera_model='camera', received_at=100.)
-    assert identifier == 20 and observed.timestamp_us == 1_123_000
-    assert observed.body_position_ned == Vector3(3., 2., -4.)
-    assert observed.camera_position_ned == Vector3(3., 2., -5.)
-    # Supply intent equal to observation to isolate the conversion boundary.
-    from tools.gazebo_gimbal_model import CameraPoseIntent
-    intent = CameraPoseIntent(observed.camera_position_ned, observed.camera_to_ned, observed.timestamp_us)
+def test_slow_telemetry_consumer_drops_samples_without_disconnect():
+    sender, receiver = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+    with sender, receiver:
+        sender.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 4096)
+        sender.setblocking(False)
+        receiver.setblocking(False)
+        while send_latest_packets(sender, (b'old' * 100,)):
+            pass
+        assert send_latest_packets(sender, (b'dropped',)) == 0
+        while True:
+            try:
+                receiver.recv(4096)
+            except BlockingIOError:
+                break
+        assert send_latest_packets(sender, (b'fresh',)) == 1
+        assert receiver.recv(4096) == b'fresh'
 
-    class Pose:
-        def __init__(self, **kwargs):
-            self.__dict__.update(kwargs)
-            self.position = SimpleNamespace()
-            self.orientation = SimpleNamespace()
 
-    request = pose_request(intent, camera_model='camera', camera_id=identifier, message_type=Pose)
-    q = request.orientation
-    assert (q.w, q.x, q.y, q.z) == pytest.approx((camera.orientation.w, 0., 0., camera.orientation.z))
-    assert vars(request.position) == dict(x=2., y=3., z=5.)
-    assert request.name == 'camera' and request.id == 20
+@pytest.mark.parametrize('observation_hz', [5, 10, 20, 60, 250])
+def test_rate_changes_preserve_measured_time_and_bounded_delivery(source, observation_hz):
+    delivered = []
+    for index in range(observation_hz + 1):
+        timestamp = 1_000_000 + round(index * 1_000_000 / observation_hz)
+        observation = replace(pose(), timestamp_us=timestamp,
+            received_at_monotonic_s=100. + index / observation_hz)
+        source.process(observation)
+        if source.pending_packets:
+            packet = GazeboGimbalPacket.decode(source.pending_packets[0])
+            assert packet.source_sample.timestamp_us == observation.timestamp_us
+            assert packet.received_at_monotonic_s == observation.received_at_monotonic_s
+            delivered.append(packet)
+            source.pending_packets = None
+    assert 2 <= len(delivered) <= min(observation_hz + 1, 51)
+    assert source.latest_pose.timestamp_us == 2_000_000
+    assert source.model.pose_gaps == 0

@@ -1,5 +1,4 @@
 """Deterministic resource derivatives; no renderer or network required."""
-from copy import deepcopy
 import xml.etree.ElementTree as ET
 import pytest
 from tools.gazebo_gimbal_resources import derive_joint_gimbal, JOINTS, AXES

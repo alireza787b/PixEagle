@@ -72,7 +72,7 @@ def prepare(
     allow_recorded_sih_following: bool = False,
     udp_url: str | None = None, enable_altitude_control: bool | None = None,
     gazebo_camera: dict | None = None, fixed_camera_calibration: dict | None = None,
-    gazebo_gimbal: dict | None = None,
+    gazebo_gimbal: dict | None = None, frame_rotation_deg: int = 0,
     username: str = 'sih-operator', password: str | None = None,
 ) -> Path:
     sys.path.insert(0, str(REPOSITORY / 'src'))
@@ -82,6 +82,8 @@ def prepare(
 
     if mount_type not in ("HORIZONTAL", "VERTICAL"):
         raise ValueError("Mount must be HORIZONTAL or VERTICAL")
+    if type(frame_rotation_deg) is not int or frame_rotation_deg not in (0, 90, 180, 270):
+        raise ValueError('Frame rotation must be 0, 90, 180 or 270 degrees')
     profile = _follower_profile(follower_mode, tracking_engine)
     if enable_altitude_control is not None and type(enable_altitude_control) is not bool:
         raise ValueError('Altitude guidance selection must be a boolean')
@@ -179,11 +181,11 @@ def prepare(
     config = yaml.safe_load((directory / "configs/config_default.yaml").read_text(encoding="utf-8"))
     if gazebo_camera is not None:
         config['VideoSource'].update(VIDEO_SOURCE_TYPE='GAZEBO_CAMERA', GAZEBO_CAMERA=dict(gazebo_camera),
-            USE_GSTREAMER=False, PIPELINE_MODE='REALTIME', FRAME_ROTATION_DEG=0, FRAME_FLIP_MODE='none')
+            USE_GSTREAMER=False, PIPELINE_MODE='REALTIME', FRAME_FLIP_MODE='none')
         config['GimbalTracker'].update(ENABLED=False, CONTROL_ENABLED=False, MOUNT_TYPE=mount_type)
     elif udp_url is not None:
         config['VideoSource'].update(VIDEO_SOURCE_TYPE='UDP_STREAM', UDP_URL=udp_url,
-            USE_GSTREAMER=True, PIPELINE_MODE='REALTIME', FRAME_ROTATION_DEG=0, FRAME_FLIP_MODE='none')
+            USE_GSTREAMER=True, PIPELINE_MODE='REALTIME', FRAME_FLIP_MODE='none')
         config['GimbalTracker'].update(ENABLED=False, CONTROL_ENABLED=False, MOUNT_TYPE=mount_type)
     elif recorded_video is not None:
         relative = VIDEOS[recorded_video]
@@ -193,18 +195,19 @@ def prepare(
         shutil.copyfile(source, target)
         copied[relative] = _digest(target)
         config["VideoSource"].update(VIDEO_SOURCE_TYPE="VIDEO_FILE", VIDEO_FILE_PATH=relative,
-            USE_GSTREAMER=False, PIPELINE_MODE="REALTIME", FRAME_ROTATION_DEG=0, FRAME_FLIP_MODE="none")
+            USE_GSTREAMER=False, PIPELINE_MODE="REALTIME", FRAME_FLIP_MODE="none")
         config["GimbalTracker"].update(ENABLED=False, CONTROL_ENABLED=False, MOUNT_TYPE=mount_type)
     else:
         config["VideoSource"].update(
             VIDEO_SOURCE_TYPE="RTSP_OPENCV", RTSP_URL=rtsp_url,
             USE_GSTREAMER=False, PIPELINE_MODE="REALTIME",
-            FRAME_ROTATION_DEG=0, FRAME_FLIP_MODE="none",
+            FRAME_FLIP_MODE="none",
         )
         config["GimbalTracker"].update(
             ENABLED=True, CONTROL_ENABLED=True, PROVIDER="topotek_sip_udp",
             UDP_HOST=camera_host, MOUNT_TYPE=mount_type,
         )
+    config['VideoSource']['FRAME_ROTATION_DEG'] = frame_rotation_deg
     if gazebo_gimbal is not None:
         config['GimbalTracker'].update(ENABLED=True,
             CONTROL_ENABLED=gazebo_gimbal.get('control_contract') == 'rendered_scene_v1',
@@ -291,7 +294,7 @@ def prepare(
         "source_files": copied, "python": str(Path(sys.executable).absolute()),
         "instance_id": f"simulation-{secrets.token_hex(8)}", "backend_port": backend_port,
         "camera_host": camera_host, "rtsp_url": rtsp_url,
-        "mount_type": mount_type, "follower_mode": follower_mode,
+        "mount_type": mount_type, "follower_mode": follower_mode, "frame_rotation_deg": frame_rotation_deg,
         "tracking_engine": tracking_engine, "models": model_names, "recorded_video": recorded_video,
         "video_source": ('gazebo' if gazebo_camera is not None else 'udp' if udp_url is not None
                          else 'recorded' if recorded_video is not None else 'rtsp'),
@@ -396,12 +399,13 @@ def main() -> None:
     parser.add_argument("--model-store", type=Path)
     parser.add_argument("--model")
     parser.add_argument("--backend-port", type=int, default=8096)
+    parser.add_argument('--frame-rotation-deg', type=int, choices=(0, 90, 180, 270), default=0)
     parser.add_argument("--dashboard-port", type=int)
     parser.add_argument("--continuity-mode", choices=("immediate_handoff", "bounded_decay"),
                         default="immediate_handoff")
     args = parser.parse_args()
     path = prepare(args.directory, camera_host=args.camera_host, rtsp_url=args.rtsp_url,
-                   mount_type=args.mount_type, follower_mode=args.follower_mode,
+                   mount_type=args.mount_type, follower_mode=args.follower_mode, frame_rotation_deg=args.frame_rotation_deg,
                    backend_port=args.backend_port, dashboard_port=args.dashboard_port,
                    continuity_mode=args.continuity_mode, tracking_engine=args.tracking_engine,
                    model_store=args.model_store, model=args.model, recorded_video=args.recorded_video,

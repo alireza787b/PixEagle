@@ -73,6 +73,50 @@ class ZxyJointChain:
             raise ValueError('gimbal_joint_positions_invalid')
         return self.mount_to_body_flu.compose(rotation_zxy(*joints)).compose(self.sensor_to_camera_link_flu)
 
+    def pointing_targets(self, ray_body_flu, measured_joints):
+        """Constrain the optical ray, not unmeasured image-roll stabilization.
+
+        With roll fixed, pitch solves A*sin(p)+B*cos(p)+C=ray.z;
+        yaw aligns the remaining horizontal projection. Keep the nearest valid
+        measured branch, trying neutral/pole-compatible roll when necessary.
+        """
+        measured = tuple(finite_number(v, 'measured_joint') for v in measured_joints)
+        if len(measured) != 3 or not isinstance(ray_body_flu, Vector3):
+            raise ValueError('gimbal_joint_target_invalid')
+        ray = inverse(self.mount_to_body_flu).rotate(ray_body_flu.normalized())
+        sensor = self.sensor_to_camera_link_flu.rotate(Vector3(1., 0., 0.))
+        radial = math.hypot(sensor.x, sensor.z)
+        if radial < 1e-9:
+            raise ValueError('gimbal_sensor_axis_unsupported')
+        low_roll, high_roll = self.limits_rad[1]
+        rolls = (measured[1], 0., math.atan2(-ray.z * sensor.y, radial), low_roll, high_roll)
+        candidates = []
+        for roll in rolls:
+            if not low_roll <= roll <= high_roll:
+                continue
+            a, b, c = -math.cos(roll)*sensor.x, math.cos(roll)*sensor.z, -math.sin(roll)*sensor.y
+            amplitude = math.hypot(a, b)
+            if amplitude < 1e-9 or abs(ray.z-c) > amplitude+1e-10:
+                continue
+            phase = math.atan2(b, a)
+            angle = math.asin(min(1., max(-1., (ray.z-c)/amplitude)))
+            for pitch in (angle-phase, math.pi-angle-phase):
+                pitch = _near(pitch, measured[2])
+                intermediate = Quaternion.from_euler(-roll, 0., 0.).compose(
+                    Quaternion.from_euler(0., pitch, 0.)).rotate(sensor)
+                yaw = (measured[0] if ray.horizontal_magnitude < 1e-8 else
+                    _near(math.atan2(intermediate.y, intermediate.x)-math.atan2(ray.y, ray.x), measured[0]))
+                target = (yaw, roll, pitch)
+                if not all(low-1e-8 <= value <= high+1e-8
+                           for value, (low, high) in zip(target, self.limits_rad)):
+                    continue
+                actual = rotation_zxy(*target).rotate(sensor)
+                if math.dist((actual.x, actual.y, actual.z), (ray.x, ray.y, ray.z)) <= 1e-7:
+                    candidates.append(target)
+        if not candidates:
+            raise ValueError('gimbal_joint_direction_unreachable')
+        return min(candidates, key=lambda target: sum((a-b)**2 for a, b in zip(target, measured)))
+
     def targets(self, sensor_to_body_flu, measured_joints):
         if not isinstance(sensor_to_body_flu, Quaternion) or len(measured_joints) != 3:
             raise ValueError('gimbal_joint_target_invalid')

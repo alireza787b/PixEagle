@@ -233,13 +233,27 @@ def test_camera_config_uses_same_actual_source_and_fixed_body_mount(tmp_path, mo
     value = training.camera_training_source(args, scenario, 'token')
     assert value['config'] == dict(socket_path='/run/pixeagle-camera/camera.sock', source_clock_id='token:courtyard',
         world='courtyard', image_topic='/world/courtyard/model/quadplane_0/link/camera_link/sensor/camera/image',
-        max_attitude_skew_s=.05)
+        max_attitude_skew_s=.1)
     calibration = FixedCameraCalibration.from_mapping(value['calibration'])
     assert calibration.focal_length_px == (640 / math.tan(.87),) * 2
     assert calibration.principal_point_px == (640., 480.)
     assert calibration.optical_to_body.w == calibration.optical_to_body.x == calibration.optical_to_body.y == calibration.optical_to_body.z == .5
     assert signature.call_args.kwargs['options'] == {'world': 'courtyard', 'pixel_format': 'RGB_INT8'}
     assert value['actual_camera_info_confirmation'] is False
+
+
+@pytest.mark.parametrize('skew', [0., -1., float('nan'), float('inf'), True])
+def test_training_rejects_invalid_source_pairing_bound(tmp_path, monkeypatch, skew):
+    args, scenario, *_ = camera_source_fixture(tmp_path, monkeypatch)
+    args.max_attitude_skew_s = skew
+    with pytest.raises(ValueError, match='finite positive'):
+        training.camera_training_source(args, scenario, 'token')
+
+
+def test_training_uses_one_explicit_camera_pairing_bound(tmp_path, monkeypatch):
+    args, scenario, *_ = camera_source_fixture(tmp_path, monkeypatch)
+    args.max_attitude_skew_s = .075
+    assert training.camera_training_source(args, scenario, 'token')['config']['max_attitude_skew_s'] == .075
 
 
 @pytest.mark.parametrize('changed', ['clock', 'resource', 'rotation'])
@@ -390,8 +404,8 @@ def test_rendered_gimbal_source_has_intrinsics_without_false_fixed_mount_calibra
     args, scenario, _, _, _ = camera_source_fixture(tmp_path, monkeypatch)
     descriptor = scenario['descriptor']
     descriptor.pop('camera_mount')
-    descriptor['instrumentation_camera'] = {'instance': 'training_camera'}
+    descriptor['articulated_camera'] = {'mechanics': 'ideal_joint_velocity'}
     value = training.camera_training_source(args, scenario, 'token')
     assert value['calibration'] is None
     assert value['intrinsics']['image_size_px'] == [1280, 960]
-    assert value['config']['image_topic'] == '/world/courtyard/model/training_camera/link/camera_link/sensor/camera/image'
+    assert value['config']['image_topic'] == f'/world/courtyard/model/{descriptor["model"]}_0/link/camera_link/sensor/camera/image'

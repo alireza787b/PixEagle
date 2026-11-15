@@ -346,6 +346,23 @@ def test_recovery_command_cannot_restore_a_speed_above_the_acknowledged_fw_reque
     assert owner.guard_native_fields(retained)["equivalent_airspeed_m_s"] == 18.
 
 
+@pytest.mark.parametrize('phase', [AirframePhase.MULTICOPTER, AirframePhase.FIXED_WING])
+@pytest.mark.parametrize('altitude', [False, True])
+def test_field_discovery_never_calculates_commands_after_teardown(phase, altitude):
+    from types import SimpleNamespace
+    from classes.follower import FollowerFactory
+    follower = FollowerFactory.create_follower('gm_velocity_vector', SimpleNamespace(current_altitude=50.), (0., 0.))
+    owner, now, state = session(altitude=altitude, state=aircraft_state(phase=phase, is_vtol=True, is_tailsitter=True))
+    settle(owner, now, state)
+    expected = list(owner.baseline().fields)
+    follower.bind_airframe_session(owner)
+    owner.end('operator_stop')
+    owner.baseline = Mock(side_effect=AssertionError('metadata must not generate a command'))
+    now[0] += 10.
+    assert follower.get_available_fields() == expected
+    owner.baseline.assert_not_called()
+
+
 @pytest.mark.parametrize("mount", ["HORIZONTAL", "VERTICAL"])
 @pytest.mark.parametrize("phase", [AirframePhase.MULTICOPTER, AirframePhase.FIXED_WING])
 def test_registered_vector_follower_uses_one_phase_session_and_correct_command_contract(mount, phase):

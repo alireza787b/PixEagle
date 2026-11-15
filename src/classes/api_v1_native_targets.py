@@ -410,40 +410,49 @@ async def native_target_action(owner, request, response, http_request, action_ty
         scope = hashlib.sha256((principal.kind.value + "\0" + principal.subject).encode()).hexdigest() + ":"
         digest = hashlib.sha256(json.dumps(request.model_dump(mode="json"), sort_keys=True).encode()).hexdigest()
 
+        def replayed_record():
+            if request.dry_run:
+                return None
+            replay = store.lookup_idempotent_action(action_type, request.idempotency_key, scope=scope)
+            if replay:
+                if store.request_digests.get(replay["action_id"]) != digest:
+                    raise NativeTargetError("idempotency_conflict", "This key belongs to a different target request.")
+                response.status_code = 200
+            return replay
+
         async def execute():
             lock = getattr(app, "_follower_state_lock", None)
             if lock is None:
                 raise NativeTargetError("target_state_unavailable", "Tracker lifecycle is unavailable.", 503)
-            async with lock, AsyncExitStack() as lifecycle:
-                if not request.dry_run:
-                    replay = store.lookup_idempotent_action(action_type, request.idempotency_key, scope=scope)
-                    if replay:
-                        if store.request_digests.get(replay["action_id"]) != digest:
-                            raise NativeTargetError("idempotency_conflict", "This key belongs to a different target request.")
-                        response.status_code = 200
-                        return replay
-                resolved_camera_selection = None
-                if action_type == "gimbal_control" and request.operation == "select":
-                    from classes.gimbal_control import prepare_gimbal_selection, _provider
+            replay = replayed_record()
+            if replay:
+                return replay
+            resolved_camera_selection = None
+            if action_type == "gimbal_control" and request.operation == "select":
+                from classes.gimbal_control import prepare_gimbal_selection, _provider
 
-                    control = getattr(_provider(app), "manual_control", None)
-                    resolver = getattr(control, "resolve_selection", None)
-                    if callable(resolver):
-                        with app._tracker_model_state_lock, _context_transaction(owner):
-                            preview = _validate_guard(owner, request, principal, action_type)
-                            frame = _validate_frame(owner, request, preview)
-                            try:
-                                prepared = prepare_gimbal_selection(app, request,
-                                    selection_orientation=frame["geometry_key"],
-                                    source_sample=frame["stamped"].capture.source_sample)
-                            except ValueError as exc:
-                                raise NativeTargetError("invalid_target_coordinates", str(exc), 422) from exc
-                        # Provider lookup is read-only. No synchronous model or
-                        # publisher lock may cross IO; admission is checked again below.
+                control = getattr(_provider(app), "manual_control", None)
+                resolver = getattr(control, "resolve_selection", None)
+                if callable(resolver):
+                    with app._tracker_model_state_lock, _context_transaction(owner):
+                        preview = _validate_guard(owner, request, principal, action_type)
+                        frame = _validate_frame(owner, request, preview)
                         try:
-                            resolved_camera_selection = await resolver(prepared)
-                        except (ValueError, RuntimeError) as exc:
+                            prepared = prepare_gimbal_selection(app, request,
+                                selection_orientation=frame["geometry_key"],
+                                source_sample=frame["stamped"].capture.source_sample)
+                        except ValueError as exc:
                             raise NativeTargetError("invalid_target_coordinates", str(exc), 422) from exc
+                    # Lookup is read-only and holds no lifecycle/model lock.
+                    # Stop may proceed; admission is checked again after IO.
+                    try:
+                        resolved_camera_selection = await resolver(prepared)
+                    except (ValueError, RuntimeError) as exc:
+                        raise NativeTargetError("invalid_target_coordinates", str(exc), 422) from exc
+            async with lock, AsyncExitStack() as lifecycle:
+                replay = replayed_record()
+                if replay:
+                    return replay
                 publisher = getattr(owner, "frame_publisher", None)
                 with app._tracker_model_state_lock, _context_transaction(owner):
                     before = _validate_guard(owner, request, principal, action_type)

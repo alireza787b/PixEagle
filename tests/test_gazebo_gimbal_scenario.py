@@ -1,42 +1,48 @@
-"""The instrumentation role cannot silently modify the aircraft plant."""
+"""The gimbal fixture must be a declared, physically attached model composite."""
 
 from copy import deepcopy
 import json
 import xml.etree.ElementTree as ET
 
 import pytest
-
 from tools import gazebo_scenario as scenario
 
 
 @pytest.fixture
 def resource():
-    descriptor = json.loads((scenario.SCENARIOS / 'quadtailsitter-gimbal-camera-courtyard-v1.json').read_text())
-    world = ET.parse(scenario.SCENARIOS.parent / descriptor['added_world']['resource']).find('world')
-    return descriptor, world
+    descriptor=json.loads((scenario.SCENARIOS/'quadtailsitter-gimbal-camera-courtyard-v1.json').read_text())
+    directory=scenario.SCENARIOS.parent/'models'/descriptor['model']
+    return descriptor,{name:(directory/name).read_bytes() for name in ('model.sdf','model.config')}
 
 
-def test_only_the_explicit_instrumentation_include_is_removed(resource):
-    value, world = resource
-    before = deepcopy(world)
-    scenario._remove_instrumentation_camera(world, value)
-    selected = [item for item in before.findall('include') if item.findtext('name') == value['instrumentation_camera']['instance']]
-    assert len(selected) == 1
-    before.remove(selected[0])
-    assert scenario._canonical(before) == scenario._canonical(world)
+def test_gimbal_base_is_attached_and_camera_is_not_a_second_world_model(resource):
+    value,files=resource
+    assert value['schema_version']==5
+    model=ET.fromstring(files['model.sdf']).find('model')
+    assert [(n.findtext('parent'),n.findtext('child')) for n in model.findall('joint')]==[('base_link','cgo3_mount_link')]
+    assert [n.findtext('uri') for n in model.findall('include')]==['model://quadtailsitter','model://training_joint_gimbal']
+    world=ET.parse(scenario.SCENARIOS.parent/value['added_world']['resource']).find('world')
+    assert all(n.findtext('name')!='training_gimbal_camera' for n in world.findall('include'))
+    assert {p.get('name') for p in model.findall('plugin')}=={
+        'gz::sim::systems::PosePublisher','gz::sim::systems::JointStatePublisher'}
+    assert 'instrumentation_camera' not in value
 
 
-@pytest.mark.parametrize('fault', ['aircraft', 'nan', 'rate', 'mechanics', 'dynamic', 'plugin', 'extra_include'])
-def test_instrumentation_declaration_cannot_hide_other_mechanics(resource, fault):
-    value, world = resource
-    declaration = value['instrumentation_camera']
-    camera = next(item for item in world.findall('include') if item.findtext('name') == declaration['instance'])
-    if fault == 'aircraft': declaration['instance'] = value['model']
-    if fault == 'nan': declaration['offset_body_frd_m'][0] = float('nan')
-    if fault == 'rate': declaration['pointing_rate_deg_s'] = 0
-    if fault == 'mechanics': declaration['mechanics'] = 'measured_fl30'
-    if fault == 'dynamic': camera.find('static').text = 'false'
-    if fault == 'plugin': ET.SubElement(camera, 'plugin', dict(name='hidden'))
-    if fault == 'extra_include': world.append(deepcopy(camera))
-    with pytest.raises(ValueError):
-        scenario._remove_instrumentation_camera(world, value)
+@pytest.mark.parametrize('fault',['none','parent','child','dynamic_joint','hidden_plugin','mount_pose'])
+def test_wrapper_verifier_rejects_unreviewed_attachment_or_controller_changes(resource,monkeypatch,fault):
+    value,files=resource
+    document=ET.fromstring(files['model.sdf']);model=document.find('model')
+    if fault=='parent':model.find('joint/parent').text='world'
+    if fault=='child':model.find('joint/child').text='camera_link'
+    if fault=='dynamic_joint':model.find('joint').set('type','ball')
+    if fault=='hidden_plugin':ET.SubElement(model,'plugin',name='DetachedCameraFollower')
+    if fault=='mount_pose':model.findall('include')[1].find('pose').text='0 0 0 0 0 0'
+    altered=dict(files,**{'model.sdf':ET.tostring(document)})
+    monkeypatch.setattr(scenario,'_read_file',lambda root,relative,pin:altered[relative.rsplit('/',1)[1]])
+    originals={'etc/init.d-posix/rcS':b'', 'etc/init.d-posix/px4-rc.gzsim':b''}
+    if fault=='none':
+        result=scenario._added_camera_model(value,{'artifacts':{'gazebo':{}}},originals)
+        assert len(result)==2
+    else:
+        with pytest.raises(ValueError):
+            scenario._added_camera_model(value,{'artifacts':{'gazebo':{}}},originals)

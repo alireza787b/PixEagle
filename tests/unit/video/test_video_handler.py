@@ -146,7 +146,7 @@ class TestVideoHandlerInitialization:
             app, APIGimbalControlRequest(operation="select", x=0.5, y=0.5),
         )
         assert not result["success"]
-        assert "requires this gimbal's RTSP video" in result["message"]
+        assert "requires video from this camera" in result["message"]
         control.execute.assert_not_called()
         app._advance_tracking_session_generation.assert_not_called()
 

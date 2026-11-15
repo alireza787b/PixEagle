@@ -721,6 +721,7 @@ async def test_read_only_camera_resolution_awaits_without_model_lock_then_revali
     async def resolve(selection):
         assert selection is prepared
         assert not app._tracker_model_state_lock._is_owned()
+        assert not app._follower_state_lock.locked()
         assert app._tracking_session_generation == 0
         reserved.assert_not_called()
         await asyncio.sleep(0)

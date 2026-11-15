@@ -5,7 +5,7 @@ import math
 import pytest
 from scipy.spatial.transform import Rotation
 
-from classes.aircraft_state import Quaternion
+from classes.aircraft_state import Quaternion, Vector3
 from tools.gazebo_joint_gimbal import ZxyJointChain, rotation_zxy
 
 
@@ -37,6 +37,35 @@ def test_outside_mechanical_limits_is_not_silently_clamped(chain):
                             ((-.1, .1), (-.1, .1), (-.1, .1)))
     with pytest.raises(ValueError, match='unreachable'):
         limited.targets(chain.forward((1., .5, .5)), (0., 0., 0.))
+
+
+@pytest.mark.parametrize('mount', [(0., 0., 3.14), (.2, -.3, 1.)])
+def test_pointing_covers_reachable_rays_without_requiring_world_image_roll(mount):
+    sensor = (0., 0., 3.14)
+    mechanism = ZxyJointChain(Quaternion.from_euler(*mount), Quaternion.from_euler(*sensor),
+        ((-1e16, 1e16), (-.785398, .785398), (-2.35619, .7854)))
+    for yaw in range(-180, 181, 30):
+        for pitch in range(-130, 41, 15):
+            for roll in (-40., 0., 40.):
+                original = (Rotation.from_euler('xyz', mount) *
+                    Rotation.from_euler('ZXY', [-yaw, -roll, pitch], degrees=True) *
+                    Rotation.from_euler('xyz', sensor))
+                expected = original.apply([1., 0., 0.])
+                ray = Vector3(*expected)
+                target = mechanism.pointing_targets(ray, (0., 0., 0.))
+                actual = (Rotation.from_euler('xyz', mount) *
+                    Rotation.from_euler('ZXY', [-target[0], -target[1], target[2]]) *
+                    Rotation.from_euler('xyz', sensor)).apply([1., 0., 0.])
+                assert actual == pytest.approx(expected, abs=1e-7)
+                assert all(low <= v <= high for v, (low, high) in zip(target, mechanism.limits_rad))
+                assert mechanism.pointing_targets(ray, target) == pytest.approx(target, abs=1e-7)
+
+
+def test_pointing_limits_still_reject_unreachable_rays():
+    mechanism = ZxyJointChain(Quaternion(1., 0., 0., 0.), Quaternion(1., 0., 0., 0.),
+                            ((-.1, .1), (-.1, .1), (-.1, .1)))
+    with pytest.raises(ValueError, match='unreachable'):
+        mechanism.pointing_targets(Vector3(-1., 0., 0.), (0., 0., 0.))
 
 
 @pytest.fixture

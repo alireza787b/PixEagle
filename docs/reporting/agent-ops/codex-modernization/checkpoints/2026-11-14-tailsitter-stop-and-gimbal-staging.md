@@ -295,3 +295,82 @@ runtime branch. Then repeat MC/FW camera/pursuit/Stop gates before operator use.
 The real camera remains 2D video plus gimbal angles/status. Hidden renderer depth
 can remain simulator-only scene truth; no depth or 3D tracker requirement is
 added to hardware. Camera mechanical properties remain explicit assumptions.
+
+### Attached fixture integration (2026-11-15)
+
+Schema 5 now pins the stock-aircraft/fixed-joint gimbal composite and actual
+root/link/joint observations. The schema-4 detached camera resources, generator
+and world-pose actuator are removed. Normal camera APIs retain exact-frame
+point/region selection and motion leases. Read-only scene lookup holds neither
+the follower lifecycle lock nor the tracker model lock; original admission is
+revalidated before selection commit. `--no-operator-ui` permits the same full
+runtime to be qualified before opening QGC/Gazebo/slider windows.
+
+The first actual integrated hover exposed physics-rate telemetry flooding:
+69,340 SIP packets and one source-side client failure; no following began in
+that failed attempt. Delivery is now bounded to 50 Hz with immediate state
+changes, a small nonblocking socket buffer and explicit dropped-sample counts.
+Physics/link observation and exact image-pose history remain full-rate. The
+regression fills a real SOCK_SEQPACKET buffer, verifies drops without closing
+it, then verifies a fresh packet after the consumer recovers.
+
+`training-attached-gimbal-integration-r2` subsequently verified actual stable
+PX4 hover, region lock, normal Start, requests of 1 and 6 m/s, confirmed Stop,
+and a fresh Start. Camera/body distance stayed below 1.228 m with no observed
+pose gaps. Its FW stage remained **failed**: the orientation IK required a
+world-level image and exceeded the stock roll bound during transition. The
+training actuator now solves the optical ray with feasible ZXY joints, without
+claiming unmeasured image-roll stabilization. Genuine unreachable directions
+still reject; no mechanical limit is increased. Independent rotation-library
+checks cover reachable directions, declared mount extrinsics, nearest branches
+and unreachable rays. The new full MC/FW run is
+`training-attached-gimbal-integration-r3`; its result is not yet accepted.
+
+The pre-integration software gate passed 915 tests, schema check and critical
+Python lint. After the telemetry and ray-only actuator changes, the focused
+joint/provider gate passed 199 tests. The full relevant gate must be renewed
+before publication. QGC and firmware/adapter binaries are unchanged. Public and
+private hardware configurations remain untouched. No hardware test, deployment,
+Windows rebuild or release is implied by these component/integration results.
+
+### Reviewed final training gate
+
+The original r3 smoke script falsely reported PASS after automatic FW recovery
+Hold. `review-verdict.json` records its rejection without changing that original
+capture. The gate now checks continuing active status and requires an actual
+`operator_stop` / `confirmed_hold` receipt at every Stop. Measured source lead
+was 4–76 ms (median 40 ms); the old 50 ms pairing bound repeatedly refused at
+52–68 ms. One explicit launcher setting now supplies the shared image/angle
+source-pairing tolerance, default 100 ms, with original stamps and actual skew
+retained. Hardware age/authority/recovery limits are not relaxed.
+
+The stock restricted gimbal also lost the view during bank. The final fixture
+uses a physical 90° vertical installation and an explicitly ideal ±180° pitch
+range. This is **not measured FL-30 travel**, and changes no hardware profile.
+Image rotation is separate: the existing VideoSource orientation setting is
+exposed by the profile/launcher; the vertical desktop uses 270°. Read-only field
+introspection now reads canonical schema variants instead of calculating a
+baseline command after session end, eliminating the observed teardown metadata
+errors without weakening command guards.
+
+`training-attached-gimbal-integration-r6/review/index.html` and `summary.json`
+retain the accepted smoke result: 415/415 confirmed FW guidance samples, 46
+active-status observations, three operator Stops confirmed Hold, no observed
+pose gaps, actual PX4 speed up to 20.13 m/s and attached camera/body separation
+at most 1.372 m. The review deliberately keeps PX4 local pose and independent
+Gazebo optical/attachment metrics in their own frames. Commands are not
+integrated into a fabricated aircraft path. This is simulator workflow evidence,
+not field or hardware-envelope qualification.
+
+Renewed software evidence: 920 relevant tests before the final profile settings;
+326 final resource/profile/kinematics tests; 52 variable-rate/gap/backpressure
+tests; 95 native guidance/teardown metadata regressions. The full unit sweep
+had 7,470 passes, 11 optional GStreamer skips and two obsolete RTSP-specific
+message assertions; those assertions were updated for the existing generic
+camera-source message and all 82 video tests then passed. Display-rotation
+profile tests cover all four orientations and invalid inputs. Schema and critical
+lint are renewed before commit. No QGC/firmware/adapter binary changed.
+
+Next: one fresh ground operator session using the reviewed fixture. Operator
+acceptance, hardware mechanics/timing and the independently open FW altitude-hold
+qualification remain separate. Do not publish a field-safety claim from this run.

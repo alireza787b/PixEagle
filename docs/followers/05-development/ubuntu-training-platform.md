@@ -23,22 +23,25 @@ evidence.
 | B: mouse observations | Mouse canvas → registered simulation tracker → typed `TrackerOutput` | Synthetic 2D measurements, not computer-vision detection or real camera evidence |
 | C: angle emulator | Sliders and independent tracking status → `GimbalInputProvider` → `CameraRuntime` → `GimbalTracker` | Emulated angle/lock observations, not mechanical joint response or confirmed physical target lock |
 
-Begin with a generic declared training camera and direct emulated angle
-observations. Mechanical gimbal joints are a later slice. Mode B converts GUI
+Mode C supports standalone angle stimuli and an attached rendered gimbal.
+The rendered variant uses Gazebo's standard articulated joints and measured
+link poses; its mechanical parameters are explicit simulator assumptions.
+Mode B converts GUI
 fractions into the existing centred right/down tracker convention; it must not
 invent range, ground position or camera exposure timing. Mode C retains separate
 angle and tracking-status receipts, source lifecycle and mount identity using
 the [existing provider contract](../../trackers/05-development/external-gimbal-providers.md).
 Moving a slider or target never starts aircraft following.
 
-The rendered Mode C checkpoint now has an explicitly ideal stabilized camera
-with actual Gazebo pose feedback, source-stamped SIP input and world-point lock.
+The rendered Mode C checkpoint uses a fixed-joint camera attachment, native
+joint-position controllers, source-stamped SIP input and world-point lock.
 The rendered adapter exposes point selection and camera controls through the
 normal API used by both clients. Private simulator depth holds the designated
 scene point; the production follower receives only angles and tracking state.
 Use the [gimbal tool guide](../../gimbal_simulator.md#rendered-gimbal-training)
 for assumptions and controls. The [coastal scene](../../../native/gazebo/README.md)
-adds varied ground and aerial visual targets without changing aircraft physics.
+adds varied static ground and aerial visual targets. The camera fixture adds
+its separately declared 0.04 kg payload to the stock aircraft.
 
 The planned desktop entry opens one **PixEagle Simulator** window. Choose the
 input mode and a compatible scenario, then use **Prepare aircraft** to run the
@@ -268,9 +271,10 @@ until the shared Stop repair has actual simulator evidence.
    retained FL-30/SIP reference and measured vertical-mount bench evidence.
    Retire assumptions in the older standalone simulator that disagree with the
    production packet codec; do not copy a second protocol implementation.
-4. **Rendered model:** the operator accepted an explicitly ideal stabilized
-   model while the camera is offline. Pin a separate instrumentation camera,
-   finite pointing rate and offset; do not invent measured joint mechanics.
+4. **Rendered model:** the operator accepted ideal simulated mechanics while
+   the camera is offline. Use the pinned stock gimbal derivative and a fixed
+   attachment to the aircraft; never move a detached camera with world-pose
+   service calls. Declare payload, joint limits, pointing rate and offset.
    Use actual Gazebo aircraft/camera pose
    and shared geometry to drive camera orientation. Distinguish a stabilized
    world bearing from a finite world-target lock: attitude compensation alone

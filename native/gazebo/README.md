@@ -1,13 +1,13 @@
 # PixEagle visual-training scenes
 
 Use the normal isolated training launcher; the scenarios pin the same stock
-airframe/firmware. They change visual test content, not aircraft tuning.
+airframe/firmware. They declare their visual content and payload separately from aircraft tuning.
 
 | Scene | Camera | Content |
 | --- | --- | --- |
 | `quadtailsitter-nose-camera-courtyard-v1` | Fixed nose | Accepted fixed-nose image-tracker workflow |
-| `quadtailsitter-gimbal-camera-courtyard-v1` | Ideal stabilized instrumentation camera | Small scene for protocol/geometry/recovery checks |
-| `quadtailsitter-gimbal-training-coast-v1` | Same ideal camera | PixEagle signs and road mural, cars, sculpture, balloons, airship, coastal road, pier and three vessels |
+| `quadtailsitter-gimbal-camera-courtyard-v1` | Fixed-joint articulated training gimbal | Small scene for protocol/geometry/recovery checks |
+| `quadtailsitter-gimbal-training-coast-v1` | Same articulated gimbal | PixEagle signs and road mural, cars, sculpture, balloons, airship, coastal road, pier and three vessels |
 
 The coastal scene's near signs/cars are within roughly 20–120 m of the start.
 Balloons are at ENU `(45,100,55)`, `(-85,85,85)`, `(190,-30,110)` m;
@@ -30,19 +30,27 @@ world/texture. The verifier restricts art to bounded nonexecutable PNG files and
 requires declared static props; it does not permit hidden aircraft/plugin
 changes. Do not edit archived run evidence to match a regenerated scene.
 
-The ideal gimbal scenes use a declared RGB-D derivative of the pinned stock
-camera. Its optics and aircraft remain unchanged; the derivative selects 20 Hz
-RGB/depth and adds only Gazebo's read-only camera PosePublisher at simulation
-step rate. Depth remains private simulator truth for clicked-point tracking;
-the PixEagle tracker still receives ordinary gimbal angles and status.
-Regenerate this derivative and both scene descriptors with:
+The gimbal scenes use a pinned derivative of PX4's stock ZXY gimbal, physically
+attached by a fixed joint. Gazebo's standard joint-position controllers use
+ideal velocity-command positioning. The descriptor records a 0.04 kg payload,
+90° vertical installation roll and an ideal ±180° pitch range. That range is
+an explicit training assumption: the stock restricted pitch envelope lost the
+view during bank, and FL-30 travel is not measured. No hardware configuration
+is widened. No detached camera/world-pose service
+acts as an aircraft-following mount. Read-only pose/joint publishers supply
+actual feedback. Optics derive from the pinned mono camera; hidden depth remains
+simulator truth for selection, while guidance receives only angles/status.
+Regenerate both composites and scene descriptors with:
 
 ```bash
-PYTHONPATH=src:. python tools/build_gazebo_rgbd_camera.py --packaged /path/to/verified-build/packaged
+python tools/build_gazebo_joint_training.py --build-manifest /path/to/verified-build/gazebo-build-manifest.json
 ```
 
-The validator checks the derivative against the exact declared stock resource,
-including its pose-only plugin. Other camera/aircraft/plugin edits are rejected.
+Schema 5 validates the exact stock derivative, attachment, observer plugins and
+private joint-control topics. The previous detached schema-4 fixture and its
+builder are retired. Old reports retain their original source/version evidence.
+References: [PX4 attachment example](https://github.com/PX4/PX4-gazebo-models/blob/main/models/x500_gimbal/model.sdf),
+[Gazebo joint controller](https://gazebosim.org/api/sim/8/classgz_1_1sim_1_1systems_1_1JointPositionController.html).
 
 For controls, model assumptions and operator checks see the
 [gimbal training guide](../../docs/gimbal_simulator.md#rendered-gimbal-training)

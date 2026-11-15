@@ -31,7 +31,8 @@ def test_coastal_world_build_is_repeatable_and_preserves_the_aircraft(tmp_path, 
     assert (world.read_bytes(), image.read_bytes()) == first_bytes
     for field in ('model', 'airframe_id', 'resources', 'image_id', 'binary_sha256', 'airframe_chain'):
         assert first[field] == original[field]
-    assert first['instrumentation_camera'] == original['instrumentation_camera']
+    assert first['articulated_camera'] == original['articulated_camera']
+    assert first['camera_mount'] == original['camera_mount']
     names = set(first['scene_models'])
     assert {'pixeagle_airship', 'pixeagle_balloon_0', 'training_sea', 'training_pier',
             'pixeagle_surface_vessel_0', 'tracker_test_car_0', 'pixeagle_road_art'} <= names

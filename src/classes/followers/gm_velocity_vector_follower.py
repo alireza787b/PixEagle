@@ -310,7 +310,11 @@ class GMVelocityVectorFollower(BaseFollower):
         session = getattr(self, '_airframe_session', None)
         if session is None or session.phase is AirframePhase.UNKNOWN:
             return super().get_available_fields()
-        return list(session.baseline().fields)
+        from classes.setpoint_handler import SetpointHandler
+        variants = SetpointHandler.get_control_type_metadata(session.control_type).get('field_variants')
+        if variants is None:
+            return super().get_available_fields()
+        return list(variants['height_rate' if session.altitude_control else 'altitude'])
 
     def _synchronize_native_phase(self) -> None:
         session = getattr(self, '_airframe_session', None)

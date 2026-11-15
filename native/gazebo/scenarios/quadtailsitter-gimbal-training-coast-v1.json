@@ -1,10 +1,10 @@
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "name": "quadtailsitter-gimbal-training-coast-v1",
   "build_manifest_sha256": "96f0968e55b3af0856245234e78ae16292f1686654c6ae444bebde7bac97f8a9",
   "image_id": "sha256:011fad450eb9a2c3187e36663a03be517840b5cd08cc11c45fb77314113bdf5a",
   "binary_sha256": "5f42a1abb96894bdc0a429db06edced09dda7a8116c53301297bcbcab3181c37",
-  "model": "quadtailsitter",
+  "model": "quadtailsitter_joint_gimbal_training",
   "world": "pixeagle_training_coast_v1",
   "airframe_id": 4018,
   "airframe_chain": [
@@ -20,9 +20,10 @@
     "SIM_GZ_EN"
   ],
   "models": [
+    "quadtailsitter_joint_gimbal_training",
     "quadtailsitter",
     "airspeed",
-    "training_rgbd_camera",
+    "training_joint_gimbal",
     "arucotag"
   ],
   "scene_models": [
@@ -45,7 +46,6 @@
     "orbit_landmark_5",
     "orbit_landmark_6",
     "orbit_landmark_7",
-    "training_gimbal_camera",
     "pixeagle_welcome",
     "pixeagle_road_art",
     "pixeagle_vision_sculpture",
@@ -193,6 +193,30 @@
     "gazebo/models/quadtailsitter/model.sdf": {
       "sha256": "55e41552e340a0c7b4ee6f058097f70e581158be959f818fc12ff4264f9acd90",
       "executable": false
+    },
+    "gazebo/models/gimbal/meshes/cgo3_camera_remeshed_v1.stl": {
+      "sha256": "5f039d32add818c96807c3c2766bd3a2b8e935244f3abfb42fe50633066cc74b",
+      "executable": false
+    },
+    "gazebo/models/gimbal/meshes/cgo3_horizontal_arm_remeshed_v1.stl": {
+      "sha256": "2a47efa7f7015f74c18fa939ab06c6965dfe929a8645ef6300b666f48153b960",
+      "executable": false
+    },
+    "gazebo/models/gimbal/meshes/cgo3_mount_remeshed_v1.stl": {
+      "sha256": "55c30eac7887e9896836a88965038ec3367fdb339e453d2eae5c1fc607d6d166",
+      "executable": false
+    },
+    "gazebo/models/gimbal/meshes/cgo3_vertical_arm_remeshed_v1.stl": {
+      "sha256": "f354c40dc7714c7961db52e175d73bdfdd71febf4c79ca4ad677e04d63193d3f",
+      "executable": false
+    },
+    "gazebo/models/gimbal/model.config": {
+      "sha256": "aa1b505fb50d9c8404959e757e0ef557cc3587679599bfdd4cdfae1feb9cc106",
+      "executable": false
+    },
+    "gazebo/models/gimbal/model.sdf": {
+      "sha256": "040314986e177e24755822ca0b3be11dbf07c8a391eae39c554d22b461f7c451",
+      "executable": false
     }
   },
   "spawn_pose": [
@@ -206,13 +230,13 @@
   "camera": {
     "link": "camera_link",
     "sensor": "camera",
-    "model": "training_rgbd_camera",
+    "model": "training_joint_gimbal",
     "udp_port": 5600
   },
   "added_world": {
     "resource": "worlds/pixeagle_training_coast_v1.sdf",
     "base_resource": "worlds/aruco.sdf",
-    "sha256": "55aae2afb3dcb17d3cc435857b70e0472ca445b94d488ac18f6710876a724cd4",
+    "sha256": "442a393f5bc87cefdcb4a83c2522ce0dc83fb958d958c386bfaa2801fc2ad1ee",
     "executable": false
   },
   "target": {
@@ -616,38 +640,57 @@
     "sha256": "c54d984074547ff0be47c20f84c15b229a33bee938e363833ff8377eb25ad76b",
     "executable": false
   },
-  "instrumentation_camera": {
-    "instance": "training_gimbal_camera",
+  "base_model": "quadtailsitter",
+  "camera_mount": {
+    "frame": "base_link_flu",
     "pose": [
-      -6,
-      0,
-      1.4,
-      0,
-      0,
-      0
-    ],
-    "offset_body_frd_m": [
       0.75,
-      0,
-      -1.1
-    ],
-    "pointing_rate_deg_s": 90.0,
-    "maximum_pose_gap_s": 0.25,
-    "mechanics": "ideal_stabilized"
+      0.0,
+      1.1,
+      1.5707963267948966,
+      0.0,
+      3.14
+    ]
   },
-  "rgbd_camera": {
-    "base_model": "mono_cam",
-    "model": "training_rgbd_camera",
-    "update_rate_hz": 20,
+  "articulated_camera": {
+    "base_model": "gimbal",
+    "optics_model": "mono_cam",
+    "mechanics": "ideal_joint_velocity",
+    "rate_deg_s": 90.0,
+    "mass_scale": 0.1,
+    "limits_rad": [
+      [
+        -1e+16,
+        1e+16
+      ],
+      [
+        -0.785398,
+        0.785398
+      ],
+      [
+        -3.141592653589793,
+        3.141592653589793
+      ]
+    ],
     "files": {
       "model.sdf": {
-        "sha256": "9d5dae88576e7e0566fffc96fef32e40dae37903a2af9aaae6ec0714946c021d",
+        "sha256": "5318e8df0c39c4191f6b1a3e9d0e158560903601f546b1b1bed49704c5e45433",
         "executable": false
       },
       "model.config": {
-        "sha256": "45cc4d9bc44377f618ac29a0a27981e89d6e23d0032c9a6c30861dffa181e7af",
+        "sha256": "9f5da6e0f42a4f975728883ee193c734e67263d4d562298891fc874ad5d86330",
         "executable": false
       }
+    }
+  },
+  "added_model": {
+    "model.sdf": {
+      "sha256": "b255ce8133cd7eb881681c32c3938b06313c2d179dacbd43f5bab1d8a56e6233",
+      "executable": false
+    },
+    "model.config": {
+      "sha256": "dc1206cff5b4827886a99af91f5c486da87b538c6b444fd9598c994fd68d5048",
+      "executable": false
     }
   },
   "scene_assets": {
