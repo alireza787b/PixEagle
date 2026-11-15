@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## Version 7.6.0-rc.1 (2026-11-15) - Training and follower consolidation candidate
+
+- Add the repeatable Ubuntu/Gazebo training launcher, production-path camera
+  projection and source-timed external-gimbal simulation, with saved observed
+  PX4 evidence and explicit model/qualification limits.
+- Share MC/FW/VTOL profile readiness, command ownership, session speed and Stop
+  reconciliation. Transition ends following; a new Start is required afterward.
+- Preserve public MC Position, VIDEO_FILE/CSRT, altitude-guidance-off and circuit
+  breaker defaults. The one shared relative-altitude floor is 30 m, with the
+  existing 2 m warning band. Saved installation values require explicit Config
+  Sync acceptance; private owner overlays remain outside git.
+- Retain current native PX4 envelope and capability gates. The experimental
+  firmware remains pinned to its tested baseline; it is not a stock-PX4
+  replacement or a qualified arbitrary-angle dive implementation.
+- Prerelease pending renewed platform packages and hardware acceptance. Custom
+  QGC stays private and unreleased. Existing simulation acceptance does not
+  qualify a different aircraft, camera, link or unrestricted flight envelope.
+
 ## Version 7.5.3 (2026-10-27) - Release identity alignment
 
 - Align backend, Dashboard package metadata and installer version with the
