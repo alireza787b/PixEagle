@@ -564,6 +564,8 @@ class PX4InterfaceManager:
     def get_aircraft_state(self) -> AircraftState | None:
         if self.get_aircraft_state_binding() is None:
             return None
+        if self._native_guidance_client is not None and self._native_observation_snapshot is None:
+            return None
         return self._aircraft_state_owner.snapshot(timeout_s=self.get_telemetry_stale_timeout_s())
 
     @property
@@ -640,7 +642,7 @@ class PX4InterfaceManager:
             self.source_attitude_history.clear_if_current(binding, capabilities.runtime_id)
             raise
         self.commit_aircraft_state(state)
-        if self.get_aircraft_state() != state:
+        if self._aircraft_state_owner.snapshot(timeout_s=self.get_telemetry_stale_timeout_s()) != state:
             return False
         self._native_observation_snapshot = (context, state)
         source = observation.get('source_attitude')
@@ -691,9 +693,16 @@ class PX4InterfaceManager:
                     if (observation is None or client.session_identity is not None
                             or getattr(client, 'passive_observation_allowed', True) is not True):
                         continue
-                    if (observation.get('fresh') is not True or observation.get('rescue_active') is not False
-                            or observation.get('owner_confirmed') is not False
-                            or not self.commit_native_observation(observation)):
+                    if (observation.get('rescue_active') is not False
+                            or observation.get('owner_confirmed') is not False):
+                        raise NativeGuidanceError('native_aircraft_state_unavailable')
+                    if observation.get('fresh') is not True:
+                        # A valid stale read revokes admission, not the transport
+                        # identity. Only passive observation may recover here.
+                        self._native_observation_snapshot = None
+                        self.source_attitude_history.clear()
+                        continue
+                    if not self.commit_native_observation(observation):
                         raise NativeGuidanceError('native_aircraft_state_unavailable')
         except asyncio.CancelledError:
             raise

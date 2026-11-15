@@ -143,13 +143,13 @@ async def test_delayed_source_reply_cannot_commit_after_owner_replacement(sample
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('failure', ['stale', 'rescue', 'owner', 'transport'])
+@pytest.mark.parametrize('failure', ['rescue', 'owner', 'transport'])
 async def test_bad_passive_source_retires_context_without_restamping_or_retry_actions(sampler, failure):
     s = sampler
     if failure == 'transport':
         s.client.observe.side_effect = NativeGuidanceError('native_transport_failed')
     else:
-        key, value = {'stale': ('fresh', False), 'rescue': ('rescue_active', True), 'owner': ('owner_confirmed', True)}[failure]
+        key, value = {'rescue': ('rescue_active', True), 'owner': ('owner_confirmed', True)}[failure]
         s.client.observe.return_value = s.sample.packet | {key: value}
     s.owner._ensure_native_observation_task(s.client, s.sample.state.binding)
     await at_tick(s)
@@ -162,6 +162,34 @@ async def test_bad_passive_source_retires_context_without_restamping_or_retry_ac
         runtime_id=s.sample.caps.runtime_id, source_clock_id='clock-a', reset_counter=s.sample.raw.quat_reset_counter)
     s.client.abort.assert_called_once()
     s.client.observe.assert_awaited_once_with(passive=True)
+
+
+@pytest.mark.asyncio
+async def test_stale_passive_status_blocks_admission_and_recovers_without_reconnecting_or_actions(sampler):
+    s = sampler
+    s.owner._ensure_native_observation_task(s.client, s.sample.state.binding)
+    task = s.owner._native_observation_task
+    try:
+        await at_tick(s)
+        s.client.observe.return_value = s.sample.packet | {'fresh': False, 'aircraft_state': None}
+        for _ in range(3):
+            s.ticks.put_nowait(None)
+            await at_tick(s)
+            assert s.owner.native_guidance_client is s.client
+            assert s.owner.native_start_context is None
+            assert s.owner.get_aircraft_state() is None
+            assert not s.owner.source_attitude_history.snapshot(binding=s.sample.state.binding,
+                runtime_id=s.sample.caps.runtime_id, source_clock_id='clock-a', reset_counter=s.sample.raw.quat_reset_counter)
+        s.client.observe.return_value = s.sample.packet
+        s.ticks.put_nowait(None)
+        await at_tick(s)
+        assert s.owner.get_aircraft_state() == s.sample.state
+        assert s.owner.native_start_context is not None
+        assert s.owner._native_observation_task is task
+        s.client.abort.assert_not_called()
+        assert all(call.kwargs == {'passive': True} for call in s.client.observe.await_args_list)
+    finally:
+        await stop(s)
 
 
 @pytest.mark.asyncio

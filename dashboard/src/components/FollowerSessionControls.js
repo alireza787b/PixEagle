@@ -48,6 +48,7 @@ export const speedText = (value, step) => {
   const decimalPlaces = (coefficient.split('.')[1]?.length || 0) - Number(exponent);
   const precision = Math.min(6, Math.max(0, decimalPlaces));
   return value.toLocaleString('en', {
+    useGrouping: false,
     minimumFractionDigits: Math.min(1, precision), maximumFractionDigits: precision,
   });
 };
@@ -59,6 +60,7 @@ export default function FollowerSessionControls({ active, showStop = false }) {
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState('');
   const [expanded, setExpanded] = useState('');
+  const [detailsExpanded, setDetailsExpanded] = useState(false);
   const [editValue, setEditValue] = useState('');
   const editContext = useRef(null);
   const operation = useRef(null);
@@ -272,7 +274,8 @@ export default function FollowerSessionControls({ active, showStop = false }) {
             aria-expanded={expanded === control.control_id}
             onClick={() => {
               setExpanded(expanded === control.control_id ? '' : control.control_id);
-              setEditValue(String(control.value));
+              setEditValue(speedText(control.value, control.step));
+              setDetailsExpanded(false);
               editContext.current = controlContext(currentStatus.current, control.control_id);
             }}>
             {speedText(control.value, control.step)} {control.unit}
@@ -302,6 +305,13 @@ export default function FollowerSessionControls({ active, showStop = false }) {
             <Button sx={{ minWidth: 60, minHeight: 44 }} onClick={() => setExpanded('')}>Cancel</Button>
           </Stack>
           {!editorCurrent && <Typography variant="caption" role="status">Speed or session changed. Close and reopen the editor.</Typography>}
+          <Typography variant="caption" component="p">
+            {control.maximum === null ? `From ${speedText(control.minimum, control.step)} ${control.unit}`
+              : `${speedText(control.minimum, control.step)}–${speedText(control.maximum, control.step)} ${control.unit}`} · this session
+          </Typography>
+          <Button sx={{ minHeight: 44 }} aria-expanded={detailsExpanded}
+            onClick={() => setDetailsExpanded(!detailsExpanded)}>{detailsExpanded ? 'Hide details' : 'Details'}</Button>
+          <Collapse in={detailsExpanded}>
           <Typography variant="caption" component="p" sx={{ whiteSpace: 'pre-line' }}>{speedBasisText(control)} · this following session.
             {control.description ? `\n${control.description}` : ''}
             {control.reset_supported ? `\n${control.override_active ? 'Saved speed limits are overridden. Restore reapplies them and keeps or lowers this request.' : 'Saved speed limits apply.'}\nSaved ceiling: ${speedText(control.configured_maximum, control.step)} ${control.unit}.`
@@ -316,6 +326,7 @@ export default function FollowerSessionControls({ active, showStop = false }) {
             {Number.isFinite(control.effective_command_magnitude)
               ? `\nCommand: ${speedText(control.effective_command_magnitude, control.step)} ${control.unit}.` : ''}
           </Typography>
+          </Collapse>
         </Collapse>
         <Typography variant="caption" role="status">{pending ? 'Updating…' : !fresh ? 'Refreshing…'
           : limitText(control.limiting_reason || control.reason_code)}</Typography>

@@ -169,7 +169,7 @@ claim that every follower, aircraft, sensor or new revision is fully qualified.
 | Airframe and input | Scope of retained result |
 | --- | --- |
 | Native MC + rendered 2D / CSRT | MC Chase pursuit and speed accepted by operator; earlier Start/Stop/UI failures and shared repairs remain recorded |
-| Native FW + image or external input | Actual SIH/component evidence exists; standalone Cessna/camera workflow is prepared for operator qualification |
+| Native FW + image or external input | Operator approved standalone Cessna/camera pursuit; startup status interruptions required the separate recovery repair |
 | Standard quadplane + rendered 2D / CSRT | Operator accepted MC Chase and FW Navigation Chase, speed changes, Stop/Hold and restart workflow |
 | Tailsitter + fixed nose / CSRT | FW pursuit accepted; original Stop failed. Shared Stop repair was renewed on gimbal runs; final fixed-nose Stop/restart regression remains distinct |
 | Tailsitter + simulated external gimbal | Operator accepted MC/FW guidance/workflow; 669/669 publication attempts succeeded, no native error replies, final operator Stop confirmed Hold |
@@ -189,3 +189,11 @@ altitude-hold tolerance; physical camera protocol/axis/timing checks; target
 hardware packaging and platform artifacts. No public release or hardware-flight
 approval follows automatically from this checkpoint. The customized QGC remains
 unpublished and has no public PR.
+
+Video delivery and target evidence have separate lifetimes. GCS packet loss or
+a closed video receiver does not end healthy onboard tracking. Camera-dependent
+tracking without fresh input uses the existing bounded recovery; independent
+gimbal observations can continue when their own measurements remain valid.
+A stale displayed frame cannot authorize a new selection. Aircraft-state loss,
+pilot takeover and Stop keep precedence. See the
+[startup recovery checkpoint](../../reporting/agent-ops/codex-modernization/checkpoints/2026-11-15-native-fw-startup-recovery.md).

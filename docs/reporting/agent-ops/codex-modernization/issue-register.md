@@ -476,3 +476,10 @@ remain open. Integration work is unpublished.
   recipes no longer opt pure MC into native FW/VTOL ownership. See the
   [workflow recap](checkpoints/2026-11-15-training-workflow-recap.md) for evidence,
   exact scope, visual-fidelity limits and remaining release gates.
+
+- **2026-11-15 — Native FW startup and speed editor:** corrected phase-status
+  cadence accounting and stale passive rediscovery churn; high-rate ownership
+  and command expiry stay unchanged. QGC/Dashboard editors round presentation
+  and keep detailed explanations collapsed. The renewed application has no
+  native refusals in 13,297 sampled observations and confirms operator Stop.
+  [Evidence, validation and real-link boundaries](checkpoints/2026-11-15-native-fw-startup-recovery.md).

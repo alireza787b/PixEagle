@@ -271,17 +271,19 @@ test('a replacement session closes the old numeric editor without submitting it'
   } finally { jest.useRealTimers(); }
 });
 
-test('formats FW request, observation and limits without rounding editor or dispatched values', async () => {
+test('rounds the FW editor while preserving acknowledged and explicitly entered precision', async () => {
   const airspeed = { ...control, label: 'Airspeed', minimum: 10.2108402252, maximum: 30.123456,
     value: 18.123456, step: .5, guidance_generation: 4, aircraft_phase: 'fixed_wing',
     speed_basis: 'equivalent_airspeed', observed_speed_m_s: 15.096123, observed_speed_source: 'sensor' };
   axios.get.mockResolvedValue({ data: snapshot([airspeed]) });
   render(<FollowerSessionControls active />);
   fireEvent.click(await screen.findByRole('button', { name: /Requested airspeed 18.1/ }));
+  expect(screen.getByRole('button', { name: 'Details' })).toHaveAttribute('aria-expanded', 'false');
+  fireEvent.click(screen.getByRole('button', { name: 'Details' }));
   expect(screen.getByText(/Minimum 10.2 m\/s/)).toBeInTheDocument();
   expect(screen.getByText(/Maximum 30.1 m\/s/)).toBeInTheDocument();
   expect(screen.getByText(/Observed: 15.1 m\/s/)).toBeInTheDocument();
-  expect(screen.getByLabelText('Requested speed (m/s)')).toHaveValue('18.123456');
+  expect(screen.getByLabelText('Requested speed (m/s)')).toHaveValue('18.1');
   fireEvent.change(screen.getByLabelText('Requested speed (m/s)'), { target: { value: '18.234567' } });
   fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
   expect(axios.post.mock.calls[0][1]).toEqual(expect.objectContaining({ value: 18.234567 }));

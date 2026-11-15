@@ -3,7 +3,7 @@
   "scope": "Received-topic cadence only under the canonical isolated Runtime and reviewed producer gates; per-call delivery UNKNOWN",
   "source_review_sha256": "d7b05b5d03686a45147500fe4fb019955925b31d4f2150ce006d1065d8c1844e",
   "runtime_helper_sha256": "815d44c469e017a26d39ceb220e4201250255bc48a048fa9590da627fdd6aee3",
-  "runtime_assets_sha256": "291cab65dfcc68c398b67f859f3c9b0ff8a34d6e74b3ea0f06239106ff9bae00",
+  "runtime_assets_sha256": "3a995f479d8706939bd21911c14c9bd15164ace70403eeae4baf2c6564c8eaf1",
   "scripts": {
     "adapter.sh": "5581149d49278df82262fba7a8cc5b85d028b82c4b76c2bcedbba47c4021ea22",
     "agent.sh": "22fef6c3d7c9a38b773a94ac7af887f7561a11ab391e3ecad168c23b00a35725"

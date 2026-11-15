@@ -5,8 +5,10 @@
 
 namespace pixeagle {
 
-// Pinned PX4 publishes VTOL status immediately on change, otherwise at 1 Hz.
+// Pinned Commander publishes vehicle status on change or every 500 ms;
+// VTOL status is published on change or at 1 Hz.
 // The periodic sample interval is separate from the transport-delay allowance.
+inline constexpr double vehicle_status_heartbeat_s = .5;
 inline constexpr double vtol_status_heartbeat_s = 1.;
 
 struct PhaseSourceHealth {
@@ -22,7 +24,7 @@ inline bool phaseSourcesFresh(double now, double vehicle_received, double vtol_r
     const auto fresh = [now](double received, double timeout) {
         return std::isfinite(received) && received >= 0. && now >= received && now - received < timeout;
     };
-    return fresh(vehicle_received, delay_allowance_s)
+    return fresh(vehicle_received, vehicle_status_heartbeat_s + delay_allowance_s)
         && (!is_vtol || fresh(vtol_received, vtol_status_heartbeat_s + delay_allowance_s));
 }
 

@@ -97,7 +97,7 @@ PhaseSourceHealth ExternalMode::phaseSourceHealth() const {
     const auto age = [now](double received) -> std::optional<double> {
         return received >= 0. && now >= received ? std::optional<double>{now - received} : std::nullopt;
     };
-    return {age(_status_received), _is_vtol ? age(_vtol_received) : std::nullopt, _status_timeout_s,
+    return {age(_status_received), _is_vtol ? age(_vtol_received) : std::nullopt, vehicle_status_heartbeat_s + _status_timeout_s,
         _is_vtol ? std::optional<double>{vtol_status_heartbeat_s + _status_timeout_s} : std::nullopt};
 }
 
@@ -190,7 +190,7 @@ void ExternalMode::endPursuitOnPhaseExit() {
         && recent(_vtol_received, vtol_status_heartbeat_s + _status_timeout_s)
         && (!_phase_history_valid || _vtol_status.phase_source_instance != original->phase_instance
             || _vtol_status.phase_revision != original->phase_revision);
-    if (phase_history_changed || observedPursuitPhaseExit(_engagement_phase, recent(_status_received, _status_timeout_s),
+    if (phase_history_changed || observedPursuitPhaseExit(_engagement_phase, recent(_status_received, vehicle_status_heartbeat_s + _status_timeout_s),
             _status.in_transition_mode, vehiclePhase(), _is_vtol
             && recent(_vtol_received, vtol_status_heartbeat_s + _status_timeout_s), vtolPhase())) stopOwnedMode();
 }

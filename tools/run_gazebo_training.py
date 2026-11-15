@@ -162,6 +162,13 @@ def stop_child_group(relay):
         relay.wait(timeout=5)
 
 
+def record_container_log(container, destination):
+    """Retain receiver diagnostics while running, including an interrupted run."""
+    with destination.open('xb') as stream:
+        return subprocess.Popen(['docker', 'logs', '--follow', '--timestamps', container],
+            stdout=stream, stderr=subprocess.STDOUT, start_new_session=True)
+
+
 def native_training_assets(args, simulator, scenario):
     """Runtime availability never grants profile or phase admission."""
     from classes.aircraft_state import AircraftKind, aircraft_kind_from_mavlink
@@ -474,6 +481,8 @@ def require_free_loopback_port(port):
 def run(args):
     runtime = args.runtime.absolute()
     operator_ui = not getattr(args, 'no_operator_ui', False)
+    qgc_log = None
+    qgc = None
     if runtime.exists():
         raise ValueError('Choose a fresh runtime directory; existing evidence is never overwritten')
     if bool(args.dashboard_build) != bool(args.dashboard_server):
@@ -622,8 +631,10 @@ def run(args):
                  (args.qgc.parent.parent / 'qml', args.qgc.parent.parent / 'qml', True),
                  (qt, qt, True), (gst, gst, True),
                  ('/usr/lib/x86_64-linux-gnu', '/mnt/hostlibs', True)],
-                qgc_environment, host.WORKER_IMAGE, display=True), str(args.qgc), '--logging', 'PixEagleLog.debug=true')
+                qgc_environment, host.WORKER_IMAGE, display=True), str(args.qgc), '--logging', 'Custom.PixEagle*.debug=true')
             containers.append(qgc)
+            qgc_log = record_container_log(qgc, runtime / 'qgc-live.log')
+            receipt['qgc_live_log'] = dict(pid=qgc_log.pid, path=str(runtime / 'qgc-live.log'))
             write(runtime / 'run.json', receipt)
             host.command('docker', 'exec', '--detach', '--user', str(os.getuid()), primary,
                          'gz', 'sim', '-g')
@@ -635,10 +646,16 @@ def run(args):
                 and (gimbal_gui is None or gimbal_gui.poll() is None)
                 and all(host.owned_container_info(cid, token)['State']['Running'] for cid in containers)):
             time.sleep(1)
+        if qgc is not None:
+            state = host.owned_container_info(qgc, token)['State']
+            if not state['Running'] and state['ExitCode'] == 0:
+                receipt['closure_reason'] = 'qgc_closed'
+                print('QGC closed. Closing this owned simulation.', flush=True)
+                return
         raise RuntimeError('A training component stopped; inspect retained logs')
     finally:
         closed = []
-        for child in (gimbal_gui, frontend, relay):
+        for child in (gimbal_gui, frontend, relay, qgc_log):
             if child is not None:
                 try:
                     stop_child_group(child)

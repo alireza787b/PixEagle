@@ -66,7 +66,8 @@ def test_superseded_reply_cannot_clear_current_context_or_history(sample, change
 def test_explicit_current_stale_observation_retires_start_context(sample):
     assert not sample.connection.commit_native_observation(sample.packet | {'fresh': False})
     assert sample.connection.native_start_context is None
-    assert sample.connection.get_aircraft_state() == sample.state
+    assert sample.connection.get_aircraft_state() is None
+    assert sample.connection._aircraft_state_owner.snapshot(timeout_s=1.) == sample.state
 
 
 def test_wrong_context_binding_refuses_before_committing_new_pose(sample):
@@ -76,7 +77,8 @@ def test_wrong_context_binding_refuses_before_committing_new_pose(sample):
     with pytest.raises(NativeGuidanceError):
         sample.connection.commit_native_observation(packet)
     assert sample.connection.native_start_context is None
-    assert sample.connection.get_aircraft_state() == sample.state
+    assert sample.connection.get_aircraft_state() is None
+    assert sample.connection._aircraft_state_owner.snapshot(timeout_s=1.) == sample.state
 
 
 def test_acquisition_does_not_leave_a_passive_start_context_available(sample):

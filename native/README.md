@@ -446,10 +446,16 @@ missing prerequisites and actual publication counts remain visible in
 diagnostics. Missing pose stays unknown; commands are never integrated into a
 fabricated aircraft trajectory.
 
-PX4 sends changed VTOL status immediately and unchanged status at 1 Hz. Its
-freshness budget includes that sample interval plus the configured native
-`status_timeout_s` delivery allowance. Vehicle ownership and high-rate pose
-retain their existing deadlines. `phase_source_health` exposes actual ages and
+Pinned PX4 Commander publishes vehicle status on change or every 500 ms; VTOL
+status changes immediately and otherwise arrives at 1 Hz. Each phase-status
+freshness budget includes its own sample interval plus the configured native
+`status_timeout_s` delivery allowance (1.5 s and 2 s at the 1 s default).
+High-rate ownership, command leases, pose and target freshness retain their
+existing deadlines. This is a cadence allowance, not a new loss-recovery timer.
+Well-formed stale passive reads invalidate Start/pose admission and keep the
+read-only connection for recovery. They never engage, publish or restart a
+previous follow session. Identity/protocol errors, rescue and unexpected
+ownership still retire that connection. `phase_source_health` exposes actual ages and
 budgets; duplicate or reordered packets cannot refresh them. MC/transition
 envelope observations use the native unloaded minimum-speed reference, while
 settled FW retains the performance model's bank/load-dependent minimum. An

@@ -1,14 +1,35 @@
 """Desktop preparation: no X11, Docker, flight or external network dependencies."""
 import configparser
 import json
+import os
 from pathlib import Path
 import subprocess
 import socket
+import sys
 from unittest.mock import Mock
 
 import pytest
 
 from tools import run_gazebo_training as training
+
+
+def test_live_receiver_log_retains_stdout_and_stderr_before_launcher_shutdown(tmp_path, monkeypatch):
+    docker = tmp_path / 'docker'
+    docker.write_text(f'#!{sys.executable}\nimport sys\n'
+        'assert sys.argv[1:]==["logs","--follow","--timestamps","owned-qgc"]\n'
+        'print("receiver generation 1: decode")\nprint("presentation delayed",file=sys.stderr)\n')
+    docker.chmod(0o700)
+    monkeypatch.setenv('PATH', str(tmp_path) + os.pathsep + os.environ['PATH'])
+    log = tmp_path / 'qgc-live.log'
+    child = training.record_container_log('owned-qgc', log)
+    try:
+        assert child.wait(timeout=5) == 0
+        assert 'receiver generation 1: decode' in log.read_text()
+        assert 'presentation delayed' in log.read_text()
+        with pytest.raises(FileExistsError):
+            training.record_container_log('owned-qgc', log)
+    finally:
+        training.stop_child_group(child)
 
 
 def test_closed_owned_listener_can_restart_but_active_listener_is_never_reused():
