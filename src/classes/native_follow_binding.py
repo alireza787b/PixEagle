@@ -96,6 +96,10 @@ class NativeFollowBinding:
             raise NativeGuidanceError("native_release_unconfirmed")
         return receipt
 
+    @property
+    def release_confirmed(self) -> bool:
+        return self.release_receipt is not None
+
     def context(self, base):
         state = self.connection.get_aircraft_state()
         return replace(

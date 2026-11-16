@@ -760,9 +760,9 @@ class BaseFollower(ABC):
 
     def bind_airframe_session(self, session) -> None:
         """Transfer the existing control declaration to one prepared native owner."""
-        from classes.native_phase_guidance_session import NativePhaseGuidanceSession
+        from classes.phase_guidance_session import PhaseGuidanceSession
         prepared = getattr(self, '_airframe_session', None)
-        if (not isinstance(session, NativePhaseGuidanceSession) or getattr(self, '_airframe_session_bound', False)
+        if (not isinstance(session, PhaseGuidanceSession) or getattr(self, '_airframe_session_bound', False)
                 or prepared is not None and prepared is not session):
             raise ValueError('airframe_session_binding_invalid')
         session.require_state()

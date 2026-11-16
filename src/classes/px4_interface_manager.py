@@ -263,6 +263,7 @@ class PX4InterfaceManager:
         self._telemetry_generation = 0
         self._aircraft_state_owner = AircraftStateOwner()
         self._native_guidance_client = None
+        self._mavlink_guidance_source = None
         self._native_observation_task = None
         self._native_observation_snapshot = None
         self._source_attitude_history = SourceAttitudeHistory()
@@ -478,6 +479,7 @@ class PX4InterfaceManager:
     def _advance_connection_generation(self) -> int:
         """Invalidate command owners created for every previous connection."""
         self._abort_native_guidance()
+        self._mavlink_guidance_source = None
         self._connection_generation += 1
         self._aircraft_identity = None
         self._aircraft_state_owner.bind(None)
@@ -564,9 +566,55 @@ class PX4InterfaceManager:
     def get_aircraft_state(self) -> AircraftState | None:
         if self.get_aircraft_state_binding() is None:
             return None
+        if getattr(self, '_mavlink_guidance_source', None) is not None:
+            observation = self.get_mavlink_guidance_observation()
+            return None if observation is None else observation.state
         if self._native_guidance_client is not None and self._native_observation_snapshot is None:
             return None
         return self._aircraft_state_owner.snapshot(timeout_s=self.get_telemetry_stale_timeout_s())
+
+    @property
+    def mavlink_guidance_source(self):
+        return getattr(self, '_mavlink_guidance_source', None)
+
+    def get_mavlink_guidance_observation(self):
+        source = self.mavlink_guidance_source
+        observation = None if source is None else source.observation()
+        if observation is None:
+            return None
+        previous = self._aircraft_state_owner.snapshot(timeout_s=self.get_telemetry_stale_timeout_s())
+        if previous != observation.state and not self.commit_aircraft_state(observation.state):
+            return None
+        return observation if self._aircraft_state_owner.snapshot(
+            timeout_s=self.get_telemetry_stale_timeout_s()) == observation.state else None
+
+    async def prepare_mavlink_guidance(self, *, lookahead_m):
+        """Read-only stock setup on the existing connection and telemetry owner."""
+        from classes.mavlink_guidance_source import MavlinkGuidanceSource
+
+        async with self._native_guidance_lock:
+            client = self._native_guidance_client
+            if client is not None and client.session_identity is not None:
+                raise ValueError("guidance_command_owner_already_active")
+            binding = self.get_aircraft_state_binding()
+            if binding is None or not self.is_command_connection_ready():
+                raise ValueError("mavlink_guidance_connection_unavailable")
+            manager = getattr(self, 'mavlink_data_manager', None)
+            if manager is None and self.app_controller is not None:
+                manager = getattr(self.app_controller, 'mavlink_data_manager', None)
+            if manager is None:
+                raise ValueError("mavlink_guidance_telemetry_unavailable")
+            source = await MavlinkGuidanceSource.prepare(manager, binding,
+                current_binding=self.get_aircraft_state_binding, parameter_client=self.drone.param,
+                lookahead_m=lookahead_m, timeout_s=self.get_mavsdk_command_timeout_s())
+            self._abort_native_guidance()
+            self._aircraft_state_owner.bind(None)
+            self._aircraft_state_owner.bind(binding)
+            self._mavlink_guidance_source = source
+            if self.get_mavlink_guidance_observation() is None:
+                self._mavlink_guidance_source = None
+                raise ValueError("mavlink_aircraft_state_unavailable")
+            return source
 
     @property
     def native_guidance_client(self):
@@ -722,6 +770,8 @@ class PX4InterfaceManager:
         not acquire a mode or create another telemetry/publication worker.
         """
         async with self._native_guidance_lock:
+            if self.mavlink_guidance_source is not None:
+                raise NativeGuidanceError("guidance_transport_already_prepared")
             previous = self._native_guidance_client
             if previous is not None and (previous.session_identity is not None
                     or getattr(previous, 'passive_observation_allowed', True) is not True):

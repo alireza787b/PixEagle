@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from copy import deepcopy
 from classes.aircraft_state import (
     AircraftKind, AirframePhase, aircraft_kind_from_mavlink, airframe_phase_from_mavlink,
 )
@@ -36,6 +37,8 @@ class TelemetryAircraftIdentity:
         self._last_advance = None
         self._available = False
         self._boot_ms = None
+        self._heartbeat_message = None
+        self._mode_revision = 0
         self.reason = "telemetry_identity_unknown"
         self.aircraft_kind = AircraftKind.UNKNOWN
         self._phase = AirframePhase.UNKNOWN
@@ -52,6 +55,7 @@ class TelemetryAircraftIdentity:
         self._last_advance = None
         self._available = False
         self._boot_ms = None
+        self._heartbeat_message = None
         self.reason = reason
         self.aircraft_kind = AircraftKind.UNKNOWN
         self._reset_phase()
@@ -144,6 +148,10 @@ class TelemetryAircraftIdentity:
         rebooted = self._boot_ms is not None and boot_ms is not None and boot_ms < self._boot_ms
         expired = self._last_advance is not None and now - self._last_advance > self.stale_timeout_s
         progressed = self._counter is not None and counter > self._counter
+        if (self._counter is not None and counter == self._counter and self._heartbeat_message is not None
+                and heartbeat["message"] != self._heartbeat_message):
+            self.invalidate("telemetry_heartbeat_rewritten")
+            return
         renewed_progress = (expired and progressed and kind is self.aircraft_kind
                             and not (changed or reset or rebooted))
         if changed or reset or expired or rebooted:
@@ -154,10 +162,22 @@ class TelemetryAircraftIdentity:
         self.uid = uid
         self._counter = counter
         self._boot_ms = boot_ms
+        if (self._heartbeat_message is not None
+                and heartbeat["message"].get("custom_mode") != self._heartbeat_message.get("custom_mode")):
+            self._mode_revision += 1
+        self._heartbeat_message = deepcopy(heartbeat["message"])
         self._available = True
         self.aircraft_kind = kind
         self.reason = "telemetry_heartbeat_unconfirmed"
         self._observe_phase(messages, now)
+
+    @property
+    def heartbeat_observed_at_monotonic_s(self):
+        return self._last_advance
+
+    @property
+    def mode_revision(self):
+        return self._mode_revision
 
     def phase_snapshot(self, *, connected, now=None):
         """Read-only phase evidence; a heartbeat cannot refresh cached VTOL state.
@@ -178,6 +198,7 @@ class TelemetryAircraftIdentity:
             "fresh": fresh, "reason": reason,
             "source": "EXTENDED_SYS_STATE" if self.aircraft_kind is AircraftKind.VTOL else "HEARTBEAT",
             "source_counter": self._phase_counter,
+            "source_observed_at_monotonic_s": self._phase_last_advance,
             "source_age_s": age, "generation": self._phase_generation,
             "connection_generation": identity["connection_generation"],
             "autopilot_uid": identity["autopilot_uid"],

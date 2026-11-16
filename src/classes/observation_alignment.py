@@ -43,7 +43,7 @@ class AlignmentBinding:
     target_generation: int
     aircraft_binding: AircraftBinding
     native_runtime_id: str
-    quat_reset_counter: int
+    quat_reset_counter: int | None
     provider_id: str | None = None
 
     def __post_init__(self):
@@ -62,7 +62,8 @@ class AlignmentBinding:
             raise ValueError("alignment_target_generation_invalid")
         if not isinstance(self.aircraft_binding, AircraftBinding):
             raise ValueError("alignment_aircraft_binding_invalid")
-        if type(self.quat_reset_counter) is not int or not 0 <= self.quat_reset_counter <= 255:
+        if (self.quat_reset_counter is not None
+                and (type(self.quat_reset_counter) is not int or not 0 <= self.quat_reset_counter <= 255)):
             raise ValueError("alignment_reset_counter_invalid")
 
 
@@ -129,13 +130,15 @@ class AlignedBearing:
                 or not isinstance(self.attitude_state, AircraftState) or not isinstance(self.direction_ned, Vector3)):
             raise ValueError("aligned_bearing_contract_invalid")
         observation, binding, state = bearing_receipt(self.bearing.provenance), self.binding, self.attitude_state
+        received_only = self.association_kind == "latest_received_bearing"
         if ((observation.source_id, observation.source_epoch, observation.geometry_revision,
              observation.calibration_revision, observation.target_generation, observation.provider_id)
                 != (binding.source_id, binding.source_epoch, binding.geometry_revision,
                     binding.calibration_revision, binding.target_generation, binding.provider_id)
                 or observation.state != "fresh" or state.binding != binding.aircraft_binding
-                or state.attitude_timing is None
-                or state.attitude_timing.quat_reset_counter != binding.quat_reset_counter):
+                or (state.attitude_timing is None and not (received_only and binding.quat_reset_counter is None))
+                or (state.attitude_timing is not None
+                    and state.attitude_timing.quat_reset_counter != binding.quat_reset_counter)):
             raise ValueError("aligned_bearing_binding_invalid")
         if (isinstance(self.bearing.provenance, GimbalAngleObservation)
                 and self.bearing.provenance.tracking_state != "TRACKING_ACTIVE"):
@@ -174,6 +177,10 @@ class AlignedBearing:
         elif self.association_kind == "sih_projection_pair":
             if self.receive_bounds is not None or self.worst_case_skew_s is not None:
                 raise ValueError("aligned_bearing_sih_qualification_invalid")
+        elif received_only:
+            if (state.attitude_timing is not None or self.receive_bounds is not None
+                    or self.worst_case_skew_s is not None):
+                raise ValueError("aligned_bearing_receipt_qualification_invalid")
         elif self.association_kind == 'bounded_source_time':
             if (self.receive_bounds is not None or self.worst_case_skew_s != source_time.skew_s):
                 raise ValueError('aligned_bearing_source_time_invalid')
@@ -183,6 +190,7 @@ class AlignedBearing:
 
 def _validate_pair(
     bearing, state, native_runtime_id, binding, now, observation_age, attitude_age,
+    *, allow_untimed=False,
 ) -> None:
     if (not isinstance(bearing, CalibratedBearing) or not isinstance(state, AircraftState)
             or not isinstance(binding, AlignmentBinding)):
@@ -210,10 +218,11 @@ def _validate_pair(
         raise ValueError("alignment_aircraft_or_runtime_changed")
     timing = state.attitude_timing
     if timing is None:
-        raise ValueError("alignment_attitude_timing_unavailable")
-    if timing.quat_reset_counter != binding.quat_reset_counter:
+        if not allow_untimed or binding.quat_reset_counter is not None:
+            raise ValueError("alignment_attitude_timing_unavailable")
+    elif timing.quat_reset_counter != binding.quat_reset_counter:
         raise ValueError("alignment_attitude_reset_changed")
-    if not state.fresh(now, attitude_age) or not timing.fresh(now, attitude_age):
+    if not state.fresh(now, attitude_age) or timing is not None and not timing.fresh(now, attitude_age):
         raise ValueError("alignment_attitude_stale")
 
 
@@ -262,7 +271,11 @@ def _result(bearing, state, binding, kind, evidence, skew, bounds, previous, sou
         if (state.source != old_state.source or state.sequence < old_state.sequence
                 or state.observed_at_monotonic_s < old_state.observed_at_monotonic_s
                 or (state.sequence == old_state.sequence and state != old_state)
-                or new.publication_timestamp_us < old.publication_timestamp_us
+                or (old is None or new is None) and not (
+                    kind == "latest_received_bearing" and old is None and new is None)):
+            raise ValueError("alignment_attitude_reordered_or_rewritten")
+        if old is not None and new is not None and (
+                new.publication_timestamp_us < old.publication_timestamp_us
                 or new.sample_timestamp_us < old.sample_timestamp_us
                 or new.publication_received_at_monotonic_s < old.publication_received_at_monotonic_s
                 or new.sample_received_at_monotonic_s < old.sample_received_at_monotonic_s
@@ -275,6 +288,38 @@ def _result(bearing, state, binding, kind, evidence, skew, bounds, previous, sou
     quaternion = state.attitude_body_to_ned if source_time is None else source_time.attitude.quaternion
     direction = quaternion.rotate(bearing.direction_body_frd).normalized()
     return AlignedBearing(binding, bearing, state, direction, kind, evidence, skew, bounds, source_time)
+
+
+def associate_latest_received_bearing(bearing, current_state, *, native_runtime_id, now_monotonic_s,
+                                     max_observation_age_s, max_attitude_age_s, previous):
+    """Explicit stock-MAVLink degradation, with unknown acquisition-time skew.
+
+    This associates a new received camera bearing with the latest received
+    physical quaternion. It cannot prove exposure synchronization or estimator
+    reset history. A cached bearing retains its original world ray and clocks.
+    The command owner separately admits this policy; geometry grants no authority.
+    """
+    if (not isinstance(bearing, CalibratedBearing) or not isinstance(current_state, AircraftState)
+            or current_state.attitude_timing is not None):
+        raise ValueError("received_bearing_contract_invalid")
+    receipt = bearing_receipt(bearing.provenance)
+    binding = AlignmentBinding(receipt.source_id, receipt.source_epoch, receipt.geometry_revision,
+        receipt.calibration_revision, receipt.target_generation, current_state.binding,
+        native_runtime_id, None, receipt.provider_id)
+    state = current_state
+    if previous is not None:
+        if not isinstance(previous, AlignedBearing) or previous.association_kind != "latest_received_bearing":
+            raise ValueError("alignment_qualification_changed")
+        if receipt.sample_id == bearing_receipt(previous.bearing.provenance).sample_id:
+            state = previous.attitude_state
+    _validate_pair(bearing, state, native_runtime_id, binding, now_monotonic_s,
+        max_observation_age_s, max_attitude_age_s, allow_untimed=True)
+    result = _result(bearing, state, binding, "latest_received_bearing", "backend_receipts_v1",
+                     None, None, previous)
+    require_current_bearing_association(result, bearing.provenance, current_state,
+        native_runtime_id=native_runtime_id, now_monotonic_s=now_monotonic_s,
+        max_observation_age_s=max_observation_age_s, max_attitude_age_s=max_attitude_age_s)
+    return result
 
 
 def _receive_intervals(bearing, attitude_state, bounds) -> tuple[tuple, tuple, float]:
@@ -387,7 +432,8 @@ def require_current_bearing_association(
         raise ValueError("guidance_observation_binding_changed")
     try:
         _validate_pair(aligned.bearing, aligned.attitude_state, native_runtime_id, aligned.binding,
-                       now_monotonic_s, max_observation_age_s, max_attitude_age_s)
+                       now_monotonic_s, max_observation_age_s, max_attitude_age_s,
+                       allow_untimed=aligned.association_kind == "latest_received_bearing")
         if aligned.association_kind == "bounded_receive_time":
             _validate_receive_bounds(aligned.bearing, aligned.attitude_state, aligned.binding,
                 aligned.receive_bounds, now_monotonic_s, max_observation_age_s, max_attitude_age_s)
@@ -400,22 +446,28 @@ def require_current_bearing_association(
                           "alignment_source_attitude_stale"}:
             raise ValueError("guidance_input_stale") from error
         raise
+    received_only = aligned.association_kind == "latest_received_bearing"
     if (current_state.binding != aligned.binding.aircraft_binding
             or current_state.source != aligned.attitude_state.source
-            or current_state.attitude_timing is None
-            or current_state.attitude_timing.quat_reset_counter != aligned.binding.quat_reset_counter):
+            or (current_state.attitude_timing is None and not received_only)
+            or (received_only and current_state.attitude_timing is not None)
+            or (current_state.attitude_timing is not None
+                and current_state.attitude_timing.quat_reset_counter != aligned.binding.quat_reset_counter)):
         raise ValueError("guidance_aircraft_or_reset_changed")
     associated = aligned.attitude_state
     if (current_state.sequence < associated.sequence
             or current_state.observed_at_monotonic_s < associated.observed_at_monotonic_s
-            or current_state.attitude_timing.sample_timestamp_us < associated.attitude_timing.sample_timestamp_us
-            or current_state.attitude_timing.publication_timestamp_us < associated.attitude_timing.publication_timestamp_us
-            or not preserves_attitude_sample(associated.attitude_timing, associated.attitude_body_to_ned,
-                                             current_state.attitude_timing, current_state.attitude_body_to_ned)
             or current_state.sequence == associated.sequence and current_state != associated):
         raise ValueError("guidance_aircraft_state_reordered_or_rewritten")
+    if not received_only and (
+            current_state.attitude_timing.sample_timestamp_us < associated.attitude_timing.sample_timestamp_us
+            or current_state.attitude_timing.publication_timestamp_us < associated.attitude_timing.publication_timestamp_us
+            or not preserves_attitude_sample(associated.attitude_timing, associated.attitude_body_to_ned,
+                                             current_state.attitude_timing, current_state.attitude_body_to_ned)):
+        raise ValueError("guidance_aircraft_state_reordered_or_rewritten")
     if (not current_state.fresh(now_monotonic_s, max_attitude_age_s)
-            or not current_state.attitude_timing.fresh(now_monotonic_s, max_attitude_age_s)):
+            or current_state.attitude_timing is not None
+            and not current_state.attitude_timing.fresh(now_monotonic_s, max_attitude_age_s)):
         raise ValueError("guidance_input_stale")
 
 

@@ -60,3 +60,28 @@ def test_aircraft_kind_changes_require_fresh_identity_confirmation():
     assert owner.snapshot(connected=True, now=10.4)["fresh"]
     owner.invalidate("disconnected")
     assert owner.aircraft_kind is AircraftKind.UNKNOWN
+
+
+def test_rewritten_heartbeat_cannot_confirm_a_new_mode_without_packet_progress():
+    owner = TelemetryAircraftIdentity(1, 1, 2.)
+    owner.observe(payload(2, 1), now=10.)
+    owner.observe(payload(2, 2), now=10.1)
+    changed = payload(2, 2)
+    changed["vehicles"]["1"]["components"]["1"]["messages"]["HEARTBEAT"]["message"]["custom_mode"] = 6 << 16
+    owner.observe(changed, now=10.2)
+    assert not owner.snapshot(connected=True, now=10.2)["fresh"]
+    assert owner.heartbeat_observed_at_monotonic_s is None
+    assert owner.reason == "telemetry_heartbeat_rewritten"
+
+
+def test_mode_revision_is_not_the_packet_counter_and_detects_a_return_to_the_old_mode():
+    owner = TelemetryAircraftIdentity(1, 1, 2.)
+    for counter in (1, 2, 3):
+        owner.observe(payload(2, counter), now=10. + counter * .1)
+    original = owner.mode_revision
+    changed = payload(2, 4)
+    changed["vehicles"]["1"]["components"]["1"]["messages"]["HEARTBEAT"]["message"]["custom_mode"] = 6 << 16
+    owner.observe(changed, now=10.4)
+    assert owner.mode_revision == original + 1
+    owner.observe(payload(2, 5), now=10.5)
+    assert owner.mode_revision == original + 2

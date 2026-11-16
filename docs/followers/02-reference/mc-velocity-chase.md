@@ -73,7 +73,7 @@ explicitly configured.
 
 The profile declares a native MC command adapter for VTOL installations. It
 reuses the calculated forward/right/down/yaw fields and the existing speed
-control through `NativePhaseGuidanceSession`; it creates no FW pursuit strategy.
+control through `PhaseGuidanceSession`; it creates no FW pursuit strategy.
 The existing native transport performs the heading-to-NED and yaw-unit conversion.
 Phase confirmation holds the original engagement altitude without advancing the
 Chase controller. With altitude guidance disabled, pursuit retains that same

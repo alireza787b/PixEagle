@@ -7,8 +7,10 @@ supported control interfaces; a configuration label cannot create a capability.
 **Current status:** ordinary MC uses the existing MAVSDK path. Unmodified PX4
 SIH passes the production MC Position and vertical Gimbal Vector component runs.
 A shared-ray MAVLink attitude/thrust FW component also passes moving-target
-normal, descent and climb checks. It is not connected to application Start,
-session controls or recovery yet. The VTOL application still requires the
+normal, descent and climb checks. Shared phase/session controls, Restore and
+the one-shot command owner now also pass a stock SIH component run through the
+existing commander. HTTP application Start, camera input and recovery are not
+qualified by that run. The VTOL application still requires the
 experimental native owner; its replacement remains closed pending qualification.
 These component results are not flight clearance or end-to-end acceptance.
 
@@ -19,6 +21,12 @@ on a vertically mounted tailsitter. Do not switch it to `HORIZONTAL` after
 transition. Provider angles first become a physical aircraft-body ray; aircraft
 attitude then rotates that ray into the navigation frame. The FW strategy uses
 its declared navigation frame without applying the tailsitter rotation twice.
+
+The stock received-bearing adapter reports `latest_received_bearing`: original
+backend receipts and unknown acquisition-time skew, without an invented estimator
+reset counter. A cached bearing keeps its original world ray. Native/source-timed
+adapters retain stricter timing rules. This degradation is component-tested and
+does not yet grant live application admission.
 
 The current Topotek vertical preset uses negative raw roll for azimuth and raw
 pitch minus 90 degrees for depression. This is a provider convention, not a
@@ -35,7 +43,10 @@ measurement timing on the installation. See [camera mounting](../../trackers/06-
 
 Keep the existing UART/MAVLink link. MAVLink2REST provides observations and
 MAVSDK publishes control; no extra USB cable or DDS runtime is required for the
-current stock-MAVLink work. Changing the MAVLink stream mode does not create a
+current stock-MAVLink work. The candidate uses MAVSDK's one-shot MavlinkDirect
+API, not its Offboard plugin's autonomous setpoint resend. Only the existing
+commander refreshes intent. A surviving MAVSDK server therefore cannot renew a
+dead Python publisher's command. Changing the MAVLink stream mode does not create a
 new control interface. High-rate Onboard defaults may overload a 57600-baud link;
 measure its budget and request the relevant message intervals instead.
 
@@ -45,6 +56,9 @@ pitch and normalized thrust through supported attitude Offboard. PX4 retains
 attitude/rate control and allocation. This path does **not** retain native TECS
 energy/underspeed control: its companion speed/path feedback must be qualified.
 Normal requests respect resolved PX4 speed, pitch and climb/sink settings.
+Use the configured operating minimum, not raw stall speed. Bank/load, weight,
+airspeed confidence and aircraft dynamics remain qualification concerns; reading
+`FW_AIRSPD_MIN` alone is not a guarantee of stall protection.
 The isolated expert fixture removes upper-speed and pitch/sink soft limits,
 retaining the shared altitude floor, actuator/bank bounds and climb-speed priority.
 Neither requested speed nor pitch guarantees an achievable aircraft response.
@@ -90,7 +104,12 @@ The proxy supports degraded feedback, but cannot establish actual stall margin.
 VFR_HUD reports selected calibrated airspeed; a cached read is not a new packet,
 and an absent sensor is not evidence of a wind-based estimate.
 
-`no_upper_speed_bound` is tested only in the isolated MAVLink component. It is
+`no_upper_speed_bound` is tested only in the isolated MAVLink component. A private
+session starts with its configured expert policy active. Restore returns to the
+normal speed and pitch/sink envelope without increasing a lower request. A new
+explicit speed adjustment reactivates only the expert policy permitted by the
+saved configuration; a normal public policy never acquires unrestricted authority.
+No saved setting is rewritten by an adjustment or Restore. The policy is
 not advertised or enabled for stock application following yet. A private config
 cannot bypass that admission gate. The existing native-policy semantics remain
 separate until the qualified MAVLink transport is integrated; changing this flag
@@ -121,6 +140,7 @@ for each run:
 
 ```bash
 PYTHONPATH=src python tools/run_mavlink_fw_vector_sih.py --execute \
+  --direct --session --owner \
   --simulation-build-manifest reports/native-guidance/stock-build/sih-build-manifest.json \
   --output reports/sitl/stock-fw-normal
 ```
@@ -131,7 +151,14 @@ takeoff altitude can be varied with `--target-forward-m`, `--target-down-m`
 not new operator settings. The test records actual PX4 pose, independent moving
 target truth, submitted attitude/thrust, requested/observed speed, original source
 clocks, configuration, source checksums and ULogs. It does not exercise the App,
-HTTP actions, UI, target-loss recovery or physical camera. Existing evidence is
+HTTP actions, UI, target-loss recovery or physical camera. `--owner` uses the
+production one-shot owner and commander. Start requires an advancing observed
+Offboard heartbeat after its single mode request. Stop joins pending publication,
+sends at most one Hold request, and confirms a fresh mode. A known takeover,
+transition or disarm suppresses cleanup Hold; uncertain authority sends no mode
+request. Standard MAVLink cannot make the aircraft-side compare/release atomic,
+and a transport RPC success is not a PX4 acceptance or motion receipt.
+Existing evidence is
 never overwritten. Post-Stop speed/altitude are separate from following evidence.
 The safe MC qualification scenarios start at 40 m, above the shared public
 30 m floor; ground-view targets remain on the ground.

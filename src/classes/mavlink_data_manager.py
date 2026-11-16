@@ -8,6 +8,7 @@ from typing import Dict, Optional
 from .parameters import Parameters
 from .logging_manager import logging_manager
 from .aircraft_identity import TelemetryAircraftIdentity
+from .mavlink_aircraft_state import MavlinkAircraftStateSource, MavlinkGuidanceObservation
 from .telemetry_observation import AltitudeSourceSample
 import math
 
@@ -65,6 +66,7 @@ class MavlinkDataManager:
         self._aircraft_identity = TelemetryAircraftIdentity(
             self.system_id, self.component_id, self.stale_timeout_s,
         )
+        self._aircraft_state_source = MavlinkAircraftStateSource()
         self._stop_event = threading.Event()
         self._thread = None
         self._lock = threading.RLock()
@@ -163,10 +165,42 @@ class MavlinkDataManager:
                 "arm_status": self.data.get("arm_status") if fresh else None,
                 "landed_state": self.data.get("landed_state") if fresh else None,
                 "flight_mode": self.data.get("flight_mode") if fresh else None,
+                "flight_mode_observed_at_monotonic_s": (
+                    self._aircraft_identity.heartbeat_observed_at_monotonic_s if fresh else None),
                 "aircraft_kind": self._aircraft_identity.aircraft_kind.value if fresh else "unknown",
                 "phase_observation": self._aircraft_identity.phase_snapshot(connected=fresh),
                 "offboard_exit_observed_at_monotonic_s": getattr(self, '_offboard_exit_observed_at', None),
             }
+
+    def get_aircraft_state_source_epoch(self):
+        with self._lock:
+            return self._aircraft_state_source.epoch if self.get_aircraft_identity()["fresh"] else None
+
+    def get_aircraft_state_observation(self, binding, *, source_epoch, envelope=None):
+        """Read the existing poller's source-owned snapshot; acquire no authority."""
+        with self._lock:
+            state = self.get_flight_state()
+            return self._aircraft_state_source.snapshot(
+                binding, source_epoch=source_epoch, identity=state, phase=state["phase_observation"],
+                now=time.monotonic(), timeout_s=self.stale_timeout_s, envelope=envelope,
+            )
+
+    def get_guidance_observation(self, binding, *, source_epoch, envelope=None):
+        """Keep mode, local position and pose in the same aggregate-read epoch."""
+        with self._lock:
+            state = self.get_aircraft_state_observation(binding, source_epoch=source_epoch, envelope=envelope)
+            if state is None:
+                return None
+            flight = self.get_flight_state()
+            armed = flight.get("arm_status")
+            mode = flight.get("flight_mode")
+            return MavlinkGuidanceObservation(
+                state, source_epoch, self.system_id, self.component_id,
+                True if armed == "Armed" else False if armed == "Disarmed" else None,
+                mode if type(mode) is int else None,
+                flight.get("flight_mode_observed_at_monotonic_s"), self._aircraft_state_source.local_position(),
+                flight["phase_observation"]["generation"], self._aircraft_identity.mode_revision,
+            )
 
     @staticmethod
     def _validate_float_config(name, value, *, default, minimum, maximum):
@@ -247,6 +281,7 @@ class MavlinkDataManager:
         """
         with self._lock:
             self._aircraft_identity.invalidate("telemetry_polling_stopped")
+            self._aircraft_state_source.invalidate()
         thread = self._thread
         if not self.enabled or thread is None:
             return True
@@ -296,6 +331,13 @@ class MavlinkDataManager:
 
             with self._lock:
                 self._aircraft_identity.observe(json_data)
+                self._aircraft_state_source.observe(
+                    self._extract_data_from_json(json_data,
+                        f"/vehicles/{self.system_id}/components/{self.component_id}/messages"),
+                    identity=self._aircraft_identity.snapshot(connected=True),
+                    phase=self._aircraft_identity.phase_snapshot(connected=True),
+                    kind=self._aircraft_identity.aircraft_kind, now=time.monotonic(),
+                )
                 # Iterate through the data points defined in Parameters
                 for point_name, json_path in self.data_points.items():
                     if point_name in ["vn", "ve", "vd"]:
@@ -391,6 +433,7 @@ class MavlinkDataManager:
         """Handle connection errors with clean, throttled logging."""
         with self._lock:
             self._aircraft_identity.invalidate("telemetry_disconnected")
+            self._aircraft_state_source.invalidate()
             self.last_fetch_attempt_monotonic_s = time.monotonic()
             self.connection_state = "error"
             self.last_request_result = "failure"

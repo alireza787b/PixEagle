@@ -9,12 +9,37 @@ from dataclasses import dataclass
 import math
 
 from classes.aircraft_state import (
-    AircraftState, GuidanceSessionIdentity, Vector3, finite_number, fixed_wing_control_attitude,
+    AircraftState, FixedWingEnvelope, GuidanceSessionIdentity, Vector3, finite_number, fixed_wing_control_attitude,
 )
 from classes.bearing_geometry_policy import BearingGeometryPolicy
 from classes.fixed_wing_guidance_policy import FixedWingGuidancePolicy, UpperSpeedPolicy
-from classes.fixed_wing_vector_guidance import FixedWingVectorGuidance
+from classes.fixed_wing_vector_guidance import FixedWingCommand, FixedWingVectorGuidance
 from classes.safety_types import AltitudeLimits
+
+
+FIXED_WING_MAVLINK_PARAMETERS = (
+    "FW_AIRSPD_MIN", "FW_AIRSPD_TRIM", "FW_AIRSPD_MAX", "FW_THR_MIN", "FW_THR_TRIM", "FW_THR_MAX",
+    "FW_P_LIM_MIN", "FW_P_LIM_MAX", "FW_R_LIM", "FW_T_CLMB_R_SP", "FW_T_SINK_R_SP", "FW_T_VERT_ACC", "FW_T_ALT_TC",
+)
+
+
+def resolve_mavlink_configuration(parameters, *, revision, lookahead_m):
+    """Derive control/envelope values from one aircraft parameter snapshot.
+
+    This is not a measured load-dependent minimum or a copy of PX4's performance
+    model. No local airframe defaults substitute for missing aircraft limits.
+    """
+    try:
+        p = {name: finite_number(parameters[name], name) for name in FIXED_WING_MAVLINK_PARAMETERS}
+    except (KeyError, TypeError) as error:
+        raise ValueError("fixed_wing_parameters_incomplete") from error
+    envelope = FixedWingEnvelope(p["FW_AIRSPD_MIN"], p["FW_AIRSPD_TRIM"], p["FW_AIRSPD_MAX"],
+        p["FW_T_CLMB_R_SP"], p["FW_T_SINK_R_SP"], math.radians(p["FW_R_LIM"]),
+        "stock_px4_parameter_snapshot", revision, p["FW_T_VERT_ACC"], p["FW_T_ALT_TC"])
+    tuning = FixedWingMavlinkTuning(lookahead_m, 1. / envelope.trim_eas_m_s,
+        p["FW_THR_MIN"], p["FW_THR_TRIM"], p["FW_THR_MAX"], math.radians(p["FW_P_LIM_MIN"]),
+        math.radians(p["FW_P_LIM_MAX"]), p["FW_T_ALT_TC"])
+    return envelope, tuning
 
 
 @dataclass(frozen=True)
@@ -61,9 +86,12 @@ class FixedWingMavlinkVectorControl:
         if not isinstance(tuning, FixedWingMavlinkTuning) or not isinstance(policy, FixedWingGuidancePolicy):
             raise ValueError("fixed_wing_mavlink_policy_invalid")
         self.tuning = tuning
+        self.configured_policy = policy
         self.policy = policy
+        unbounded = policy.upper_speed_policy is UpperSpeedPolicy.NO_UPPER_SPEED_BOUND
         self.direction = FixedWingVectorGuidance(
-            enable_altitude_control=enable_altitude_control, geometry_policy=geometry,
+            enable_altitude_control=enable_altitude_control, geometry_policy=geometry, policy=policy,
+            unrestricted_capability=unbounded, vertical_limits_enabled=not unbounded, path_speed_basis="magnitude",
         )
 
     def begin(self, identity: GuidanceSessionIdentity, state: AircraftState, *, now: float, timeout_s: float):
@@ -71,6 +99,16 @@ class FixedWingMavlinkVectorControl:
 
     def reset(self):
         self.direction.reset()
+        self.use_normal_envelope(False)
+
+    def use_normal_envelope(self, normal: bool):
+        """Session Restore changes the effective policy, never saved settings."""
+        if type(normal) is not bool:
+            raise ValueError("fixed_wing_normal_envelope_invalid")
+        policy = FixedWingGuidancePolicy() if normal else self.configured_policy
+        self.policy = policy
+        self.direction.policy = policy
+        self.direction.vertical_limits_enabled = policy.upper_speed_policy is not UpperSpeedPolicy.NO_UPPER_SPEED_BOUND
 
     @staticmethod
     def speed_feedback(state: AircraftState, *, now: float, timeout_s: float) -> tuple[float, str]:
@@ -83,30 +121,41 @@ class FixedWingMavlinkVectorControl:
     def calculate(self, ray_ned: Vector3, state: AircraftState, *, identity: GuidanceSessionIdentity,
                   requested_speed_m_s: float, altitude_limits: AltitudeLimits,
                   now: float, timeout_s: float) -> FixedWingAttitudeRequest:
-        self.direction.require_state(state, now=now, timeout_s=timeout_s)
-        self.direction.require_binding(identity, state)
         if not isinstance(ray_ned, Vector3):
             raise ValueError("guidance_ray_not_unit")
-        ray = ray_ned.normalized()
-        course, geometry = self.direction.direction(ray, state)
+        result = self.direction.calculate_ned(ray_ned.normalized(), state, frame="ned", identity=identity,
+            requested_eas_m_s=requested_speed_m_s, altitude_limits=altitude_limits, now=now, timeout_s=timeout_s)
+        return self.project(result.command, state, identity=identity, altitude_limits=altitude_limits,
+            now=now, timeout_s=timeout_s, geometry=result.geometry_state, requested_speed_m_s=requested_speed_m_s,
+            limiting_reason=result.limiting_reason)
+
+    def project(self, command: FixedWingCommand, state: AircraftState, *, identity: GuidanceSessionIdentity,
+                altitude_limits: AltitudeLimits, now: float, timeout_s: float,
+                geometry="flight_path", requested_speed_m_s=None, limiting_reason=None) -> FixedWingAttitudeRequest:
+        """Project a shared nominal/recovery objective at the final boundary."""
+        self.direction.require_state(state, now=now, timeout_s=timeout_s)
+        self.direction.require_binding(identity, state)
+        if not isinstance(command, FixedWingCommand):
+            raise ValueError("fixed_wing_command_contract_invalid")
+        command = self.direction.guard_command(command, state, identity=identity,
+            altitude_limits=altitude_limits, now=now, timeout_s=timeout_s)
+        course = command.course_rad
         envelope = state.fixed_wing_envelope
         unbounded = self.policy.upper_speed_policy is UpperSpeedPolicy.NO_UPPER_SPEED_BOUND
-        requested = finite_number(requested_speed_m_s, "requested_speed")
+        requested = finite_number(command.equivalent_airspeed_m_s if requested_speed_m_s is None
+                                  else requested_speed_m_s, "requested_speed")
         speed, limiting = FixedWingVectorGuidance.resolve_speed(
             state, requested, self.policy.upper_speed_policy, unrestricted_capability=unbounded,
         )
+        limiting = limiting_reason or limiting
         observed, speed_basis = self.speed_feedback(state, now=now, timeout_s=timeout_s)
         velocity = state.velocity_ned_m_s
         horizontal = velocity.horizontal_magnitude
         measured_path = math.atan2(-velocity.z, horizontal)
         if self.direction.enable_altitude_control:
-            path = math.atan2(-ray.z, ray.horizontal_magnitude)
-            height_rate = velocity.magnitude * math.sin(path)
-            if not unbounded:
-                height_rate = min(envelope.climb_rate_m_s, max(-envelope.sink_rate_m_s, height_rate))
+            height_rate = command.height_rate_m_s
         else:
-            hold = self.direction.hold_altitude(state, altitude_limits)
-            height_rate = (hold - state.altitude_amsl_m) / self.tuning.altitude_time_constant_s
+            height_rate = (command.altitude_amsl_m - state.altitude_amsl_m) / self.tuning.altitude_time_constant_s
             height_rate = min(envelope.climb_rate_m_s, max(-envelope.sink_rate_m_s, height_rate))
         height_rate, altitude_reason = self.direction.guard_altitude(height_rate, state, altitude_limits)
         limiting = altitude_reason or limiting

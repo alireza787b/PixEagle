@@ -55,6 +55,16 @@ def test_expert_dive_removes_pitch_and_sink_soft_limits_with_the_same_target_ray
     assert calculate(expert, identity, state, ray).pitch_deg == pytest.approx(-60.)
 
 
+def test_expert_near_vertical_ray_does_not_reintroduce_the_normal_sink_limit():
+    ray = Vector3(.1, 0., math.sqrt(.99))
+    normal, identity, state = setup()
+    expert, _, _ = setup(unbounded=True)
+    assert calculate(normal, identity, state, ray).pitch_deg > -30.
+    result = calculate(expert, identity, state, ray)
+    assert result.pitch_deg == pytest.approx(-math.degrees(math.acos(.1)))
+    assert abs(result.roll_deg) < 1e-10  # Keep the last course; never FW stationary yaw.
+
+
 @pytest.mark.parametrize("unbounded", [False, True])
 def test_altitude_disabled_holds_engagement_altitude_independently_of_ray(unbounded):
     controller, identity, state = setup(altitude=False, unbounded=unbounded)

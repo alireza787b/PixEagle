@@ -1,7 +1,7 @@
 """Shared FW navigation policy; no aircraft controller or parameter writer.
 
 Input adapters may produce objectives from gimbal rays or image tracking. They
-share this policy only after adopting the qualified native PX4 command owner.
+share this policy only after adopting a qualified phase-bound command owner.
 The older attitude-rate controller cannot silently claim these capabilities.
 """
 

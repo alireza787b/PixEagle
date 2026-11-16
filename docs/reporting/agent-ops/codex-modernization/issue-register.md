@@ -491,3 +491,15 @@ remain open. Integration work is unpublished.
   and keep detailed explanations collapsed. The renewed application has no
   native refusals in 13,297 sampled observations and confirms operator Stop.
   [Evidence, validation and real-link boundaries](checkpoints/2026-11-15-native-fw-startup-recovery.md).
+
+- **2026-11-16 — Stock MAVLink ownership component:** production source clocks,
+  shared phase/speed controls, Restore and one-shot command ownership pass stock
+  airplane SIH through the existing commander (396 submissions, zero failures,
+  Hold confirmed). Publication loss triggers PX4 Return while SDK autoresend stays
+  inactive. The stock binding reuses FW continuity without a second loss timer.
+  Received boresight timing remains explicitly unqualified, not relabeled as
+  exposure synchronization. Full regression gives 7,722 unit passes; API and
+  integration give 357. Application admission, telemetry cadence, public override
+  permission, VTOL/fault scenarios and hardware remain open. Latest requested
+  public/private values are recorded for the final adoption review in the
+  [ownership checkpoint](checkpoints/2026-11-16-stock-mavlink-session-ownership.md).

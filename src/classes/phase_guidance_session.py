@@ -1,4 +1,4 @@
-"""Shared native phase, control and frozen-altitude ownership.
+"""Shared phase, control and frozen-altitude ownership.
 
 The existing phase observer and session controls own their contracts. This
 composition adds no publisher, target-loss deadline or pursuit controller.
@@ -11,12 +11,12 @@ from classes.aircraft_state import AircraftLayout, AircraftState, AirframePhase,
 from classes.airframe_session_controls import AirframeSessionControls
 from classes.command_intent import AltitudeHoldReference, CommandIntent
 from classes.guidance_phase_session import GuidancePhaseSession, PhaseDecision, PhaseSessionState
-from classes.native_guidance import NativeCapabilities
+from classes.guidance_phase_session import GuidanceCapabilities
 from classes.safety_types import AltitudeLimits
 
 
-class NativePhaseGuidanceSession:
-    def __init__(self, identity: GuidanceSessionIdentity, capabilities: NativeCapabilities, *,
+class PhaseGuidanceSession:
+    def __init__(self, identity: GuidanceSessionIdentity, capabilities: GuidanceCapabilities, *,
                  profile_name: str, controls: AirframeSessionControls,
                  supported_phases: frozenset[AirframePhase], altitude_control: bool,
                  altitude_limits: AltitudeLimits, confirmation_s: float,

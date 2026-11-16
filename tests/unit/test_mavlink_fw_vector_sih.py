@@ -20,7 +20,7 @@ def test_initial_cache_read_is_not_a_fresh_speed_measurement():
     sample = source.observe(packet(2), 10.1)
     assert sample.fresh(10.2, .5)
     assert sample.source == "sensor"
-    assert source.observe(packet(2), 11.) is sample
+    assert source.observe(packet(2), 11.) == sample
     assert not sample.fresh(11., .5)
 
 
@@ -68,7 +68,9 @@ def test_fixture_uses_single_canonical_envelope_without_altering_factory_file(un
 
 
 @pytest.mark.parametrize("arguments", [[], ["--target-forward-m", "nan"], ["--target-down-m", "inf"],
-                                       ["--takeoff-altitude-m", "3"], ["--follower", "mc_velocity_ground"]])
+                                       ["--takeoff-altitude-m", "3"], ["--follower", "mc_velocity_ground"],
+                                       ["--owner"], ["--owner", "--direct"], ["--session"],
+                                       ["--restore-during-session", "--session", "--direct"]])
 def test_missing_authorization_or_invalid_fixture_never_starts_a_simulator(arguments, monkeypatch):
     from tools import sih_isolated_host
 

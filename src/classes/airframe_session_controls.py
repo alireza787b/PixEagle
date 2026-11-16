@@ -92,13 +92,14 @@ class AirframeSessionControls:
             minimum, ceiling = envelope.minimum_eas_m_s, envelope.maximum_eas_m_s
             initial, _ = FixedWingVectorGuidance.startup_speed(state, now=now, timeout_s=timeout_s)
             value, label = initial, "Airspeed"
-            description = "Equivalent-airspeed reference for native PX4 guidance; not measured speed."
+            description = "Requested airspeed reference; not measured or guaranteed aircraft speed."
         else:
             raise ValueError("aircraft_phase_unknown")
         self.identity, self._phase = identity, state.phase
         self._revision += 1
         override_allowed = state.phase is AirframePhase.MULTICOPTER or unrestricted_verified
-        override_active = override_allowed and retained is not None and retained.override_active
+        override_active = (state.phase is AirframePhase.FIXED_WING and unrestricted_verified
+                           or override_allowed and retained is not None and retained.override_active)
         acknowledged = max(minimum, value if override_active else min(value, ceiling))
         self._requests = {state.phase: SessionControl(
             "requested_speed", label, "m/s", minimum, None if override_allowed else ceiling,
@@ -148,7 +149,8 @@ class AirframeSessionControls:
         if control is None:
             raise ValueError("session_control_phase_unavailable")
         updated = control.updated(value, expected_revision)
-        if recovering and updated.value > control.value:
+        recovery_ceiling = max(control.value, control.minimum) if value is None else control.value
+        if recovering and updated.value > recovery_ceiling:
             raise ValueError("session_control_increase_unavailable_during_recovery")
         return updated
 

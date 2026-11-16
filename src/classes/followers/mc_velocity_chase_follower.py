@@ -1328,12 +1328,12 @@ class MCVelocityChaseFollower(BaseFollower):
         """Reuse native ownership with the existing image-guided MC command law."""
         from classes.aircraft_state import AirframePhase
         from classes.airframe_session_controls import AirframeSessionControls
-        from classes.native_phase_guidance_session import NativePhaseGuidanceSession
+        from classes.phase_guidance_session import PhaseGuidanceSession
         if getattr(self, '_airframe_session', None) is not None:
             raise ValueError('airframe_session_already_bound')
         # App supplies the shared factory policy; MC has no FW energy strategy.
         policy.pop('fixed_wing_policy', None)
-        session = NativePhaseGuidanceSession(
+        session = PhaseGuidanceSession(
             identity, capabilities, profile_name=self.profile_name,
             controls=AirframeSessionControls.from_multicopter_control(identity, self._requested_speed_control()),
             supported_phases=frozenset({AirframePhase.MULTICOPTER}),
@@ -1346,8 +1346,8 @@ class MCVelocityChaseFollower(BaseFollower):
 
     def bind_airframe_session(self, session) -> None:
         from classes.aircraft_state import AirframePhase
-        from classes.native_phase_guidance_session import NativePhaseGuidanceSession
-        if (not isinstance(session, NativePhaseGuidanceSession)
+        from classes.phase_guidance_session import PhaseGuidanceSession
+        if (not isinstance(session, PhaseGuidanceSession)
                 or session.supported_phases != frozenset({AirframePhase.MULTICOPTER})):
             raise ValueError('airframe_session_binding_invalid')
         super().bind_airframe_session(session)

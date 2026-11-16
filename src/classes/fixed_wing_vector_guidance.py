@@ -44,10 +44,13 @@ class FixedWingCommand:
         result["upper_speed_policy"] = self.upper_speed_policy.value
         return result
 
-    def intent(self, identity: GuidanceSessionIdentity, *, profile_name: str, source: str) -> CommandIntent:
-        if self.upper_speed_policy is not UpperSpeedPolicy.PX4_CONFIGURED_MAX:
-            # The firmware extension must join this contract before this policy
-            # can pass through shared continuity. Never discard its ownership.
+    def intent(self, identity: GuidanceSessionIdentity, *, profile_name: str, source: str,
+               allow_unrestricted: bool = False) -> CommandIntent:
+        if type(allow_unrestricted) is not bool:
+            raise ValueError("unrestricted_capability_invalid")
+        if self.upper_speed_policy is not UpperSpeedPolicy.PX4_CONFIGURED_MAX and not allow_unrestricted:
+            # Native consumers remain closed by default. A separately qualified
+            # projection must bind the effective policy to the same session.
             raise ValueError("unrestricted_native_contract_not_qualified")
         fields = {"course_rad": self.course_rad, "equivalent_airspeed_m_s": self.equivalent_airspeed_m_s}
         if self.height_rate_m_s is not None:
@@ -91,7 +94,8 @@ class FixedWingVectorGuidance:
     """Produce feasible navigation objectives from physical-body or NED rays."""
 
     def __init__(self, *, enable_altitude_control: bool, geometry_policy: BearingGeometryPolicy,
-                 policy: FixedWingGuidancePolicy | None = None, unrestricted_capability: bool = False):
+                 policy: FixedWingGuidancePolicy | None = None, unrestricted_capability: bool = False,
+                 vertical_limits_enabled: bool = True, path_speed_basis: str = "horizontal"):
         if type(enable_altitude_control) is not bool:
             raise ValueError("altitude_control_invalid")
         if not isinstance(geometry_policy, BearingGeometryPolicy):
@@ -102,6 +106,13 @@ class FixedWingVectorGuidance:
         if not isinstance(self.requested_policy, FixedWingGuidancePolicy):
             raise ValueError("fixed_wing_guidance_policy_invalid")
         self.policy = self.requested_policy.resolve_native(unrestricted_capability)
+        if (type(vertical_limits_enabled) is not bool or (not vertical_limits_enabled and (
+                not unrestricted_capability or self.policy.upper_speed_policy is not UpperSpeedPolicy.NO_UPPER_SPEED_BOUND))):
+            raise ValueError("unrestricted_vertical_contract_unavailable")
+        self.vertical_limits_enabled = vertical_limits_enabled
+        if path_speed_basis not in {"horizontal", "magnitude"}:
+            raise ValueError("fixed_wing_path_speed_basis_invalid")
+        self.path_speed_basis = path_speed_basis
         self.policy_reason = ("unrestricted_speed_not_supported"
                               if self.policy != self.requested_policy else None)
         self._unrestricted_verified = unrestricted_capability
@@ -241,13 +252,17 @@ class FixedWingVectorGuidance:
 
         if self.enable_altitude_control:
             if self._vertical:
-                height_rate = -math.copysign(envelope.sink_rate_m_s if ray.z >= 0
-                                             else envelope.climb_rate_m_s, ray.z)
+                height_rate = (-math.copysign(envelope.sink_rate_m_s if ray.z >= 0
+                                              else envelope.climb_rate_m_s, ray.z)
+                               if self.vertical_limits_enabled else -state.velocity_ned_m_s.magnitude * ray.z)
             else:
-                # This is a ground-track slope, not EAS multiplied by a ray.
-                # Wind compensation/energy control stay inside native PX4.
-                height_rate = -state.velocity_ned_m_s.horizontal_magnitude * ray.z / horizontal
-            height_rate = min(envelope.climb_rate_m_s, max(-envelope.sink_rate_m_s, height_rate))
+                # Native height-rate control preserves the current horizontal
+                # projection; attitude projection uses the current 3D path speed.
+                # Neither substitutes EAS for measured navigation velocity.
+                height_rate = (-state.velocity_ned_m_s.magnitude * ray.z if self.path_speed_basis == "magnitude"
+                               else -state.velocity_ned_m_s.horizontal_magnitude * ray.z / horizontal)
+            if self.vertical_limits_enabled:
+                height_rate = min(envelope.climb_rate_m_s, max(-envelope.sink_rate_m_s, height_rate))
             height_rate, altitude_reason = self.guard_altitude(height_rate, state, altitude_limits)
             limiting = altitude_reason or limiting
             altitude = None
@@ -334,7 +349,9 @@ class FixedWingVectorGuidance:
         if command.height_rate_m_s is None:
             raise ValueError("fixed_wing_vertical_path_contract_changed")
         envelope = state.fixed_wing_envelope
-        rate = min(envelope.climb_rate_m_s, max(-envelope.sink_rate_m_s, command.height_rate_m_s))
+        rate = command.height_rate_m_s
+        if self.vertical_limits_enabled:
+            rate = min(envelope.climb_rate_m_s, max(-envelope.sink_rate_m_s, rate))
         rate, _ = self.guard_altitude(rate, state, altitude_limits)
         return replace(command, equivalent_airspeed_m_s=speed, height_rate_m_s=rate)
 

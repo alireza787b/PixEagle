@@ -79,8 +79,7 @@ _MAVLINK_AIRCRAFT_TYPES = (
 )
 
 
-def aircraft_kind_from_mavlink(value) -> AircraftKind:
-    """Classify an observed HEARTBEAT type; unknown types stay unsupported."""
+def _mavlink_aircraft_type(value):
     # MAVLink2REST's message.type names the message (HEARTBEAT); mavtype
     # contains the aircraft enum. Raw MAVLink dictionaries use type for it.
     if isinstance(value, dict):
@@ -88,13 +87,25 @@ def aircraft_kind_from_mavlink(value) -> AircraftKind:
         if isinstance(value, dict):
             value = value.get("type")
     if type(value) is int:
-        return next((kind for number, _, kind in _MAVLINK_AIRCRAFT_TYPES if number == value), AircraftKind.UNKNOWN)
+        return next((item for item in _MAVLINK_AIRCRAFT_TYPES if item[0] == value), None)
     if isinstance(value, str):
         name = value.removeprefix("MAV_TYPE_")
         aliases = {"VTOL_DUOROTOR": "VTOL_TAILSITTER_DUOROTOR", "VTOL_QUADROTOR": "VTOL_TAILSITTER_QUADROTOR"}
         name = aliases.get(name, name)
-        return next((kind for _, label, kind in _MAVLINK_AIRCRAFT_TYPES if label == name), AircraftKind.UNKNOWN)
-    return AircraftKind.UNKNOWN
+        return next((item for item in _MAVLINK_AIRCRAFT_TYPES if item[1] == name), None)
+    return None
+
+
+def aircraft_kind_from_mavlink(value) -> AircraftKind:
+    """Classify an observed HEARTBEAT type; unknown types stay unsupported."""
+    item = _mavlink_aircraft_type(value)
+    return AircraftKind.UNKNOWN if item is None else item[2]
+
+
+def aircraft_is_tailsitter_from_mavlink(value) -> bool:
+    """Use standard type declarations, never aircraft pitch or mount presets."""
+    item = _mavlink_aircraft_type(value)
+    return item is not None and item[1].startswith("VTOL_TAILSITTER")
 
 
 def airframe_phase_from_mavlink(kind: AircraftKind, vtol_state=None) -> AirframePhase:

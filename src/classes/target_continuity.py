@@ -344,7 +344,7 @@ class ContinuityStrategyRegistry:
         name="fixed_wing_course_recovery",
         airframe_phase=AirframePhase.FIXED_WING,
         control_type="fixed_wing_external",
-        execution_modes=frozenset({"COMMAND_PREVIEW", "PX4_NATIVE"}),
+        execution_modes=frozenset({"COMMAND_PREVIEW", "PX4_NATIVE", "PX4"}),
     )
 
     @classmethod
