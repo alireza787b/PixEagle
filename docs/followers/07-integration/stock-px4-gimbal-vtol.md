@@ -8,11 +8,12 @@ supported control interfaces; a configuration label cannot create a capability.
 SIH passes the production MC Position and vertical Gimbal Vector component runs.
 A shared-ray MAVLink attitude/thrust FW component also passes moving-target
 normal, descent and climb checks. Shared phase/session controls, Restore and
-the one-shot command owner now also pass a stock SIH component run through the
-existing commander. HTTP application Start, camera input and recovery are not
-qualified by that run. The VTOL application still requires the
-experimental native owner; its replacement remains closed pending qualification.
-These component results are not flight clearance or end-to-end acceptance.
+the one-shot command owner also pass stock SIH component tests. The application
+now selects the stock owner automatically for supported FW/VTOL sessions.
+Application Start, speed adjustment, brief target loss/recovery and confirmed Stop
+pass on the stock airplane and tailsitter, including both gimbal mounts.
+Observations use an independent simulated gimbal; HTTP/QGC, physical camera,
+installation and flight acceptance remain separate gates.
 
 ## One mount across both phases
 
@@ -26,7 +27,7 @@ The stock received-bearing adapter reports `latest_received_bearing`: original
 backend receipts and unknown acquisition-time skew, without an invented estimator
 reset counter. A cached bearing keeps its original world ray. Native/source-timed
 adapters retain stricter timing rules. This degradation is component-tested and
-does not yet grant live application admission.
+does not establish exposure-time synchronization or hardware qualification.
 
 The current Topotek vertical preset uses negative raw roll for azimuth and raw
 pitch minus 90 degrees for depression. This is a provider convention, not a
@@ -109,11 +110,11 @@ session starts with its configured expert policy active. Restore returns to the
 normal speed and pitch/sink envelope without increasing a lower request. A new
 explicit speed adjustment reactivates only the expert policy permitted by the
 saved configuration; a normal public policy never acquires unrestricted authority.
-No saved setting is rewritten by an adjustment or Restore. The policy is
-not advertised or enabled for stock application following yet. A private config
-cannot bypass that admission gate. The existing native-policy semantics remain
-separate until the qualified MAVLink transport is integrated; changing this flag
-alone must not silently enable a steep-dive envelope in an existing installation.
+No saved setting is rewritten by an adjustment or Restore. The stock application
+uses this policy only when explicitly enabled in its saved configuration; the
+normal public policy retains the configured envelope. The experimental policy
+also relaxes the projection's pitch/sink ceiling. It does not remove bank,
+actuator, minimum-speed-reference, altitude or command-ownership constraints.
 
 The bench aircraft's 20 m/s maximum and ±30-degree pitch limits are saved PX4
 values, not universal Offboard limits. Native FW guidance still resolves its
@@ -160,6 +161,22 @@ request. Standard MAVLink cannot make the aircraft-side compare/release atomic,
 and a transport RPC success is not a PX4 acceptance or motion receipt.
 Existing evidence is
 never overwritten. Post-Stop speed/altitude are separate from following evidence.
+The application lifecycle check reuses the production controller, tracker,
+follower, continuity and command owner:
+
+```bash
+PYTHONPATH=src python tools/run_stock_follow_application_sih.py --execute \
+  --airframe sihsim_xvert --start-phase fixed_wing \
+  --simulation-build-manifest reports/native-guidance/stock-build/sih-build-manifest.json \
+  --output reports/sitl/stock-tailsitter-application
+```
+
+`--mount HORIZONTAL` selects the other installation fixture. `--finish pilot_return`
+checks pilot takeover; `--unconstrained` selects a disposable experimental
+descent fixture. These options never edit an installed profile. Each successful
+run writes the existing interactive viewer, CSV/JSON and PNG under `visualization/`.
+Raw observations, failed runs, configuration, source checksums and ULogs remain
+alongside it. The tool starts no HTTP server or QGC instance.
 The safe MC qualification scenarios start at 40 m, above the shared public
 30 m floor; ground-view targets remain on the ground.
 

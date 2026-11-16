@@ -14,6 +14,7 @@ from classes.fixed_wing_mavlink_control import FixedWingMavlinkVectorControl
 from classes.fixed_wing_guidance_policy import UpperSpeedPolicy
 from classes.fixed_wing_vector_guidance import FixedWingCommand
 from classes.guidance_phase_session import PhaseSessionState
+from classes.phase_guidance_session import PhaseGuidanceSession
 from classes.stock_mavlink_setpoints import fixed_wing_attitude_packet, multicopter_velocity_packet
 from classes.vector_guidance_session import VectorGuidanceSession
 
@@ -38,6 +39,75 @@ class MavlinkGuidanceCapabilities:
     @property
     def unrestricted_intent_supported(self):
         return self.unrestricted_speed_supported
+
+
+def _require_intent_context(session, intent, state):
+    current = session.require_state()
+    if (not isinstance(intent, CommandIntent) or not isinstance(state, AircraftState) or state != current
+            or not state.fresh(session.clock(), session.phase_owner.observation_timeout_s)
+            or intent.profile_name != session.profile_name or intent.guidance_identity != session.identity
+            or intent.control_type != session.control_type):
+        raise ValueError("mavlink_guidance_intent_context_changed")
+    if session.phase_owner.state is not PhaseSessionState.PURSUIT:
+        baseline = session.baseline()
+        if intent.fields != baseline.fields or intent.altitude_hold != baseline.altitude_hold:
+            raise ValueError("phase_confirmation_pending")
+
+
+def _multicopter_packet(session, fields, state, hold, *, local_position_ned, system_id, component_id):
+    if session.phase is not AirframePhase.MULTICOPTER or not session.phase_owner.capabilities.multicopter_supported:
+        raise ValueError("multicopter_projection_unavailable")
+    fields = validate_and_clamp_command_values("velocity_body_offboard", fields, follower_name=session.profile_name)
+    hold_down = None
+    if hold is not None:
+        if (not isinstance(hold, AltitudeHoldReference) or not isinstance(local_position_ned, Vector3)
+                or hold.reference_generation != state.altitude_reference_generation
+                or not session.phase_owner.capabilities.multicopter_altitude_hold_supported):
+            raise ValueError("mavlink_altitude_reference_unavailable")
+        session.altitude_limits.require_hold_target(hold.altitude_amsl_m, current_amsl_m=state.altitude_amsl_m,
+                                                  current_relative_m=state.relative_altitude_m)
+        hold_down = local_position_ned.z - (hold.altitude_amsl_m - state.altitude_amsl_m)
+    elif not session.altitude_control:
+        raise ValueError("mavlink_engagement_altitude_hold_required")
+    return multicopter_velocity_packet(fields, now=session.clock(), heading_rad=state.navigation_heading_rad,
+        hold_down_m=hold_down, system_id=system_id, component_id=component_id)
+
+
+def _multicopter_priming_packet(session, observation):
+    reference = session.prepare_engagement_reference(observation.state)
+    # Before acquisition the phase owner has not authorized any pursuit. The
+    # pure wire builder holds the frozen altitude with zero XY translation.
+    if not isinstance(observation.local_position_ned, Vector3):
+        raise ValueError("mavlink_priming_contract_unavailable")
+    down = observation.local_position_ned.z - (reference.altitude_amsl_m - observation.state.altitude_amsl_m)
+    return multicopter_velocity_packet(dict(vel_body_fwd=0., vel_body_right=0., vel_body_down=0., yawspeed_deg_s=0.),
+        now=session.clock(), heading_rad=observation.state.navigation_heading_rad, hold_down_m=down,
+        system_id=observation.system_id, component_id=observation.component_id)
+
+
+class MavlinkPhaseGuidanceSession(PhaseGuidanceSession):
+    """Existing MC image guidance with the same stock packet and altitude path."""
+
+    def priming_packet(self, observation):
+        return _multicopter_priming_packet(self, observation)
+
+    def packet(self, intent, state, *, local_position_ned=None, system_id, component_id):
+        _require_intent_context(self, intent, state)
+        return _multicopter_packet(self, intent.fields, state, intent.altitude_hold,
+            local_position_ned=local_position_ned, system_id=system_id, component_id=component_id)
+
+
+def mavlink_session_factory(source):
+    """Select projections by declared command phases, never follower names."""
+    def create(identity, capabilities, **settings):
+        if AirframePhase.FIXED_WING not in settings["supported_phases"]:
+            return MavlinkPhaseGuidanceSession(identity, capabilities, **settings)
+        if source.tuning is None:
+            raise ValueError("fixed_wing_parameters_unavailable")
+        projection = FixedWingMavlinkVectorControl(tuning=source.tuning, geometry=settings["geometry_policy"],
+            policy=settings["fixed_wing_policy"], enable_altitude_control=settings["altitude_control"])
+        return MavlinkVectorGuidanceSession(identity, capabilities, projection=projection, **settings)
+    return create
 
 
 class MavlinkVectorGuidanceSession(VectorGuidanceSession):
@@ -75,9 +145,9 @@ class MavlinkVectorGuidanceSession(VectorGuidanceSession):
     def priming_packet(self, observation):
         """Hold the frozen engagement reference before mode acquisition."""
         state = observation.state
-        reference = self.prepare_engagement_reference(state)
         route = dict(system_id=observation.system_id, component_id=observation.component_id)
         if state.phase is AirframePhase.FIXED_WING:
+            self.prepare_engagement_reference(state)
             self.fixed_wing.begin_phase(self.identity, state, now=self.clock(),
                 timeout_s=self.phase_owner.observation_timeout_s,
                 altitude_reference=self._engagement_altitude_reference)
@@ -87,27 +157,13 @@ class MavlinkVectorGuidanceSession(VectorGuidanceSession):
             request = self.projection.project(command, state, identity=self.identity, altitude_limits=self.altitude_limits,
                 now=self.clock(), timeout_s=self.phase_owner.observation_timeout_s)
             return fixed_wing_attitude_packet(request, now=self.clock(), **route)
-        if state.phase is not AirframePhase.MULTICOPTER or not isinstance(observation.local_position_ned, Vector3):
-            raise ValueError("mavlink_priming_contract_unavailable")
-        down = observation.local_position_ned.z - (reference.altitude_amsl_m - state.altitude_amsl_m)
-        return multicopter_velocity_packet(dict(vel_body_fwd=0., vel_body_right=0., vel_body_down=0., yawspeed_deg_s=0.),
-            now=self.clock(), heading_rad=state.navigation_heading_rad, hold_down_m=down, **route)
+        return _multicopter_priming_packet(self, observation)
 
     def packet(self, intent: CommandIntent, state: AircraftState, *, system_id, component_id,
                local_position_ned: Vector3 | None = None):
-        current = self.require_state()
         self._synchronize_policy()
         self.last_projection = None
-        if (not isinstance(intent, CommandIntent) or not isinstance(state, AircraftState)
-                or state != current
-                or not state.fresh(self.clock(), self.phase_owner.observation_timeout_s)
-                or intent.profile_name != self.profile_name or intent.guidance_identity != self.identity
-                or intent.control_type != self.control_type):
-            raise ValueError("mavlink_guidance_intent_context_changed")
-        if self.phase_owner.state is not PhaseSessionState.PURSUIT:
-            baseline = self.baseline()
-            if intent.fields != baseline.fields or intent.altitude_hold != baseline.altitude_hold:
-                raise ValueError("phase_confirmation_pending")
+        _require_intent_context(self, intent, state)
         if self.phase is AirframePhase.FIXED_WING:
             guarded = replace(intent, fields=self.guard_native_fields(intent.fields))
             command = replace(FixedWingCommand.from_intent(guarded), upper_speed_policy=self.fixed_wing.policy.upper_speed_policy)
@@ -116,20 +172,5 @@ class MavlinkVectorGuidanceSession(VectorGuidanceSession):
             packet = fixed_wing_attitude_packet(request, now=self.clock(), system_id=system_id, component_id=component_id)
             self.last_projection = request
             return packet
-        if self.phase is not AirframePhase.MULTICOPTER or not self.phase_owner.capabilities.multicopter_supported:
-            raise ValueError("multicopter_projection_unavailable")
-        fields = validate_and_clamp_command_values("velocity_body_offboard", intent.fields, follower_name=self.profile_name)
-        hold_down = None
-        hold = intent.altitude_hold
-        if hold is not None:
-            if (not isinstance(hold, AltitudeHoldReference) or not isinstance(local_position_ned, Vector3)
-                    or hold.reference_generation != state.altitude_reference_generation
-                    or not self.phase_owner.capabilities.multicopter_altitude_hold_supported):
-                raise ValueError("mavlink_altitude_reference_unavailable")
-            self.altitude_limits.require_hold_target(hold.altitude_amsl_m, current_amsl_m=state.altitude_amsl_m,
-                                                    current_relative_m=state.relative_altitude_m)
-            hold_down = local_position_ned.z - (hold.altitude_amsl_m - state.altitude_amsl_m)
-        elif not self.altitude_control:
-            raise ValueError("mavlink_engagement_altitude_hold_required")
-        return multicopter_velocity_packet(fields, now=self.clock(), heading_rad=state.navigation_heading_rad,
-            hold_down_m=hold_down, system_id=system_id, component_id=component_id)
+        return _multicopter_packet(self, intent.fields, state, intent.altitude_hold,
+            local_position_ned=local_position_ned, system_id=system_id, component_id=component_id)

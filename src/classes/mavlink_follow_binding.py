@@ -11,6 +11,7 @@ from classes.command_dispatch_guard import DispatchRefused, DispatchRefusalKind
 from classes.guidance_phase_session import PhaseSessionState
 from classes.mavlink_command_transport import MavlinkCommandTransport
 from classes.mavlink_guidance_source import MavlinkStartContext
+from classes.fixed_wing_mavlink_control import FixedWingMavlinkVectorControl
 from classes.target_continuity import ContinuityMode, ContinuityPolicy, TargetEvidenceState
 
 
@@ -18,6 +19,9 @@ class MavlinkFollowBinding:
     def __init__(self, guidance, connection, source, continuity, *, continuity_config,
                  target_evidence, context, owns_session, circuit_breaker,
                  command_period_s, prime_duration_s, clock=time.monotonic):
+        if (guidance.identity.binding != source.binding
+                or guidance.phase_owner.capabilities.runtime_id != source.runtime_id):
+            raise ValueError("mavlink_guidance_session_binding_changed")
         self.guidance, self.connection, self.source, self.continuity = guidance, connection, source, continuity
         self.profile_name = guidance.profile_name
         self._context, self._continuity_config = context, deepcopy(continuity_config)
@@ -91,6 +95,10 @@ class MavlinkFollowBinding:
         if self.owner_confirmed and self.pursuit_paused:
             return self.guidance.baseline()
         return None
+
+    def observed_speed(self, state, *, now, timeout_s):
+        """Current measurement or labeled navigation proxy, never a demand."""
+        return FixedWingMavlinkVectorControl.speed_feedback(state, now=now, timeout_s=timeout_s)
 
     def abort(self, reason):
         self._stopping = True

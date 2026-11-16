@@ -177,7 +177,7 @@ def evaluate_input(profile: FollowerProfile, manager, schema_type: str, *,
 
 
 def evaluate_aircraft(profile: FollowerProfile, aircraft_kind: str, *,
-                      observed_phase: str | None = None, native_vtol_verified: bool = False) -> Eligibility:
+                      observed_phase: str | None = None, phase_owner_verified: bool = False) -> Eligibility:
     """Selection is independent; starting needs a supported observed aircraft.
 
     VTOL requires the observed settled phase and the verified native ownership
@@ -188,7 +188,7 @@ def evaluate_aircraft(profile: FollowerProfile, aircraft_kind: str, *,
     if observed_phase == "vtol_transition":
         return Eligibility(False, "following_transition_unavailable")
     if aircraft_kind == "vtol":
-        if native_vtol_verified is not True:
+        if phase_owner_verified is not True:
             return Eligibility(False, "vtol_transition_release_unqualified")
         if observed_phase not in {"multicopter", "fixed_wing"}:
             return Eligibility(False, "aircraft_phase_unavailable")

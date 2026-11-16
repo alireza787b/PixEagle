@@ -503,3 +503,11 @@ remain open. Integration work is unpublished.
   permission, VTOL/fault scenarios and hardware remain open. Latest requested
   public/private values are recorded for the final adoption review in the
   [ownership checkpoint](checkpoints/2026-11-16-stock-mavlink-session-ownership.md).
+
+- **2026-11-17 — Stock application integration:** stock airplane and tailsitter
+  MC/FW application runs pass Start, speed adjustment, brief-loss recovery and
+  observed Hold. A reproduced readiness/command-snapshot race is fixed without
+  weakening freshness checks. Pilot Return and transition end following without
+  cleanup mode replay; native PX4 Offboard-loss Return remains authoritative.
+  Both clients label ground-speed proxy feedback explicitly. See the
+  [application checkpoint](checkpoints/2026-11-17-stock-mavlink-application.md).

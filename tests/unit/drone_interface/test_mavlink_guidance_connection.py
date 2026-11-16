@@ -21,7 +21,8 @@ def manager_fixture(connection):
         False, 4 << 16, 100., None, 1, 1)
     manager = SimpleNamespace(get_aircraft_state_source_epoch=lambda: observation.source_epoch,
         get_guidance_observation=lambda *args, **kwargs: replace(observation,
-            state=replace(observation.state, fixed_wing_envelope=kwargs.get("envelope"))))
+            state=replace(observation.state, fixed_wing_envelope=kwargs.get("envelope"))),
+        set_polling_period_demand=Mock(), clear_polling_period_demand=Mock())
     return manager, observation
 
 
@@ -51,7 +52,10 @@ async def test_parameter_preparation_uses_existing_identity_and_never_dispatches
     connection.mavlink_data_manager = manager
     connection.is_command_connection_ready = lambda: True
     connection.drone = SimpleNamespace(param=SimpleNamespace(
-        get_param_float=AsyncMock(side_effect=lambda name: parameters()[name])))
+        get_param_float=AsyncMock(side_effect=lambda name: parameters()[name])),
+        telemetry=SimpleNamespace(**{name: AsyncMock() for name in (
+            "set_rate_attitude_quaternion", "set_rate_velocity_ned", "set_rate_position",
+            "set_rate_fixedwing_metrics", "set_rate_vtol_state")}))
     # A prior passive source may be replaced; no previously owned mode exists.
     assert connection.commit_aircraft_state(replace(observation.state, source="prior-passive-source"))
     source = await connection.prepare_mavlink_guidance(lookahead_m=50.)
@@ -59,6 +63,9 @@ async def test_parameter_preparation_uses_existing_identity_and_never_dispatches
     assert connection.get_aircraft_state().fixed_wing_envelope.minimum_eas_m_s == 12.
     assert connection.native_guidance_client is None
     assert source.start_context.phase == observation.state.phase
+    manager.set_polling_period_demand.assert_called_once()
+    source.close()
+    manager.clear_polling_period_demand.assert_called_once()
 
 
 @pytest.mark.asyncio

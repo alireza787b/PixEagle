@@ -259,7 +259,7 @@ def observed_owner(active_owner, monkeypatch):
     app.px4_interface.get_aircraft_state = lambda: states.snapshot(timeout_s=.75)
     app.px4_interface.get_telemetry_stale_timeout_s = lambda: .75
     transport = SimpleNamespace(identity=guidance.identity, last_feedback=None)
-    app._native_follow_binding = SimpleNamespace(
+    app._airframe_follow_binding = SimpleNamespace(
         guidance=guidance, owner_confirmed=True, pursuit_paused=False, transport=transport,
     )
     app.follower.follower.session_controls = lambda: [guidance.controls.snapshot(client_contract_version=2)]
@@ -288,6 +288,22 @@ def test_observed_eas_is_selected_fresh_measurement_even_below_native_minimum(ob
     assert control['speed_basis'] == 'equivalent_airspeed'
     assert control['effective_command_magnitude'] == 23.
     assert 'native_effective_eas_m_s' not in control and 'effective_eas_m_s' not in control
+
+
+def test_stock_proxy_is_optional_feedback_and_never_overwrites_the_airspeed_request(observed_owner):
+    from classes.fixed_wing_mavlink_control import FixedWingMavlinkVectorControl
+
+    f = observed_owner
+    measured = replace(f.state, sequence=f.state.sequence + 1, velocity_ned_m_s=Vector3(12., 0., 5.),
+        airspeed=AirspeedObservation('unavailable', None, None, f.clock[0], False))
+    assert f.states.commit(measured)
+    f.app._airframe_follow_binding.observed_speed = lambda state, *, now, timeout_s: (
+        FixedWingMavlinkVectorControl.speed_feedback(state, now=now, timeout_s=timeout_s))
+    control = observed_control(f)
+    assert control['observed_speed_m_s'] == 13.
+    assert control['observed_speed_source'] == 'ground_speed_proxy'
+    assert control['speed_basis'] == 'equivalent_airspeed'
+    assert control['value'] == f.guidance.controls.current_control.value
 
 
 @pytest.mark.parametrize('failure', [
@@ -326,7 +342,7 @@ def test_observation_cannot_cross_freshness_phase_or_session_binding(observed_ow
     elif failure == 'rescue':
         f.app.px4_interface.get_aircraft_state = lambda: replace(state, rescue_active=True)
     elif failure == 'owner_lost':
-        f.app._native_follow_binding.owner_confirmed = False
+        f.app._airframe_follow_binding.owner_confirmed = False
     elif failure == 'control_phase':
         getter = f.app.follower.follower.session_controls
         f.app.follower.follower.session_controls = lambda: [dict(item, aircraft_phase='multicopter') for item in getter()]

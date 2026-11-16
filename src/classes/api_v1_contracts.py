@@ -261,7 +261,7 @@ class APIFollowingSessionControl(BaseModel):
     aircraft_phase: Optional[Literal["multicopter", "fixed_wing", "vtol_transition"]] = None
     speed_basis: Literal["translation_3d", "equivalent_airspeed"] = "translation_3d"
     observed_speed_m_s: Optional[float] = None
-    observed_speed_source: Optional[Literal["sensor", "ground_minus_wind", "native_airspeedless"]] = None
+    observed_speed_source: Optional[Literal["sensor", "ground_minus_wind", "ground_speed_proxy", "native_airspeedless"]] = None
 
 
 class APINativeFollowingHandoff(BaseModel):

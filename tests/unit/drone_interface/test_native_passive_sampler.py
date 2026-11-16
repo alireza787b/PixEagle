@@ -156,7 +156,7 @@ async def test_bad_passive_source_retires_context_without_restamping_or_retry_ac
     s.ticks.put_nowait(None)
     await asyncio.wait_for(s.owner._native_observation_task, 1.)
     assert s.owner.native_guidance_client is None
-    assert s.owner.native_start_context is None
+    assert s.owner.guidance_start_context is None
     assert s.owner.get_aircraft_state() is None
     assert not s.owner.source_attitude_history.snapshot(binding=s.sample.state.binding,
         runtime_id=s.sample.caps.runtime_id, source_clock_id='clock-a', reset_counter=s.sample.raw.quat_reset_counter)
@@ -176,7 +176,7 @@ async def test_stale_passive_status_blocks_admission_and_recovers_without_reconn
             s.ticks.put_nowait(None)
             await at_tick(s)
             assert s.owner.native_guidance_client is s.client
-            assert s.owner.native_start_context is None
+            assert s.owner.guidance_start_context is None
             assert s.owner.get_aircraft_state() is None
             assert not s.owner.source_attitude_history.snapshot(binding=s.sample.state.binding,
                 runtime_id=s.sample.caps.runtime_id, source_clock_id='clock-a', reset_counter=s.sample.raw.quat_reset_counter)
@@ -184,7 +184,7 @@ async def test_stale_passive_status_blocks_admission_and_recovers_without_reconn
         s.ticks.put_nowait(None)
         await at_tick(s)
         assert s.owner.get_aircraft_state() == s.sample.state
-        assert s.owner.native_start_context is not None
+        assert s.owner.guidance_start_context is not None
         assert s.owner._native_observation_task is task
         s.client.abort.assert_not_called()
         assert all(call.kwargs == {'passive': True} for call in s.client.observe.await_args_list)

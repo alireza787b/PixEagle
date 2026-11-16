@@ -63,6 +63,18 @@ test('native envelope can change around a retained acknowledged airspeed request
   expect(validSessionControls([{ ...airspeed, speed_basis: 'unknown' }])).toBe(false);
 });
 
+test('navigation proxy is never presented as measured airspeed or stall evidence', async () => {
+  axios.get.mockResolvedValue({ data: snapshot([{ ...control, minimum: 10, maximum: 30, value: 18,
+    guidance_generation: 4, aircraft_phase: 'fixed_wing', speed_basis: 'equivalent_airspeed',
+    observed_speed_m_s: 15.12, observed_speed_source: 'ground_speed_proxy' }]) });
+  render(<FollowerSessionControls active />);
+  fireEvent.click(await screen.findByRole('button', { name: /Requested airspeed 18.0/ }));
+  fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+  expect(screen.getByText(/Ground-speed proxy: 15.1 m\/s/)).toBeInTheDocument();
+  expect(screen.getByText(/Actual airspeed and stall margin are unavailable/)).toBeInTheDocument();
+  expect(screen.queryByText(/PX4 controls the turn and vertical path/)).not.toBeInTheDocument();
+});
+
 test.each([true, 3, {}, []])('rejects malformed optional speed description %p', (description) => {
   expect(validSessionControls([{ ...control, description }])).toBe(false);
 });

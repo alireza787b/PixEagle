@@ -57,8 +57,19 @@ class MavlinkGuidanceSource:
         self.manager, self.binding, self.source_epoch = manager, binding, source_epoch
         self.current_binding = current_binding
         self.envelope, self.tuning = envelope, tuning
+        self._poll_owner = object()
+        self._polling_requested = False
         payload = [asdict(binding), source_epoch, None if envelope is None else envelope.revision]
         self.runtime_id = "stock-mavlink:" + hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+
+    def request_polling_period(self, period_s):
+        self.manager.set_polling_period_demand(self._poll_owner, period_s)
+        self._polling_requested = True
+
+    def close(self):
+        if self._polling_requested:
+            self.manager.clear_polling_period_demand(self._poll_owner)
+            self._polling_requested = False
 
     def observation(self):
         if self.current_binding() != self.binding:
@@ -74,7 +85,8 @@ class MavlinkGuidanceSource:
     @property
     def start_context(self):
         observation = self.observation()
-        if observation is None or observation.flight_mode == PX4_OFFBOARD_MODE:
+        if (observation is None or type(observation.flight_mode) is not int
+                or observation.flight_mode == PX4_OFFBOARD_MODE):
             return None
         state = observation.state
         if state.phase not in {AirframePhase.MULTICOPTER, AirframePhase.FIXED_WING} or state.rescue_active:
@@ -101,6 +113,4 @@ class MavlinkGuidanceSource:
         revision = hashlib.sha256(json.dumps(parameters, sort_keys=True, allow_nan=False).encode()).hexdigest()
         envelope, tuning = resolve_mavlink_configuration(parameters, revision=revision, lookahead_m=lookahead_m)
         source = cls(manager, binding, epoch, current_binding=current_binding, envelope=envelope, tuning=tuning)
-        if source.start_context is None:
-            raise ValueError("mavlink_aircraft_state_unavailable")
         return source

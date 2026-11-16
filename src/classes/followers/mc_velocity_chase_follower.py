@@ -1324,7 +1324,7 @@ class MCVelocityChaseFollower(BaseFollower):
             logger.error(f"Altitude safety check failed: {e}")
             return False
 
-    def create_airframe_session(self, identity, capabilities, **policy):
+    def create_airframe_session(self, identity, capabilities, *, session_factory=None, **policy):
         """Reuse native ownership with the existing image-guided MC command law."""
         from classes.aircraft_state import AirframePhase
         from classes.airframe_session_controls import AirframeSessionControls
@@ -1333,7 +1333,8 @@ class MCVelocityChaseFollower(BaseFollower):
             raise ValueError('airframe_session_already_bound')
         # App supplies the shared factory policy; MC has no FW energy strategy.
         policy.pop('fixed_wing_policy', None)
-        session = PhaseGuidanceSession(
+        factory = PhaseGuidanceSession if session_factory is None else session_factory
+        session = factory(
             identity, capabilities, profile_name=self.profile_name,
             controls=AirframeSessionControls.from_multicopter_control(identity, self._requested_speed_control()),
             supported_phases=frozenset({AirframePhase.MULTICOPTER}),

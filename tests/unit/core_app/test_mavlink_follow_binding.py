@@ -22,6 +22,7 @@ def fixture():
     source = MavlinkGuidanceSource(manager, initial.state.binding, bench.epoch,
         current_binding=lambda: initial.state.binding if bench.current else None,
         envelope=initial.state.fixed_wing_envelope, tuning=bench.guidance.projection.tuning)
+    bench.guidance.phase_owner.capabilities = replace(bench.guidance.phase_owner.capabilities, runtime_id=source.runtime_id)
     connection = SimpleNamespace(connection_generation=1,
         get_aircraft_state=lambda: bench.observe().state if bench.fresh else None,
         get_mavlink_guidance_observation=bench.observe,

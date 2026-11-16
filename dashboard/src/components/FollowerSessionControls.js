@@ -317,9 +317,11 @@ export default function FollowerSessionControls({ active, showStop = false }) {
             {control.reset_supported ? `\n${control.override_active ? 'Saved speed limits are overridden. Restore reapplies them and keeps or lowers this request.' : 'Saved speed limits apply.'}\nSaved ceiling: ${speedText(control.configured_maximum, control.step)} ${control.unit}.`
               : control.maximum === null ? ' No configured velocity ceiling.' : ` Maximum ${speedText(control.maximum, control.step)} ${control.unit}.`}
             {'\n'}{control.speed_basis === 'equivalent_airspeed'
-              ? `Minimum ${speedText(control.minimum, control.step)} ${control.unit}. PX4 controls the turn and vertical path; this is an airspeed reference, not measured speed. Stop ends following.`
+              ? `Minimum ${speedText(control.minimum, control.step)} ${control.unit}. Requested airspeed reference; achieved speed depends on flight conditions. Stop ends following.`
               : 'Altitude and rate settings are unchanged. Zero stops translation; Stop ends following.'}
-            {control.observed_speed_source === 'native_airspeedless'
+            {control.observed_speed_source === 'ground_speed_proxy'
+              ? `\nGround-speed proxy: ${speedText(control.observed_speed_m_s, control.step)} ${control.unit}. Actual airspeed and stall margin are unavailable.`
+              : control.observed_speed_source === 'native_airspeedless'
               ? '\nSensorless: actual airspeed and stall margin are unavailable.'
               : Number.isFinite(control.observed_speed_m_s)
                 ? `\nObserved: ${speedText(control.observed_speed_m_s, control.step)} ${control.unit}${control.observed_speed_source === 'ground_minus_wind' ? ' · wind estimate' : ''}.` : ''}

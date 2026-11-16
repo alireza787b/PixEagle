@@ -479,7 +479,7 @@ class PX4InterfaceManager:
     def _advance_connection_generation(self) -> int:
         """Invalidate command owners created for every previous connection."""
         self._abort_native_guidance()
-        self._mavlink_guidance_source = None
+        self._clear_mavlink_guidance_source()
         self._connection_generation += 1
         self._aircraft_identity = None
         self._aircraft_state_owner.bind(None)
@@ -577,6 +577,13 @@ class PX4InterfaceManager:
     def mavlink_guidance_source(self):
         return getattr(self, '_mavlink_guidance_source', None)
 
+    def _clear_mavlink_guidance_source(self):
+        source = self.mavlink_guidance_source
+        close = getattr(source, 'close', None)
+        if callable(close):
+            close()
+        self._mavlink_guidance_source = None
+
     def get_mavlink_guidance_observation(self):
         source = self.mavlink_guidance_source
         observation = None if source is None else source.observation()
@@ -604,16 +611,29 @@ class PX4InterfaceManager:
                 manager = getattr(self.app_controller, 'mavlink_data_manager', None)
             if manager is None:
                 raise ValueError("mavlink_guidance_telemetry_unavailable")
+            rate = self.get_follower_data_refresh_rate_hz()
+            try:
+                results = await asyncio.wait_for(asyncio.gather(
+                    self.drone.telemetry.set_rate_attitude_quaternion(rate),
+                    self.drone.telemetry.set_rate_velocity_ned(rate),
+                    self.drone.telemetry.set_rate_position(rate),
+                    self.drone.telemetry.set_rate_fixedwing_metrics(rate),
+                    self.drone.telemetry.set_rate_vtol_state(min(1., rate)), return_exceptions=True),
+                    timeout=self.get_mavsdk_command_timeout_s())
+                if any(isinstance(result, Exception) for result in results):
+                    logger.warning("Stock guidance telemetry-rate request incomplete; observed source freshness remains authoritative")
+            except asyncio.TimeoutError:
+                logger.warning("Stock guidance telemetry-rate request timed out; waiting for observed source progress")
             source = await MavlinkGuidanceSource.prepare(manager, binding,
                 current_binding=self.get_aircraft_state_binding, parameter_client=self.drone.param,
                 lookahead_m=lookahead_m, timeout_s=self.get_mavsdk_command_timeout_s())
             self._abort_native_guidance()
+            source.request_polling_period(1. / rate)
+            self._clear_mavlink_guidance_source()
             self._aircraft_state_owner.bind(None)
             self._aircraft_state_owner.bind(binding)
             self._mavlink_guidance_source = source
-            if self.get_mavlink_guidance_observation() is None:
-                self._mavlink_guidance_source = None
-                raise ValueError("mavlink_aircraft_state_unavailable")
+            self.get_mavlink_guidance_observation()
             return source
 
     @property
@@ -629,7 +649,12 @@ class PX4InterfaceManager:
         return history
 
     @property
-    def native_vtol_contract_ready(self):
+    def airframe_contract_ready(self):
+        source = self.mavlink_guidance_source
+        if source is not None:
+            state = self.get_aircraft_state()
+            return bool(state is not None and source.envelope is not None and source.tuning is not None
+                        and state.phase in {AirframePhase.MULTICOPTER, AirframePhase.FIXED_WING})
         client = self._native_guidance_client
         capabilities = None if client is None else client.capabilities
         state = self.get_aircraft_state()
@@ -638,8 +663,11 @@ class PX4InterfaceManager:
             and capabilities.multicopter_altitude_hold_supported)
 
     @property
-    def native_start_context(self):
+    def guidance_start_context(self):
         """Immutable original observation; polling cannot renew its source age."""
+        source = self.mavlink_guidance_source
+        if source is not None:
+            return source.start_context
         snapshot = getattr(self, '_native_observation_snapshot', None)
         client = self._native_guidance_client
         capabilities = None if client is None else client.capabilities
@@ -658,6 +686,16 @@ class PX4InterfaceManager:
         except (ValueError, NativeGuidanceError):
             return None
         return context
+
+    @property
+    def guidance_capabilities(self):
+        source = self.mavlink_guidance_source
+        if source is not None:
+            from classes.mavlink_vector_guidance_session import MavlinkGuidanceCapabilities
+            fixed_wing = source.envelope is not None and source.tuning is not None
+            return MavlinkGuidanceCapabilities(source.runtime_id, fixed_wing, True, True, fixed_wing)
+        client = self._native_guidance_client
+        return None if client is None else client.capabilities
 
     def commit_native_observation(self, observation):
         """Retain state, pre-acquire identity and raw source samples from one read."""
@@ -834,6 +872,7 @@ class PX4InterfaceManager:
                 "Cannot start telemetry for a superseded PX4 connection generation"
             )
         self._abort_native_guidance()
+        self._clear_mavlink_guidance_source()
         self._telemetry_generation += 1
         self._aircraft_state_owner.bind(None)
         self._telemetry_connection_generation = connection_generation

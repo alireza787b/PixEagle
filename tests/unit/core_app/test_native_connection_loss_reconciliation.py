@@ -46,7 +46,7 @@ async def native_application(app, native_server):
         observation_timeout_s=.75, initial_phase=AirframePhase.FIXED_WING, clock=lambda: 100.,
     )
     ctrl = app.ctrl
-    ctrl.px4_interface.native_start_context = start_context(original)
+    ctrl.px4_interface.guidance_start_context = start_context(original)
     ctrl.px4_interface.native_guidance_client = client
     ctrl.px4_interface.get_aircraft_state.return_value = state
     ctrl.px4_interface.get_aircraft_identity.return_value = {
@@ -56,7 +56,7 @@ async def native_application(app, native_server):
     bindings = []
 
     async def prepare(start_context):
-        assert start_context is ctrl.px4_interface.native_start_context
+        assert start_context is ctrl.px4_interface.guidance_start_context
         binding = NativeFollowBinding(
             guidance, connection, client, ctrl.target_continuity,
             profile_name="gm_velocity_vector", continuity_config=CONFIG,
@@ -64,11 +64,11 @@ async def native_application(app, native_server):
             circuit_breaker=lambda: False, clock=lambda: 100.,
         )
         ctrl._following_session_id = original.follow_session_id
-        ctrl._native_follow_binding = binding
+        ctrl._airframe_follow_binding = binding
         bindings.append(binding)
         return binding
 
-    ctrl._prepare_native_follow_binding = AsyncMock(side_effect=prepare)
+    ctrl._prepare_airframe_follow_binding = AsyncMock(side_effect=prepare)
     try:
         yield SimpleNamespace(ctrl=ctrl, client=client, requests=requests, behavior=behavior,
                               bindings=bindings, original=original)
@@ -110,7 +110,7 @@ async def test_connection_loss_confirms_only_original_release_via_read_only_prot
     assert post_loss_operations(native, before) == ["hello", "bind", "observe"]
     assert native.requests[before + 1]["payload"]["binding"] == asdict(acquisition.identity.binding)
     assert binding.release_receipt.acquisition == acquisition
-    assert native.ctrl._native_follow_binding is None
+    assert native.ctrl._airframe_follow_binding is None
     assert not native.ctrl._following_offboard_cleanup_required
     assert native.client.session_identity is None
 
@@ -140,7 +140,7 @@ async def test_connection_loss_keeps_original_binding_and_barrier_without_matchi
         assert operations == []
     else:
         assert operations[0] == "hello"
-    assert native.ctrl._native_follow_binding is binding
+    assert native.ctrl._airframe_follow_binding is binding
     assert native.ctrl._following_offboard_cleanup_required
     assert binding.release_receipt is None
     assert native.client.acquisition_context == acquisition
@@ -175,7 +175,7 @@ async def test_connection_loss_does_not_abort_or_release_a_current_replacement_a
     assert post_loss_operations(native, before) == []
     assert native.client.session_identity == native.original
     assert native.client.acquisition_context == replacement
-    assert native.ctrl._native_follow_binding is binding
+    assert native.ctrl._airframe_follow_binding is binding
     assert native.ctrl._following_offboard_cleanup_required
     assert binding._acquisition == original
     assert native.ctrl._last_following_handoff["result"] == "failed"
@@ -190,14 +190,14 @@ async def test_preacquire_no_dispatch_remains_a_legitimate_local_only_cleanup(na
     ctrl = native.ctrl
     ctrl._refresh_target_continuity_policy()
     ctrl._reset_target_continuity("partial_start")
-    binding = await ctrl._prepare_native_follow_binding(ctrl.px4_interface.native_start_context)
+    binding = await ctrl._prepare_airframe_follow_binding(ctrl.px4_interface.guidance_start_context)
     assert not binding.acquire_dispatched
     result = {"steps": [], "errors": []}
     before = len(native.requests)
-    await ctrl._stop_native_follow_binding(result, reason="start_refused", allow_handoff=False)
+    await ctrl._stop_airframe_follow_binding(result, reason="start_refused", allow_handoff=False)
     assert result["errors"] == []
     assert result["offboard_stop_action"]["reason"] == "native_acquire_not_dispatched"
     assert result["offboard_stop_action"]["local_sender_quiesced"] is True
     assert post_loss_operations(native, before) == []
-    assert ctrl._native_follow_binding is None
+    assert ctrl._airframe_follow_binding is None
     assert not ctrl._following_offboard_cleanup_required

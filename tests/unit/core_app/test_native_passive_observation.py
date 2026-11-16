@@ -38,7 +38,7 @@ def controller(connection, monkeypatch):
     app._follower_state_lock = asyncio.Lock()
     app.following_active = False
     app.px4_interface = connection
-    app._native_follow_binding = None
+    app._airframe_follow_binding = None
     connection.get_aircraft_kind = Mock(return_value=AircraftKind.FIXED_WING)
     monkeypatch.setattr(Parameters, 'FOLLOWER_EXECUTION_MODE', 'PX4')
     monkeypatch.setattr(Parameters, 'AIRFRAME_LAYOUT', 'AUTO', raising=False)
@@ -50,7 +50,7 @@ async def test_two_passive_polls_reuse_one_client_and_snapshot_owner(connection,
     factory = Mock(return_value=client)
     monkeypatch.setattr('classes.px4_interface_manager.NativeGuidanceClient', factory)
     owner = connection._aircraft_state_owner
-    await asyncio.gather(*(app.refresh_native_following_state('gm_velocity_vector') for _ in range(2)))
+    await asyncio.gather(*(app.refresh_airframe_following_state('gm_velocity_vector', transport="native") for _ in range(2)))
     assert factory.call_count == client.connect.await_count == client.bind.await_count == 1
     assert client.observe.await_count == 2 and connection.get_aircraft_state() == state
     assert connection._aircraft_state_owner is owner and connection.native_guidance_client is client
@@ -67,12 +67,12 @@ async def test_status_never_starts_adapter_for_ineligible_or_owned_paths(connect
     elif condition == 'mavsdk_profile': mode = 'mc_velocity_position'
     elif condition == 'disconnected': connection.get_connection_status = lambda: {'connected': False}
     elif condition == 'active': app.following_active = True
-    elif condition == 'binding': app._native_follow_binding = object()
+    elif condition == 'binding': app._airframe_follow_binding = object()
     elif condition == 'stopping': app._following_stopping = True
     elif condition == 'cleanup': app._following_offboard_cleanup_required = True
     elif condition == 'shutdown': app.shutdown_flag = True
     elif condition == 'preview': monkeypatch.setattr(Parameters, 'FOLLOWER_EXECUTION_MODE', 'COMMAND_PREVIEW')
-    await app.refresh_native_following_state(mode)
+    await app.refresh_airframe_following_state(mode, transport="native")
     connection.prepare_native_guidance.assert_not_awaited()
 
 
@@ -84,7 +84,7 @@ async def test_implemented_native_profile_can_observe_while_start_remains_unqual
     assert not profile.live_eligibility.eligible
     monkeypatch.setattr('classes.follower_catalog.get_follower_profile', lambda _: profile)
     connection.prepare_native_guidance = AsyncMock()
-    await app.refresh_native_following_state('fw_navigation_chase')
+    await app.refresh_airframe_following_state('fw_navigation_chase', transport="native")
     connection.prepare_native_guidance.assert_awaited_once()
     assert not app.following_active
 
@@ -95,7 +95,7 @@ async def test_metadata_not_vector_name_selects_native_observation(connection, m
     profile = replace(get_follower_profile('gm_velocity_vector'), mode='future_qualified_native')
     monkeypatch.setattr('classes.follower_catalog.get_follower_profile', lambda _: profile)
     connection.prepare_native_guidance = AsyncMock()
-    await app.refresh_native_following_state('future_qualified_native')
+    await app.refresh_airframe_following_state('future_qualified_native', transport="native")
     connection.prepare_native_guidance.assert_awaited_once()
 
 
@@ -106,10 +106,10 @@ async def test_status_waiting_for_lifecycle_lock_cannot_observe_new_owner(connec
     assert connection.commit_aircraft_state(retained)
     connection.prepare_native_guidance = AsyncMock()
     async with app._follower_state_lock:
-        pending = asyncio.create_task(app.refresh_native_following_state('gm_velocity_vector'))
+        pending = asyncio.create_task(app.refresh_airframe_following_state('gm_velocity_vector', transport="native"))
         await asyncio.sleep(0)
         assert not pending.done()
-        if change == 'active': app._native_follow_binding = object()
+        if change == 'active': app._airframe_follow_binding = object()
         elif change == 'disconnect': connection.get_connection_status = lambda: {'connected': False}
         else: app._following_stopping = True
     await pending

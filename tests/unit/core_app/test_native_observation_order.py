@@ -207,14 +207,14 @@ async def test_original_transport_does_not_abort_replacement_acquisition(compone
 async def test_one_actual_commander_attempt_runs_existing_app_terminal_cleanup(native_application, monkeypatch):
     native = native_application
     ctrl = native.ctrl
-    prepare = ctrl._prepare_native_follow_binding.side_effect
+    prepare = ctrl._prepare_airframe_follow_binding.side_effect
 
     async def immediate_confirmation(start_context):
         binding = await prepare(start_context)
         binding.guidance.phase_owner.confirmation_s = 0.
         return binding
 
-    ctrl._prepare_native_follow_binding.side_effect = immediate_confirmation
+    ctrl._prepare_airframe_follow_binding.side_effect = immediate_confirmation
     binding = await start(native)
     monkeypatch.setattr("classes.offboard_commander.time", SimpleNamespace(monotonic=lambda: 100.))
     assert binding.guidance.phase_owner.state is PhaseSessionState.PURSUIT
@@ -241,7 +241,7 @@ async def test_one_actual_commander_attempt_runs_existing_app_terminal_cleanup(n
     assert await commander.publish_once() is False
     assert len(callbacks) == 1 and callbacks[0]["terminal_failure"]
     assert not ctrl.following_active
-    assert ctrl._native_follow_binding is None
+    assert ctrl._airframe_follow_binding is None
     assert not ctrl._following_offboard_cleanup_required
     assert binding.terminal_reason == "control_owner_lost"
     assert binding.connection.get_aircraft_state().phase is AirframePhase.FIXED_WING

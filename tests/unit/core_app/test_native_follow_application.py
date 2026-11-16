@@ -20,6 +20,12 @@ from tests.unit.core_app.test_app_controller_offboard_safety import _follower_ma
 from tests.unit.core_app.test_native_follow_binding import fixture, CONFIG
 
 
+class ObservedNativeConnection(SimpleNamespace):
+    @property
+    def guidance_capabilities(self):
+        return self.native_guidance_client.capabilities
+
+
 @pytest.fixture
 def app(monkeypatch):
     f = fixture(is_vtol=False)
@@ -33,8 +39,8 @@ def app(monkeypatch):
     ctrl._apply_pending_follower_config = AsyncMock(return_value={"applied_count": 0})
     ctrl._get_follow_start_readiness = Mock(return_value={"usable_for_following": True})
     ctrl._ensure_continuity_watchdog = Mock()
-    ctrl._native_follow_binding = None
-    ctrl.px4_interface = SimpleNamespace(
+    ctrl._airframe_follow_binding = None
+    ctrl.px4_interface = ObservedNativeConnection(
         current_yaw=0., current_altitude=50., active_mode=True,
         connect=AsyncMock(return_value={"connected": True}),
         wait_for_telemetry_ready=AsyncMock(return_value={"ready": True, "source": "fixture"}),
@@ -45,7 +51,8 @@ def app(monkeypatch):
         get_telemetry_stale_timeout_s=Mock(return_value=.75),
         get_aircraft_identity=Mock(return_value={"autopilot_uid": f.state.binding.aircraft_uid,
                                                 "connection_generation": f.state.binding.connection_generation}),
-        native_start_context=f.start_context, native_guidance_client=f.client,
+        guidance_start_context=f.start_context, native_guidance_client=f.client,
+        mavlink_guidance_source=None,
         is_command_connection_ready=Mock(return_value=True),
         start_offboard_mode=AsyncMock(), stop_offboard_mode=AsyncMock(),
     )
@@ -67,10 +74,10 @@ def app(monkeypatch):
         f.binding.continuity = ctrl.target_continuity
         f.binding._context = ctrl._build_target_continuity_context
         ctrl._following_session_id = f.guidance.identity.follow_session_id
-        ctrl._native_follow_binding = f.binding
+        ctrl._airframe_follow_binding = f.binding
         return f.binding
 
-    ctrl._prepare_native_follow_binding = AsyncMock(side_effect=prepare)
+    ctrl._prepare_airframe_follow_binding = AsyncMock(side_effect=prepare)
     monkeypatch.setattr(Parameters, "FOLLOWER_EXECUTION_MODE", "PX4")
     monkeypatch.setattr(Parameters, "FOLLOWER_CIRCUIT_BREAKER", False)
     monkeypatch.setattr(Parameters, "FOLLOWER_MODE", "gm_velocity_vector")
@@ -116,7 +123,7 @@ async def test_start_does_not_refresh_away_the_original_native_phase_mismatch(ap
     assert result['precondition']['code'] == 'native_start_context_changed'
     assert not ctrl.following_active
     ctrl.px4_interface.prepare_native_guidance.assert_not_awaited()
-    ctrl._prepare_native_follow_binding.assert_not_called()
+    ctrl._prepare_airframe_follow_binding.assert_not_called()
     app.f.client.engage.assert_not_called()
 
 
@@ -129,14 +136,14 @@ async def test_passive_poll_queued_during_real_start_does_not_observe_active_pub
     ctrl.px4_interface.prepare_native_guidance.side_effect = refresh
     startup = asyncio.create_task(ctrl._connect_px4_on_flight_loop())
     await entered.wait()
-    poll = asyncio.create_task(ctrl.refresh_native_following_state('gm_velocity_vector'))
+    poll = asyncio.create_task(ctrl.refresh_airframe_following_state('gm_velocity_vector'))
     await asyncio.sleep(0)
     assert not poll.done()
     release.set()
     result = await startup;await poll
     assert result['errors'] == [] and ctrl.following_active
     ctrl.px4_interface.prepare_native_guidance.assert_awaited_once()
-    assert ctrl._native_follow_binding is app.f.binding
+    assert ctrl._airframe_follow_binding is app.f.binding
 
 
 async def test_ordinary_mc_vector_retains_existing_mavsdk_owner(app):
@@ -145,7 +152,7 @@ async def test_ordinary_mc_vector_retains_existing_mavsdk_owner(app):
     ctrl.px4_interface.start_offboard_mode.return_value = {"executed": True, "errors": []}
     result = await ctrl._connect_px4_on_flight_loop()
     assert result["errors"] == []
-    ctrl._prepare_native_follow_binding.assert_not_called()
+    ctrl._prepare_airframe_follow_binding.assert_not_called()
     ctrl.px4_interface.start_offboard_mode.assert_awaited_once()
     assert app.commander_factory.call_args.kwargs["command_transport"] is None
     app.manager.follower.reset_control_session.assert_called_once()
@@ -159,12 +166,12 @@ async def test_unknown_aircraft_cannot_start_mc_commands_on_a_possible_vtol(app)
     assert any("aircraft_kind_unavailable" in error for error in result["errors"])
     ctrl.px4_interface.start_offboard_mode.assert_not_called()
     ctrl.px4_interface.stop_offboard_mode.assert_not_called()
-    ctrl._prepare_native_follow_binding.assert_not_called()
+    ctrl._prepare_airframe_follow_binding.assert_not_called()
 
 
 async def test_read_only_native_preparation_failure_cannot_send_mavsdk_hold(app):
     ctrl = app.ctrl
-    ctrl._prepare_native_follow_binding.side_effect = RuntimeError("native_adapter_missing")
+    ctrl._prepare_airframe_follow_binding.side_effect = RuntimeError("native_adapter_missing")
     result = await ctrl._connect_px4_on_flight_loop()
     assert not ctrl.following_active
     assert any("native_adapter_missing" in error for error in result["errors"])
@@ -202,12 +209,12 @@ async def test_native_preparation_uses_declared_mc_capability_before_acquisition
     if mc_supported:
         from tests.fixtures.native_ownership import start_context
         original = start_context(app.f.guidance.identity, runtime_id=capabilities.runtime_id, phase=state.phase.value)
-        assert await AppController._prepare_native_follow_binding(ctrl, original) is binding
+        assert await AppController._prepare_airframe_follow_binding(ctrl, original) is binding
         assert create.call_args.kwargs["initial_phase"] is state.phase
         construct.assert_called_once()
     else:
         with pytest.raises(RuntimeError, match="native_vtol_contract_unavailable"):
-            await AppController._prepare_native_follow_binding(ctrl, app.f.start_context)
+            await AppController._prepare_airframe_follow_binding(ctrl, app.f.start_context)
         create.assert_not_called()
         construct.assert_not_called()
     app.f.client.engage.assert_not_called()
@@ -235,7 +242,7 @@ async def test_native_stop_joins_publisher_before_native_handoff(app):
     assert result["errors"] == []
     assert order == ["publisher", "handoff"]
     assert result["offboard_stop_action"]["executed"]
-    assert ctrl._native_follow_binding is None
+    assert ctrl._airframe_follow_binding is None
     assert not ctrl.following_active
     app.commander.stop.assert_awaited_once_with(publish_final=False)
     ctrl.px4_interface.stop_offboard_mode.assert_not_called()
@@ -262,7 +269,7 @@ async def test_native_start_cancellation_cleans_owner_without_mavsdk_stop(app):
     assert not ctrl.following_active
     app.f.client.handoff.assert_awaited_once()
     ctrl.px4_interface.stop_offboard_mode.assert_not_called()
-    assert ctrl._native_follow_binding is None
+    assert ctrl._airframe_follow_binding is None
 
 
 async def test_delayed_mavlink_offboard_exit_does_not_revoke_native_mode(app):
@@ -280,7 +287,7 @@ async def test_handoff_failure_retains_cleanup_owner_and_blocks_a_new_start(app)
     app.f.client.handoff.side_effect = RuntimeError("handoff_timeout")
     result = await ctrl._disconnect_px4_internal()
     assert result["errors"]
-    assert ctrl._native_follow_binding is app.f.binding
+    assert ctrl._airframe_follow_binding is app.f.binding
     assert ctrl._following_offboard_cleanup_required
     next_start = await ctrl._connect_px4_on_flight_loop()
     assert next_start["precondition"]["code"] == "following_stop_pending"
@@ -388,7 +395,7 @@ async def test_live_owner_admission_is_shared_by_typed_and_legacy_start(app, kin
     assert not app.ctrl.following_active
     app.follower_factory.assert_not_called()
     app.ctrl.px4_interface.start_offboard_mode.assert_not_called()
-    app.ctrl._prepare_native_follow_binding.assert_not_called()
+    app.ctrl._prepare_airframe_follow_binding.assert_not_called()
     app.commander_factory.assert_not_called()
 
 
@@ -413,21 +420,21 @@ async def test_correlated_pilot_release_clears_cleanup_barrier_without_claiming_
     assert outcome['errors'] == []
     assert outcome['offboard_stop_action']['local_sender_quiesced']
     assert outcome['offboard_stop_action']['executed'] is False
-    assert ctrl._native_follow_binding is None
+    assert ctrl._airframe_follow_binding is None
     assert not ctrl._following_offboard_cleanup_required
     assert not ctrl.following_active
     assert (getattr(ctrl, '_last_following_handoff', None) or {}).get('result') != 'confirmed_hold'
     fresh = fixture(is_vtol=False)
 
     async def prepare_fresh(start_context):
-        assert start_context is ctrl.px4_interface.native_start_context
+        assert start_context is ctrl.px4_interface.guidance_start_context
         fresh.binding.continuity = ctrl.target_continuity
         fresh.binding._context = ctrl._build_target_continuity_context
         ctrl._following_session_id = fresh.guidance.identity.follow_session_id
-        ctrl._native_follow_binding = fresh.binding
+        ctrl._airframe_follow_binding = fresh.binding
         return fresh.binding
 
-    ctrl._prepare_native_follow_binding.side_effect = prepare_fresh
+    ctrl._prepare_airframe_follow_binding.side_effect = prepare_fresh
     result = await ctrl._connect_px4_on_flight_loop()
     assert result['errors'] == []
     assert ctrl.following_active
@@ -446,7 +453,7 @@ async def test_continuity_cleanup_confirms_identity_bound_release_even_without_h
         app.f.client.acquisition_context, outcome=outcome, nav_state=5 if outcome == "owner_already_released" else 4)
     await ctrl._execute_target_continuity_handoff("aircraft_transition_observed")
     supervisor.record_handoff_result.assert_called_once_with(success=True, detail="native_owner_released")
-    assert ctrl._native_follow_binding is None
+    assert ctrl._airframe_follow_binding is None
     assert app.f.binding.release_receipt.released
     ctrl.px4_interface.stop_offboard_mode.assert_not_called()
 
@@ -479,7 +486,7 @@ async def test_continuity_cleanup_captures_original_binding_before_await(app):
     app.f.client.handoff.return_value = release_receipt(
         app.f.client.acquisition_context, outcome="owner_already_released", nav_state=5)
     await cleanup
-    assert ctrl._native_follow_binding is None
+    assert ctrl._airframe_follow_binding is None
     assert supervisor.record_handoff_result.call_args.kwargs["success"] is True
 
 
@@ -559,7 +566,7 @@ async def test_repeated_continuity_stop_records_one_original_completion(app):
 @pytest.mark.parametrize('code', ['image_measurement_unavailable', 'source_attitude_alignment_unavailable'])
 async def test_image_startup_refusal_preserves_typed_code_without_acquiring_or_sending_hold(app, monkeypatch, code):
     ctrl = app.ctrl
-    ctrl._prepare_native_follow_binding = AppController._prepare_native_follow_binding.__get__(ctrl, AppController)
+    ctrl._prepare_airframe_follow_binding = AppController._prepare_airframe_follow_binding.__get__(ctrl, AppController)
     app.manager.follower.setpoint_handler.profile_config = {
         'native_phase_contracts': {'fixed_wing': 'fixed_wing_external'}}
     resolver = AsyncMock(side_effect=ValueError(code))
@@ -569,7 +576,7 @@ async def test_image_startup_refusal_preserves_typed_code_without_acquiring_or_s
     assert result['precondition']['code'] == code
     assert any(code in error for error in result['errors'])
     assert not ctrl.following_active
-    assert ctrl._native_follow_binding is None
+    assert ctrl._airframe_follow_binding is None
     resolver.assert_awaited_once()
     app.manager.follower.create_airframe_session.assert_not_called()
     app.f.client.engage.assert_not_called()
@@ -595,7 +602,7 @@ async def test_native_startup_error_does_not_replace_an_existing_specific_precon
 @pytest.mark.parametrize('change', ['target', 'source'])
 async def test_native_image_preparation_guard_cannot_rebase_onto_replaced_input(app, monkeypatch, change):
     ctrl = app.ctrl
-    ctrl._prepare_native_follow_binding = AppController._prepare_native_follow_binding.__get__(ctrl, AppController)
+    ctrl._prepare_airframe_follow_binding = AppController._prepare_airframe_follow_binding.__get__(ctrl, AppController)
     app.manager.follower.setpoint_handler.profile_config = {
         'native_phase_contracts': {'fixed_wing': 'fixed_wing_external'}}
 

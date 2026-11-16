@@ -33,6 +33,7 @@ class MavlinkDataManager:
         self.mavlink_host = mavlink_host
         self.mavlink_port = mavlink_port
         self.polling_interval = polling_interval
+        self._poll_period_demands = {}
         # Route selection is explicit and shared by aggregate/follower reads.
         # Existing literal data paths are rebased to this configured route.
         self.system_id = self._route_id("MAVLINK_SYSTEM_ID", 1)
@@ -312,7 +313,22 @@ class MavlinkDataManager:
         """
         while not self._stop_event.is_set():
             self._fetch_and_parse_all_data()
-            self._stop_event.wait(self.polling_interval)
+            self._stop_event.wait(self.get_polling_period())
+
+    def set_polling_period_demand(self, owner, period_s):
+        """Consumers share the existing poller without overwriting saved settings."""
+        if type(period_s) not in (int, float) or not math.isfinite(period_s) or period_s <= 0:
+            raise ValueError("mavlink_polling_period_invalid")
+        with self._lock:
+            self._poll_period_demands[owner] = period_s
+
+    def clear_polling_period_demand(self, owner):
+        with self._lock:
+            self._poll_period_demands.pop(owner, None)
+
+    def get_polling_period(self):
+        with self._lock:
+            return min(self.polling_interval, *self._poll_period_demands.values()) if self._poll_period_demands else self.polling_interval
 
     def _fetch_and_parse_all_data(self):
         """

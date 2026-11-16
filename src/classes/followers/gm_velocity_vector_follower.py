@@ -270,14 +270,15 @@ class GMVelocityVectorFollower(BaseFollower):
             raise ValueError('guidance_input_resolver_binding_invalid')
         self._native_guidance_input_resolver = resolver
 
-    def create_airframe_session(self, identity, capabilities, **policy):
+    def create_airframe_session(self, identity, capabilities, *, session_factory=None, **policy):
         """Adopt the canonical MC control and geometry in the native session."""
         from classes.airframe_session_controls import AirframeSessionControls
         from classes.aircraft_state import AirframePhase
         from classes.vector_guidance_session import VectorGuidanceSession
         if getattr(self, '_airframe_session', None) is not None:
             raise ValueError("airframe_session_already_bound")
-        session = VectorGuidanceSession(
+        factory = VectorGuidanceSession if session_factory is None else session_factory
+        session = factory(
             identity, capabilities, profile_name=self.profile_name,
             controls=AirframeSessionControls.from_multicopter_control(identity, self._requested_speed_control()),
             supported_phases=frozenset({AirframePhase.MULTICOPTER, AirframePhase.FIXED_WING}),

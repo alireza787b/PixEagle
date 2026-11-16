@@ -80,7 +80,7 @@ def test_catalog_separates_declared_phase_permission_from_native_vtol_and_input_
     assert profile.phase_command_contracts == {'fixed_wing': 'fixed_wing_external'}
     assert profile.live_qualified_phases == ('fixed_wing',)
     assert evaluate_aircraft(profile, 'fixed_wing').eligible
-    assert evaluate_aircraft(profile, 'vtol', observed_phase='fixed_wing', native_vtol_verified=True).eligible
+    assert evaluate_aircraft(profile, 'vtol', observed_phase='fixed_wing', phase_owner_verified=True).eligible
     assert evaluate_aircraft(profile, 'multicopter').reason_code == 'follower_aircraft_incompatible'
     assert evaluate_aircraft(profile, 'vtol', observed_phase='fixed_wing').reason_code == 'vtol_transition_release_unqualified'
     assert evaluate_input(profile, get_schema_manager(), 'POSITION_2D', tracker_name='CSRTTracker').eligible

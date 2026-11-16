@@ -72,13 +72,14 @@ class FWNavigationChaseFollower(BaseFollower):
             raise ValueError("guidance_input_resolver_already_bound")
         self._input_resolver = resolver
 
-    def create_airframe_session(self, identity, capabilities, **policy):
+    def create_airframe_session(self, identity, capabilities, *, session_factory=None, **policy):
         if self._airframe_session is not None or self._ended:
             raise ValueError("airframe_session_already_bound")
         declaration = self.setpoint_handler.profile_config.get("session_controls", {}).get("requested_speed")
         if not isinstance(declaration, dict) or declaration.get("unit") != "m/s":
             raise ValueError("native_speed_control_declaration_missing")
-        session = VectorGuidanceSession(
+        factory = VectorGuidanceSession if session_factory is None else session_factory
+        session = factory(
             identity, capabilities, profile_name=self.profile_name,
             controls=AirframeSessionControls.for_fixed_wing(identity, step_m_s=declaration["step"]),
             supported_phases=frozenset({AirframePhase.FIXED_WING}),

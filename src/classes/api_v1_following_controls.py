@@ -32,7 +32,7 @@ def _observed_session_speed(app, control) -> tuple[float | None, str | None]:
              'equivalent_airspeed': AirframePhase.FIXED_WING}.get(control.get('speed_basis', 'translation_3d'))
     if state.phase is not phase or control.get('aircraft_phase') not in {None, phase.value}:
         return None, None
-    native = getattr(app, '_native_follow_binding', None)
+    native = getattr(app, '_airframe_follow_binding', None)
     guidance = getattr(native, 'guidance', None)
     generation = control.get('guidance_generation')
     try:
@@ -59,6 +59,9 @@ def _observed_session_speed(app, control) -> tuple[float | None, str | None]:
     airspeed = state.airspeed
     if airspeed.fresh(now, timeout):
         return airspeed.equivalent_m_s, airspeed.source
+    observation = getattr(native, 'observed_speed', None)
+    if callable(observation):
+        return observation(state, now=now, timeout_s=timeout)
     # Missing EAS alone does not prove that the native sensorless mode is active.
     feedback = native.transport.last_feedback
     if (isinstance(feedback, dict) and feedback.get('controller_active') is True
@@ -94,7 +97,7 @@ def session_control_snapshot(app, principal, *, client_contract_version: int = 1
                 or identity.get('autopilot_uid') != app._following_session_aircraft_uid
                 or identity.get('connection_generation') != app._following_session_connection_generation):
             reason = 'following_aircraft_unavailable'
-        native = getattr(app, '_native_follow_binding', None)
+        native = getattr(app, '_airframe_follow_binding', None)
         if native is not None:
             if not native.owner_confirmed:
                 reason = 'following_authority_unavailable'

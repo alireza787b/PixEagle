@@ -25,6 +25,20 @@ import asyncio
 # Test Fixtures
 # ============================================================================
 
+
+def test_independent_polling_demands_share_one_poller_without_mutating_configuration(mavlink_data_manager):
+    manager = mavlink_data_manager
+    configured = manager.polling_interval
+    first, second = object(), object()
+    manager.set_polling_period_demand(first, .1)
+    manager.set_polling_period_demand(second, .05)
+    assert manager.get_polling_period() == .05
+    manager.clear_polling_period_demand(second)
+    assert manager.get_polling_period() == .1
+    manager.clear_polling_period_demand(first)
+    assert manager.get_polling_period() == configured
+    assert manager.polling_interval == configured
+
 @pytest.fixture
 def mock_parameters():
     """Mock Parameters class."""

@@ -46,7 +46,7 @@ def native_owner(owner, monkeypatch):
     from classes.aircraft_state import GuidanceSessionIdentity
     original = start_context(GuidanceSessionIdentity('fixture', state.binding, 0))
     owner.app_controller.px4_interface.get_aircraft_state.return_value = state
-    owner.app_controller._capture_native_start_context = Mock(return_value=original)
+    owner.app_controller._capture_guidance_start_context = Mock(return_value=original)
     owner.app_controller.connect_px4 = AsyncMock()
     return owner, original
 
@@ -58,7 +58,7 @@ def test_following_guard_advertises_only_opaque_native_context(native_owner):
     assert snapshot['guard']['start_context_id'] == original.context_id
     assert 'source_nav_state_timestamp' not in snapshot['guard']
     assert APINativeTargetGuard.model_validate(snapshot['guard']).start_context_id == original.context_id
-    owner.app_controller.refresh_native_following_state.assert_not_awaited()
+    owner.app_controller.refresh_airframe_following_state.assert_not_awaited()
 
 
 @pytest.mark.parametrize('use_following_guard', [False, True])
@@ -112,14 +112,14 @@ async def test_native_start_refuses_wrong_or_missing_original_before_any_await(n
     elif fault == 'wrong_id':
         request.native_context.guard.start_context_id = 'f' * 64
     elif fault == 'missing_context':
-        owner.app_controller._capture_native_start_context.return_value = None
+        owner.app_controller._capture_guidance_start_context.return_value = None
     else:
         # Even a return to the same numeric nav state is a different mode epoch.
-        owner.app_controller._capture_native_start_context.return_value = replace(
+        owner.app_controller._capture_guidance_start_context.return_value = replace(
             original, source_nav_state_timestamp=original.source_nav_state_timestamp + 1)
     response = await native_follow_action(owner, request, Response(), action_request(owner), start=True)
     assert response.status_code == 409
-    owner.app_controller.refresh_native_following_state.assert_not_awaited()
+    owner.app_controller.refresh_airframe_following_state.assert_not_awaited()
     owner.app_controller.connect_px4.assert_not_awaited()
 
 
@@ -133,9 +133,9 @@ async def test_passive_change_during_refresh_cannot_be_recaptured(native_owner, 
         changes = {field: value}
         if field == 'phase_revision':
             changes['phase_source_instance'] = 9
-        owner.app_controller._capture_native_start_context.return_value = replace(original, **changes)
+        owner.app_controller._capture_guidance_start_context.return_value = replace(original, **changes)
 
-    owner.app_controller.refresh_native_following_state.side_effect = change
+    owner.app_controller.refresh_airframe_following_state.side_effect = change
     response = await native_follow_action(owner, request, Response(), action_request(owner), start=True)
     assert response.status_code == 409
     assert json.loads(response.body)['code'] == 'native_follow_context_stale'
@@ -146,11 +146,11 @@ async def test_acquired_checks_keep_original_id_but_still_fence_live_target(nati
     owner, original = native_owner
     request = start_body(following_snapshot(owner, owner.principal_test))
 
-    async def start(native_start_guard, *, native_attempt_id, native_aircraft_uid, native_start_context):
-        assert native_start_context is original
+    async def start(native_start_guard, *, native_attempt_id, native_aircraft_uid, guidance_start_context):
+        assert guidance_start_context is original
         native_start_guard('before_start')
         native_start_guard('before_offboard')
-        owner.app_controller._capture_native_start_context.return_value = None
+        owner.app_controller._capture_guidance_start_context.return_value = None
         native_start_guard('after_offboard')
         native_start_guard('before_activation')
         owner.telemetry_test['connection_generation'] = 'replacement'
@@ -168,17 +168,17 @@ async def test_acquired_checks_keep_original_id_but_still_fence_live_target(nati
 
 async def test_app_captures_once_before_owner_loop_handoff(app):
     ctrl, original = app.ctrl, app.f.start_context
-    capture = Mock(wraps=ctrl._capture_native_start_context)
-    ctrl._capture_native_start_context = capture
+    capture = Mock(wraps=ctrl._capture_guidance_start_context)
+    ctrl._capture_guidance_start_context = capture
     received = []
 
     async def run(operation):
         assert capture.call_count == 1
-        ctrl.px4_interface.native_start_context = replace(original, source_nav_state_timestamp=101)
+        ctrl.px4_interface.guidance_start_context = replace(original, source_nav_state_timestamp=101)
         return await operation()
 
-    async def once(*args, native_start_context):
-        received.append(native_start_context)
+    async def once(*args, guidance_start_context):
+        received.append(guidance_start_context)
         return {'steps': [], 'errors': []}
 
     ctrl._run_on_flight_event_loop = run
@@ -190,8 +190,8 @@ async def test_app_captures_once_before_owner_loop_handoff(app):
 
 async def test_normal_app_start_forwards_one_original_context_through_all_startup_layers(app):
     ctrl, original = app.ctrl, app.f.start_context
-    capture = Mock(wraps=ctrl._capture_native_start_context)
-    ctrl._capture_native_start_context = capture
+    capture = Mock(wraps=ctrl._capture_guidance_start_context)
+    ctrl._capture_guidance_start_context = capture
 
     async def run(operation):
         return await operation()
@@ -200,7 +200,7 @@ async def test_normal_app_start_forwards_one_original_context_through_all_startu
     result = await ctrl.connect_px4()
     assert result['errors'] == [] and ctrl.following_active
     assert capture.call_count == 1
-    assert ctrl._prepare_native_follow_binding.call_args.args[0] is original
+    assert ctrl._prepare_airframe_follow_binding.call_args.args[0] is original
     assert app.f.client.engage.call_args.kwargs['start_context'] is original
 
 
@@ -208,12 +208,12 @@ async def test_explicit_absence_cannot_capture_a_new_native_context_after_config
     ctrl = app.ctrl
     app.manager.follower.setpoint_handler.profile_config = {'native_phase_contracts': {
         'multicopter': 'velocity_body_offboard', 'fixed_wing': 'fixed_wing_external'}}
-    ctrl._capture_native_start_context = Mock(side_effect=AssertionError('recaptured'))
-    ctrl._prepare_native_follow_binding = AppController._prepare_native_follow_binding.__get__(ctrl)
-    result = await ctrl._connect_px4_on_flight_loop(native_start_context=None)
+    ctrl._capture_guidance_start_context = Mock(side_effect=AssertionError('recaptured'))
+    ctrl._prepare_airframe_follow_binding = AppController._prepare_airframe_follow_binding.__get__(ctrl)
+    result = await ctrl._connect_px4_on_flight_loop(guidance_start_context=None)
     assert not ctrl.following_active
     assert any('native_start_context_required' in error for error in result['errors'])
-    ctrl._capture_native_start_context.assert_not_called()
+    ctrl._capture_guidance_start_context.assert_not_called()
     app.f.client.engage.assert_not_called()
 
 
@@ -233,7 +233,7 @@ async def test_prepare_refuses_changed_context_without_any_acquisition(app, faul
             app.f.client.capabilities, runtime_id='replacement')
     ctrl.px4_interface.get_aircraft_state.return_value = state
     with pytest.raises(NativeGuidanceError, match='native_start_context_changed'):
-        await AppController._prepare_native_follow_binding(ctrl, original)
+        await AppController._prepare_airframe_follow_binding(ctrl, original)
     app.f.client.engage.assert_not_called()
 
 
@@ -255,7 +255,7 @@ async def test_prepare_awaits_declared_image_binding_before_creating_session(app
         assert actual_app is ctrl and follower is concrete and state is app.f.state
         assert capabilities is app.f.client.capabilities
         calls.append('bind')
-        ctrl.px4_interface.native_start_context = replace(original, source_nav_state_timestamp=101)
+        ctrl.px4_interface.guidance_start_context = replace(original, source_nav_state_timestamp=101)
         if refused:
             raise ValueError('physical_capture_timing_unqualified')
 
@@ -269,10 +269,10 @@ async def test_prepare_awaits_declared_image_binding_before_creating_session(app
     concrete.create_airframe_session = Mock(side_effect=create)
     if refused:
         with pytest.raises(NativeGuidanceError, match='physical_capture_timing_unqualified'):
-            await AppController._prepare_native_follow_binding(ctrl, original)
+            await AppController._prepare_airframe_follow_binding(ctrl, original)
         concrete.create_airframe_session.assert_not_called()
     else:
-        await AppController._prepare_native_follow_binding(ctrl, original)
+        await AppController._prepare_airframe_follow_binding(ctrl, original)
         assert calls == ['bind', 'create']
     assert original.source_nav_state_timestamp == 100
     hook.assert_awaited_once()
@@ -282,16 +282,16 @@ async def test_prepare_awaits_declared_image_binding_before_creating_session(app
 def test_pure_mc_capture_does_not_consume_or_require_a_native_context(app):
     ctrl = app.ctrl
     ctrl.px4_interface.get_aircraft_kind.return_value = AircraftKind.MULTICOPTER
-    ctrl.px4_interface.native_start_context = None
+    ctrl.px4_interface.guidance_start_context = None
     ctrl.px4_interface.native_guidance_client = None
-    assert ctrl._capture_native_start_context() is None
+    assert ctrl._capture_guidance_start_context() is None
 
 
 @pytest.mark.parametrize('fault', ['context', 'state'])
 async def test_app_missing_original_refuses_without_connecting_or_discovering(app, fault):
     ctrl = app.ctrl
     if fault == 'context':
-        ctrl.px4_interface.native_start_context = None
+        ctrl.px4_interface.guidance_start_context = None
     else:
         ctrl.px4_interface.get_aircraft_state.return_value = None
     result = await ctrl.connect_px4()

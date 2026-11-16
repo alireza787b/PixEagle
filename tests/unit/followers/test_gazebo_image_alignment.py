@@ -187,7 +187,7 @@ def runtime_case(case, monkeypatch):
     context = start_context(GuidanceSessionIdentity('preparing', state.binding, 0), runtime_id='native')
     connection = SimpleNamespace(native_guidance_client=client, source_attitude_history=case.history,
         get_telemetry_stale_timeout_s=lambda: .5, get_aircraft_state=Mock(return_value=state),
-        prepare_native_guidance=AsyncMock(), native_start_context=context)
+        prepare_native_guidance=AsyncMock(), guidance_start_context=context)
     app = SimpleNamespace(px4_interface=connection, _image_calibration_binding=case.bound,
         video_handler=SimpleNamespace(cap=SimpleNamespace(settings=case.settings),
             _capture_source_signature=Mock(return_value=case.bound.geometry.source_signature)),
@@ -234,7 +234,7 @@ async def test_first_pair_wait_refreshes_observations_without_acquiring_or_repla
     assert paired.source_time.attitude == run.raw
     assert paired.bearing.provenance.capture == run.measurement.provenance.capture
     assert reads == [run.client.socket_path] and run.delays == [.02]
-    assert run.connection.native_start_context is run.context
+    assert run.connection.guidance_start_context is run.context
     assert run.context.wire_payload() == original
     for action in (run.client.engage, run.client.acquire, run.client.publish):
         action.assert_not_called()

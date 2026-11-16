@@ -13,6 +13,7 @@ from classes.command_preview import (
     normalize_follower_execution_mode,
 )
 from classes.parameters import Parameters
+from classes.phase_guidance_session import PhaseGuidanceSession
 from classes.safety_types import AltitudeLimits
 from classes.safety_manager import SafetyManager
 from classes.tracker_runtime_status import (
@@ -53,8 +54,14 @@ def evaluate_follower_guidance_input(
         if tracker_output is _TRACKER_OUTPUT_UNSET:
             getter = getattr(app_controller, "get_tracker_output", None)
             tracker_output = getter() if callable(getter) else None
-        state_getter = getattr(getattr(app_controller, "px4_interface", None), "get_aircraft_state", None)
-        state = state_getter() if callable(state_getter) else None
+        session = getattr(concrete, "_airframe_session", None)
+        if isinstance(session, PhaseGuidanceSession) and getattr(concrete, "_airframe_session_bound", False) is True:
+            # Validation and calculation share the command owner's snapshot.
+            # A status reader must not advance association beyond that owner.
+            state = session.require_state()
+        else:
+            state_getter = getattr(getattr(app_controller, "px4_interface", None), "get_aircraft_state", None)
+            state = state_getter() if callable(state_getter) else None
         result = hook(tracker_output, state)
         if result is not None:
             if inspect.iscoroutine(result):
