@@ -12,6 +12,7 @@ This section covers how followers integrate with the PixEagle ecosystem.
 |----------|-------------|
 | [Tracker Integration](tracker-integration.md) | Tracker-to-follower data flow |
 | [MAVLink Integration](mavlink-integration.md) | PX4/MAVSDK communication |
+| [Stock PX4 MC/VTOL workflow](stock-px4-gimbal-vtol.md) | One gimbal mount, phase-specific control and qualification status |
 
 ---
 

@@ -92,3 +92,26 @@ with the prepared workstation dependency file and explicitly select the advanced
 `tailsitter-gimbal` profile. Its `--bin-dir` must name the newly verified pinned
 helpers. The independent simulator network, disposable credentials and safety
 barrier remain unchanged. Preserve each new run rather than replacing evidence.
+
+## Stock firmware and installation review
+
+The operator selected no private PX4 firmware for the ordinary MC/VTOL/FW
+workflow. The current native experiment still gates VTOL; neither documentation
+nor an operator layout label opens that gate. The canonical consolidation plan
+and stock integration guide distinguish implemented MC support, pending stock
+VTOL/FW transports, DDS communication requirements and bounded failure handling.
+One vertical gimbal installation is retained across transition; a new phase
+requires a fresh Start.
+
+The private saved profile was aligned through the existing guarded config API:
+only its unsupported upper-speed request changed to `px4_configured_max`.
+The exact single-leaf diff and previous experimental overlay are retained
+privately. Gains, MC speed/rate limits, altitude choices and provider/mount data
+were not changed; no PX4 parameter or firmware write occurred. Reading aircraft
+parameters is evidence of configuration, not a measured flight envelope.
+
+Public defaults and generated schema are unchanged. Documentation/API/config
+checks passed 105 cases; the renewed documentation check passed 31. Schema and
+whitespace gates passed. Stock PX4 simulation, transport implementation and
+physical following admission remain open. Do not publish this candidate as
+plug-and-play VTOL following merely because the earlier patched simulator passed.

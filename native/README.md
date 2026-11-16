@@ -1,5 +1,11 @@
 # Native PX4 guidance — development checkpoint
 
+The ordinary product direction now uses stock PX4; see the
+[stock integration workflow](../docs/followers/07-integration/stock-px4-gimbal-vtol.md).
+The private ownership extension documented here is not a normal-user firmware
+requirement. Its current runtime gate remains until a stock replacement passes
+qualification; these build instructions describe the retained experiment.
+
 This is the shared companion adapter for experimental native FW guidance,
 including `gm_velocity_vector` and calibrated-image `fw_navigation_chase`.
 It is **not installed or enabled by ordinary PixEagle

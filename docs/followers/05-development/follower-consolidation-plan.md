@@ -15,6 +15,28 @@ clients and MC/FW/VTOL composition. It extends the
 and [native airframe checkpoint](../../reporting/agent-ops/codex-modernization/checkpoints/2026-11-06-gimbal-vector-airframes.md).
 It does not change running software, grant aircraft authority or qualify a mode.
 
+## Stock-firmware direction — 2026-11-16
+
+The owner selected ordinary, unmodified PX4 for the normal workflow. The
+private ownership/observation extension remains experimental evidence, not a
+mandatory product dependency. Current code still has that VTOL gate; it must
+remain closed until a tested stock replacement is ready, rather than being
+removed or bypassed by relabelling the aircraft.
+
+Reuse standard MAVLink type/phase observations and the existing MC publisher
+for native MC and qualified VTOL hover. The first complete stock FW candidate
+is PX4's supported lateral/longitudinal interface with a verified DDS path;
+MAVLink-only alternatives need their own speed, stale-command and process-loss
+gates. Guided Course must not keep an obsolete pursuit indefinitely after
+companion failure. No phase changes transport inside an active session:
+Stop/transition ends it and a new Start selects a qualified settled strategy.
+Clients remain capability-driven, without board/follower-name branches.
+
+See the [stock integration workflow](../07-integration/stock-px4-gimbal-vtol.md)
+for installation geometry, configuration and the acceptance sequence. This
+supersedes a mandatory custom-firmware interpretation of the native sections
+below; it does not claim replacement transports have been implemented.
+
 ## 1. Scope and confirmed decisions
 
 Deliver a reliable public MC baseline, an explicitly qualified public FW pursuit

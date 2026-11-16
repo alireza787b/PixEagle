@@ -31,6 +31,14 @@ preview/apply accepts changes. Missing policy settings retain normal native
 behavior. Public video/CSRT, constant-position, altitude-guidance-off,
 altitude-safety and circuit-breaker defaults are preserved.
 
+## Stock-firmware integration
+
+Ordinary integration must not require the private firmware extension. Its
+replacement still needs implementation and unmodified-PX4 qualification; see
+[stock PX4 workflow](../07-integration/stock-px4-gimbal-vtol.md). Standard
+telemetry can report phase but does not supply the custom atomic ownership
+receipt. Keep the experiment separate from the normal control contract.
+
 ## Flight-path priority
 
 `no_upper_speed_bound` requests experimental flight-path priority. During an

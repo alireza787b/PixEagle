@@ -49,6 +49,11 @@ source-bound calibration object, not the simulator's SDF configuration.
 
 ## Tailsitter and gimbal frames
 
+The [stock-PX4 integration workflow](../../followers/07-integration/stock-px4-gimbal-vtol.md)
+keeps one mount for MC and FW and distinguishes current implementation from
+the next qualification target.
+
+
 Keep the mount attached to the physical aircraft. Transform the camera ray with
 the full physical aircraft quaternion. Native FW navigation heading is a
 separate PX4 control-frame observation; do not apply its tailsitter rotation to
