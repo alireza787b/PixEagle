@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+## Version 7.6.0-rc.2 (2026-11-16) - Runtime and dependency renewal
+
+- Migrate to the maintained `mavsdk-grpc` client, with reviewed MAVSDK Server
+  v4.2.0 and MAVLink2REST 1.1.1 pins and shared managed-setup migration.
+  Existing OpenCV/GStreamer providers and saved configuration are preserved.
+- Keep healthy aircraft identity through unavailable individual telemetry
+  messages; missing measurements remain unavailable. Protect live log writers
+  across wall-clock corrections and separate component lifetimes.
+- Repair X11 software rendering in isolated desktop training containers.
+  Backend and aircraft-network isolation remain unchanged.
+- Renew backend, setup, Dashboard and matched private QGC software checks.
+  The operator confirmed simulator interface/video and exercised MC/FW sessions;
+  this is not physical camera, aircraft or unrestricted-envelope qualification.
+- Public safety defaults remain unchanged. Private aircraft overlays remain
+  outside the repository. Native hardware admission and the separately planned
+  steep-descent envelope remain explicit qualification gates.
+
 ## Version 7.6.0-rc.1 (2026-11-15) - Training and follower consolidation candidate
 
 - Add the repeatable Ubuntu/Gazebo training launcher, production-path camera

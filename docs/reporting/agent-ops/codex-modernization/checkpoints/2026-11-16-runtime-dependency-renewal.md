@@ -2,10 +2,12 @@
 
 ## Scope
 
-Hardware work is paused at the operator's request. No firmware was flashed,
+Hardware deployment resumes only after operator authorization. No firmware was flashed,
 no PX4 parameters changed, and no following/movement action was issued to the
 physical aircraft. Resume hardware deployment and physical camera-axis checks
-only after the renewed simulator workflow is accepted.
+only after the renewed simulator workflow is reviewed. The operator has now
+requested the Pi update and final bench check; its results belong to the private
+deployment evidence, not a general hardware qualification claim.
 
 | Dependency | Previous pin | Reviewed replacement |
 | --- | --- | --- |
@@ -64,7 +66,12 @@ Evidence: `reports/sitl/follower-consolidation-20261111/`.
   workers and every network boundary retain their existing isolation.
 - Fresh operator session: `tailsitter-gimbal-dependency-renewal-20261116-r3`,
   source `de2f51f08`; starts ground/disarmed and command-blocked. Video and gimbal
-  telemetry are healthy; following and transition acceptance is still pending.
+  telemetry are healthy. The operator confirmed the rendered interface/video
+  and reported that nearly all functions worked. The trace records MC and FW
+  ownership, two operator Stops, and a later Return-mode authority loss. Whether
+  that Return was operator-commanded remains unconfirmed; no flawless flight
+  acceptance is claimed. Training used conservative limits, not a private
+  unrestricted envelope.
 - Hardware, physical camera geometry and flight qualification are not passed.
 
 ## Reproduce
