@@ -82,6 +82,42 @@ def mavlink_data_manager(sample_data_points, mock_parameters):
 # Test Classes
 # ============================================================================
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status,body", [(200, "None"), (200, "null"), (404, "Not found"), (200, "broken JSON")])
+async def test_unavailable_message_does_not_invalidate_aircraft_link(mavlink_data_manager, monkeypatch, status, body):
+    import requests
+
+    response = requests.Response()
+    response.status_code = status
+    response._content = body.encode()
+    monkeypatch.setattr("classes.mavlink_data_manager.requests.get", lambda *args, **kwargs: response)
+    manager = mavlink_data_manager
+    manager._record_successful_fetch()
+    before = manager.get_aircraft_identity()["connection_generation"]
+    result = await manager.fetch_data_from_uri("/v1/mavlink/vehicles/1/components/1/messages/HOME_POSITION")
+    assert result is None
+    assert manager.connection_state == "connected"
+    assert manager.get_aircraft_identity()["connection_generation"] == before
+    assert manager.get_flight_state()["fresh"] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("uri,status,body", [
+    ("/v1/mavlink", 200, "None"),
+    ("/v1/mavlink/vehicles/1/components/1/messages/ATTITUDE", 503, "unavailable"),
+])
+async def test_bridge_failure_still_invalidates_link(mavlink_data_manager, monkeypatch, uri, status, body):
+    import requests
+
+    response = requests.Response()
+    response.status_code = status
+    response._content = body.encode()
+    monkeypatch.setattr("classes.mavlink_data_manager.requests.get", lambda *args, **kwargs: response)
+    mavlink_data_manager._record_successful_fetch()
+    assert await mavlink_data_manager.fetch_data_from_uri(uri) is None
+    assert mavlink_data_manager.connection_state == "error"
+
+
 class TestMavlinkDataManagerInitialization:
     """Tests for MavlinkDataManager initialization."""
 

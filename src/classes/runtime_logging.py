@@ -290,6 +290,7 @@ class RuntimeLogSessionManager:
         with self._lock:
             components_dir = self.session_dir / "components"
             components_dir.mkdir(parents=True, exist_ok=True)
+            self._register_writer()
             component_names = self._normalize_component_set(
                 [DEFAULT_COMPONENT, *(components or [])]
             )
@@ -361,6 +362,7 @@ class RuntimeLogSessionManager:
         safe_component = self._validate_component(component)
         with self._lock:
             (self.session_dir / "components").mkdir(parents=True, exist_ok=True)
+            self._register_writer()
             self.component_path(safe_component).touch(exist_ok=True)
             if self.manifest_path.exists():
                 manifest = self._merge_manifest_components(
@@ -770,6 +772,38 @@ class RuntimeLogSessionManager:
                 )
         return ("\n".join(lines) + ("\n" if lines else "")).encode("utf-8"), skipped
 
+    @staticmethod
+    def _process_token(pid: int):
+        """Identify a process without relying on directory age or a reusable PID."""
+        try:
+            if sys.platform.startswith("linux"):
+                boot = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+                fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
+                return [boot, fields[19]]
+            import psutil
+            try:
+                return psutil.Process(pid).create_time()
+            except psutil.Error:
+                return None
+        except (OSError, IndexError, ImportError):
+            return None
+
+    def _register_writer(self) -> None:
+        pid = os.getpid()
+        path = self.session_dir / f".writer-{pid}.json"
+        path.write_text(json.dumps({"pid": pid, "process_token": self._process_token(pid)}))
+
+    def _session_process_alive(self, path: Path) -> bool:
+        for marker in path.glob(".writer-*.json"):
+            try:
+                writer = json.loads(marker.read_text())
+                pid, token = writer.get("pid"), writer.get("process_token")
+                if type(pid) is int and pid > 0 and token is not None and self._process_token(pid) == token:
+                    return True
+            except (OSError, ValueError, AttributeError):
+                continue
+        return False
+
     def cleanup_retention(self) -> None:
         if not self.base_dir.is_dir():
             return
@@ -780,7 +814,7 @@ class RuntimeLogSessionManager:
         ]
         session_dirs.sort(key=lambda path: path.stat().st_mtime, reverse=True)
         for stale in session_dirs[self.max_sessions :]:
-            if stale.name != self.run_id:
+            if stale.name != self.run_id and not self._session_process_alive(stale):
                 shutil.rmtree(stale, ignore_errors=True)
 
         session_dirs = [
@@ -791,7 +825,7 @@ class RuntimeLogSessionManager:
         session_dirs.sort(key=lambda path: path.stat().st_mtime, reverse=True)
         total_size = sum(self._dir_size(path) for path in session_dirs)
         for stale in reversed(session_dirs):
-            if total_size <= self.max_total_bytes or stale.name == self.run_id:
+            if total_size <= self.max_total_bytes or stale.name == self.run_id or self._session_process_alive(stale):
                 continue
             stale_size = self._dir_size(stale)
             shutil.rmtree(stale, ignore_errors=True)

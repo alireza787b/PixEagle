@@ -589,6 +589,7 @@ class MavlinkDataManager:
     def _request_json(self, uri):
         """Fetch one MAVLink2REST URI with configured timeout and retry policy."""
         url = f"http://{self.mavlink_host}:{self.mavlink_port}{uri}"
+        message_request = uri.startswith("/v1/mavlink/vehicles/") and "/messages/" in uri
         attempts = self.request_retries + 1
         last_error = None
         for attempt in range(1, attempts + 1):
@@ -599,8 +600,19 @@ class MavlinkDataManager:
                 if validation_timeout is not None:
                     raise validation_timeout
                 response = requests.get(url, timeout=self.request_timeout_s)
+                if message_request and response.status_code == 404:
+                    self._record_successful_fetch()
+                    return None
                 response.raise_for_status()
-                json_data = response.json()
+                try:
+                    json_data = response.json()
+                except ValueError:
+                    if not message_request:
+                        raise
+                    # Older bridges return the non-JSON literal None for an unseen message.
+                    if response.text.strip() != "None":
+                        self._warn_malformed_payload(uri, "non-JSON message response", time.monotonic())
+                    json_data = None
                 self._record_successful_fetch()
                 return json_data
             except Exception as exc:
