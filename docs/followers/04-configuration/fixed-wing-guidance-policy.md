@@ -5,6 +5,14 @@ PX4 owns coordinated turns, energy management, attitude control and allocation.
 The same policy is intended for native FW objectives produced from gimbal rays
 or image tracking. Input geometry remains specific to each tracker contract.
 
+That description applies to the native interface. The current
+[stock-MAVLink replacement](../07-integration/stock-px4-gimbal-vtol.md) is a
+component under qualification: it projects the same ray and speed request to
+attitude/thrust, retaining PX4 attitude/rate control but not native TECS energy
+control. It requires no DDS or custom firmware. Its isolated expert fixture
+also tests removal of pitch/sink soft limits; this is not yet an advertised
+application capability and does not change existing saved policy semantics.
+
 Current consolidation policy ends following on transition and requires a new
 Start afterward. The [standard VTOL application checkpoint](../../reporting/agent-ops/codex-modernization/checkpoints/2026-11-13-vtol-training-app.md) records bounded Gazebo
 MC/FW Start, speed, Stop and transition release. Physical-camera timing and

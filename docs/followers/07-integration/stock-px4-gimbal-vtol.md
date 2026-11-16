@@ -4,11 +4,13 @@ Use standard PX4 firmware for the ordinary integration. The aircraft model is
 not a runtime allowlist. Detect aircraft type, settled phase, telemetry and
 supported control interfaces; a configuration label cannot create a capability.
 
-**Current status:** ordinary MC uses the existing MAVSDK path. The current
-VTOL application path still requires the experimental native owner; stock
-VTOL hover and stock FW transport are not yet implemented/qualified replacements.
-This guide defines the next acceptance workflow, not flight clearance. Existing
-patched-simulator passes do not qualify unmodified firmware.
+**Current status:** ordinary MC uses the existing MAVSDK path. Unmodified PX4
+SIH passes the production MC Position and vertical Gimbal Vector component runs.
+A shared-ray MAVLink attitude/thrust FW component also passes moving-target
+normal, descent and climb checks. It is not connected to application Start,
+session controls or recovery yet. The VTOL application still requires the
+experimental native owner; its replacement remains closed pending qualification.
+These component results are not flight clearance or end-to-end acceptance.
 
 ## One mount across both phases
 
@@ -29,15 +31,28 @@ measurement timing on the installation. See [camera mounting](../../trackers/06-
 | --- | --- | --- |
 | MC or settled VTOL hover | Existing MAVLink/MAVSDK MC command publisher | Fresh phase, physical attitude, vector/frame conversion, speed editing, Stop and takeover |
 | Transition | Pilot/PX4 owns transition; following ends | No pursuit, no delayed command that replaces the pilot's mode, no automatic restart |
-| Settled FW | A verified stock FW interface | Native airspeed/energy control, vertical path, link-loss behavior, Stop and takeover |
+| Settled FW | MAVLink attitude/thrust projection under qualification | Speed/path feedback, altitude response, link-loss behavior, Stop and takeover |
 
-FW cannot consume MC velocity-only setpoints. Stock ROS 2 lateral/longitudinal
-control is one option without private PX4 messages, but needs a functioning DDS
-communication path. MAVLink2REST does not provide that path, and an existing
-MAVLink UART must not be reassigned implicitly. Retain the working MAVLink link;
-a supported spare serial/USB or network path can carry DDS after setup review.
-The complete course/airspeed/vertical-path stock interface is the first candidate
-for FW qualification, rather than a second companion energy controller.
+Keep the existing UART/MAVLink link. MAVLink2REST provides observations and
+MAVSDK publishes control; no extra USB cable or DDS runtime is required for the
+current stock-MAVLink work. Changing the MAVLink stream mode does not create a
+new control interface. High-rate Onboard defaults may overload a 57600-baud link;
+measure its budget and request the relevant message intervals instead.
+
+FW cannot consume MC velocity-only setpoints. The stock-MAVLink component keeps
+the shared world target ray and requested speed, then produces coordinated bank,
+pitch and normalized thrust through supported attitude Offboard. PX4 retains
+attitude/rate control and allocation. This path does **not** retain native TECS
+energy/underspeed control: its companion speed/path feedback must be qualified.
+Normal requests respect resolved PX4 speed, pitch and climb/sink settings.
+The isolated expert fixture removes upper-speed and pitch/sink soft limits,
+retaining the shared altitude floor, actuator/bank bounds and climb-speed priority.
+Neither requested speed nor pitch guarantees an achievable aircraft response.
+
+DDS remains a deferred alternative for native PX4 course/airspeed/vertical-path
+control. It can use a configured serial or network transport, but cannot silently
+share a UART currently assigned to MAVLink. Its benefit is access to the native
+controller interface, not improved video quality.
 
 Current PX4 main also documents MAVLink Guided Course commands for course,
 altitude and EAS. Availability depends on the installed firmware. It holds its
@@ -45,7 +60,10 @@ course until another command/mode is received; it must not be adopted as a
 streaming follower merely because commands are accepted. Companion failure,
 command expiry and recovery must pass first. MAVLink position/path Offboard is
 another distinct contract; velocity magnitude is not its FW airspeed command.
-Do not add parallel guidance controllers or silently substitute these transports.
+Do not run competing command publishers or silently substitute transports.
+Fresh `HEARTBEAT`/`EXTENDED_SYS_STATE` observation is now implemented in the
+existing telemetry identity owner. Cached or reordered phase packets cannot
+renew phase freshness. Phase observation alone grants no following authority.
 
 ## Configuration
 
@@ -66,13 +84,17 @@ Use the existing keys, through Dashboard Settings while following is inactive:
 
 Read FW minimum/trim/maximum and climb/sink/attitude limits from PX4 through the
 existing parameter owner where supported. Keep provenance and explicit missing
-values; do not invent measured airspeed or treat groundspeed as stall margin.
-An operator fallback may only use a declared, validated configuration contract;
-there is no new transport/airspeed fallback setting to enter for this checkpoint.
+values. The component prefers fresh selected airspeed, then a qualified estimate
+if supplied; otherwise it labels NED velocity magnitude `ground_speed_proxy`.
+The proxy supports degraded feedback, but cannot establish actual stall margin.
+VFR_HUD reports selected calibrated airspeed; a cached read is not a new packet,
+and an absent sensor is not evidence of a wind-based estimate.
 
-`no_upper_speed_bound` remains an unsupported experiment on this stock path.
-A private config cannot grant unrestricted speed, pitch or dive angle. Preserve
-experimental requests separately rather than presenting them as effective.
+`no_upper_speed_bound` is tested only in the isolated MAVLink component. It is
+not advertised or enabled for stock application following yet. A private config
+cannot bypass that admission gate. The existing native-policy semantics remain
+separate until the qualified MAVLink transport is integrated; changing this flag
+alone must not silently enable a steep-dive envelope in an existing installation.
 
 The bench aircraft's 20 m/s maximum and ±30-degree pitch limits are saved PX4
 values, not universal Offboard limits. Native FW guidance still resolves its
@@ -83,6 +105,36 @@ energy/underspeed control. Testing that interface is not qualification of a
 gimbal follower, its altitude protection, or an unrestricted-speed policy.
 Keep requested attitude, observed attitude, requested airspeed and observed
 airspeed separate in evidence; an accepted request proves none of the others.
+
+## Reproduce the software checkpoint
+
+Build an exact unmodified baseline without starting it:
+
+```bash
+PYTHONPATH=src python tools/build_native_guidance.py --target sih \
+  --firmware-policy stock --px4-source /path/to/pinned/PX4-Autopilot \
+  --output-dir reports/native-guidance/stock-build
+```
+
+Then explicitly start the network-isolated component test, using a new directory
+for each run:
+
+```bash
+PYTHONPATH=src python tools/run_mavlink_fw_vector_sih.py --execute \
+  --simulation-build-manifest reports/native-guidance/stock-build/sih-build-manifest.json \
+  --output reports/sitl/stock-fw-normal
+```
+
+`--unconstrained` selects only a disposable expert fixture. Target offsets and
+takeoff altitude can be varied with `--target-forward-m`, `--target-down-m`
+(positive down) and `--takeoff-altitude-m`. These are simulator test inputs,
+not new operator settings. The test records actual PX4 pose, independent moving
+target truth, submitted attitude/thrust, requested/observed speed, original source
+clocks, configuration, source checksums and ULogs. It does not exercise the App,
+HTTP actions, UI, target-loss recovery or physical camera. Existing evidence is
+never overwritten. Post-Stop speed/altitude are separate from following evidence.
+The safe MC qualification scenarios start at 40 m, above the shared public
+30 m floor; ground-view targets remain on the ground.
 
 Public factory defaults remain MC Position, VIDEO_FILE/CSRT, optional altitude
 guidance off, circuit breaker on and the shared 30 m relative-altitude floor.

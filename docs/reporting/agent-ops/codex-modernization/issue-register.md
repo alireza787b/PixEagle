@@ -3,12 +3,12 @@
 Status values: `open`, `in_progress`, `blocked`, `done`, `deferred`.
 
 2026-11-16 stock-firmware direction (PXE-0181): hardware work is paused. The
-unmodified upstream SIH build and three direct FW attitude/thrust probes pass
-their interface/observed-Hold checks; they do not qualify stock VTOL/FW following.
-The steep-dive probe's post-Stop speed undershoot remains a handoff qualification
-finding. The experimental ownership dependency, stock transport replacement and
-effective unrestricted-policy gates remain open; see the
-[runtime checkpoint](checkpoints/2026-11-16-runtime-dependency-renewal.md#stock-firmware-software-checkpoint).
+unmodified SIH build, production MC Position/vertical Vector components and the
+new stock-MAVLink FW moving-target component pass their scoped checks. The FW
+component accepts above-maximum speed and steep pitch requests without DDS;
+application ownership, continuity, VTOL and client integration remain open. The
+earlier direct-probe post-Stop speed undershoot is retained as a separate finding.
+See the [stock-MAVLink checkpoint](checkpoints/2026-11-16-stock-mavlink-vector.md).
 
 2026-11-14 tailsitter Stop: pursuit was operator-accepted, but native release
 remained unconfirmed. The shared frozen-request retransmission repair and
