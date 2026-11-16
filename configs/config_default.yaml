@@ -1764,6 +1764,7 @@ PID:
 # Resolution Order: valid tighter FollowerOverrides -> GlobalLimits -> fallback
 # ==============================================================================
 Safety:
+  ALLOW_SESSION_VELOCITY_OVERRIDE: false # Advanced: permit temporary MC velocity caps above saved limits
   # ===========================================================================
   # GLOBAL SAFETY LIMITS - SINGLE SOURCE OF TRUTH
   # ===========================================================================
@@ -1772,8 +1773,8 @@ Safety:
   # ===========================================================================
   GlobalLimits:
     # Altitude relative to the estimator/home reference; not terrain clearance
-    MIN_ALTITUDE: 30.0                   # Shared beginner floor for MC and FW; not terrain clearance
-    MAX_ALTITUDE: 120.0                  # Maximum permitted relative altitude
+    MIN_ALTITUDE: 5.0                    # Relative-altitude floor; not terrain clearance
+    MAX_ALTITUDE: 100.0                  # Maximum permitted relative altitude
     ALTITUDE_WARNING_BUFFER: 2.0         # Warning zone before hard limits
     ALTITUDE_SAFETY_ENABLED: true        # Enable altitude enforcement
 

@@ -1,7 +1,8 @@
 # Follower consolidation and aircraft qualification plan
 
-Date: 2026-11-09; updated 2026-11-13. S0–S3 and the S4–S6 MC/native-FW
-component/software checkpoints are complete; S7 ownership/transition work is in progress. Application, optical,
+Date: 2026-11-09; updated 2026-11-17. S0–S3 and the S4–S6 MC/native-FW
+component/software checkpoints are complete. Stock application ownership and
+transition termination now have retained SIH evidence; optical,
 installation and release qualification remain separate. Follow the [checkpoint](../../reporting/agent-ops/codex-modernization/checkpoints/2026-11-09-follower-consolidation.md)
 for actual verification; later slices and qualification remain pending.
 
@@ -19,23 +20,25 @@ It does not change running software, grant aircraft authority or qualify a mode.
 
 The owner selected ordinary, unmodified PX4 for the normal workflow. The
 private ownership/observation extension remains experimental evidence, not a
-mandatory product dependency. Current code still has that VTOL gate; it must
-remain closed until a tested stock replacement is ready, rather than being
-removed or bypassed by relabelling the aircraft.
+mandatory product dependency. The shared stock-MAVLink application owner now
+passes SIH Start, recovery, controls, Stop, takeover and transition termination.
+Hardware and operator acceptance remain separate; configuration cannot invent
+missing aircraft phase or authority.
 
 Reuse standard MAVLink type/phase observations and the existing MC publisher
-for native MC and qualified VTOL hover. The first complete stock FW candidate
-is PX4's supported lateral/longitudinal interface with a verified DDS path;
-MAVLink-only alternatives need their own speed, stale-command and process-loss
-gates. Guided Course must not keep an obsolete pursuit indefinitely after
-companion failure. No phase changes transport inside an active session:
+for native MC. Settled FW/VTOL now use the qualified one-shot MAVLink
+projection and existing command owner. Its attitude/thrust contract does not
+retain native TECS energy/underspeed control. The DDS external-mode experiment
+remains explicitly selectable. Publication-loss evidence confirms the native
+PX4 failsafe instead of indefinitely replaying an obsolete pursuit. No phase changes transport inside an active session:
 Stop/transition ends it and a new Start selects a qualified settled strategy.
 Clients remain capability-driven, without board/follower-name branches.
 
 See the [stock integration workflow](../07-integration/stock-px4-gimbal-vtol.md)
 for installation geometry, configuration and the acceptance sequence. This
 supersedes a mandatory custom-firmware interpretation of the native sections
-below; it does not claim replacement transports have been implemented.
+below. Historical native-only gates are superseded by the stock application
+checkpoint; remaining hardware gates are not.
 
 ## 1. Scope and confirmed decisions
 

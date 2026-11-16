@@ -27,6 +27,7 @@ from tests.unit.drone_interface.test_aircraft_state import aircraft_state
 def environment(monkeypatch):
     previous = Parameters.get_runtime_config_snapshot()
     defaults = yaml.safe_load((Path(__file__).resolve().parents[3] / 'configs/config_default.yaml').read_text())
+    defaults['Safety']['ALLOW_SESSION_VELOCITY_OVERRIDE'] = True
     now = [100.]
     monkeypatch.setattr('classes.followers.base_follower.time.monotonic', lambda: now[0])
     followers = []

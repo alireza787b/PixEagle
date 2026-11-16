@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / "src")]
 
 
-def application_metrics(rows, *, altitude_control):
+def application_metrics(rows, *, altitude_control, require_recovery=True):
     """Actual pose only; a successful submission never supplies vehicle motion."""
     active = [row for row in rows if row["following_active"]]
     if not active:
@@ -34,7 +34,8 @@ def application_metrics(rows, *, altitude_control):
     recovered = bool(lost) and any(row["elapsed_s"] > lost[-1]["elapsed_s"]
         and row["continuity"]["authority_state"] == "ACTIVE" for row in active)
     input_failures = sorted({row["follower_input_reason"] for row in active if row["follower_input_reason"]})
-    return dict(passed=recovered and not input_failures and min(distances) < .75 * distances[0]
+    recovery_ok = recovered or not require_recovery and not lost
+    return dict(passed=recovery_ok and not input_failures and min(distances) < .75 * distances[0]
         and (altitude_control or altitude_error < 5.), initial_range_m=distances[0],
         closest_range_m=min(distances), final_range_m=distances[-1],
         engagement_altitude_error_m=altitude_error, loss_recovered=recovered,
@@ -68,6 +69,7 @@ def render_application_report(evidence_root):
         stable_flight={"required": False}, initial_conditions={"vehicle_ned": active[0]["vehicle_ned"]})
     template["follower"].update(purpose="Stock MAVLink application lifecycle · simulated gimbal observations",
         command_contract="fixed_wing_external" if fixed_wing else "vtol_external",
+        speed_source_policy="auto",
         altitude_control=config["Follower"]["FollowerOverrides"]["GM_VELOCITY_VECTOR"]["ENABLE_ALTITUDE_CONTROL"])
     template["constraints"]["altitude"] = {"min": config["Safety"]["GlobalLimits"]["MIN_ALTITUDE"],
         "max": config["Safety"]["GlobalLimits"]["MAX_ALTITUDE"]}
@@ -87,14 +89,19 @@ def render_application_report(evidence_root):
             pose["native_fw_forward_ned"] = [forward.x, forward.y, forward.z]
         poses.append(pose)
         states.append(dict(timestamp=row["timestamp"], state=row["continuity"]["authority_state"],
-            aircraft_phase=row.get("aircraft_phase"), limiting_reason=row["continuity"]["reason_code"]))
+            aircraft_phase=row.get("aircraft_phase"), limiting_reason=row["continuity"]["reason_code"],
+            requested_speed=row["controls"][0]["value"] if row["controls"] else None,
+            measured_translation_speed_m_s=math.hypot(*row["velocity_ned_m_s"]) if row.get("velocity_ned_m_s") is not None else None))
     evidence = dict(pose=poses, state=states,
         target=[dict(timestamp=row["timestamp"], target_ned=row["target_ned"]) for row in rows],
         tracker=read_jsonl(root / "trace/tracker_command_trace.jsonl"),
         published=read_jsonl(root / "trace/offboard_publish_trace.jsonl"))
     samples = build_timeline(scenario, evidence)
     summary = analyze_timeline(scenario, samples)
-    summary.update(qualification_result=result,
+    summary.update(qualification_result=result, evidence_kind="px4_sih", qualification_scope="stock_application_lifecycle",
+        evidence_counts={name: len(records) for name, records in evidence.items()},
+        renderer_sha256={name: hashlib.sha256((ROOT / name).read_bytes()).hexdigest() for name in (
+            "tools/sih_visualizer.py", "tools/sih_visualization_report.js", "src/classes/sih_visualization.py")},
         claim_boundary="PX4-observed application lifecycle; simulated camera. HTTP, QGC and hardware remain separate.",
         input_sha256={name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in (
             "manifest.json", "observations.jsonl", "result.json", "trace/tracker_command_trace.jsonl",
@@ -192,13 +199,14 @@ async def worker(args):
             sample = await snapshot()
             elapsed = time.monotonic() - began
             target = tuple(target_origin[i] + target_velocity[i] * elapsed for i in range(3))
-            lost = 8. <= elapsed < 9.
+            lost = 8. <= elapsed < 8. + args.loss_duration_s
             tracker = camera.observe(sample, target, epoch_s=time.time(), lost=lost)
             if app.following_active and tracker is not None:
                 accepted += bool(await app._follow_tracker_output(tracker))
             row = dict(timestamp=time.time(), elapsed_s=elapsed, vehicle_ned=sample["position_ned"],
                 quaternion_wxyz=sample["quaternion_wxyz"], target_ned=target, target_lost=lost,
                 source_boot_ms=sample["source_boot_ms"], following_active=app.following_active,
+                velocity_ned_m_s=sample["velocity_ned"], relative_altitude_m=sample["altitude_m"],
                 aircraft_phase=app.mavlink_data_manager.get_flight_state().get("phase_observation", {}).get("phase"),
                 follower_input_reason=getattr(getattr(app.follower, "follower", None), "_telemetry_metadata", {}).get("guidance_input_reason"),
                 continuity=app.get_target_continuity_status(),
@@ -247,9 +255,11 @@ async def worker(args):
         state = manager.get_aircraft_state()
         heading = state.navigation_heading_rad if state is not None else math.radians(manager.current_yaw)
         forward, lateral, target_speed = (180., 30., 3.) if fixed_wing else (15., 2., .3)
+        if not fixed_wing and args.unconstrained:
+            forward, lateral, target_speed = 60., 5., 1.
         target_origin = (sample["position_ned"][0] + forward*math.cos(heading) - lateral*math.sin(heading),
             sample["position_ned"][1] + forward*math.sin(heading) + lateral*math.cos(heading),
-            sample["position_ned"][2] + (40. if args.unconstrained else 0.))
+            sample["position_ned"][2] + ((40. if fixed_wing else 5.) if args.unconstrained else 0.))
         target_velocity = (target_speed*math.cos(heading), target_speed*math.sin(heading), 0.)
         began = time.monotonic()
         pump = asyncio.create_task(observe_target())
@@ -270,6 +280,8 @@ async def worker(args):
             if elapsed > 12. and controls and not adjusted:
                 control = controls[0]
                 value = max(control["minimum"], control["value"] - control["step"])
+                if args.unconstrained and not fixed_wing:
+                    value = control["value"] + control["step"]
                 # Same typed follower operation used by the actions service;
                 # transport/auth/HTTP qualification is deliberately not claimed.
                 app.follower.follower.update_session_control(control["control_id"], value, control["revision"])
@@ -291,7 +303,7 @@ async def worker(args):
         await asyncio.sleep(.5)
         flight = app.mavlink_data_manager.get_flight_state()
         status = commander.get_status()
-        metrics = application_metrics(rows, altitude_control=args.unconstrained)
+        metrics = application_metrics(rows, altitude_control=args.unconstrained, require_recovery=args.loss_duration_s > 0.)
         mode_preserved = flight.get("flight_mode") == PX4_HOLD_MODE
         if pilot_requested_at is not None:
             expected = (manager.get_flight_mode_text(flight.get("flight_mode")) == "Return"
@@ -304,6 +316,7 @@ async def worker(args):
             and accepted > 20 and adjusted and metrics["passed"], metrics=metrics,
             actual_px4_pose=True, application_lifecycle=True,
             physical_camera=False, http_client_qualified=False, speed_adjusted=adjusted,
+            target_loss_duration_s=args.loss_duration_s,
             finish=args.finish, pilot_mode_preserved=mode_preserved,
             accepted_tracker_updates=accepted, commander=status, handoff=app._last_following_handoff,
             retained_samples=len(rows), final_flight_state=flight))
@@ -334,6 +347,7 @@ def main():
     parser.add_argument("--airframe", choices=["sihsim_airplane", "sihsim_quadx", "sihsim_xvert"], default="sihsim_airplane")
     parser.add_argument("--start-phase", choices=["multicopter", "fixed_wing"], default="multicopter")
     parser.add_argument("--finish", choices=["stop", "pilot_return", "pilot_transition"], default="stop")
+    parser.add_argument("--loss-duration-s", type=float, default=1.)
     parser.add_argument("--follower", choices=["gm_velocity_vector"], default="gm_velocity_vector")
     parser.add_argument("--mount", choices=["HORIZONTAL", "VERTICAL"], default="VERTICAL")
     parser.add_argument("--backend-repo", type=Path, default=ROOT)
@@ -343,6 +357,8 @@ def main():
     parser.add_argument("--bin-dir", type=Path, default=ROOT / "bin")
     parser.add_argument("--opencv-lib", type=Path, default=Path("/usr/lib/x86_64-linux-gnu"))
     args = parser.parse_args()
+    if not math.isfinite(args.loss_duration_s) or not 0. <= args.loss_duration_s <= 4.:
+        parser.error("Loss duration must be finite and in [0, 4] seconds")
     if args.finish == "pilot_transition" and (args.airframe != "sihsim_xvert" or args.start_phase != "fixed_wing"):
         parser.error("Transition stimulus requires the isolated tailsitter initially in FW")
     if args.worker:
@@ -354,14 +370,19 @@ def main():
     args.simulator_model = args.airframe
     args.evidence_kind = "stock-mavlink-application-lifecycle"
     args.worker_extra_args = ["--airframe", args.airframe, "--start-phase", args.start_phase,
-        "--finish", args.finish] + (["--unconstrained"] if args.unconstrained else [])
+        "--finish", args.finish, "--loss-duration-s", str(args.loss_duration_s)] + (["--unconstrained"] if args.unconstrained else [])
     def configure(config):
         from tools.run_mavlink_fw_vector_sih import configure_component
         configure_component(config, unconstrained=args.unconstrained)
         if args.airframe != "sihsim_airplane":
-            config["GM_VELOCITY_VECTOR"]["REQUESTED_SPEED"] = 1.5
-            config["Safety"]["GlobalLimits"].update(MAX_VELOCITY=3., MAX_VELOCITY_FORWARD=3.,
-                MAX_VELOCITY_LATERAL=3., MAX_VELOCITY_VERTICAL=3.)
+            ceiling = 6. if args.unconstrained else 3.
+            config["GM_VELOCITY_VECTOR"]["REQUESTED_SPEED"] = 6. if args.unconstrained else 1.5
+            config["Safety"]["ALLOW_SESSION_VELOCITY_OVERRIDE"] = args.unconstrained
+            config["Safety"]["GlobalLimits"].update(MAX_VELOCITY=ceiling, MAX_VELOCITY_FORWARD=ceiling,
+                MAX_VELOCITY_LATERAL=ceiling, MAX_VELOCITY_VERTICAL=ceiling)
+            if args.unconstrained:
+                config["Safety"]["GlobalLimits"]["MIN_ALTITUDE"] = 5.
+                config["GM_VELOCITY_VECTOR"]["RAMP_ACCELERATION"] = 1.5
         for name in ("mc_follower_sih.py", "fixed_camera_world_target.py", "sih_gimbal_world_target.py"):
             shutil.copyfile(args.backend_repo / "tools" / name, args.output / "backend/tools" / name)
         config["Follower"]["FOLLOWER_DATA_REFRESH_RATE"] = 20.

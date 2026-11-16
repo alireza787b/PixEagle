@@ -3,8 +3,9 @@
 The ordinary product direction now uses stock PX4; see the
 [stock integration workflow](../docs/followers/07-integration/stock-px4-gimbal-vtol.md).
 The private ownership extension documented here is not a normal-user firmware
-requirement. Its current runtime gate remains until a stock replacement passes
-qualification; these build instructions describe the retained experiment.
+requirement. These instructions describe the retained, explicitly selected DDS
+experiment. Ordinary FW/VTOL application sessions now select stock MAVLink;
+its qualification scope and hardware checkpoint are in the integration guide.
 
 This is the shared companion adapter for experimental native FW guidance,
 including `gm_velocity_vector` and calibrated-image `fw_navigation_chase`.
@@ -20,10 +21,10 @@ ends following on transition and requires a fresh Start afterward. Historical
 phase-retaining cycle reports below do not qualify the terminal release path;
 actual transition-preserving authority release remains S7 work.
 
-The isolated standard-quadplane operator workflow is accepted. The fixed-nose
-tailsitter operator accepted pursuit but reported failed Stop; that release
-repair remains a separate acceptance gate. Historical component results below
-must not be read as acceptance of that application failure.
+Historical component reports below do not establish current application or
+hardware acceptance. In particular, an old component pass did not qualify the
+later fixed-nose tailsitter Stop failure. Current stock application Stop and
+takeover evidence is recorded separately in the integration guide.
 
 | Boundary | Contract |
 | --- | --- |

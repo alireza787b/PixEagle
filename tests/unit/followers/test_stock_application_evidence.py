@@ -24,6 +24,17 @@ def test_only_observed_pose_can_establish_closure_and_altitude_hold():
     assert not application_metrics(stationary, altitude_control=False)["passed"]
 
 
+def test_declared_no_loss_scenario_cannot_claim_recovery_or_hide_actual_loss():
+    rows = evidence()
+    for row in rows:
+        row["target_lost"] = False
+    assert not application_metrics(rows, altitude_control=False)["passed"]
+    result = application_metrics(rows, altitude_control=False, require_recovery=False)
+    assert result["passed"] and not result["loss_recovered"]
+    rows[-1]["target_lost"] = True
+    assert not application_metrics(rows, altitude_control=False, require_recovery=False)["passed"]
+
+
 @pytest.mark.parametrize("fault", ["missing_pose", "no_recovery", "stale_input", "altitude_drift"])
 def test_submission_success_cannot_hide_missing_or_failed_aircraft_evidence(fault):
     rows = evidence()

@@ -40,7 +40,7 @@ measurement timing on the installation. See [camera mounting](../../trackers/06-
 | --- | --- | --- |
 | MC or settled VTOL hover | Existing MAVLink/MAVSDK MC command publisher | Fresh phase, physical attitude, vector/frame conversion, speed editing, Stop and takeover |
 | Transition | Pilot/PX4 owns transition; following ends | No pursuit, no delayed command that replaces the pilot's mode, no automatic restart |
-| Settled FW | MAVLink attitude/thrust projection under qualification | Speed/path feedback, altitude response, link-loss behavior, Stop and takeover |
+| Settled FW | MAVLink attitude/thrust projection; application SIH passed | Hardware speed/path feedback, altitude response, link-loss behavior, Stop and takeover |
 
 Keep the existing UART/MAVLink link. MAVLink2REST provides observations and
 MAVSDK publishes control; no extra USB cable or DDS runtime is required for the
@@ -94,6 +94,7 @@ Use the existing keys, through Dashboard Settings while following is inactive:
 | `Follower.FollowerOverrides.GM_VELOCITY_VECTOR.ENABLE_ALTITUDE_CONTROL` | Explicit target-directed climb/descent choice |
 | `GM_VELOCITY_VECTOR.REQUESTED_SPEED` | MC startup request; zero is allowed, never reused as a FW airspeed |
 | `Safety.GlobalLimits` | Saved MC speed/rate and relative-altitude envelope |
+| `Safety.ALLOW_SESSION_VELOCITY_OVERRIDE: false` | Public MC speed controls cannot exceed saved caps; explicit expert permission enables temporary overrides |
 | `FixedWingGuidance.UPPER_SPEED_POLICY: px4_configured_max` | Normal native FW envelope |
 | `FixedWingGuidance.MIN_DIVE_THROTTLE: null` | Native throttle behavior |
 
@@ -105,7 +106,7 @@ The proxy supports degraded feedback, but cannot establish actual stall margin.
 VFR_HUD reports selected calibrated airspeed; a cached read is not a new packet,
 and an absent sensor is not evidence of a wind-based estimate.
 
-`no_upper_speed_bound` is tested only in the isolated MAVLink component. A private
+`no_upper_speed_bound` passes isolated component and application SIH scenarios. An expert
 session starts with its configured expert policy active. Restore returns to the
 normal speed and pitch/sink envelope without increasing a lower request. A new
 explicit speed adjustment reactivates only the expert policy permitted by the
@@ -177,20 +178,24 @@ descent fixture. These options never edit an installed profile. Each successful
 run writes the existing interactive viewer, CSV/JSON and PNG under `visualization/`.
 Raw observations, failed runs, configuration, source checksums and ULogs remain
 alongside it. The tool starts no HTTP server or QGC instance.
-The safe MC qualification scenarios start at 40 m, above the shared public
-30 m floor; ground-view targets remain on the ground.
+The safe MC qualification scenarios start at 40 m, above the configured
+relative-altitude floor; ground-view targets remain on the ground.
 
 Public factory defaults remain MC Position, VIDEO_FILE/CSRT, optional altitude
-guidance off, circuit breaker on and the shared 30 m relative-altitude floor.
-Private test overlays do not change those defaults.
+guidance off, circuit breaker on and the shared 5–100 m relative-altitude envelope.
+The existing 2 m warning buffer requires Start at or above 7 m. Supported public
+speed controls remain inside saved limits. Legacy installations retain their
+saved values until Config Sync preview/apply accepts the migration. Private test
+overlays do not change those defaults. See the [release-candidate checkpoint](../../reporting/agent-ops/codex-modernization/checkpoints/2026-11-17-stock-factory-release-candidate.md)
+for current source, test scope and remaining hardware work.
 
 ## Operator sequence after stock qualification
 
 1. Bench: retain the circuit breaker; verify sign-in, fresh telemetry/video,
    point/region selection, gimbal controls and physical angle signs.
 2. In the separately approved MC test, settle above the configured floor and
-   warning band. Start tracking, then following. Increase the MC request from
-   zero in bounded steps; verify Stop and fresh restart.
+   warning band. Start tracking, then following. Verify the explicitly configured startup request, then increase
+   in bounded steps; verify Stop and fresh restart.
 3. Stop following and confirm its result **before** the pilot commands transition.
 4. Let PX4 settle in FW. Confirm the target and make a new explicit Start.
    Initialize the FW request from qualified engagement speed or the declared PX4
@@ -199,8 +204,9 @@ Private test overlays do not change those defaults.
    native FW Hold/loiter. Retargeting cannot reset the loss budget. Later target
    detection cannot restart following automatically.
 
-Until the stock simulation and installation gates pass, perform step 1 only.
-Keep the existing VTOL admission closed rather than relabelling the aircraft as MC.
+Stock application simulation has passed; installation and physical acceptance
+remain pending. Perform step 1 before any separately approved flight. Do not
+relabel a VTOL aircraft as MC to bypass actual phase or ownership checks.
 
 Sources: [MAVLink state](https://mavlink.io/en/messages/common.html#EXTENDED_SYS_STATE),
 [PX4 Offboard](https://docs.px4.io/main/en/flight_modes/offboard),

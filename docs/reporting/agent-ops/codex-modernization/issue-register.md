@@ -511,3 +511,11 @@ remain open. Integration work is unpublished.
   cleanup mode replay; native PX4 Offboard-loss Return remains authoritative.
   Both clients label ground-speed proxy feedback explicitly. See the
   [application checkpoint](checkpoints/2026-11-17-stock-mavlink-application.md).
+
+- **2026-11-17 — Factory/expert authority and rc.4 candidate:** one explicit
+  permission bounds public session speed controls without duplicating the limit
+  resolver. Legacy absence remains visible in Config Sync. Factory altitude is
+  5–100 m with target guidance off; private profiles remain outside Git. Latest
+  unmodified PX4 tailsitter MC/FW application checks and renewed backend/client
+  gates pass. Hardware and exact-head cloud/package acceptance remain separate;
+  see the [candidate checkpoint](checkpoints/2026-11-17-stock-factory-release-candidate.md).

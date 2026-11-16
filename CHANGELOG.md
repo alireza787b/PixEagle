@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+## Version 7.6.0-rc.4 (2026-11-17) - Stock MAVLink application candidate
+
+- Integrate stock MAVLink flight sessions with application Start/Stop, phase-bound
+  speed controls and bounded target recovery. Reuse one commander and one
+  telemetry owner; ordinary MC/FW/VTOL operation needs no firmware patch or DDS.
+- Fix the reproduced readiness/command-snapshot race while retaining original
+  input freshness. Stop/transition/takeover cannot replay an older mode command.
+- Set new-install public defaults to MC Position, altitude guidance off,
+  relative altitude 5–100 m and circuit breaker on. Public session speed remains
+  bounded; explicit expert permission enables the existing velocity override.
+  Saved legacy configuration requires Config Sync preview/apply for adoption.
+- Renew unmodified official PX4 simulation and private QGC proxy-speed labels.
+  Read-only reports distinguish requested, submitted and PX4-observed motion.
+- Prerelease pending matched package and hardware acceptance. Stock FW
+  attitude/thrust projection is not TECS; ground-speed proxy cannot prove stall
+  margin. Private expert profiles and aircraft firmware remain separate.
+
 ## Version 7.6.0-rc.3 (2026-11-16) - Unattended helper renewal
 
 - Respect unattended setup when replacing outdated pinned helper binaries or

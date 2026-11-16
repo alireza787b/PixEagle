@@ -29,13 +29,17 @@ class AirframeSessionControls:
         ceiling = finite_number(control.configured_maximum if control.configured_maximum is not None
                                 else control.maximum, "multicopter_speed_ceiling")
         owner = cls(identity, multicopter_startup_m_s=min(control.value, ceiling),
-                    multicopter_ceiling_m_s=ceiling, step_m_s=control.step)
+                    multicopter_ceiling_m_s=ceiling, step_m_s=control.step,
+                    multicopter_override_allowed=control.maximum is None and control.configured_maximum is not None)
         owner._requests[AirframePhase.MULTICOPTER] = control
         owner._revision = control.revision
         return owner
 
     def __init__(self, identity: GuidanceSessionIdentity, *, multicopter_startup_m_s: float | None,
-                 multicopter_ceiling_m_s: float | None, step_m_s: float):
+                 multicopter_ceiling_m_s: float | None, step_m_s: float, multicopter_override_allowed: bool = True):
+        if type(multicopter_override_allowed) is not bool:
+            raise ValueError('multicopter_override_permission_invalid')
+        self._mc_override_allowed = multicopter_override_allowed
         step = finite_number(step_m_s, "speed_step")
         if (step <= 0 or (multicopter_startup_m_s is None) != (multicopter_ceiling_m_s is None)):
             raise ValueError("session_speed_configuration_invalid")
@@ -49,7 +53,8 @@ class AirframeSessionControls:
         self._mc_ceiling = ceiling
         self._step = step
         self._requests = {} if startup is None else {AirframePhase.MULTICOPTER: SessionControl(
-            "requested_speed", "3D speed", "m/s", 0., None, step, startup, configured_maximum=ceiling,
+            "requested_speed", "3D speed", "m/s", 0., None if multicopter_override_allowed else ceiling,
+            step, startup, configured_maximum=ceiling if multicopter_override_allowed else None,
         )}
         self._phase = AirframePhase.UNKNOWN
         self._revision = 0
@@ -97,7 +102,7 @@ class AirframeSessionControls:
             raise ValueError("aircraft_phase_unknown")
         self.identity, self._phase = identity, state.phase
         self._revision += 1
-        override_allowed = state.phase is AirframePhase.MULTICOPTER or unrestricted_verified
+        override_allowed = self._mc_override_allowed if state.phase is AirframePhase.MULTICOPTER else unrestricted_verified
         override_active = (state.phase is AirframePhase.FIXED_WING and unrestricted_verified
                            or override_allowed and retained is not None and retained.override_active)
         acknowledged = max(minimum, value if override_active else min(value, ceiling))

@@ -31,6 +31,42 @@ from tools.sih_visualization_catchup_fixture import write_catchup_evidence  # no
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def test_sampled_control_request_stays_distinct_from_command_and_expires_with_state():
+    scenario = VisualizationScenario.from_yaml(ROOT / "tools/sih_visualization_scenarios/gimbal-vector-vertical.yaml")
+    rows = build_timeline(scenario, dict(
+        pose=[{"timestamp": stamp, "vehicle_ned": [0., 0., -20.]} for stamp in (100., 101.)],
+        state=[{"timestamp": 100., "requested_speed": 6., "measured_translation_speed_m_s": 1.5, "state": "ACTIVE"}],
+        tracker=[{"timestamp": 100., "command_intent": {"fields": {
+            "vel_body_fwd": 2., "vel_body_right": 0., "vel_body_down": 0., "yawspeed_deg_s": 0.}}}],
+        published=[], target=[]))
+    assert rows[0].requested_speed == 6. and rows[0].effective_speed == 2.
+    assert rows[0].measured_translation_speed_m_s == 1.5
+    assert rows[-1].requested_speed is None
+    assert rows[-1].measured_translation_speed_m_s is None
+
+
+def test_vtol_mc_png_uses_observed_command_contract_and_elapsed_clock(tmp_path, monkeypatch):
+    from dataclasses import replace
+    from matplotlib.figure import Figure
+    from tools.sih_visualizer import write_png
+
+    scenario = replace(VisualizationScenario.from_yaml(
+        ROOT / "tools/sih_visualization_scenarios/gimbal-vector-native-fw.yaml"),
+        airframe="vtol", command_contract="vtol_external")
+    sample = VisualizationSample(timestamp=1000., command_contract="velocity_body_offboard",
+        command={"vel_body_fwd": 2., "vel_body_right": 0., "vel_body_down": .2},
+        requested_speed=6., measured_translation_speed_m_s=1.5,
+        target_ned=(10., 0., -20.), vehicle_ned=(0., 0., -20.))
+    figures = []
+    monkeypatch.setattr(Figure, "savefig", lambda figure, *args, **kwargs: figures.append(figure))
+    write_png(tmp_path / "summary.png", scenario, [sample])
+    axes = figures[0].axes
+    assert axes[0].get_ylabel() == "heading-frame velocity (m/s)"
+    assert list(axes[0].lines[0].get_xdata()) == [0.]
+    assert {line.get_label() for line in axes[1].lines} == {
+        "acknowledged 3D request", "PX4 3D velocity magnitude"}
+
+
 def test_scenarios_validate_and_interpolate_target_truth():
     scenario = VisualizationScenario.from_yaml(
         ROOT / "tools/sih_visualization_scenarios/gimbal-vector-vertical.yaml"

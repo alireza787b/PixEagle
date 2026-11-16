@@ -10,8 +10,8 @@ supported follower temporarily replaces velocity caps only. Restore removes
 that owned override; saved limits and non-velocity protections are unchanged.
 
 The public factory profile uses **MC Position**, target-altitude guidance off,
-a shared **30 m relative-altitude floor** for MC/FW and a 120 m upper limit.
-The existing 2 m warning buffer makes Start require at least **32 m**. These
+a shared **5 m relative-altitude floor** and a 100 m upper limit.
+The existing 2 m warning buffer makes Start require at least **7 m**. These
 are evaluation defaults, not a terrain-clearance guarantee. Native FW airspeed
 remains constrained by PX4's minimum/trim/envelope; MC velocity caps are not FW
 airspeed settings. The circuit breaker remains enabled.
@@ -41,8 +41,8 @@ Safety:
     MAX_ROLL_RATE: 45.0
 
     # Altitude Limits (meters)
-    MIN_ALTITUDE: 30.0            # Common MC/FW relative-altitude floor
-    MAX_ALTITUDE: 120.0           # Maximum altitude
+    MIN_ALTITUDE: 5.0             # Common relative-altitude floor
+    MAX_ALTITUDE: 100.0           # Maximum altitude
     ALTITUDE_WARNING_BUFFER: 2.0  # Warning zone size
     ALTITUDE_SAFETY_ENABLED: true
 
@@ -92,11 +92,11 @@ Safety:
   FollowerOverrides:
     MC_VELOCITY_CHASE:
       MAX_VELOCITY_FORWARD: 0.25  # Lower than the global 0.5 m/s ceiling
-      MIN_ALTITUDE: 35.0          # Stricter than the 30 m global floor
+      MIN_ALTITUDE: 35.0          # Stricter than the 5 m global floor
 
     FW_ATTITUDE_RATE:
       MIN_ALTITUDE: 40.0          # Stricter site-specific floor
-      MAX_ALTITUDE: 100.0         # Lower than the global 120 m ceiling
+      MAX_ALTITUDE: 100.0         # Lower than the global 100 m ceiling
 ```
 
 **Important**:

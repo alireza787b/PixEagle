@@ -38,7 +38,7 @@ def manager():
 
 
 def test_explicit_global_null_survives_normalization_and_serialization(config):
-    assert config["Safety"]["GlobalLimits"]["MAX_ALTITUDE"] == 120.0
+    assert config["Safety"]["GlobalLimits"]["MAX_ALTITUDE"] == 100.0
     config["Safety"]["GlobalLimits"]["MAX_ALTITUDE"] = None
     normalized = normalize_safety_config(config, require_safety=True)
     assert "MAX_ALTITUDE" in normalized["Safety"]["GlobalLimits"]
@@ -50,7 +50,7 @@ def test_generated_schema_only_allows_null_on_the_global_ceiling():
     safety = yaml.safe_load(path.read_text())["sections"]["Safety"]["parameters"]
     ceiling = safety["GlobalLimits"]["properties"]["MAX_ALTITUDE"]
     assert ceiling["nullable"] is True
-    assert ceiling["default"] == 120.0
+    assert ceiling["default"] == 100.0
     assert ceiling["null_label"] == "No mission ceiling"
     override = safety["FollowerOverrides"]["properties"]["MC_VELOCITY_CHASE"]["properties"]["MAX_ALTITUDE"]
     assert not override.get("nullable", False)
@@ -88,7 +88,7 @@ def test_only_explicit_null_extends_existing_numeric_contract(config, manager, i
     with pytest.raises(ValueError):
         normalize_safety_config(config, require_safety=True)
     manager.load_from_config(config)
-    assert manager.get_limit("MAX_ALTITUDE") == 120.0
+    assert manager.get_limit("MAX_ALTITUDE") == 100.0
 
 
 def test_missing_required_global_key_is_not_an_unbounded_setting(config, manager):
@@ -96,7 +96,7 @@ def test_missing_required_global_key_is_not_an_unbounded_setting(config, manager
     with pytest.raises(ValueError, match="MAX_ALTITUDE"):
         normalize_safety_config(config, require_safety=True)
     manager.load_from_config(config)
-    assert manager.get_limit("MAX_ALTITUDE") == 120.0
+    assert manager.get_limit("MAX_ALTITUDE") == 100.0
 
 
 def test_resolution_summary_parameters_and_reload_agree(config, manager, monkeypatch):

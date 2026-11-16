@@ -104,6 +104,7 @@ def _build_follower_stub(
     )
     follower._follower_config_name = "GM_VELOCITY_VECTOR"
     follower.safety_manager = SimpleNamespace(
+        allows_session_velocity_override=lambda: True,
         get_altitude_limits=lambda _: SimpleNamespace(
             min_altitude=3.0, max_altitude=120.0, warning_buffer=2.0,
         ),

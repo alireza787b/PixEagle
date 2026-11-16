@@ -21,6 +21,7 @@ Safety Integration (v5.0.0+):
 """
 
 from abc import ABC, abstractmethod
+from dataclasses import replace
 from typing import Tuple, Dict, Any, List, Optional
 from classes.command_intent import CommandIntent
 from classes.aircraft_state import AircraftState
@@ -810,6 +811,8 @@ class BaseFollower(ABC):
         configured = SessionControl('requested_speed', declaration['label'], declaration['unit'],
                                     0.0, ceiling, declaration['step'], float(value))
         configured.updated(value, configured.revision)
+        if not self.safety_manager.allows_session_velocity_override():
+            return {configured.control_id: replace(configured, description=declaration.get('description'))}
         control = SessionControl('requested_speed', declaration['label'], declaration['unit'],
                                  0.0, None, declaration['step'], float(value), configured_maximum=ceiling,
                                  description=declaration.get('description'))

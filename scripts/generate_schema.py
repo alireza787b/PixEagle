@@ -698,10 +698,19 @@ SCHEMA_OVERRIDES = {
             },
         ],
     },
+    'Safety.ALLOW_SESSION_VELOCITY_OVERRIDE': {
+        'description': (
+            'Advanced: allow supported MC session controls to replace saved velocity caps. '
+            'Off for new installations. Missing legacy values retain compatibility until Config Sync applies this choice. '
+            'Altitude, rate and authority guards are unchanged; fixed-wing policy is configured separately.'
+        ),
+        'reload_tier': 'follower_restart',
+    },
     'Safety.GlobalLimits': {
         'description': (
-            'Complete non-bypassable safety envelope; every canonical field is '
-            'required and follower profiles may only tighten it'
+            'Complete saved safety envelope; every canonical field is required '
+            'and follower profiles may only tighten it. Explicitly permitted '
+            'session velocity overrides affect velocity caps only.'
         ),
         'required': [
             'MIN_ALTITUDE',

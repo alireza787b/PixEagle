@@ -23,6 +23,15 @@ from tools.sitl_gimbal_geometry_fixture import camera_angles_for_world_target
 OBSERVATION_LIMITS = GimbalObservationLimits()
 
 
+@pytest.fixture
+def expert_velocity_policy(monkeypatch):
+    from classes.safety_manager import SafetyManager
+
+    manager = SafetyManager()
+    manager.load_from_config({'Safety': {'ALLOW_SESSION_VELOCITY_OVERRIDE': True, 'GlobalLimits': {}}})
+    monkeypatch.setattr(SafetyManager, '_instance', manager)
+
+
 def session(*, altitude=True, state=None, session_id="follow"):
     state = state or aircraft_state(is_vtol=True, is_tailsitter=True)
     now = [100.]
@@ -365,7 +374,7 @@ def test_field_discovery_never_calculates_commands_after_teardown(phase, altitud
 
 @pytest.mark.parametrize("mount", ["HORIZONTAL", "VERTICAL"])
 @pytest.mark.parametrize("phase", [AirframePhase.MULTICOPTER, AirframePhase.FIXED_WING])
-def test_registered_vector_follower_uses_one_phase_session_and_correct_command_contract(mount, phase):
+def test_registered_vector_follower_uses_one_phase_session_and_correct_command_contract(mount, phase, expert_velocity_policy):
     import time
     from types import SimpleNamespace
     from classes.follower import FollowerFactory
@@ -423,7 +432,7 @@ def test_registered_vector_follower_uses_one_phase_session_and_correct_command_c
 
 
 @pytest.mark.parametrize("mount", ["HORIZONTAL", "VERTICAL"])
-def test_phase_change_retires_old_ray_and_command_contract(mount):
+def test_phase_change_retires_old_ray_and_command_contract(mount, expert_velocity_policy):
     import time
     from types import SimpleNamespace
     from classes.follower import FollowerFactory

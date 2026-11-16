@@ -68,6 +68,14 @@ def test_validated_native_report_header_uses_actual_pose_records_and_component_s
     assert metadata["coverage"] == "PX4 pose: 290 records"
     assert "PX4-observed pose" in metadata["motion"]
     assert "Speed policy: native_auto" in metadata["scenario"]
+
+
+def test_application_scope_is_explicit_without_claiming_camera_or_http_acceptance():
+    metadata = rendered_metadata({"evidence_kind": "px4_sih", "pose_observed_samples": 10,
+        "evidence_counts": {"pose": 4}, "qualification_scope": "stock_application_lifecycle",
+        "qualification_result": {"passed": True}})
+    assert metadata["evidence"] == "PX4-observed SIH · application lifecycle"
+    assert metadata["coverage"] == "PX4 pose: 4 records"
     assert metadata["values"]["speed policy"] == "native_auto"
     assert "speed source" not in metadata["values"]
     assert metadata["index"] == 0
@@ -141,7 +149,7 @@ def test_native_scenario_uses_versioned_registered_command_contract():
 @pytest.mark.parametrize("changes,reason", [
     ({"schema_version": 1}, "schema_version 2"),
     ({"schema_version": True}, "schema_version"),
-    ({"follower": {"speed_source_policy": "ground_speed_only"}}, "native speed-source"),
+    ({"follower": {"speed_source_policy": "ground_speed_only"}}, "automatic speed-source"),
     ({"follower": {"profile": "gm_velocity_chase"}}, "contract must be"),
     ({"follower": {"input_contract": "image_position_2d"}}, "contract must be"),
 ])
@@ -156,6 +164,16 @@ def test_native_scenario_rejects_legacy_or_incompatible_contracts(tmp_path, chan
     path.write_text(yaml.safe_dump(raw))
     with pytest.raises(VisualizationValidationError, match=reason):
         VisualizationScenario.from_yaml(path)
+
+
+def test_shared_phase_contract_accepts_stock_automatic_speed_policy(tmp_path):
+    raw = yaml.safe_load(NATIVE_SCENARIO.read_text())
+    raw["follower"]["speed_source_policy"] = "auto"
+    path = tmp_path / "stock-scenario.yaml"
+    path.write_text(yaml.safe_dump(raw))
+    scenario = VisualizationScenario.from_yaml(path)
+    assert scenario.speed_source_policy == "auto"
+    assert scenario.command_contract == "fixed_wing_external"
 
 
 def test_native_report_uses_submitted_course_and_independent_target_not_eas_as_velocity(tmp_path):

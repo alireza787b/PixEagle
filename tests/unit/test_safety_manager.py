@@ -133,8 +133,8 @@ class TestConfigurationLoading:
         safety_manager.load_from_config({})
 
         # Should use fallbacks
-        assert safety_manager.get_limit('MIN_ALTITUDE') == 30.0
-        assert safety_manager.get_limit('MAX_ALTITUDE') == 120.0
+        assert safety_manager.get_limit('MIN_ALTITUDE') == 5.0
+        assert safety_manager.get_limit('MAX_ALTITUDE') == 100.0
 
     def test_initialized_flag_set(self, safety_manager, config_with_global_limits):
         """Initialization status is exposed without private-state reads."""
@@ -229,7 +229,7 @@ class TestLimitResolutionHierarchy:
         safety_manager.load_from_config({'Safety': {'GlobalLimits': {}}})
 
         result = safety_manager.get_limit('MIN_ALTITUDE')
-        assert result == 30.0  # Fallback value
+        assert result == 5.0  # Fallback value
 
     def test_fail_safe_fallbacks_match_checked_in_global_defaults(self):
         """Duplicated emergency constants must not drift from canonical defaults."""

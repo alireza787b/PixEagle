@@ -200,9 +200,9 @@
     "tag_commit": "fd132028513748238be1762e57893bbca9fcf179"
   },
   "stock_px4": {
-    "commit": "99a3048735caa5a2c277d6aa8e17a12a6133db5d",
+    "commit": "722ebc963555189314a8ce77b426ed074ffa6dae",
     "version": {
-      "describe": "v1.18.0-beta1-1584-g99a30487",
+      "describe": "v1.18.0-beta1-1589-g722ebc96",
       "tag": "v1.18.0-beta1",
       "tag_object": "d90ac5b79200c44895c03ee7c284b20b80ecf75d",
       "tag_commit": "fd132028513748238be1762e57893bbca9fcf179"

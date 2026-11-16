@@ -32,7 +32,7 @@ from tests.unit.followers.test_session_speed import follower_with_control
 @pytest.fixture
 def chase(mock_px4, monkeypatch):
     safety = SafetyManager()
-    safety.load_from_config({'Safety': {'GlobalLimits': {
+    safety.load_from_config({'Safety': {'ALLOW_SESSION_VELOCITY_OVERRIDE': True, 'GlobalLimits': {
         'MAX_VELOCITY': 1., 'MAX_VELOCITY_FORWARD': .5,
         'MAX_VELOCITY_LATERAL': .4, 'MAX_VELOCITY_VERTICAL': .3,
     }}})
@@ -56,7 +56,7 @@ def magnitude(fields):
 def test_normal_chase_constructor_can_shape_session_speed_without_vector_attributes(mock_px4):
     follower = MCVelocityChaseFollower(mock_px4, (0., 0.))
     assert not hasattr(follower, 'update_rate')
-    for requested in (2., .5, 0., None):
+    for requested in (.5, 0., 1.):
         control, = follower.session_controls()
         follower.update_session_control('requested_speed', requested, control['revision'])
         shaped = follower.prepare_authorized_command(command(), loss_decay=False)

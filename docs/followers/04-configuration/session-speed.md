@@ -24,11 +24,14 @@ aircraft speed: turns, acceleration, continuity and safety limits can reduce the
 effective submitted command. A request of zero ramps translation down; tracking
 and permitted yaw guidance continue. Use **Stop Following** to end the session.
 
-**An adjustment activates a temporary velocity override.** The requested 3D ceiling
+**Factory behavior keeps saved limits.** Adjustments reduce the requested speed
+and increase it again within the advertised ceiling. Experts can enable
+`Safety.ALLOW_SESSION_VELOCITY_OVERRIDE`; only then does an adjustment activate
+a temporary velocity override. The requested 3D ceiling
 replaces PixEagle's saved total, forward, lateral and vertical velocity caps for
 this session. Each follower retains its existing guidance law; coordinated-turn
 guidance still turns instead of commanding sideways flight. There is no additional
-PixEagle UI speed ceiling. Existing aircraft firmware limits remain independent.
+PixEagle UI speed ceiling in that expert policy. Existing firmware limits remain independent.
 Altitude protection, acceleration, yaw/rate limits, validity checks and the
 circuit breaker are unchanged. No target-distance or new pursuit law is added.
 
@@ -56,6 +59,7 @@ between pages never replays an earlier adjustment.
 
 | Setting | Meaning |
 | --- | --- |
+| `Safety.ALLOW_SESSION_VELOCITY_OVERRIDE` | Advanced MC permission: factory `false` retains saved caps; explicit `true` permits the existing session override and Restore. It adds no controller or second resolver. |
 | `GM_VELOCITY_VECTOR.REQUESTED_SPEED` | Optional saved request at session start. Default `null` or an omitted key preserves the existing ceiling-based startup behavior. Clear the advanced Dashboard field to restore `null`. |
 | `GM_VELOCITY_VECTOR.INITIAL_VELOCITY` | Initial condition of the existing speed ramp; not a second cruise setting. |
 | `GM_VELOCITY_VECTOR.RAMP_ACCELERATION` | Existing acceleration/deceleration ramp and final command slew limit; the session control does not change it. |
@@ -65,14 +69,14 @@ between pages never replays an earlier adjustment.
 
 The public demo keeps its 0.5 m/s forward ceiling, 1 m/s overall ceiling, video
 file/CSRT, constant-position follower and enabled safety/circuit-breaker defaults.
-Saved startup requests remain within the configured envelope. Only an explicit
+Saved startup requests remain within the configured envelope. With expert permission, only an explicit
 session adjustment activates the velocity override; startup and reconnect do not
 activate or replay one. Increasing the request does not edit the saved ceiling.
 An existing saved startup request outside its configured envelope is rejected.
 
 MC Chase initially reports the saved total translation ceiling (factory: 1 m/s),
 while retaining its separate saved forward target (factory: 0.5 m/s), component
-limits and existing image-error PID/yaw behaviour. Only an explicit speed action
+limits and existing image-error PID/yaw behaviour. Only an explicit speed action with expert permission
 activates the shared override. After that action, the forward ramp is bounded by
 the request and lateral/vertical guidance shares the total translation ceiling.
 Zero ramps all translation down; it is not just a forward-speed zero and does
@@ -121,7 +125,14 @@ Missing, invalid, stale or misbound airspeed leaves the observation unknown.
 that the FW controller is active with airspeed control disabled; unavailable
 EAS alone cannot establish that mode. It still reports no measured EAS or stall
 margin. These fields add no observer, polling loop, controller or flight authority.
-VTOL admission remains gated; exposing phase-aware status does not qualify it.
+The stock MAVLink path reports `ground_speed_proxy` when fresh navigation
+velocity is the available fallback. This is not measured airspeed or proof of
+stall margin. See the [stock integration guide](../07-integration/stock-px4-gimbal-vtol.md)
+for current qualification scope.
+
+Missing legacy permission retains the previous override behavior until Config
+Sync preview/apply accepts the new factory choice. It stays absent in saved
+configuration; validation does not silently rewrite command authority.
 
 ## Client and extension contract
 
