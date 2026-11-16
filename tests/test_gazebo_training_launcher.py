@@ -87,6 +87,21 @@ def test_container_plan_is_unprivileged_and_namespace_scoped(tmp_path):
             [(Path('/missing/training/dependency'), '/runtime', False)], {}, 'pinned-image')
 
 
+def test_desktop_ipc_supports_mesa_without_exposing_the_aircraft_network(tmp_path, monkeypatch):
+    authority = tmp_path / 'xauthority'
+    authority.touch()
+    monkeypatch.setenv('DISPLAY', ':9')
+    monkeypatch.setenv('XAUTHORITY', str(authority))
+    monkeypatch.setattr(Path, 'is_socket', lambda path: path == Path('/tmp/.X11-unix/X9'))
+    args = training.container_args('display', 'owner', 'simulator', [], {}, 'image', display=True)
+    assert '--ipc=host' in args
+    assert args[args.index('--network') + 1] == 'container:simulator'
+    assert '--read-only' in args and '--cap-drop' in args
+    assert not {'--privileged', '--device', '--publish', '--network=host'} & set(args)
+    headless = training.container_args('backend', 'owner', 'simulator', [], {}, 'image')
+    assert '--ipc=host' not in headless
+
+
 def test_relay_exit_during_escalation_does_not_skip_remaining_cleanup(monkeypatch):
     relay = Mock(pid=123)
     relay.wait.side_effect = [subprocess.TimeoutExpired('socat', 5), 0]

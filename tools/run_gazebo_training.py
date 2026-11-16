@@ -86,7 +86,8 @@ def display_mounts() -> list[str]:
     number = display[1:].split('.')[0]
     if not number.isdigit() or not Path(f'/tmp/.X11-unix/X{number}').is_socket():
         raise ValueError('The current desktop display socket is unavailable')
-    return ['--mount', f'type=bind,src=/tmp/.X11-unix/X{number},dst=/tmp/.X11-unix/X{number},readonly',
+    # Mesa's X11 software renderer must attach to the desktop's shared-memory segments.
+    return ['--ipc=host', '--mount', f'type=bind,src=/tmp/.X11-unix/X{number},dst=/tmp/.X11-unix/X{number},readonly',
         '--mount', f'type=bind,src={authority},dst=/run/training-xauthority,readonly',
         '-e', f'DISPLAY={display}', '-e', 'XAUTHORITY=/run/training-xauthority',
         '-e', 'LIBGL_ALWAYS_SOFTWARE=1', '-e', 'QT_X11_NO_MITSHM=1']

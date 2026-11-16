@@ -90,7 +90,12 @@ transition. Read-only observation/reporting must stay read-only.
 ## Prepare another development workstation
 
 This is an advanced development tool, not an extra requirement for ordinary
-PixEagle installation. Prepare the verified builds/dependencies using the
+PixEagle installation. The prepared X11 desktop renderers share the desktop IPC
+namespace so Mesa can use its shared-memory image transport. Backend workers
+retain private IPC, and every component retains the isolated simulator network;
+no host-network, privileged-container or physical-device access is added.
+Use these display-enabled containers only with trusted local development builds.
+Prepare the verified builds/dependencies using the
 [native build guide](../../../native/gazebo-build.md) and QGC's build instructions.
 Copy `tools/training-launcher.example.json` to
 `~/.config/pixeagle/training.json`, then fill its absolute dependency paths once.
