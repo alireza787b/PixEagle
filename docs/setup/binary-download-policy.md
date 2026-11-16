@@ -42,6 +42,12 @@ published most recently:
   its size and SHA-256 checks pass;
 - setup never discovers or installs a floating upstream `latest` release.
 
+With `PIXEAGLE_NONINTERACTIVE=1`, managed setup replaces mismatched binaries
+with the selected manifest pins without waiting for terminal input. SHA-256
+verification still precedes publication; a failed download preserves the
+previous binary. Interactive replacement still requires confirmation, and a
+closed input stream refuses replacement.
+
 The Python `mavsdk-grpc` package is a separate, exact dependency in
 `requirements-core.txt`. A contract-matched existing virtual environment is
 reused; changing that pin is an intentional source update that triggers

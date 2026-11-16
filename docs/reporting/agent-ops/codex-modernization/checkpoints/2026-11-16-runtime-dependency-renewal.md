@@ -74,6 +74,17 @@ Evidence: `reports/sitl/follower-consolidation-20261111/`.
   unrestricted envelope.
 - Hardware, physical camera geometry and flight qualification are not passed.
 
+## ARM64 setup follow-up
+
+The authorized Pi bench update exposed a downloader prompt despite the managed
+unattended flag. It was stopped without restarting a partially reconciled
+runtime. One shared confirmation helper now honors that flag for both pinned
+binaries and verified legacy moves, retaining checksum-before-publication and
+interactive refusal on EOF. Six offline executable regressions cover both
+helpers, successful replacement, bad checksums and closed interactive input.
+The unpublished rc.2 tag is retained; rc.3 includes this repair. Hardware
+qualification remains separate from successful dependency installation.
+
 ## Reproduce
 
 Use the [training launcher](../../../../followers/05-development/ubuntu-training-platform.md)

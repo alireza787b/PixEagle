@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## Version 7.6.0-rc.3 (2026-11-16) - Unattended helper renewal
+
+- Respect unattended setup when replacing outdated pinned helper binaries or
+  moving a verified legacy helper. Downloads still publish only after checksum
+  verification; failed downloads retain the previous binary.
+- Keep interactive confirmation and refuse replacement on closed input.
+  Add offline executable regressions for both helpers, including checksum
+  failure and preservation of the installed file.
+- Supersede the unpublished rc.2 handoff after its ARM64 bench update exposed
+  the downloader prompt. Guidance, saved profiles and public limits are unchanged.
+
 ## Version 7.6.0-rc.2 (2026-11-16) - Runtime and dependency renewal
 
 - Migrate to the maintained `mavsdk-grpc` client, with reviewed MAVSDK Server

@@ -1,6 +1,6 @@
 {
   "name": "dashboard",
-  "version": "7.6.0-rc.2",
+  "version": "7.6.0-rc.3",
   "private": true,
   "homepage": ".",
   "engines": {
