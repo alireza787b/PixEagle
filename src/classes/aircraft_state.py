@@ -57,7 +57,7 @@ class AircraftLayout(str, Enum):
 
 
 # Standard MAV_TYPE wire identifiers, not follower configuration or flight
-# phases. VTOL's current phase must still come from fresh native state.
+# phases. VTOL's current phase needs its own fresh phase observation.
 _MAVLINK_AIRCRAFT_TYPES = (
     (1, "FIXED_WING", AircraftKind.FIXED_WING),
     (2, "QUADROTOR", AircraftKind.MULTICOPTER),
@@ -95,6 +95,30 @@ def aircraft_kind_from_mavlink(value) -> AircraftKind:
         name = aliases.get(name, name)
         return next((kind for _, label, kind in _MAVLINK_AIRCRAFT_TYPES if label == name), AircraftKind.UNKNOWN)
     return AircraftKind.UNKNOWN
+
+
+def airframe_phase_from_mavlink(kind: AircraftKind, vtol_state=None) -> AirframePhase:
+    """Decode standard EXTENDED_SYS_STATE; neither attitude nor config is phase."""
+    if kind is AircraftKind.MULTICOPTER:
+        return AirframePhase.MULTICOPTER
+    if kind is AircraftKind.FIXED_WING:
+        return AirframePhase.FIXED_WING
+    if kind is not AircraftKind.VTOL:
+        return AirframePhase.UNKNOWN
+    if isinstance(vtol_state, dict):
+        vtol_state = vtol_state.get("type")
+    phases = (
+        (1, "TRANSITION_TO_FW", AirframePhase.VTOL_TRANSITION),
+        (2, "TRANSITION_TO_MC", AirframePhase.VTOL_TRANSITION),
+        (3, "MC", AirframePhase.MULTICOPTER),
+        (4, "FW", AirframePhase.FIXED_WING),
+    )
+    if type(vtol_state) is int:
+        return next((phase for number, _, phase in phases if number == vtol_state), AirframePhase.UNKNOWN)
+    if isinstance(vtol_state, str):
+        label = vtol_state.removeprefix("MAV_VTOL_STATE_")
+        return next((phase for _, name, phase in phases if name == label), AirframePhase.UNKNOWN)
+    return AirframePhase.UNKNOWN
 
 
 def finite_number(value: float, name: str) -> float:
@@ -201,6 +225,17 @@ def heading_frame_to_ned(vector: Vector3, heading_rad: float) -> Vector3:
 def body_ray_to_heading_frame(ray: Vector3, physical_attitude: Quaternion, heading_rad: float) -> Vector3:
     """Physical FRD LOS → NED → MAVLink's yaw-only velocity coordinates."""
     return ned_to_heading_frame(physical_attitude.rotate(ray), heading_rad)
+
+
+def fixed_wing_control_attitude(physical_attitude: Quaternion, *, is_tailsitter: bool) -> Quaternion:
+    """Match PX4's FW measurement frame; camera rays still use physical FRD.
+
+    This converts observations, not outgoing FW virtual attitude setpoints.
+    """
+    if not isinstance(physical_attitude, Quaternion) or type(is_tailsitter) is not bool:
+        raise ValueError("fixed_wing_attitude_frame_invalid")
+    return (physical_attitude.compose(Quaternion.from_euler(0., math.pi / 2., 0.))
+            if is_tailsitter else physical_attitude)
 
 
 @dataclass(frozen=True)

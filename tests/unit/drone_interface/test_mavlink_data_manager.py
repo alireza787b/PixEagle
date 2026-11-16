@@ -763,6 +763,11 @@ class TestMavlinkDataManagerConnectionState:
             "arm_status": "Armed", "landed_state": "MAV_LANDED_STATE_IN_AIR",
             "flight_mode": None,
             "aircraft_kind": "unknown",
+            "phase_observation": {
+                "phase": "unknown", "fresh": False, "reason": "telemetry_identity_unknown",
+                "source": "HEARTBEAT", "source_counter": None, "source_age_s": None,
+                "generation": 0, "connection_generation": "0", "autopilot_uid": None,
+            },
             "offboard_exit_observed_at_monotonic_s": None,
         }
 

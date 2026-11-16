@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import time
-from classes.aircraft_state import AircraftKind, aircraft_kind_from_mavlink
+from classes.aircraft_state import (
+    AircraftKind, AirframePhase, aircraft_kind_from_mavlink, airframe_phase_from_mavlink,
+)
 
 
 def canonical_uid(value):
@@ -36,6 +38,11 @@ class TelemetryAircraftIdentity:
         self._boot_ms = None
         self.reason = "telemetry_identity_unknown"
         self.aircraft_kind = AircraftKind.UNKNOWN
+        self._phase = AirframePhase.UNKNOWN
+        self._phase_counter = None
+        self._phase_last_advance = None
+        self._phase_identity_generation = None
+        self._phase_generation = 0
 
     def invalidate(self, reason):
         if self._available or self.uid is not None:
@@ -47,6 +54,54 @@ class TelemetryAircraftIdentity:
         self._boot_ms = None
         self.reason = reason
         self.aircraft_kind = AircraftKind.UNKNOWN
+        self._reset_phase()
+
+    def _reset_phase(self):
+        if self._phase is not AirframePhase.UNKNOWN or self._phase_counter is not None:
+            self._phase_generation += 1
+        self._phase = AirframePhase.UNKNOWN
+        self._phase_counter = None
+        self._phase_last_advance = None
+        self._phase_identity_generation = None
+
+    def _invalidate_phase_sample(self):
+        if self._phase is not AirframePhase.UNKNOWN or self._phase_last_advance is not None:
+            self._phase_generation += 1
+        self._phase = AirframePhase.UNKNOWN
+        self._phase_last_advance = None
+
+    def _observe_phase(self, messages, now):
+        if self._phase_identity_generation != self.generation:
+            self._reset_phase()
+            self._phase_identity_generation = self.generation
+        if self.aircraft_kind in (AircraftKind.MULTICOPTER, AircraftKind.FIXED_WING):
+            self._phase = airframe_phase_from_mavlink(self.aircraft_kind)
+            self._phase_counter = self._counter
+            self._phase_last_advance = self._last_advance
+            return
+        packet = messages.get("EXTENDED_SYS_STATE")
+        try:
+            phase = airframe_phase_from_mavlink(self.aircraft_kind, packet["message"]["vtol_state"])
+            counter = packet["status"]["time"]["counter"]
+            if phase is AirframePhase.UNKNOWN or type(counter) is not int or counter < 0:
+                raise ValueError("phase source unavailable")
+        except (KeyError, TypeError, ValueError):
+            self._invalidate_phase_sample()
+            return
+        progressed = self._phase_counter is not None and counter > self._phase_counter
+        reset = self._phase_counter is not None and counter < self._phase_counter
+        if reset:
+            # Keep the watermark: a delayed reply cannot become a new source epoch.
+            self._invalidate_phase_sample()
+            return
+        changed = phase is not self._phase
+        if changed:
+            self._phase_generation += 1
+        if progressed:
+            self._phase_last_advance = now
+        elif changed:
+            self._phase_last_advance = None
+        self._phase, self._phase_counter = phase, counter
 
     def observe(self, payload, now=None):
         now = time.monotonic() if now is None else now
@@ -102,6 +157,31 @@ class TelemetryAircraftIdentity:
         self._available = True
         self.aircraft_kind = kind
         self.reason = "telemetry_heartbeat_unconfirmed"
+        self._observe_phase(messages, now)
+
+    def phase_snapshot(self, *, connected, now=None):
+        """Read-only phase evidence; a heartbeat cannot refresh cached VTOL state.
+
+        Phase generation changes on observed transitions and source resets.
+        It is distinct from connection identity and grants no command ownership.
+        """
+        now = time.monotonic() if now is None else now
+        identity = self.snapshot(connected=connected, now=now)
+        age = None if self._phase_last_advance is None else now - self._phase_last_advance
+        fresh = bool(identity["fresh"] and self._phase is not AirframePhase.UNKNOWN
+                     and age is not None and 0 <= age <= self.stale_timeout_s)
+        reason = (None if fresh else identity["reason"] if not identity["fresh"] else
+                  "aircraft_phase_unavailable" if self._phase is AirframePhase.UNKNOWN else
+                  "aircraft_phase_unconfirmed" if age is None else "aircraft_phase_stale")
+        return {
+            "phase": self._phase.value if fresh else AirframePhase.UNKNOWN.value,
+            "fresh": fresh, "reason": reason,
+            "source": "EXTENDED_SYS_STATE" if self.aircraft_kind is AircraftKind.VTOL else "HEARTBEAT",
+            "source_counter": self._phase_counter,
+            "source_age_s": age, "generation": self._phase_generation,
+            "connection_generation": identity["connection_generation"],
+            "autopilot_uid": identity["autopilot_uid"],
+        }
 
     def snapshot(self, *, connected, now=None):
         now = time.monotonic() if now is None else now

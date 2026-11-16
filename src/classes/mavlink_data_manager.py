@@ -146,7 +146,7 @@ class MavlinkDataManager:
             )
 
     def get_flight_state(self):
-        """Return the fresh observed arm and landed states for native following."""
+        """Read observed flight state; phase freshness is independent of HTTP/heartbeat."""
         with self._lock:
             identity = self.get_aircraft_identity()
             aggregate_age_s = (
@@ -164,6 +164,7 @@ class MavlinkDataManager:
                 "landed_state": self.data.get("landed_state") if fresh else None,
                 "flight_mode": self.data.get("flight_mode") if fresh else None,
                 "aircraft_kind": self._aircraft_identity.aircraft_kind.value if fresh else "unknown",
+                "phase_observation": self._aircraft_identity.phase_snapshot(connected=fresh),
                 "offboard_exit_observed_at_monotonic_s": getattr(self, '_offboard_exit_observed_at', None),
             }
 
