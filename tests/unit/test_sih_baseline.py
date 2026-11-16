@@ -55,9 +55,9 @@ def packaged_files(root):
         path.write_text("matching runtime")
 
 
-def build_manifest(repository, output):
+def build_manifest(repository, output, *, firmware_policy="experimental"):
     packaged_files(output / "packaged")
-    firmware, spec = sih_baseline.authority(repository)
+    firmware, spec = sih_baseline.authority(repository, firmware_policy=firmware_policy)
     artifacts = sih_baseline.artifact_manifest(output / "packaged")
     fingerprint = sih_baseline.recipe_fingerprint(firmware, spec)
     source = {"submodules": []}
@@ -69,6 +69,98 @@ def build_manifest(repository, output):
     image = {"Id": IMAGE_ID, "Os": "linux", "Architecture": "amd64", "Config": {
         "Labels": sih_baseline.image_labels(fingerprint, artifacts, source)}}
     return path, manifest, image
+
+
+@pytest.fixture
+def stock_repository(repository):
+    path = repository / "native/dependencies.lock.json"
+    lock = json.loads(path.read_text())
+    lock["stock_px4"] = {
+        "commit": "b" * 40,
+        "version": {"describe": "v1.18.0-beta1-1-gbbbbbbbb", "tag": "v1.18.0-beta1",
+                    "tag_object": "c" * 40, "tag_commit": "d" * 40},
+        "additional_sih_submodules": ["src/lib/cdrstream/cyclonedds"],
+    }
+    path.write_text(json.dumps(lock))
+    return repository
+
+
+def test_stock_authority_has_no_extension_dependency(stock_repository):
+    (stock_repository / "native/px4/extension.json").unlink()
+    firmware, spec = sih_baseline.authority(stock_repository, firmware_policy="stock")
+    assert firmware["policy"] == "stock" and firmware["patches"] == {}
+    assert firmware["commit"] == "b" * 40
+    assert "extension_sha256" not in firmware
+    assert spec["submodules"] == ["src/lib/cdrstream/cyclonedds"]
+
+
+@pytest.mark.parametrize("extra", [["../other"], ["/tmp/other"], [True], [["nested"]], ["a", "a"]])
+def test_stock_authority_rejects_invalid_dependency_paths(stock_repository, extra):
+    path = stock_repository / "native/dependencies.lock.json"
+    lock = json.loads(path.read_text())
+    lock["stock_px4"]["additional_sih_submodules"] = extra
+    path.write_text(json.dumps(lock))
+    with pytest.raises(ValueError, match="submodule"):
+        sih_baseline.authority(stock_repository, firmware_policy="stock")
+
+
+def test_stock_policy_cannot_select_gazebo_or_unknown_firmware(stock_repository):
+    with pytest.raises(ValueError, match="SIH only"):
+        sih_baseline.authority(stock_repository, simulator="gazebo", firmware_policy="stock")
+    with pytest.raises(ValueError, match="Unknown.*policy"):
+        sih_baseline.authority(stock_repository, firmware_policy="guess")
+
+
+def test_stock_manifest_cannot_be_relabelled_as_experimental(stock_repository, tmp_path, monkeypatch):
+    path, manifest, image = build_manifest(stock_repository, tmp_path / "stock-build", firmware_policy="stock")
+    monkeypatch.setattr(sih_baseline, "command", lambda *args: json.dumps([image]))
+    assert sih_baseline.validate_build_manifest(path, repository=stock_repository)["firmware"]["policy"] == "stock"
+    manifest["firmware"].pop("policy")
+    path.write_text(json.dumps(manifest))
+    with pytest.raises(ValueError, match="reviewed build recipe"):
+        sih_baseline.validate_build_manifest(path, repository=stock_repository)
+
+
+@pytest.mark.parametrize("tamper", ["commit", "tracked", "untracked", "submodule"])
+def test_stock_source_refuses_patches_and_wrong_revisions(stock_repository, tmp_path, monkeypatch, tamper):
+    source = tmp_path / "stock"
+    (source / ".git").mkdir(parents=True)
+    state = {"head": "b" * 40, "tracked": "", "untracked": "", "submodule": " " + "e" * 40
+             + " src/lib/cdrstream/cyclonedds"}
+
+    def git(*args):
+        if "rev-parse" in args:
+            return state["head"]
+        if "diff" in args:
+            return state["tracked"]
+        if "ls-files" in args:
+            return state["untracked"]
+        if "submodule" in args:
+            return state["submodule"]
+        raise AssertionError(args)
+
+    monkeypatch.setattr(sih_baseline, "command", git)
+    monkeypatch.setattr(sih_baseline, "verify_version_metadata", lambda source, expected: expected)
+    no_extension = lambda *args: pytest.fail("stock source cannot apply or verify experimental patches")
+    sih_baseline.verify_source(source, stock_repository, no_extension, firmware_policy="stock")
+    state[{"commit": "head", "tracked": "tracked", "untracked": "untracked", "submodule": "submodule"}[tamper]] = {
+        "commit": "a" * 40, "tracked": "controller.cpp", "untracked": "extra.cpp",
+        "submodule": "+" + "e" * 40 + " src/lib/cdrstream/cyclonedds",
+    }[tamper]
+    with pytest.raises(ValueError):
+        sih_baseline.verify_source(source, stock_repository, no_extension, firmware_policy="stock")
+
+
+def test_stock_cli_keeps_ros_and_extension_preparation_out_of_build(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(build_native_guidance.sys, "argv", [
+        "build_native_guidance.py", "--target", "sih", "--firmware-policy", "stock",
+        "--prepare-only", "--px4-source", str(tmp_path), "--output-dir", str(tmp_path / "out"),
+    ])
+    monkeypatch.setattr(build_native_guidance, "prepare_sources", lambda *args: pytest.fail("ROS preparation"))
+    monkeypatch.setattr(sih_baseline, "build_sih", lambda *args, **kwargs: calls.append(kwargs))
+    build_native_guidance.main()
+    assert calls[0]["firmware_policy"] == "stock"
 
 
 def test_verified_manifest_binds_binary_romfs_aliases_patch_and_immutable_image(repository, tmp_path, monkeypatch):

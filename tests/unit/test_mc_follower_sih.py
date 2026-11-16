@@ -158,6 +158,24 @@ def test_gimbal_staging_uses_declared_config_section_and_never_adopts_scenario_l
     assert inputs['camera_projection'] is inputs['synthetic_image_size_px'] is None
 
 
+def test_airborne_start_outside_saved_envelope_is_rejected_before_launch(tmp_path, monkeypatch):
+    config = yaml.safe_load((runner.ROOT / "configs/config_default.yaml").read_text())
+    config["Safety"]["GlobalLimits"]["MIN_ALTITUDE"] = 45.
+    before = copy.deepcopy(config["Safety"])
+
+    def configure_only(args, *, driver_path, configure):
+        (args.output / "backend/tools").mkdir(parents=True)
+        configure(config)
+        pytest.fail("invalid airborne start must not reach simulator launch")
+
+    monkeypatch.setattr(sih_isolated_host, "host", configure_only)
+    args = SimpleNamespace(backend_repo=runner.ROOT, evidence_root=tmp_path / "staged",
+                           follower="mc_velocity_position", enable_altitude_control=False)
+    with pytest.raises(ValueError, match="outside the configured altitude envelope"):
+        runner.run_host(args, entry.scenario_path(args.follower))
+    assert config["Safety"] == before
+
+
 def test_projected_image_keeps_real_synthetic_owner_and_original_measurement_receipt():
     from classes.app_controller import AppController
     from classes.frame_publisher import FramePublisher

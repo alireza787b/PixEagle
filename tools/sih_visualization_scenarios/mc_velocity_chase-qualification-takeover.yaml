@@ -12,7 +12,7 @@ initial_conditions:
   vehicle_ned:
   - 0.0
   - 0.0
-  - -20.0
+  - -40.0
 follower:
   profile: mc_velocity_chase
   purpose: Independent moving world target through a simulated fixed camera
@@ -48,7 +48,7 @@ constraints:
   rate:
     yaw: 45.0
   altitude:
-    min: 3.0
+    min: 30.0
     max: 120.0
 continuity_policy:
   mode: immediate_handoff
@@ -58,12 +58,12 @@ target:
     position_ned:
     - 18.0
     - 3.0
-    - -20.0
+    - -40.0
   - time_s: 12.0
     position_ned:
     - 20.4
     - 3.0
-    - -20.0
+    - -40.0
 faults:
 - kind: pilot_takeover
   at_s: 6.0

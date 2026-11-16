@@ -198,5 +198,19 @@
     "tag": "v1.18.0-beta1",
     "tag_object": "d90ac5b79200c44895c03ee7c284b20b80ecf75d",
     "tag_commit": "fd132028513748238be1762e57893bbca9fcf179"
+  },
+  "stock_px4": {
+    "commit": "99a3048735caa5a2c277d6aa8e17a12a6133db5d",
+    "version": {
+      "describe": "v1.18.0-beta1-1584-g99a30487",
+      "tag": "v1.18.0-beta1",
+      "tag_object": "d90ac5b79200c44895c03ee7c284b20b80ecf75d",
+      "tag_commit": "fd132028513748238be1762e57893bbca9fcf179"
+    },
+    "additional_sih_submodules": [
+      "src/lib/cdrstream/cyclonedds",
+      "src/lib/cdrstream/rosidl",
+      "src/modules/zenoh/zenoh-pico"
+    ]
   }
 }
