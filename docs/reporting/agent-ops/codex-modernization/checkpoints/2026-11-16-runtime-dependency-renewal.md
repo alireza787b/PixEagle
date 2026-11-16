@@ -22,9 +22,12 @@ venv rollback and the existing OpenCV/GStreamer provider.
 
 The binary manifest remains the single source for platform assets and upstream
 SHA-256 pins. Linux x86-64 replacements were downloaded and verified. ARM64
-execution, Pi deployment and physical acceptance remain pending. A server probe
-without any autopilot timed out awaiting discovery, so it is not claimed as
-wire-compatibility evidence; actual simulation is the next checkpoint.
+execution, Pi deployment and physical acceptance remain pending. The renewed actual Gazebo session verifies that the maintained wrapper imports
+`mavsdk_grpc.system`, starts with Server v4.2.0, and observes the same PX4 UID as
+MAVLink2REST 1.1.1. Association is verified through the authenticated API. An
+earlier probe without an autopilot timed out awaiting discovery; it is retained
+as an incomplete probe, not compatibility evidence. Operator following acceptance
+and hardware deployment remain separate.
 
 ## Demonstrated repairs
 
@@ -48,10 +51,20 @@ Evidence: `reports/sitl/follower-consolidation-20261111/`.
 - Initial client migration/drone-interface checks: 1,075 passed.
 - Integration/setup/API/guide checks: 428 passed.
 - Logging and bootstrap-pipe regressions: 19 passed.
-- Initial complete unit run: 7,492 passed, 11 skipped, one bootstrap failure;
-  that failure was repaired and the complete suite is being renewed.
+- Complete renewed unit run: 7,493 passed, 11 skipped, 14 subtests passed.
+  The skipped optional GI cases are not claimed as exercised. Earlier failed and
+  interrupted runs remain retained alongside the final passing evidence.
 - Schema drift, API candidate inventory, syntax lint and whitespace checks pass.
-- QGC rebuild and the fresh gimbal-tailsitter workflow are being renewed.
+- QGC incremental build passed. The private matched Windows/Linux/Android build
+  run `43797652116` passed all three platforms at `e4f626a9c`.
+- Launcher/provider/joint regressions: 290 passed.
+- Controlled rendering comparison reproduced a black QGC window with private
+  IPC (596 Mesa shared-memory errors), then a rendered interface with desktop IPC
+  and zero such errors. Only display containers now share desktop IPC; backend
+  workers and every network boundary retain their existing isolation.
+- Fresh operator session: `tailsitter-gimbal-dependency-renewal-20261116-r3`,
+  source `de2f51f08`; starts ground/disarmed and command-blocked. Video and gimbal
+  telemetry are healthy; following and transition acceptance is still pending.
 - Hardware, physical camera geometry and flight qualification are not passed.
 
 ## Reproduce
