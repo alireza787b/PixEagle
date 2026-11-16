@@ -115,3 +115,35 @@ checks passed 105 cases; the renewed documentation check passed 31. Schema and
 whitespace gates passed. Stock PX4 simulation, transport implementation and
 physical following admission remain open. Do not publish this candidate as
 plug-and-play VTOL following merely because the earlier patched simulator passed.
+
+## Stock-firmware software checkpoint
+
+Hardware updates are paused at the operator's request. Official PX4 main
+`99a3048735caa5a2c277d6aa8e17a12a6133db5d` builds as `px4_sitl_sih`, with
+no PixEagle patches or PX4 parameter writes. The new upstream CDR and Zenoh
+submodules are included; original preparation failures remain retained.
+
+Three isolated stock-airplane attitude/thrust probes observed −39.90°, −44.98°
+and −59.92° pitch against the configured −30° normal TECS limit. The last probe
+observed 22.02 m/s calibrated airspeed against `FW_AIRSPD_MAX=20`. All three
+observed Hold after Offboard Stop. This proves an interface response, not target
+guidance, requested-airspeed control or TECS underspeed protection. Post-Stop CAS
+briefly reached 8.99, 8.68 and 7.88 m/s, below the configured normal minimum of
+10 m/s; the saved stall parameter is 7 m/s. This is not proof of a stall or a
+qualified handoff envelope. Stock VTOL/FW application, recovery and takeover
+qualification remain open. No physical-aircraft following admission changes.
+
+Evidence: `reports/sitl/stock-px4-qualification-20261116/`, including exact build
+inputs, binary hash, network-isolated runtime manifests, original ULogs and
+JSONL, result JSON and the offline `index.html`/PNG review. Aircraft movement is
+observed PX4 telemetry. The probes have no moving target and must not be presented
+as complete follower tests.
+
+The docs-head cloud failure was a concurrent model-upload test that assumed a
+100 ms mutation lease always serialized both requests. Production intentionally
+returns busy under contention. The serialization test now uses its own longer
+test budget, and an event-synchronized regression separately verifies immediate
+busy refusal, intact staging, explicit retry and no overwrite. Runtime lock
+semantics are unchanged. Renewed gates: 81 model-store tests, 236 guidance/frame/
+API tests, 7,494 full unit cases (11 optional GI skips, 14 subtests), schema and
+CI-selected flake8 checks passed. No duplicate QGC build is needed.

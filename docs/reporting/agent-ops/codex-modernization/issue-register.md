@@ -2,6 +2,14 @@
 
 Status values: `open`, `in_progress`, `blocked`, `done`, `deferred`.
 
+2026-11-16 stock-firmware direction (PXE-0181): hardware work is paused. The
+unmodified upstream SIH build and three direct FW attitude/thrust probes pass
+their interface/observed-Hold checks; they do not qualify stock VTOL/FW following.
+The steep-dive probe's post-Stop speed undershoot remains a handoff qualification
+finding. The experimental ownership dependency, stock transport replacement and
+effective unrestricted-policy gates remain open; see the
+[runtime checkpoint](checkpoints/2026-11-16-runtime-dependency-renewal.md#stock-firmware-software-checkpoint).
+
 2026-11-14 tailsitter Stop: pursuit was operator-accepted, but native release
 remained unconfirmed. The shared frozen-request retransmission repair and
 separate fixed-camera/gimbal staging are tracked in the

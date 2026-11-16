@@ -73,6 +73,17 @@ there is no new transport/airspeed fallback setting to enter for this checkpoint
 `no_upper_speed_bound` remains an unsupported experiment on this stock path.
 A private config cannot grant unrestricted speed, pitch or dive angle. Preserve
 experimental requests separately rather than presenting them as effective.
+
+The bench aircraft's 20 m/s maximum and ±30-degree pitch limits are saved PX4
+values, not universal Offboard limits. Native FW guidance still resolves its
+airspeed request against PX4's performance envelope. Direct MAVLink attitude
+and thrust Offboard is a different supported contract: an attitude request can
+exceed the TECS pitch limits, but it does not request airspeed or retain TECS
+energy/underspeed control. Testing that interface is not qualification of a
+gimbal follower, its altitude protection, or an unrestricted-speed policy.
+Keep requested attitude, observed attitude, requested airspeed and observed
+airspeed separate in evidence; an accepted request proves none of the others.
+
 Public factory defaults remain MC Position, VIDEO_FILE/CSRT, optional altitude
 guidance off, circuit breaker on and the shared 30 m relative-altitude floor.
 Private test overlays do not change those defaults.
