@@ -12,7 +12,7 @@ from classes.aircraft_state import AircraftBinding, AircraftState, AirframePhase
 from classes.native_guidance import NativeCapabilities
 from classes.safety_types import AltitudeLimits
 from classes.target_continuity import TargetEvidenceState
-from tests.fixtures.native_ownership import acquisition
+from tests.fixtures.native_ownership import acquisition, start_context
 from tests.test_native_vector_sih import flight_window, transition_packet, native_follower_environment
 from tests.unit.drone_interface.test_aircraft_state import attitude_timing
 from tools import run_native_vector_sih as tool
@@ -37,6 +37,7 @@ def packets(*, sensorless=True, feedback=False, binding=None, phase=AirframePhas
         packet = transition_packet(state, context, nav_state_timestamp=300,
             attitude_timing=asdict(state.attitude_timing), phase_status_fresh=True,
             release_pending=False, neutral_drain_active=False)
+        packet['start_context'] = asdict(start_context(context.identity, phase=phase.value))
         if feedback is not None:
             packet['native_guidance_feedback'] = dict(airspeed_control_enabled=feedback,
                 observed_at_monotonic_s=stamp, nav_state=4, nav_state_timestamp=300)
