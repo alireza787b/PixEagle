@@ -42,12 +42,22 @@ published most recently:
   its size and SHA-256 checks pass;
 - setup never discovers or installs a floating upstream `latest` release.
 
-The Python `mavsdk` package is a separate, exact dependency in
+The Python `mavsdk-grpc` package is a separate, exact dependency in
 `requirements-core.txt`. A contract-matched existing virtual environment is
 reused; changing that pin is an intentional source update that triggers
 dependency reconciliation. Python client and standalone server upgrades must
 record their compatibility evidence together. No future minor or major version
 can enter a fresh or repaired installation silently.
+
+The reviewed pair is `mavsdk-grpc==4.0.5` with MAVSDK Server `v4.2.0`;
+MAVLink2REST is pinned to `1.1.1`. The Python import is `mavsdk_grpc`.
+Upstream reassigned the `mavsdk` distribution to a different native API;
+installing its latest version is not a compatible upgrade of the gRPC client.
+Managed setup first verifies the maintained client, then removes a retired
+`mavsdk<4` distribution through the shared client policy. The unrelated native
+binding can coexist but is never imported by PixEagle. Linux reconciliation
+retains its virtual-environment rollback and existing OpenCV provider.
+See the [upstream migration notice](https://github.com/mavlink/MAVSDK-Python#renamed-from-mavsdk-to-mavsdk-grpc).
 
 ## Preview The Plan
 
@@ -102,7 +112,7 @@ depend on local MAVSDK Server or MAVLink2REST binaries.
 Advanced operators may override pins with environment variables:
 
 ```bash
-PIXEAGLE_MAVSDK_VERSION=v3.12.0 \
+PIXEAGLE_MAVSDK_VERSION=v4.2.0 \
 PIXEAGLE_MAVSDK_ASSET=mavsdk_server_musl_x86_64 \
 PIXEAGLE_MAVSDK_SHA256=<sha256> \
 bash scripts/setup/download-binaries.sh --mavsdk

@@ -161,7 +161,7 @@ class TestVelocityBodyCommandFlow:
         }
 
         # Simulate PX4InterfaceManager behavior
-        from mavsdk.offboard import VelocityBodyYawspeed
+        from mavsdk_grpc.offboard import VelocityBodyYawspeed
 
         velocity_cmd = VelocityBodyYawspeed(
             forward_m_s=fields['vel_body_fwd'],
@@ -178,7 +178,7 @@ class TestVelocityBodyCommandFlow:
     @pytest.mark.asyncio
     async def test_zero_velocity_produces_hover(self, mock_mavsdk_system):
         """Test that zero velocities result in hover command."""
-        from mavsdk.offboard import VelocityBodyYawspeed
+        from mavsdk_grpc.offboard import VelocityBodyYawspeed
 
         hover_cmd = VelocityBodyYawspeed(0.0, 0.0, 0.0, 0.0)
 
@@ -194,7 +194,7 @@ class TestAttitudeRateCommandFlow:
     @pytest.mark.asyncio
     async def test_attitude_rate_command_format(self):
         """Test attitude rate commands have correct format."""
-        from mavsdk.offboard import AttitudeRate
+        from mavsdk_grpc.offboard import AttitudeRate
 
         fields = {
             'rollspeed_deg_s': 10.0,
@@ -218,7 +218,7 @@ class TestAttitudeRateCommandFlow:
     @pytest.mark.asyncio
     async def test_thrust_normalized_to_valid_range(self):
         """Test that thrust is within 0-1 range."""
-        from mavsdk.offboard import AttitudeRate
+        from mavsdk_grpc.offboard import AttitudeRate
 
         # Values should be valid
         valid_thrusts = [0.0, 0.5, 1.0]
@@ -374,7 +374,7 @@ class TestSignConventions:
 
     def test_forward_positive_convention(self):
         """Test that positive vel_body_fwd means forward movement."""
-        from mavsdk.offboard import VelocityBodyYawspeed
+        from mavsdk_grpc.offboard import VelocityBodyYawspeed
 
         # Positive = forward (toward nose)
         cmd = VelocityBodyYawspeed(forward_m_s=2.0, right_m_s=0, down_m_s=0, yawspeed_deg_s=0)
@@ -382,7 +382,7 @@ class TestSignConventions:
 
     def test_right_positive_convention(self):
         """Test that positive vel_body_right means rightward movement."""
-        from mavsdk.offboard import VelocityBodyYawspeed
+        from mavsdk_grpc.offboard import VelocityBodyYawspeed
 
         # Positive = right (starboard)
         cmd = VelocityBodyYawspeed(forward_m_s=0, right_m_s=2.0, down_m_s=0, yawspeed_deg_s=0)
@@ -390,7 +390,7 @@ class TestSignConventions:
 
     def test_down_positive_convention(self):
         """Test that positive vel_body_down means descent."""
-        from mavsdk.offboard import VelocityBodyYawspeed
+        from mavsdk_grpc.offboard import VelocityBodyYawspeed
 
         # Positive = down (descend)
         cmd = VelocityBodyYawspeed(forward_m_s=0, right_m_s=0, down_m_s=1.0, yawspeed_deg_s=0)
@@ -398,7 +398,7 @@ class TestSignConventions:
 
     def test_climb_negative_down(self):
         """Test that climbing uses negative down velocity."""
-        from mavsdk.offboard import VelocityBodyYawspeed
+        from mavsdk_grpc.offboard import VelocityBodyYawspeed
 
         # Negative down = climb
         cmd = VelocityBodyYawspeed(forward_m_s=0, right_m_s=0, down_m_s=-1.0, yawspeed_deg_s=0)

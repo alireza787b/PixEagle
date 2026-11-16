@@ -5,9 +5,9 @@ import time
 from dataclasses import asdict
 from pathlib import Path
 from typing import Callable, List, Literal, NamedTuple, Optional, TypedDict
-from mavsdk import System
+from mavsdk_grpc import System
 from classes.parameters import Parameters
-from mavsdk.offboard import OffboardError, VelocityBodyYawspeed, AttitudeRate
+from mavsdk_grpc.offboard import OffboardError, VelocityBodyYawspeed, AttitudeRate
 from classes.command_safety import (
     CommandValidationError,
     validate_and_clamp_command_values,
@@ -3266,7 +3266,7 @@ class PX4InterfaceManager:
             logger.debug(f"Sending ATTITUDE_RATE (deg/s): Roll={roll_deg_s:.3f}, Pitch={pitch_deg_s:.3f}, Yaw={yaw_deg_s:.3f}, Thrust={thrust:.3f}")
 
             # Send the attitude rate commands to the drone (values already in deg/s)
-            from mavsdk.offboard import AttitudeRate, OffboardError
+            from mavsdk_grpc.offboard import AttitudeRate, OffboardError
             next_setpoint = AttitudeRate(roll_deg_s, pitch_deg_s, yaw_deg_s, thrust)
             return await self._safe_mavsdk_call(
                 self.drone.offboard.set_attitude_rate,

@@ -33,8 +33,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pymap3d as pm  # for geodetic ↔ ENU conversions
 
-from mavsdk import System
-from mavsdk.offboard import (
+from mavsdk_grpc import System
+from mavsdk_grpc.offboard import (
     OffboardError,
     VelocityBodyYawspeed,
     PositionNedYaw,

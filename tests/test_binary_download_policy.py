@@ -35,8 +35,8 @@ def _read_manifest() -> dict[str, str]:
 def test_binary_manifest_pins_versions_assets_and_sha256s():
     values = _read_manifest()
 
-    assert values["PIXEAGLE_BINARY_MAVSDK_VERSION"] == "v3.12.0"
-    assert values["PIXEAGLE_BINARY_MAVLINK2REST_VERSION"] == "1.0.0"
+    assert values["PIXEAGLE_BINARY_MAVSDK_VERSION"] == "v4.2.0"
+    assert values["PIXEAGLE_BINARY_MAVLINK2REST_VERSION"] == "1.1.1"
 
     for prefix in ["PIXEAGLE_BINARY_MAVSDK", "PIXEAGLE_BINARY_MAVLINK2REST"]:
         assert values[f"{prefix}_BASE_URL"].startswith("https://github.com/mavlink/")
@@ -68,7 +68,7 @@ def test_binary_manifest_pins_versions_assets_and_sha256s():
 def test_python_mavsdk_is_reproducibly_pinned():
     requirements = CORE_REQUIREMENTS.read_text(encoding="utf-8")
 
-    assert "mavsdk == 3.15.3" in requirements
+    assert "mavsdk-grpc == 4.0.5" in requirements
     policy = POLICY_DOC.read_text(encoding="utf-8")
     assert "separate, exact dependency" in policy
     assert "client and standalone server upgrades" in policy

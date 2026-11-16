@@ -41,8 +41,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pymap3d as pm
 from filterpy.kalman import KalmanFilter
-from mavsdk import System
-from mavsdk.offboard import (
+from mavsdk_grpc import System
+from mavsdk_grpc.offboard import (
     OffboardError,
     PositionGlobalYaw,
     PositionNedYaw,

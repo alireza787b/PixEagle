@@ -1,0 +1,63 @@
+# Runtime and dependency renewal — 16 November 2026
+
+## Scope
+
+Hardware work is paused at the operator's request. No firmware was flashed,
+no PX4 parameters changed, and no following/movement action was issued to the
+physical aircraft. Resume hardware deployment and physical camera-axis checks
+only after the renewed simulator workflow is accepted.
+
+| Dependency | Previous pin | Reviewed replacement |
+| --- | --- | --- |
+| Python gRPC wrapper | `mavsdk==3.15.3` | `mavsdk-grpc==4.0.5` |
+| MAVSDK Server | `v3.12.0` | `v4.2.0` |
+| MAVLink2REST | `1.0.0` | `1.1.1` |
+
+Upstream reused the `mavsdk` Python distribution name for a different native API.
+Runtime, tools and examples now import `mavsdk_grpc` explicitly; no shadow alias
+or second runtime client path is retained. The shared managed-setup policy
+checks the maintained client before removing a retired `mavsdk<4` distribution.
+Windows preview and Linux setup use the same migration. Linux retains exact
+venv rollback and the existing OpenCV/GStreamer provider.
+
+The binary manifest remains the single source for platform assets and upstream
+SHA-256 pins. Linux x86-64 replacements were downloaded and verified. ARM64
+execution, Pi deployment and physical acceptance remain pending. A server probe
+without any autopilot timed out awaiting discovery, so it is not claimed as
+wire-compatibility evidence; actual simulation is the next checkpoint.
+
+## Demonstrated repairs
+
+- Unavailable per-message MAVLink2REST responses (`None`, JSON null, 404) and
+  malformed message payloads no longer invalidate fresh aircraft identity.
+  Missing measurements remain unavailable and cannot authorize following.
+  Aggregate corruption and transport failures still invalidate the link.
+- Runtime retention protects each live writer through a per-process marker.
+  Linux tokens contain boot identity and process start ticks, independent of
+  wall-clock corrections and PID reuse. The original manifest creator may exit
+  without making its active component writers disposable. Bootstrap capture
+  does not require third-party imports on Linux.
+- Installer tests copy the configuration implementation as one complete package;
+  native sensorless test packets now carry the canonical phase-specific Start
+  context instead of failing before the boundary they intended to exercise.
+
+## Verification
+
+Evidence: `reports/sitl/follower-consolidation-20261111/`.
+
+- Initial client migration/drone-interface checks: 1,075 passed.
+- Integration/setup/API/guide checks: 428 passed.
+- Logging and bootstrap-pipe regressions: 19 passed.
+- Initial complete unit run: 7,492 passed, 11 skipped, one bootstrap failure;
+  that failure was repaired and the complete suite is being renewed.
+- Schema drift, API candidate inventory, syntax lint and whitespace checks pass.
+- QGC rebuild and the fresh gimbal-tailsitter workflow are being renewed.
+- Hardware, physical camera geometry and flight qualification are not passed.
+
+## Reproduce
+
+Use the [training launcher](../../../../followers/05-development/ubuntu-training-platform.md)
+with the prepared workstation dependency file and explicitly select the advanced
+`tailsitter-gimbal` profile. Its `--bin-dir` must name the newly verified pinned
+helpers. The independent simulator network, disposable credentials and safety
+barrier remain unchanged. Preserve each new run rather than replacing evidence.
