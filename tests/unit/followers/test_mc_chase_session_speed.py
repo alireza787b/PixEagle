@@ -39,7 +39,7 @@ def chase(mock_px4, monkeypatch):
     monkeypatch.setattr(SafetyManager, '_instance', safety)
     monkeypatch.setattr(Parameters, 'MC_VELOCITY_CHASE', {
         **Parameters.MC_VELOCITY_CHASE, 'INITIAL_FORWARD_VELOCITY': 0., 'FORWARD_RAMP_RATE': .5,
-        'RAMP_UPDATE_RATE': 20.,
+        'RAMP_UPDATE_RATE': 20., 'REQUESTED_SPEED': None,
     })
     follower = MCVelocityChaseFollower(mock_px4, (0., 0.))
     return follower
@@ -74,6 +74,30 @@ def test_declared_chase_control_preserves_saved_forward_target_before_adjustment
     assert chase._update_forward_velocity(1.) == .5
     assert chase.prepare_authorized_command(command(), loss_decay=False) == command()
     assert BaseFollower.create_session_controls(chase) == {}
+
+
+@pytest.mark.parametrize('startup', [0., .5, 1.5])
+def test_configured_public_startup_and_adjustments_keep_one_saved_ceiling(chase, startup):
+    chase.safety_manager.load_from_config({'Safety': {
+        'ALLOW_SESSION_VELOCITY_OVERRIDE': False,
+        'GlobalLimits': {'MAX_VELOCITY': 4., 'MAX_VELOCITY_FORWARD': 4.,
+                         'MAX_VELOCITY_LATERAL': .5, 'MAX_VELOCITY_VERTICAL': .5},
+    }})
+    chase.max_forward_velocity = 4.
+    chase.startup_requested_speed = startup
+    chase._session_controls = chase.create_session_controls()
+    control, = chase.session_controls()
+    assert control['value'] == startup and control['maximum'] == 4.
+    for _ in range(10):
+        chase._update_forward_velocity(1.)
+    assert chase.current_forward_velocity == startup
+    chase.update_session_control('requested_speed', 4., 0)
+    for _ in range(10):
+        chase._update_forward_velocity(1.)
+    assert chase.current_forward_velocity == 4.
+    with pytest.raises(ValueError, match='session_control_out_of_range'):
+        chase.update_session_control('requested_speed', 4.5, 1)
+    assert chase.safety_manager._session_velocity_binding is None
 
 
 def test_explicit_chase_speed_uses_the_existing_owned_override_and_forward_ramp(chase):

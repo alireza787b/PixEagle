@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Share one enriched, locally pinned coastal showcase across all five Gazebo
+  training profiles. Keep aircraft/camera contracts independent of world props;
+  configure the spectator view through native Gazebo camera tracking only.
+- Make public MC Chase startup request configurable at 0.5 m/s, with a saved
+  4 m/s total/forward ceiling. Preserve missing/null legacy startup behavior,
+  conservative lateral/vertical caps and explicit Config Sync adoption.
+- Preserve structured Start preconditions and sanitized changed-field diagnostics
+  when a staged context check refuses acquisition. Matching QGC reports a
+  confirmed failure across same-backend context refreshes instead of an unknown
+  outcome; no automatic flight-action retry is introduced.
+
 ## Version 7.6.0-rc.4 (2026-11-17) - Stock MAVLink application candidate
 
 - Integrate stock MAVLink flight sessions with application Start/Stop, phase-bound

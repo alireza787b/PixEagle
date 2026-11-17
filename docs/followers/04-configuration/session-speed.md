@@ -63,26 +63,37 @@ between pages never replays an earlier adjustment.
 | `GM_VELOCITY_VECTOR.REQUESTED_SPEED` | Optional saved request at session start. Default `null` or an omitted key preserves the existing ceiling-based startup behavior. Clear the advanced Dashboard field to restore `null`. |
 | `GM_VELOCITY_VECTOR.INITIAL_VELOCITY` | Initial condition of the existing speed ramp; not a second cruise setting. |
 | `GM_VELOCITY_VECTOR.RAMP_ACCELERATION` | Existing acceleration/deceleration ramp and final command slew limit; the session control does not change it. |
-| `MC_VELOCITY_CHASE.INITIAL_FORWARD_VELOCITY` / `FORWARD_RAMP_RATE` | Existing forward-ramp initial state and acceleration. The same acceleration bounds changes of submitted translation magnitude after adjustment. No new saved startup request is introduced. |
-| `Safety.GlobalLimits` and the selected follower's `Safety.FollowerOverrides` | Saved limits used before adjustment and after restore. Vector starts at the smaller forward/total ceiling; Chase reports the total ceiling while retaining its saved forward target. The owned velocity override replaces velocity limits only. |
+| `MC_VELOCITY_CHASE.REQUESTED_SPEED` | Saved session startup request; factory 0.5 m/s. Missing/null preserves the previous saved-forward-target behavior. It is not a second speed limit. |
+| `MC_VELOCITY_CHASE.INITIAL_FORWARD_VELOCITY` / `FORWARD_RAMP_RATE` | Initial ramp state and acceleration, not cruise settings. The same acceleration bounds subsequent speed changes. |
+| `Safety.GlobalLimits` and the selected follower's `Safety.FollowerOverrides` | One authoritative saved velocity envelope. A startup request and public session adjustments remain inside it; explicit expert permission enables the existing owned velocity override. |
 | `Follower.General.ENABLE_ALTITUDE_CONTROL` and follower override | Enable the profile's existing vertical guidance. The speed control does not enable it. |
 
-The public demo keeps its 0.5 m/s forward ceiling, 1 m/s overall ceiling, video
-file/CSRT, constant-position follower and enabled safety/circuit-breaker defaults.
+The public factory keeps video file/CSRT, MC Position, altitude guidance off,
+5–100 m relative-altitude protection and the enabled circuit breaker. MC Chase
+starts at 0.5 m/s and permits session requests up to the configured 4 m/s total
+and forward ceiling. Lateral and vertical component caps remain 0.5 m/s. These
+are configuration values, not client constants; use Config Sync preview/apply
+to adopt them on an existing installation.
 Saved startup requests remain within the configured envelope. With expert permission, only an explicit
 session adjustment activates the velocity override; startup and reconnect do not
 activate or replay one. Increasing the request does not edit the saved ceiling.
 An existing saved startup request outside its configured envelope is rejected.
 
-MC Chase initially reports the saved total translation ceiling (factory: 1 m/s),
-while retaining its separate saved forward target (factory: 0.5 m/s), component
-limits and existing image-error PID/yaw behaviour. Only an explicit speed action with expert permission
-activates the shared override. After that action, the forward ramp is bounded by
-the request and lateral/vertical guidance shares the total translation ceiling.
+MC Chase reports its configured startup request; legacy missing/null settings
+retain the previous total-ceiling display and saved forward target. The request
+constrains total translation while retaining image-error PID/yaw guidance and
+the saved component caps. Public adjustments do not override those caps. Only
+an explicit speed action with expert permission activates the shared override.
 Zero ramps all translation down; it is not just a forward-speed zero and does
 not promise geographic position Hold. Restore reapplies the saved limits without
 raising a lower request. Stop/new Start restores the configured startup state.
 No image coordinate is converted into a fabricated physical 3D ray.
+
+At the configured ceiling, `+` is disabled and `−` remains available. Raising
+the saved ceiling is a configuration change while inactive, not an implicit
+side effect of an operator tap. `INITIAL_FORWARD_VELOCITY` is the ramp's initial
+condition; `REQUESTED_SPEED` is the session request; `Safety.GlobalLimits` owns
+the limits. The same control contract supplies both Dashboard and QGC.
 
 The shared speed limiter receives each follower's own timing explicitly:
 Chase uses `RAMP_UPDATE_RATE`; Vector uses `CONTROL_UPDATE_RATE`. Neither

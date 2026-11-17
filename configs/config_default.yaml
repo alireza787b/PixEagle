@@ -1226,6 +1226,7 @@ GM_VELOCITY_VECTOR:
 MC_VELOCITY_CHASE:
   # === Forward Velocity Ramping ===
   # NOTE: Max velocity limits are now in Safety.GlobalLimits (single source of truth)
+  REQUESTED_SPEED: 0.5                   # m/s - session startup request; null/missing retains the saved forward target
   INITIAL_FORWARD_VELOCITY: 0.0           # m/s - starting velocity
   FORWARD_RAMP_RATE: 0.5                 # m/s² - acceleration rate
 
@@ -1781,8 +1782,8 @@ Safety:
     # Velocity Limits (m/s) - SAFE DEFAULTS
     # These are conservative values suitable for testing and demos.
     # Increase these values gradually as you gain confidence with your setup.
-    MAX_VELOCITY: 1.0                    # Overall velocity magnitude limit
-    MAX_VELOCITY_FORWARD: 0.5            # Max forward velocity (demo safe)
+    MAX_VELOCITY: 4.0                    # Configured MC session ceiling; startup request is separate
+    MAX_VELOCITY_FORWARD: 4.0            # Forward ceiling; Chase starts at its lower REQUESTED_SPEED
     MAX_VELOCITY_LATERAL: 0.5            # Max lateral velocity (demo safe)
     MAX_VELOCITY_VERTICAL: 0.5           # Max vertical velocity (demo safe)
 

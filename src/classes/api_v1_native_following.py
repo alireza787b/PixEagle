@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 
 from fastapi.responses import JSONResponse
@@ -291,6 +292,10 @@ def _check_start(owner, request, principal, stage, *, start_context=_START_CONTE
     snapshot = following_snapshot(owner, principal,
         _start_context=start_context if acquired else _START_CONTEXT_UNCAPTURED)
     if request.native_context.guard.model_dump(mode="json") != snapshot["guard"]:
+        expected = request.native_context.guard.model_dump(mode="json")
+        changed = sorted(key for key in expected.keys() | snapshot['guard'].keys()
+                         if expected.get(key) != snapshot['guard'].get(key))
+        logging.getLogger(__name__).warning('Follow Start context changed at %s: %s', stage, ', '.join(changed))
         raise NativeTargetError("native_follow_context_stale", "Target, aircraft or video changed. Refresh following status.")
     if request.profile_generation != snapshot["profile_generation"] or request.profile_mode != snapshot["configured_mode"]:
         raise NativeTargetError("native_follow_profile_stale", "Follower choice changed. Refresh following status.")
@@ -377,13 +382,24 @@ async def native_follow_action(owner, request, response, http_request, *, start)
         result = {"steps": [], "errors": []}
         if not request.dry_run:
             if start:
+                start_precondition = None
+
+                def validate_start(stage):
+                    nonlocal start_precondition
+                    try:
+                        return _check_start(owner, request, principal, stage, start_context=start_context)
+                    except NativeTargetError as error:
+                        start_precondition = {'code': error.code, 'stage': stage, 'reason': str(error)}
+                        raise
+
                 result = await app.connect_px4(
-                    native_start_guard=lambda stage: _check_start(owner, request, principal, stage,
-                                                                  start_context=start_context),
+                    native_start_guard=validate_start,
                     native_attempt_id=request.start_attempt_id,
                     native_aircraft_uid=request.native_context.guard.aircraft_uid,
                     guidance_start_context=start_context,
                 )
+                if result.get('errors') and start_precondition is not None:
+                    result.setdefault('precondition', start_precondition)
             else:
                 result = await app.stop_native_following(request.follow_session_id, request.aircraft_uid)
         after = bool(getattr(app, "following_active", False))

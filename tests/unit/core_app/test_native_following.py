@@ -476,14 +476,14 @@ def start_body(snapshot):
     )
 
 
-async def test_native_start_rechecks_context_on_flight_owner_before_commands(owner, monkeypatch):
+async def test_native_start_rechecks_context_on_flight_owner_before_commands(owner, monkeypatch, caplog):
     snapshot = ready_owner(owner, monkeypatch)
     calls = []
 
     async def start(native_start_guard, *, native_attempt_id, native_aircraft_uid, guidance_start_context):
         assert native_attempt_id == "b" * 32 and native_aircraft_uid == "42"
         native_start_guard("before_start")
-        owner.telemetry_test["connection_generation"] = "changed"
+        owner.telemetry_test["connection_generation"] = "private-route-value-should-not-log"
         with pytest.raises(Exception, match="changed"):
             native_start_guard("before_offboard")
         calls.append("guarded")
@@ -494,6 +494,10 @@ async def test_native_start_rechecks_context_on_flight_owner_before_commands(own
     record = await native_follow_action(owner, start_body(snapshot), response, action_request(owner), start=True)
     assert response.status_code == 202
     assert record["status"] == "failure"
+    assert record['result']['outcome']['precondition']['code'] == 'native_follow_context_stale'
+    assert record['result']['outcome']['precondition']['stage'] == 'before_offboard'
+    assert 'telemetry_generation' in caplog.text
+    assert 'private-route-value-should-not-log' not in caplog.text
     assert calls == ["guarded"]
     owner.app_controller.refresh_airframe_following_state.assert_awaited_once_with('mc_velocity_position')
     owner.app_controller.px4_interface.connect.assert_not_called()

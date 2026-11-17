@@ -7089,6 +7089,18 @@ sections:
     category: follower
     icon: sports_motorsports
     parameters:
+      REQUESTED_SPEED:
+        type: float
+        default: 0.5
+        description: Requested 3D speed at session start; null or a missing saved value retains the previous forward target.
+          Session adjustments are temporary.
+        reload_tier: follower_restart
+        reboot_required: false
+        min: 0.0
+        max: 30.0
+        step: 0.5
+        unit: m/s
+        nullable: true
       INITIAL_FORWARD_VELOCITY:
         type: float
         default: 0.0
@@ -9121,8 +9133,8 @@ sections:
           MAX_ALTITUDE: 100.0
           ALTITUDE_WARNING_BUFFER: 2.0
           ALTITUDE_SAFETY_ENABLED: true
-          MAX_VELOCITY: 1.0
-          MAX_VELOCITY_FORWARD: 0.5
+          MAX_VELOCITY: 4.0
+          MAX_VELOCITY_FORWARD: 4.0
           MAX_VELOCITY_LATERAL: 0.5
           MAX_VELOCITY_VERTICAL: 0.5
           MAX_YAW_RATE: 45.0
@@ -9192,23 +9204,23 @@ sections:
             reboot_required: false
           MAX_VELOCITY:
             type: float
-            default: 1.0
+            default: 4.0
             description: Maximum overall velocity magnitude
             reload_tier: follower_restart
             reboot_required: false
             min: 1.0e-06
             max: 30.0
-            step: 0.01
+            step: 0.1
             unit: m/s
           MAX_VELOCITY_FORWARD:
             type: float
-            default: 0.5
+            default: 4.0
             description: Maximum forward velocity magnitude
             reload_tier: follower_restart
             reboot_required: false
             min: 1.0e-06
             max: 30.0
-            step: 0.01
+            step: 0.1
             unit: m/s
           MAX_VELOCITY_LATERAL:
             type: float
@@ -9342,7 +9354,7 @@ sections:
                 reboot_required: false
                 min: 1.0e-06
                 max: 30.0
-                step: 0.01
+                step: 0.1
                 unit: m/s
               MAX_VELOCITY_FORWARD:
                 type: float
@@ -9351,7 +9363,7 @@ sections:
                 reboot_required: false
                 min: 1.0e-06
                 max: 30.0
-                step: 0.01
+                step: 0.1
                 unit: m/s
               MAX_VELOCITY_LATERAL:
                 type: float
@@ -9465,7 +9477,7 @@ sections:
                 reboot_required: false
                 min: 1.0e-06
                 max: 30.0
-                step: 0.01
+                step: 0.1
                 unit: m/s
               MAX_VELOCITY_FORWARD:
                 type: float
@@ -9474,7 +9486,7 @@ sections:
                 reboot_required: false
                 min: 1.0e-06
                 max: 30.0
-                step: 0.01
+                step: 0.1
                 unit: m/s
               MAX_VELOCITY_LATERAL:
                 type: float
@@ -9588,7 +9600,7 @@ sections:
                 reboot_required: false
                 min: 1.0e-06
                 max: 30.0
-                step: 0.01
+                step: 0.1
                 unit: m/s
               MAX_VELOCITY_FORWARD:
                 type: float
@@ -9597,7 +9609,7 @@ sections:
                 reboot_required: false
                 min: 1.0e-06
                 max: 30.0
-                step: 0.01
+                step: 0.1
                 unit: m/s
               MAX_VELOCITY_LATERAL:
                 type: float
@@ -9710,7 +9722,7 @@ sections:
                 reboot_required: false
                 min: 1.0e-06
                 max: 30.0
-                step: 0.01
+                step: 0.1
                 unit: m/s
               MAX_VELOCITY_FORWARD:
                 type: float
@@ -9719,7 +9731,7 @@ sections:
                 reboot_required: false
                 min: 1.0e-06
                 max: 30.0
-                step: 0.01
+                step: 0.1
                 unit: m/s
               MAX_VELOCITY_LATERAL:
                 type: float
@@ -9832,7 +9844,7 @@ sections:
                 reboot_required: false
                 min: 1.0e-06
                 max: 30.0
-                step: 0.01
+                step: 0.1
                 unit: m/s
               MAX_VELOCITY_FORWARD:
                 type: float
@@ -9841,7 +9853,7 @@ sections:
                 reboot_required: false
                 min: 1.0e-06
                 max: 30.0
-                step: 0.01
+                step: 0.1
                 unit: m/s
               MAX_VELOCITY_LATERAL:
                 type: float
@@ -9954,7 +9966,7 @@ sections:
                 reboot_required: false
                 min: 1.0e-06
                 max: 30.0
-                step: 0.01
+                step: 0.1
                 unit: m/s
               MAX_VELOCITY_FORWARD:
                 type: float
@@ -9963,7 +9975,7 @@ sections:
                 reboot_required: false
                 min: 1.0e-06
                 max: 30.0
-                step: 0.01
+                step: 0.1
                 unit: m/s
               MAX_VELOCITY_LATERAL:
                 type: float
@@ -10076,7 +10088,7 @@ sections:
                 reboot_required: false
                 min: 1.0e-06
                 max: 30.0
-                step: 0.01
+                step: 0.1
                 unit: m/s
               MAX_VELOCITY_FORWARD:
                 type: float
@@ -10085,7 +10097,7 @@ sections:
                 reboot_required: false
                 min: 1.0e-06
                 max: 30.0
-                step: 0.01
+                step: 0.1
                 unit: m/s
               MAX_VELOCITY_LATERAL:
                 type: float
@@ -10200,7 +10212,7 @@ sections:
                 reboot_required: false
                 min: 1.0e-06
                 max: 30.0
-                step: 0.01
+                step: 0.1
                 unit: m/s
               MAX_VELOCITY_FORWARD:
                 type: float
@@ -10209,7 +10221,7 @@ sections:
                 reboot_required: false
                 min: 1.0e-06
                 max: 30.0
-                step: 0.01
+                step: 0.1
                 unit: m/s
               MAX_VELOCITY_LATERAL:
                 type: float
@@ -10322,7 +10334,7 @@ sections:
                 reboot_required: false
                 min: 1.0e-06
                 max: 30.0
-                step: 0.01
+                step: 0.1
                 unit: m/s
               MAX_VELOCITY_FORWARD:
                 type: float
@@ -10331,7 +10343,7 @@ sections:
                 reboot_required: false
                 min: 1.0e-06
                 max: 30.0
-                step: 0.01
+                step: 0.1
                 unit: m/s
               MAX_VELOCITY_LATERAL:
                 type: float

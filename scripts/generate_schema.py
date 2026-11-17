@@ -1508,6 +1508,9 @@ SCHEMA_OVERRIDES = {
         'description': 'How often to check altitude safety (seconds)'},
 
     # MC_VELOCITY_CHASE — velocity/acceleration params wrongly capped at 1.0
+    'MC_VELOCITY_CHASE.REQUESTED_SPEED': {'type': 'float', 'nullable': True, 'min': 0.0,
+        'max': 30.0, 'step': 0.5, 'unit': 'm/s', 'reload_tier': 'follower_restart',
+        'description': 'Requested 3D speed at session start; null or a missing saved value retains the previous forward target. Session adjustments are temporary.'},
     'MC_VELOCITY_CHASE.FORWARD_RAMP_RATE': {'min': 0.0, 'max': 20.0, 'step': 0.05, 'unit': 'm/s²',
         'description': 'Forward velocity ramp-up acceleration rate (m/s²)'},
     'MC_VELOCITY_CHASE.INITIAL_FORWARD_VELOCITY': {'min': 0.0, 'max': 30.0, 'step': 0.1, 'unit': 'm/s',

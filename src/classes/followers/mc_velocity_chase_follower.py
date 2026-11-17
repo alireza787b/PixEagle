@@ -154,6 +154,7 @@ class MCVelocityChaseFollower(BaseFollower):
         # v5.0.0: Use SafetyManager for velocity limits (single source of truth)
         self.max_forward_velocity = self.velocity_limits.forward
         self.forward_ramp_rate = config.get('FORWARD_RAMP_RATE', 0.5)
+        self.startup_requested_speed = config.get('REQUESTED_SPEED')
         self._session_controls = self.create_session_controls()
         # Shared params from FollowerConfigManager (General → FollowerOverrides → Fallback)
         fcm = get_follower_config_manager()
@@ -541,9 +542,8 @@ class MCVelocityChaseFollower(BaseFollower):
                 raise ValueError("Forward-ramp interval must be finite and non-negative")
 
             control = self._requested_speed_control()
-            # The saved forward target differs from the total-translation
-            # ceiling displayed before the first operator adjustment.
             requested = (self.max_forward_velocity if control is None or control.revision == 0
+                         and getattr(self, 'startup_requested_speed', None) is None
                          else control.value if control.override_active
                          else min(self.max_forward_velocity, control.value))
             if self.emergency_stop_active:
@@ -1687,7 +1687,8 @@ class MCVelocityChaseFollower(BaseFollower):
             return f"Error generating body velocity chase status report: {e}"
 
     def create_session_controls(self) -> dict:
-        return self._create_translation_speed_controls(self.velocity_limits.max_magnitude)
+        return self._create_translation_speed_controls(self.velocity_limits.max_magnitude,
+            startup=getattr(self, 'startup_requested_speed', None))
 
     def update_session_control(self, control_id, value, revision):
         super().update_session_control(control_id, value, revision)
@@ -1706,7 +1707,8 @@ class MCVelocityChaseFollower(BaseFollower):
 
     def limit_session_control_command(self, fields: Dict[str, float]) -> Dict[str, float]:
         control = self._requested_speed_control()
-        if control is None or control.revision == getattr(self, '_native_initial_speed_revision', 0):
+        if (control is None or control.revision == getattr(self, '_native_initial_speed_revision', 0)
+                and getattr(self, 'startup_requested_speed', None) is None):
             return dict(fields)
         return self._limit_translation_speed(fields, acceleration=self.forward_ramp_rate,
                                               update_rate_hz=self.ramp_update_rate, ramp_increase=True)
