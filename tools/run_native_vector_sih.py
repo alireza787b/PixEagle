@@ -421,6 +421,7 @@ def transition_source_contract(isolation, *, build_repository: Path | None = Non
     if checked != build:
         raise ValueError("native_component_transition_build_changed")
     verify_source(source, ROOT if build_repository is None else build_repository, verify_extension,
+                  firmware_policy=checked.get('firmware', {}).get('policy', 'experimental'),
                   **({} if simulator == "sih" else {"simulator": simulator}))
     message = source / "msg/versioned/VehicleStatus.msg"
     fields = {}

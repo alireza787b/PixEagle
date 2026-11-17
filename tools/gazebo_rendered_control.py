@@ -10,7 +10,6 @@ import uuid
 from classes.capture_timing import SourceSampleStamp
 from classes.gazebo_camera_control import MAX_CONTROL_BYTES
 from classes.gimbal_control import validate_camera_rectangle
-from classes.aircraft_state import Vector3
 from tools.gazebo_camera_provider import private_listener
 
 
@@ -73,10 +72,7 @@ class RenderedSceneControl:
                 elif operation == 'cancel':
                     self.source.model.release_target()
                 else:
-                    ray = pose.body_to_ned.rotate(Vector3(1., 0., 0.))
-                    import math
-                    self.source.model.aim(math.degrees(math.atan2(ray.y, ray.x)),
-                        -math.degrees(math.atan2(ray.z, ray.horizontal_magnitude)))
+                    self.source.home_view(pose)
             else:
                 raise ValueError('rendered_camera_operation_unsupported')
             self.changed()

@@ -5,15 +5,28 @@ import math
 
 import pytest
 
-from classes.aircraft_state import Quaternion, Vector3
+from classes.aircraft_state import AirframePhase, Quaternion, Vector3
 from classes.gimbal_geometry import body_line_of_sight, resolve_angle_geometry
 from classes.gimbal_types import TrackingState
-from tools.gazebo_gimbal_model import IdealGimbalSettings, IdealStabilizedGimbal, ObservedGimbalPose
+from tools.gazebo_gimbal_model import IdealGimbalSettings, IdealStabilizedGimbal, ObservedGimbalPose, forward_horizon
 
 
 def observed(**changes):
     return replace(ObservedGimbalPose(1_000_000, 100., Vector3(0., 0., -20.),
         Quaternion(1., 0., 0., 0.), Vector3(0., 0., -20.), Quaternion(1., 0., 0., 0.)), **changes)
+
+
+@pytest.mark.parametrize('heading', [-2.9, 0., 1.4])
+@pytest.mark.parametrize('phase,tailsitter,pitch', [
+    (AirframePhase.MULTICOPTER, True, 0.), (AirframePhase.FIXED_WING, True, -math.pi/2),
+    (AirframePhase.FIXED_WING, False, 0.),
+])
+def test_simulator_home_faces_phase_forward_horizon_without_changing_observation(heading, phase, tailsitter, pitch):
+    pose = observed(body_to_ned=Quaternion.from_euler(0., pitch+.05, heading))
+    bearing, elevation = forward_horizon(pose, phase, is_tailsitter=tailsitter)
+    assert math.atan2(math.sin(math.radians(bearing)-heading), math.cos(math.radians(bearing)-heading)) == pytest.approx(0., abs=.01)
+    assert elevation == 0.
+    assert pose.direction_ned == Vector3(1., 0., 0.)
 
 
 @pytest.mark.parametrize('mount', ['HORIZONTAL', 'VERTICAL'])

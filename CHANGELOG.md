@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Recenter the rendered gimbal's rest/Home view after fresh settled MC/FW phase
+  changes, reusing canonical tailsitter geometry without changing SIP axes.
 - Match explicitly sensorless Gazebo variants to PX4's no-pitot configuration
   before opening operator controls, with disarm and parameter-readback checks.
   Preserve normal sensor-equipped profiles and all unrelated arming checks.

@@ -224,9 +224,9 @@ def native_training_assets(args, simulator, scenario, *, firmware_policy="experi
     return assets
 
 
-def prepare_sensorless_simulator(primary, token, baseline, scenario, process):
+def prepare_sensorless_simulator(primary, token, manifest, scenario, process):
     """Match a verified sensor-removal variant to PX4's normal sensorless policy."""
-    variant = baseline['build'].get('resource_variant') or {}
+    variant = manifest['build'].get('resource_variant') or {}
     if (variant.get('resource') != 'models/airspeed/model.sdf'
             or 'airspeed' not in scenario['descriptor']['models']):
         return dict(applied=False)
@@ -254,6 +254,31 @@ def prepare_sensorless_simulator(primary, token, baseline, scenario, process):
         raise ValueError('Sensorless simulator parameter acknowledgement differs from the requested policy')
     return dict(applied=True, resource_variant=variant['name'], before=before, after=after,
                 scope='owned simulation only; no fabricated airspeed or general arming bypass')
+
+
+def update_gimbal_view_reference(primary, token, process, contract, private):
+    """Read native phase for simulator camera framing; never publish aircraft actions."""
+    from tools.gazebo_gimbal_provider import atomic_json
+
+    host.owned_container_info(primary, token)
+    status = host.command('docker', 'exec', '--user', str(os.getuid()), primary,
+        str(Path(process['args'][0]).with_name('px4-listener')), '--instance', '0',
+        'vehicle_status', '-n', '1', timeout=2)
+    def field(name):
+        values = re.findall(r'(?mi)^\s*' + name + r':\s*(\S+)\s*$', status)
+        return values[0].lower() if len(values) == 1 else None
+    age = re.findall(r'timestamp:\s*\d+\s*\(([0-9.]+) seconds ago\)', status)
+    phase = 'unknown'
+    if (len(age) == 1 and 0 <= float(age[0]) <= .75
+            and field('is_vtol_tailsitter') in ('true', 'false')):
+        if field('in_transition_mode') == 'true':
+            phase = 'vtol_transition'
+        elif field('in_transition_mode') == 'false':
+            phase = next((name for name, value in contract['vehicle_types'].items()
+                          if field('vehicle_type') == str(value)), 'unknown')
+    state = json.loads((private / 'operator-state.json').read_text())
+    atomic_json(private / 'aircraft-view.json', dict(version=1, incarnation=state['incarnation'],
+        phase=phase, is_tailsitter=field('is_vtol_tailsitter') == 'true', received_at_monotonic_s=time.monotonic()))
 
 
 def camera_training_source(args, scenario, token):
@@ -376,7 +401,8 @@ def start_gimbal_provider(runtime, profile, token, primary, baseline, scenario, 
         aircraft_model=scenario['descriptor']['model'] + '_0',
         articulated_geometry=scenario['articulated_geometry'],
         camera_mount=scenario['descriptor']['camera_mount'], gimbal_config=config,
-        camera=camera_source, selection_max_age_s=FramePublisher.SELECTION_MAX_AGE_MS / 1000)
+        camera=camera_source, selection_max_age_s=FramePublisher.SELECTION_MAX_AGE_MS / 1000,
+        phase_horizon_view=True)
     source_path = runtime / 'gimbal-source.json'
     write(source_path, source)
     argv = container_args('pixeagle-training-gimbal-' + token[:12], token, primary,
@@ -624,7 +650,7 @@ def run(args):
                 time.sleep(1)
         else:
             raise TimeoutError('Gazebo startup: ' + str(last))
-        receipt['sensorless_preparation'] = prepare_sensorless_simulator(primary, token, baseline, scenario, process)
+        receipt['sensorless_preparation'] = prepare_sensorless_simulator(primary, token, manifest, scenario, process)
         write(runtime / 'run.json', receipt)
         native_mounts = []
         if assets is not None:
@@ -638,6 +664,10 @@ def run(args):
             write(runtime / 'run.json', receipt)
         if rendered_gimbal is not None:
             native_mounts += start_gimbal_provider(runtime, profile, token, primary, baseline, scenario, camera_source, containers)
+            from tools.run_native_vector_sih import transition_source_contract
+            view_contract = transition_source_contract({'firmware_build': baseline}, build_repository=ROOT)
+            receipt['camera_view_phase_contract'] = view_contract
+            update_gimbal_view_reference(primary, token, process, view_contract, runtime / 'gimbal-source')
             write(runtime / 'run.json', receipt)
         shared = [(args.python.parent.parent, args.python.parent.parent, True),
             (args.bin_dir, args.bin_dir, True), (args.router, args.router, True),
@@ -713,6 +743,11 @@ def run(args):
         while (relay.poll() is None and (frontend is None or frontend.poll() is None)
                 and (gimbal_gui is None or gimbal_gui.poll() is None)
                 and all(host.owned_container_info(cid, token)['State']['Running'] for cid in containers)):
+            if rendered_gimbal is not None:
+                try:
+                    update_gimbal_view_reference(primary, token, process, view_contract, runtime / 'gimbal-source')
+                except (OSError, ValueError, subprocess.SubprocessError):
+                    pass  # Expired phase feedback cannot reframe the camera.
             time.sleep(1)
         if qgc is not None:
             state = host.owned_container_info(qgc, token)['State']

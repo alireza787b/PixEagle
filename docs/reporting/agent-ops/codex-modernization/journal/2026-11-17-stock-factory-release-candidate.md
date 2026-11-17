@@ -50,3 +50,14 @@ resource variant and affected model, with `ASPD_FALLBACK=1` for qualified
 groundspeed-minus-wind estimation. Disarm and parameter acknowledgement are
 required; normal sensor-equipped scenarios and hardware are untouched. The
 current operator run was not restarted or retuned after it became armed.
+
+The operator accepted private tailsitter guidance and reported a rendered-camera
+rest-view problem across transitions. The run is closed and retained as
+`reports/sitl/private-tailsitter-coast-20261117-r1/`; its original source is not
+relabelled. The simulator now reads native PX4 phase without sending aircraft
+actions and recenters once after a settled phase change. It clears only the
+synthetic camera lock and invalidates prepared selections; it never starts
+following. Home shares the same forward-horizon calculation and canonical FW
+tailsitter transform. SIP angles still come from measured attached-camera pose.
+Unknown/stale phase cannot reframe the view. A fresh public MC/2D operator review
+is the next acceptance checkpoint; no Pi or real camera was contacted.

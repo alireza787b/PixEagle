@@ -23,13 +23,13 @@ import uuid
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / 'src'))
-from classes.aircraft_state import Quaternion, Vector3  # noqa: E402
+from classes.aircraft_state import AirframePhase, Quaternion, Vector3  # noqa: E402
 from classes.capture_timing import SourceSampleStamp  # noqa: E402
 from classes.gazebo_gimbal_source import GazeboGimbalPacket  # noqa: E402
 from classes.gimbal_control import sip_frame  # noqa: E402
 from classes.gimbal_geometry import resolve_angle_geometry, resolve_mount_type  # noqa: E402
 from tools.gazebo_camera_provider import private_listener  # noqa: E402
-from tools.gazebo_gimbal_model import IdealGimbalSettings, IdealStabilizedGimbal, ObservedGimbalPose  # noqa: E402
+from tools.gazebo_gimbal_model import IdealGimbalSettings, IdealStabilizedGimbal, ObservedGimbalPose, forward_horizon  # noqa: E402
 from tools.gazebo_geometry import FLU_TO_FRD, acquisition_us  # noqa: E402
 from tools.gazebo_joint_gimbal import ZxyJointChain, attached_observation, inverse  # noqa: E402
 from tools.gazebo_scene_selection import ObservedCameraPose  # noqa: E402
@@ -91,6 +91,61 @@ class RenderedGimbalSource:
         self._last_telemetry = None
         self.scene_control = None
         self._last_state_write = None
+        self._view_reference = self._view_read_at = self._view_phase = None
+        self._view_transition = False
+
+    def _refresh_view_reference(self):
+        now = self.clock()
+        if self._view_read_at is None or now - self._view_read_at >= .2:
+            self._view_read_at = now
+            path = self.private / 'aircraft-view.json'
+            self._view_reference = None
+            try:
+                if path.is_symlink() or path.stat().st_size > 4096:
+                    return None
+                value = json.loads(path.read_text())
+                if (type(value['version']) is int and value['version'] == 1
+                        and value['incarnation'] == self.incarnation
+                        and type(value['is_tailsitter']) is bool
+                        and value['phase'] in {phase.value for phase in AirframePhase}
+                        and type(value['received_at_monotonic_s']) in (int, float)
+                        and math.isfinite(value['received_at_monotonic_s'])):
+                    self._view_reference = value
+            except (OSError, ValueError, TypeError, KeyError):
+                pass
+        value = self._view_reference
+        if value is None or not 0 <= now - value['received_at_monotonic_s'] <= 2.5:
+            return None
+        return value
+
+    def home_view(self, pose):
+        value = self._refresh_view_reference()
+        if self.config.get('phase_horizon_view'):
+            if value is None:
+                raise ValueError('gimbal_view_phase_unavailable')
+            self.model.aim(*forward_horizon(pose, AirframePhase(value['phase']),
+                                           is_tailsitter=value['is_tailsitter']))
+        else:
+            self.model.aim(*forward_horizon(pose, AirframePhase.MULTICOPTER, is_tailsitter=False))
+
+    def _settled_view(self, pose):
+        if not self.config.get('phase_horizon_view'):
+            return
+        value = self._refresh_view_reference()
+        if value is None:
+            return
+        phase = AirframePhase(value['phase'])
+        if phase is AirframePhase.VTOL_TRANSITION:
+            self._view_transition = True
+        elif phase in (AirframePhase.MULTICOPTER, AirframePhase.FIXED_WING):
+            if phase != self._view_phase or self._view_transition:
+                try:
+                    self.home_view(pose)
+                except ValueError:
+                    return
+                self._view_phase, self._view_transition = phase, False
+                if self.scene_control is not None:
+                    self.scene_control.changed()
 
     def receive(self, message):
         received = self.clock()
@@ -208,6 +263,7 @@ class RenderedGimbalSource:
             return self._process(pose)
 
     def _process(self, pose):
+        self._settled_view(pose)
         # Observe first so a lock is defined from current measured geometry.
         intent = self.model.observe(pose)
         if intent is None:

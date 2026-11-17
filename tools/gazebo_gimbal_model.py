@@ -8,7 +8,7 @@ Aircraft poses are inputs only and are never predicted or modified here.
 from dataclasses import dataclass
 import math
 
-from classes.aircraft_state import Quaternion, Vector3, finite_number
+from classes.aircraft_state import AirframePhase, Quaternion, Vector3, finite_number, fixed_wing_control_attitude
 from classes.gimbal_geometry import AngleGeometry, body_bearing_to_angles
 from classes.gimbal_types import TrackingState
 
@@ -77,6 +77,18 @@ def _pointing_quaternion(direction, *, retained_heading_rad):
                else math.atan2(direction.y, direction.x))
     pitch = -math.atan2(direction.z, direction.horizontal_magnitude)
     return Quaternion.from_euler(0., pitch, heading), heading
+
+
+def forward_horizon(pose, phase, *, is_tailsitter):
+    """Simulator rest view only; observed physical camera axes remain unchanged."""
+    if phase not in (AirframePhase.MULTICOPTER, AirframePhase.FIXED_WING):
+        raise ValueError('gimbal_view_phase_unavailable')
+    attitude = (fixed_wing_control_attitude(pose.body_to_ned, is_tailsitter=is_tailsitter)
+                if phase is AirframePhase.FIXED_WING else pose.body_to_ned)
+    ray = attitude.rotate(Vector3(1., 0., 0.))
+    if ray.horizontal_magnitude < .1:
+        raise ValueError('gimbal_view_heading_unavailable')
+    return math.degrees(math.atan2(ray.y, ray.x)), 0.
 
 
 class IdealStabilizedGimbal:

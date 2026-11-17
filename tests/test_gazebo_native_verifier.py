@@ -121,18 +121,19 @@ def test_gazebo_requires_consistent_runtime_resource_scene_and_airframe_identity
     assert not any(set(call) & {'arm', 'takeoff', 'set', '--pub', 'run', 'start'} for call in calls)
 
 
-def test_transition_constants_reverify_gazebo_source_and_original_manifest(tmp_path, monkeypatch):
+@pytest.mark.parametrize('policy', ['stock', 'experimental'])
+def test_transition_constants_reverify_gazebo_source_and_original_manifest(tmp_path, monkeypatch, policy):
     message = tmp_path / 'context/source/msg/versioned/VehicleStatus.msg'
     message.parent.mkdir(parents=True)
     message.write_text('uint8 VEHICLE_TYPE_ROTARY_WING = 21\nuint8 VEHICLE_TYPE_FIXED_WING = 22\n')
-    build = {'manifest': str(tmp_path / 'build.json'), 'manifest_sha256': 'a' * 64}
+    build = {'manifest': str(tmp_path / 'build.json'), 'manifest_sha256': 'a' * 64, 'firmware': {'policy': policy}}
     select = Mock(return_value=('gazebo', build, {}))
     monkeypatch.setattr(runner, 'verified_simulation_build', select)
     verify = Mock()
     monkeypatch.setattr(sih_baseline, 'verify_source', verify)
     result = runner.transition_source_contract({'firmware_build': build}, build_repository=tmp_path)
     assert result['vehicle_types'] == {'multicopter': 21, 'fixed_wing': 22}
-    assert verify.call_args.kwargs == {'simulator': 'gazebo'}
+    assert verify.call_args.kwargs == {'simulator': 'gazebo', 'firmware_policy': policy}
     assert verify.call_args.args[1] == tmp_path
     select.return_value = ('gazebo', build | {'manifest_sha256': 'b' * 64}, {})
     with pytest.raises(ValueError, match='build_changed'):

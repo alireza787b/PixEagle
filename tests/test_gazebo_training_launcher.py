@@ -13,6 +13,26 @@ import pytest
 from tools import run_gazebo_training as training
 
 
+@pytest.mark.parametrize('kind,transition,age,expected', [
+    (21, 'false', .1, 'multicopter'), (22, 'false', .1, 'fixed_wing'),
+    (21, 'true', .1, 'vtol_transition'), (22, 'false', 2., 'unknown'),
+    (99, 'false', .1, 'unknown'),
+])
+def test_gimbal_view_reads_fresh_native_phase_without_aircraft_actions(tmp_path, monkeypatch, kind, transition, age, expected):
+    (tmp_path / 'operator-state.json').write_text(json.dumps({'incarnation': 'camera-owner'}))
+    status = f'timestamp: 1234 ({age} seconds ago)\nvehicle_type: {kind}\nin_transition_mode: {transition}\nis_vtol_tailsitter: true\n'
+    command = Mock(return_value=status)
+    monkeypatch.setattr(training.host, 'owned_container_info', Mock())
+    monkeypatch.setattr(training.host, 'command', command)
+    training.update_gimbal_view_reference('sim', 'owner', {'args': ['/opt/px4/bin/px4']},
+        {'vehicle_types': {'multicopter': 21, 'fixed_wing': 22}}, tmp_path)
+    value = json.loads((tmp_path / 'aircraft-view.json').read_text())
+    assert value['phase'] == expected and value['incarnation'] == 'camera-owner'
+    assert value['is_tailsitter'] is True
+    assert command.call_args.args[-3:] == ('vehicle_status', '-n', '1')
+    assert not any(arg in ('arm', 'set', 'transition') for arg in command.call_args.args)
+
+
 @pytest.mark.parametrize('variant,models', [(None, ['airspeed']), ({'resource': 'models/airspeed/model.sdf'}, ['x500'])])
 def test_sensorless_setup_does_not_change_stock_sensor_or_unrelated_aircraft(monkeypatch, variant, models):
     command = Mock()

@@ -11,13 +11,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from classes.aircraft_state import Quaternion, Vector3
+from classes.aircraft_state import AirframePhase, Quaternion, Vector3
 from classes.capture_timing import SourceSampleStamp
 from classes.gazebo_camera_control import RenderedCameraControl, exchange
 from classes.gazebo_camera_protocol import GazeboFrameHeader
 from classes.gazebo_gimbal_source import GazeboGimbalSettings, GazeboSipGimbalProvider
 from classes.gimbal_types import TrackingState
-from tools.gazebo_gimbal_model import IdealGimbalSettings, IdealStabilizedGimbal, ObservedGimbalPose
+from tools.gazebo_gimbal_model import IdealGimbalSettings, IdealStabilizedGimbal, ObservedGimbalPose, forward_horizon
 from tools.gazebo_rendered_control import RenderedSceneControl, serve_controls
 from tools.gazebo_scene_selection import DepthObservation, SceneSelectionHistory, ObservedCameraPose
 
@@ -32,6 +32,7 @@ def scene(tmp_path):
     model.observe(pose)
     source = SimpleNamespace(private=tmp_path, incarnation='b'*32, condition=threading.Condition(),
         model=model, latest_pose=pose, stopped=False, error=None, clock=lambda: now[0])
+    source.home_view = lambda pose: model.aim(*forward_horizon(pose, AirframePhase.MULTICOPTER, is_tailsitter=False))
     history = SceneSelectionHistory(source_clock_id='clock', image_incarnation='a'*32,
         intrinsics=dict(image_size_px=[4, 4], focal_length_px=[2., 2.], principal_point_px=[2., 2.]),
         max_age_s=1.5, clock=lambda: now[0])
@@ -175,12 +176,13 @@ def test_invalid_region_cannot_change_existing_target(scene, extent):
     assert scene.source.model.target_ned is original
 
 
-async def test_home_uses_physical_body_forward_not_previous_camera_pan(scene):
+async def test_home_levels_body_forward_heading_instead_of_previous_camera_pan(scene):
     body = Quaternion.from_euler(.1, -.3, 1.)
     pose = replace(scene.source.latest_pose, body_to_ned=body)
     scene.source.latest_pose = pose
     await scene.control.execute('home')
     ray = body.rotate(Vector3(1., 0., 0.))
+    ray = Vector3(ray.x, ray.y, 0.).normalized()
     aim = scene.source.model._aim
     assert (aim.x, aim.y, aim.z) == pytest.approx((ray.x, ray.y, ray.z))
     assert scene.source.model.target_ned is None

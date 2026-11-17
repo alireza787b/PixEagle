@@ -82,6 +82,14 @@ is not a general guarantee of altitude hold for every transport: see the
 The coastal objects are static visual props. Cars, vessels and balloons do not
 establish moving-target tracking, wind, buoyancy or collision qualification.
 
+The advanced rendered gimbal recenters to a forward horizon view once after each
+observed settled aircraft-phase change, including back-transition. It clears the
+old synthetic lock; select a new target and Start again. Home uses the same view.
+Fresh native PX4 status selects the view; attitude alone does not select phase.
+The existing tailsitter frame helper supplies FW forward. Mount/protocol angle
+definitions and observed SIP telemetry do not change. Missing/stale phase cannot
+recenter the camera. This is simulator framing, not a hardware auto-gimbal policy.
+
 ## Agent and advanced use
 
 ```bash

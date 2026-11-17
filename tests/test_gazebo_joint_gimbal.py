@@ -1,12 +1,29 @@
 """Declared actuator chain tests, independent from tracker/mount transforms."""
 
 import math
+import json
+from pathlib import Path
+import xml.etree.ElementTree as ET
 
 import pytest
 from scipy.spatial.transform import Rotation
 
 from classes.aircraft_state import Quaternion, Vector3
 from tools.gazebo_joint_gimbal import ZxyJointChain, rotation_zxy
+
+
+@pytest.mark.parametrize('body_ray', [Vector3(1., 0., 0.), Vector3(0., 0., -1.)])
+def test_declared_training_mount_reaches_hover_and_fw_forward_views(body_ray):
+    from tools.gazebo_geometry import FLU_TO_FRD
+    root = Path(__file__).resolve().parents[1] / 'native/gazebo'
+    descriptor = json.loads((root / 'scenarios/quadtailsitter-gimbal-training-coast-v2.json').read_text())
+    sensor = ET.parse(root / 'models/training_joint_gimbal/model.sdf').find('.//sensor[@name="camera"]/pose')
+    extrinsic = [float(value) for value in sensor.text.split()]
+    chain = ZxyJointChain(Quaternion.from_euler(*descriptor['camera_mount']['pose'][3:]),
+        Quaternion.from_euler(*extrinsic[3:]), tuple(tuple(v) for v in descriptor['articulated_camera']['limits_rad']))
+    target = chain.pointing_targets(FLU_TO_FRD.rotate(body_ray), (0., 0., 0.))
+    actual = FLU_TO_FRD.rotate(chain.forward(target).rotate(Vector3(1., 0., 0.)))
+    assert (actual.x, actual.y, actual.z) == pytest.approx((body_ray.x, body_ray.y, body_ray.z), abs=1e-7)
 
 
 @pytest.fixture

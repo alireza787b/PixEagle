@@ -37,6 +37,50 @@ def command(source, operation, **fields):
     return value
 
 
+def test_phase_recenter_is_once_per_settled_phase_and_preserves_measured_angles(source):
+    source.config['phase_horizon_view'] = True
+    now = [100.]
+    source.clock = lambda: now[0]
+    def phase(value, **changes):
+        now[0] += .3
+        atomic_json(source.private / 'aircraft-view.json', dict(version=1, incarnation=source.incarnation,
+            phase=value, is_tailsitter=True, received_at_monotonic_s=now[0], **changes))
+    phase('multicopter')
+    source.process(pose())
+    target = Vector3(20., 10., 0.)
+    source.model.lock_point(target)
+    phase('multicopter')
+    source.process(replace(pose(), timestamp_us=1_100_000, received_at_monotonic_s=100.1))
+    assert source.model.target_ned is target
+    phase('vtol_transition')
+    source.process(replace(pose(), timestamp_us=1_200_000, received_at_monotonic_s=100.2))
+    assert source.model.target_ned is target
+    phase('fixed_wing')
+    fw = replace(pose(), timestamp_us=1_300_000, received_at_monotonic_s=100.3,
+                 body_to_ned=Quaternion.from_euler(0., -math.pi/2, 1.))
+    source.process(fw)
+    assert source.model.target_ned is None
+    assert (source.model._aim.x, source.model._aim.y, source.model._aim.z) == pytest.approx((math.cos(1.), math.sin(1.), 0.))
+    source.model.lock_point(target)
+    phase('fixed_wing')
+    source.process(replace(fw, timestamp_us=1_400_000, received_at_monotonic_s=100.4))
+    assert source.model.target_ned is target
+    phase('multicopter')
+    source.process(replace(pose(), timestamp_us=1_500_000, received_at_monotonic_s=100.5))
+    assert source.model.target_ned is None and source.model._aim == Vector3(1., 0., 0.)
+
+
+@pytest.mark.parametrize('bad', [dict(phase='invalid'), dict(received_at_monotonic_s=95.),
+    dict(received_at_monotonic_s=float('nan')), dict(incarnation='old-owner')])
+def test_invalid_or_stale_view_feedback_cannot_reset_a_target(source, bad):
+    source.config['phase_horizon_view'] = True
+    source.process(pose());target = Vector3(20., 10., 0.);source.model.lock_point(target)
+    (source.private / 'aircraft-view.json').write_text(json.dumps(dict(dict(version=1, incarnation=source.incarnation,
+        phase='fixed_wing', is_tailsitter=True, received_at_monotonic_s=100.), **bad)))
+    source.process(replace(pose(), timestamp_us=1_100_000, received_at_monotonic_s=100.1))
+    assert source.model.target_ned is target
+
+
 def test_packets_encode_observed_camera_not_requested_rotation(source):
     source.process(pose())
     command(source, 'aim', azimuth_deg=90., elevation_deg=-45.)
