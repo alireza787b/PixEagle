@@ -29,7 +29,9 @@ def test_public_factory_keeps_position_altitude_hold_and_conservative_authority(
     limits = config['Safety']['GlobalLimits']
     assert (limits['MIN_ALTITUDE'], limits['MAX_ALTITUDE']) == (5., 100.)
     assert limits['ALTITUDE_SAFETY_ENABLED'] is True
-    assert (limits['MAX_VELOCITY'], limits['MAX_VELOCITY_FORWARD']) == (1., .5)
+    assert (limits['MAX_VELOCITY'], limits['MAX_VELOCITY_FORWARD']) == (4., 4.)
+    assert (limits['MAX_VELOCITY_LATERAL'], limits['MAX_VELOCITY_VERTICAL']) == (.5, .5)
+    assert config['MC_VELOCITY_CHASE']['REQUESTED_SPEED'] == .5
     assert config['FixedWingGuidance']['UPPER_SPEED_POLICY'] == 'px4_configured_max'
     assert all(not values.get('ENABLE_ALTITUDE_CONTROL', False)
         for values in config['Follower']['FollowerOverrides'].values())

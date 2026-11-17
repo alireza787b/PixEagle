@@ -79,3 +79,12 @@ retire bindings. No client retries or flight-command replay were added. The
 stale Start rejection and true reconnect fencing. The requested next MC review
 enables altitude only in a disposable test profile, leaving factory altitude
 guidance off. Retained evidence: `public-mc-final-20261117-r2/identity-freshness-replay.json`.
+
+Earlier candidate CI found three tests still coupled to the previous public
+velocity defaults. The public policy assertion now checks the agreed 4 m/s
+ceiling and 0.5 m/s startup; the override-validation fixture explicitly owns
+its 0.5 m/s test limit. Emergency missing-config velocity fallbacks remain
+stricter than the factory cruise ceiling instead of being raised to satisfy a
+test. All 137 affected schema/safety/policy cases pass. Fresh altitude-enabled
+operator session: `public-mc-altitude-final-20261117-r1/`; its 20 read-only
+observations retained one telemetry generation, all fresh and associated.

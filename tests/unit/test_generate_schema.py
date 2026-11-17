@@ -842,6 +842,7 @@ def test_normalize_safety_config_rejects_weakening_follower_override(
     from classes.config_validator import normalize_safety_config
 
     config = _valid_safety_config()
+    config['Safety']['GlobalLimits']['MAX_VELOCITY_FORWARD'] = 0.5
     config['Safety']['FollowerOverrides']['MC_VELOCITY_CHASE'] = {
         field_name: weakening_value,
     }
