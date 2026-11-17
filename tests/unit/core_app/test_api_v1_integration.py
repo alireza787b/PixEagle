@@ -3,7 +3,7 @@
 import asyncio
 import json
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -358,12 +358,31 @@ async def test_observation_is_serialized_and_cancellation_does_not_leave_an_owne
     controller.px4_interface.observe_aircraft_identity.assert_awaited_once()
 
 
+async def test_observational_discovery_requests_independent_telemetry_metadata_off_loop():
+    import threading
+    controller = AppController.__new__(AppController)
+    controller._flight_event_loop = asyncio.get_running_loop()
+    controller._follower_state_lock = asyncio.Lock()
+    controller.shutdown_flag = False
+    controller.following_active = False
+    controller.px4_interface = SimpleNamespace(connect=AsyncMock(), observe_aircraft_identity=AsyncMock())
+    worker_threads = []
+    controller.mavlink_data_manager = SimpleNamespace(
+        request_aircraft_identity=Mock(side_effect=lambda: worker_threads.append(threading.get_ident())))
+    await controller.observe_native_connection()
+    controller.px4_interface.connect.assert_awaited_once()
+    controller.px4_interface.observe_aircraft_identity.assert_awaited_once()
+    assert len(worker_threads) == 1 and worker_threads[0] != threading.get_ident()
+    assert not controller.following_active and not controller._follower_state_lock.locked()
+
+
 async def test_native_viewer_does_not_reconfigure_live_follow_telemetry():
     controller = AppController.__new__(AppController)
     controller._flight_event_loop = asyncio.get_running_loop()
     controller._follower_state_lock = asyncio.Lock()
     controller.shutdown_flag = False
     controller.following_active = True
+    controller.mavlink_data_manager = SimpleNamespace(request_aircraft_identity=Mock())
     controller.px4_interface = SimpleNamespace(
         connect=AsyncMock(), observe_aircraft_identity=AsyncMock(),
         get_connection_status=lambda: {"connected": True},
@@ -371,6 +390,7 @@ async def test_native_viewer_does_not_reconfigure_live_follow_telemetry():
     await controller.observe_native_connection()
     controller.px4_interface.connect.assert_not_called()
     controller.px4_interface.observe_aircraft_identity.assert_awaited_once()
+    controller.mavlink_data_manager.request_aircraft_identity.assert_not_called()
     controller.px4_interface.get_connection_status = lambda: {"connected": False}
     with pytest.raises(RuntimeError, match="Following owns"):
         await controller.observe_native_connection()

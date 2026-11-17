@@ -207,7 +207,7 @@
       "tag_object": "d90ac5b79200c44895c03ee7c284b20b80ecf75d",
       "tag_commit": "fd132028513748238be1762e57893bbca9fcf179"
     },
-    "additional_sih_submodules": [
+    "additional_submodules": [
       "src/lib/cdrstream/cyclonedds",
       "src/lib/cdrstream/rosidl",
       "src/modules/zenoh/zenoh-pico"

@@ -22,8 +22,9 @@ from classes.model_artifact_policy import (
 )
 
 
-def _replace_model_after_signal(replacement, target, start, complete):
-    start.wait(5)
+def _replace_model_after_signal(replacement, target, ready, start, complete):
+    ready.set()
+    assert start.wait(5)
     os.replace(replacement, target)
     complete.set()
 
@@ -574,11 +575,12 @@ class TestRuntimeModelProvenance:
         replacement.chmod(0o600)
         backend = UltralyticsBackend(config={}, models_root=tmp_path)
         context = multiprocessing.get_context("spawn")
+        ready = context.Event()
         start = context.Event()
         complete = context.Event()
         process = context.Process(
             target=_replace_model_after_signal,
-            args=(str(replacement), str(model_path), start, complete),
+            args=(str(replacement), str(model_path), ready, start, complete),
         )
         process.start()
         loaded_bytes = []
@@ -594,6 +596,8 @@ class TestRuntimeModelProvenance:
             return object()
 
         try:
+            # Spawn imports the model runtime before the file-swap deadline begins.
+            assert ready.wait(30)
             with patch(
                 "classes.backends.ultralytics_backend.YOLO",
                 side_effect=pinned_loader,

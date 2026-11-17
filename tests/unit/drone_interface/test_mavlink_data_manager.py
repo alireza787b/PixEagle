@@ -96,6 +96,49 @@ def mavlink_data_manager(sample_data_points, mock_parameters):
 # Test Classes
 # ============================================================================
 
+
+def test_identity_query_uses_configured_route_without_granting_identity(mavlink_data_manager, mock_requests, monkeypatch):
+    manager = mavlink_data_manager
+    manager.system_id, manager.component_id = 9, 42
+    template = {'message': {'type': 'COMMAND_LONG', 'target_system': 99, 'param2': 10.0}}
+    request = MagicMock(return_value=template)
+    monkeypatch.setattr(manager, '_request_json', request)
+    assert manager.request_aircraft_identity()
+    request.assert_called_once_with('/v1/helper/mavlink?name=COMMAND_LONG')
+    payload = mock_requests.post.call_args.kwargs['json']['message']
+    assert payload['command'] == {'type': 'MAV_CMD_REQUEST_MESSAGE'}
+    assert (payload['target_system'], payload['target_component'], payload['param1']) == (9, 42, 148.0)
+    assert all(payload[f'param{n}'] == 0.0 for n in range(2, 8))
+    assert template['message']['target_system'] == 99
+    assert manager.get_aircraft_identity()['autopilot_uid'] is None
+    assert manager.get_flight_state()['fresh'] is False
+    assert not manager.request_aircraft_identity()  # Existing freshness budget bounds discovery retries.
+    assert mock_requests.post.call_count == 1
+
+
+@pytest.mark.parametrize('state', ['fresh', 'disabled', 'stopped', 'inflight'])
+def test_unneeded_or_competing_discovery_sends_no_packet(mavlink_data_manager, mock_requests, monkeypatch, state):
+    manager = mavlink_data_manager
+    if state == 'fresh': monkeypatch.setattr(manager, 'get_aircraft_identity', lambda: {'fresh': True})
+    elif state == 'disabled': manager.enabled = False
+    elif state == 'stopped': manager._stop_event.set()
+    else: manager._identity_request_lock.acquire()
+    assert not manager.request_aircraft_identity()
+    mock_requests.post.assert_not_called()
+    if state == 'inflight': manager._identity_request_lock.release()
+
+
+def test_failed_identity_template_releases_request_owner_without_sending_arbitrary_command(
+    mavlink_data_manager, mock_requests, monkeypatch,
+):
+    manager = mavlink_data_manager
+    monkeypatch.setattr(manager, '_request_json', lambda path: {'message': {'type': 'COMMAND_INT'}})
+    with pytest.raises(ValueError, match='identity_query_template_invalid'):
+        manager.request_aircraft_identity()
+    mock_requests.post.assert_not_called()
+    assert manager._identity_request_lock.acquire(blocking=False)
+    manager._identity_request_lock.release()
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("status,body", [(200, "None"), (200, "null"), (404, "Not found"), (200, "broken JSON")])
 async def test_unavailable_message_does_not_invalidate_aircraft_link(mavlink_data_manager, monkeypatch, status, body):

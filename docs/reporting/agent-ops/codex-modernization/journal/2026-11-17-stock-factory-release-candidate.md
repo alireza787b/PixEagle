@@ -10,3 +10,9 @@ Backend full unit/API, Dashboard and QGC local gates pass. One private all-platf
 QGC build is running; hardware remains unchanged and pending separate acceptance.
 See the [checkpoint](../checkpoints/2026-11-17-stock-factory-release-candidate.md)
 for exact evidence, counts and boundaries.
+
+Final expectation audit found and repaired stock-Gazebo launcher admission and
+independent telemetry-route discovery. New scene bindings retain their template
+provenance and original historical evidence. A disarmed, command-blocked stock
+full-stack startup now verifies video and aircraft association without a native
+adapter or GCS-supplied identity request. Operator flight acceptance is pending.

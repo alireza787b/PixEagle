@@ -84,6 +84,42 @@ def test_explicit_scenario_preserves_build_identity_and_stages_no_control(tmp_pa
     assert manifest == before and manifest['build']['airframe_id'] == 4018
 
 
+def test_training_template_binds_new_verified_build_without_relabelling_history(tmp_path, package):
+    value, manifest, baseline, save = package
+    original = (scenario.SCENARIOS / (NAME + '.json')).read_bytes()
+    baseline.update(image_id='sha256:'+'a'*64, binary_sha256='b'*64, manifest_sha256='c'*64)
+    manifest.update(image_id=baseline['image_id'])
+    manifest['artifacts']['binary_sha256'] = baseline['binary_sha256']
+    plugin = tmp_path / 'packaged/gazebo/plugins/libGstCameraSystem.so'
+    plugin.write_bytes(b'newly compiled verified plugin')
+    manifest['artifacts']['gazebo']['plugins/libGstCameraSystem.so'] = {
+        'sha256': hashlib.sha256(plugin.read_bytes()).hexdigest(), 'executable': False}
+    with pytest.raises(ValueError, match='exact verified'):
+        scenario.verified_scenario(NAME, baseline, manifest)
+    checked = scenario.verified_scenario(NAME, baseline, manifest, bind_to_build=True)
+    assert checked['descriptor']['image_id'] == baseline['image_id']
+    assert checked['template_binding']['template_sha256'] == hashlib.sha256(original).hexdigest()
+    assert 'gazebo/plugins/libGstCameraSystem.so' in checked['template_binding']['changed_resources']
+    assert (scenario.SCENARIOS / (NAME + '.json')).read_bytes() == original
+    assert value['resources']['gazebo/plugins/libGstCameraSystem.so']['sha256'] != hashlib.sha256(plugin.read_bytes()).hexdigest()
+    argv = host.simulation_launch_args('gazebo', baseline, manifest, runtime=tmp_path / 'run',
+        token='owner', name='camera', gazebo_scenario=NAME, bind_gazebo_template=True)
+    assert baseline['image_id'] in argv and '--network' in argv
+
+
+@pytest.mark.parametrize('fault', ['missing_resource', 'altered_bytes', 'bad_identity', 'bad_scene'])
+def test_template_binding_retains_resource_scene_and_aircraft_validation(tmp_path, package, fault):
+    value, manifest, baseline, save = package
+    relative='gazebo/plugins/libGstCameraSystem.so'
+    if fault == 'missing_resource': del manifest['artifacts']['gazebo']['plugins/libGstCameraSystem.so']
+    elif fault == 'altered_bytes': (tmp_path / 'packaged' / relative).write_bytes(b'unmanifested change')
+    elif fault == 'bad_identity': value['identity_parameters'].append('UNDECLARED_PARAMETER')
+    else: value['scene_models'].append('hidden_object')
+    save()
+    with pytest.raises(ValueError):
+        scenario.verified_scenario(NAME, baseline, manifest, bind_to_build=True)
+
+
 @pytest.mark.parametrize('change', ['model', 'world', 'airframe', 'image', 'elf', 'manifest', 'variant',
     'missing_texture', 'missing_plugin', 'missing_airframe', 'resource_pin', 'resource_bytes', 'symlink',
     'nan', 'inf', 'bool_pose', 'short_pose', 'unknown', 'camera', 'extra_scene', 'schema', 'include',

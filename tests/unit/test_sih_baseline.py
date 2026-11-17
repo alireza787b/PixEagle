@@ -79,7 +79,7 @@ def stock_repository(repository):
         "commit": "b" * 40,
         "version": {"describe": "v1.18.0-beta1-1-gbbbbbbbb", "tag": "v1.18.0-beta1",
                     "tag_object": "c" * 40, "tag_commit": "d" * 40},
-        "additional_sih_submodules": ["src/lib/cdrstream/cyclonedds"],
+        "additional_submodules": ["src/lib/cdrstream/cyclonedds"],
     }
     path.write_text(json.dumps(lock))
     return repository
@@ -98,15 +98,13 @@ def test_stock_authority_has_no_extension_dependency(stock_repository):
 def test_stock_authority_rejects_invalid_dependency_paths(stock_repository, extra):
     path = stock_repository / "native/dependencies.lock.json"
     lock = json.loads(path.read_text())
-    lock["stock_px4"]["additional_sih_submodules"] = extra
+    lock["stock_px4"]["additional_submodules"] = extra
     path.write_text(json.dumps(lock))
     with pytest.raises(ValueError, match="submodule"):
         sih_baseline.authority(stock_repository, firmware_policy="stock")
 
 
-def test_stock_policy_cannot_select_gazebo_or_unknown_firmware(stock_repository):
-    with pytest.raises(ValueError, match="SIH only"):
-        sih_baseline.authority(stock_repository, simulator="gazebo", firmware_policy="stock")
+def test_stock_policy_rejects_unknown_firmware(stock_repository):
     with pytest.raises(ValueError, match="Unknown.*policy"):
         sih_baseline.authority(stock_repository, firmware_policy="guess")
 
@@ -452,6 +450,28 @@ def gazebo_resources(root):
     return {"models": sih_baseline.tree_manifest(root / "models"),
             "worlds": sih_baseline.tree_manifest(root / "worlds"),
             "server_config_sha256": sih_baseline.digest(root / "server.config")}
+
+
+def test_stock_gazebo_reuses_the_verified_recipe_without_loading_an_extension(gazebo_repository, stock_repository):
+    assert gazebo_repository == stock_repository
+    (stock_repository / "native/px4/extension.json").unlink()
+    firmware, spec = sih_baseline.authority(stock_repository, simulator="gazebo", firmware_policy="stock")
+    assert firmware["policy"] == "stock" and firmware["patches"] == {}
+    assert spec["target"] == "px4_sitl_default"
+    assert "src/lib/cdrstream/cyclonedds" in spec["submodules"]
+    assert "Tools/simulation/gz" in spec["submodule_pins"]
+
+
+def test_stock_gazebo_cli_forwards_both_policy_and_resource_variant(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(sih_baseline, "build_simulator", lambda *args, **kwargs: calls.append(kwargs))
+    monkeypatch.setattr(sys, "argv", ["builder", "--target", "gazebo", "--firmware-policy", "stock",
+        "--prepare-only", "--px4-source", str(tmp_path / "source"), "--output-dir", str(tmp_path / "output"),
+        "--gazebo-resource-variant", "quadtailsitter-no-pitot-v1"])
+    build_native_guidance.main()
+    assert len(calls) == 1
+    assert calls[0]["simulator"] == "gazebo" and calls[0]["firmware_policy"] == "stock"
+    assert calls[0]["resource_variant"] == "quadtailsitter-no-pitot-v1"
 
 
 @pytest.mark.parametrize("change", ["target", "distribution", "model", "world", "airframe_id", "missing_pin",

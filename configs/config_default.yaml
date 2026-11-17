@@ -1808,10 +1808,10 @@ Safety:
   # FollowerOverrides:
   #   MC_VELOCITY_CHASE:
   #     MAX_VELOCITY_FORWARD: 0.25       # Tighter than the 0.5 m/s envelope
-  #     MIN_ALTITUDE: 35.0               # Stricter than the shared 30 m floor
+  #     MIN_ALTITUDE: 35.0               # Stricter than the shared 5 m floor
   #   FW_ATTITUDE_RATE:
   #     MIN_ALTITUDE: 40.0               # Stricter floor for a configured test site
-  #     MAX_ALTITUDE: 100.0              # Tighter than the 120 m envelope
+  #     MAX_ALTITUDE: 80.0               # Tighter than the 100 m envelope
   #   MC_VELOCITY_GROUND:
   #     MIN_ALTITUDE: 40.0               # Higher minimum for ground view mode
   # ===========================================================================

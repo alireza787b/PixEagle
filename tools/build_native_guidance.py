@@ -117,13 +117,13 @@ def main() -> None:
     parser.add_argument("--image", default="pixeagle-native-contracts:development", help="Contract-test image tag")
     parser.add_argument("--target", choices=("contracts", "sih", "gazebo", "px4-functional"), default="contracts")
     parser.add_argument("--firmware-policy", choices=("experimental", "stock"), default="experimental",
-                        help="Stock SIH compiles the unmodified upstream pin without the experimental extension")
+                        help="Stock SIH/Gazebo compiles the unmodified upstream pin without the experimental extension")
     parser.add_argument("--regression", help="Locked PX4 functional regression; defaults to the lock's selected regression")
     parser.add_argument("--gazebo-resource-variant", choices=GAZEBO_RESOURCE_VARIANTS,
                         default="stock", help="Reviewed packaged Gazebo sensor variant; stock is unchanged")
     args = parser.parse_args()
-    if args.firmware_policy == "stock" and args.target != "sih":
-        parser.error("--firmware-policy stock requires --target sih")
+    if args.firmware_policy == "stock" and args.target not in {"sih", "gazebo"}:
+        parser.error("--firmware-policy stock requires --target sih or gazebo")
     if args.regression is not None and args.target != "px4-functional":
         parser.error("--regression requires --target px4-functional")
     if args.gazebo_resource_variant != "stock" and args.target != "gazebo":

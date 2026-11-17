@@ -5,11 +5,7 @@
   "environment": {},
   "arguments": [
     "--build-manifest",
-    "/absolute/path/to/verified/gazebo-build-manifest.json",
-    "--adapter-bundle",
-    "/absolute/path/to/reviewed/runtime-bundle",
-    "--adapter-file-manifest",
-    "/absolute/path/to/reviewed/runtime-bundle-files.json",
+    "/absolute/path/to/verified/stock/gazebo-build-manifest.json",
     "--python",
     "/absolute/path/to/PixEagle/.venv/bin/python",
     "--bin-dir",
@@ -27,7 +23,7 @@
   ],
   "profiles": {
     "mc-camera": {
-      "label": "Native MC \u00b7 2D camera tracking",
+      "label": "Multicopter \u00b7 2D camera tracking",
       "arguments": [
         "--scenario",
         "x500-mono-camera-board-v3",
@@ -38,7 +34,7 @@
       ]
     },
     "fw-camera": {
-      "label": "Native FW \u00b7 2D camera tracking",
+      "label": "Fixed-wing \u00b7 2D camera tracking",
       "arguments": [
         "--scenario",
         "rc-cessna-mono-camera-courtyard-v1",

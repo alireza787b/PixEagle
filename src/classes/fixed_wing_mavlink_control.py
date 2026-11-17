@@ -6,6 +6,7 @@ attitude/thrust requires this companion speed/path controller; it is not TECS.
 """
 
 from dataclasses import dataclass
+import logging
 import math
 
 from classes.aircraft_state import (
@@ -15,6 +16,9 @@ from classes.bearing_geometry_policy import BearingGeometryPolicy
 from classes.fixed_wing_guidance_policy import FixedWingGuidancePolicy, UpperSpeedPolicy
 from classes.fixed_wing_vector_guidance import FixedWingCommand, FixedWingVectorGuidance
 from classes.safety_types import AltitudeLimits
+
+
+logger = logging.getLogger(__name__)
 
 
 FIXED_WING_MAVLINK_PARAMETERS = (
@@ -88,6 +92,7 @@ class FixedWingMavlinkVectorControl:
         self.tuning = tuning
         self.configured_policy = policy
         self.policy = policy
+        self._last_speed_source = None
         unbounded = policy.upper_speed_policy is UpperSpeedPolicy.NO_UPPER_SPEED_BOUND
         self.direction = FixedWingVectorGuidance(
             enable_altitude_control=enable_altitude_control, geometry_policy=geometry, policy=policy,
@@ -100,6 +105,7 @@ class FixedWingMavlinkVectorControl:
     def reset(self):
         self.direction.reset()
         self.use_normal_envelope(False)
+        self._last_speed_source = None
 
     def use_normal_envelope(self, normal: bool):
         """Session Restore changes the effective policy, never saved settings."""
@@ -149,6 +155,9 @@ class FixedWingMavlinkVectorControl:
         )
         limiting = limiting_reason or limiting
         observed, speed_basis = self.speed_feedback(state, now=now, timeout_s=timeout_s)
+        if speed_basis != self._last_speed_source:
+            logger.info("FW speed feedback source=%s observed_m_s=%.3f", speed_basis, observed)
+            self._last_speed_source = speed_basis
         velocity = state.velocity_ned_m_s
         horizontal = velocity.horizontal_magnitude
         measured_path = math.atan2(-velocity.z, horizontal)

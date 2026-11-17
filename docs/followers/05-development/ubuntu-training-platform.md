@@ -1,10 +1,15 @@
 # Ubuntu simulator training
 
 Run the normal PixEagle application, QGC and actual PX4/Gazebo in one owned,
-isolated session. The beginner menu contains **native MC, native FW and standard
+isolated session. The beginner menu contains **multicopter, fixed-wing and standard
 quadplane**. Tailsitter and external-gimbal combinations are advanced profiles,
 excluded from that menu. This tool neither connects physical aircraft nor takes
 off automatically.
+
+Use a verified **stock** Gazebo build for the current MAVLink workflow. Its
+manifest selects stock firmware explicitly, so FW/VTOL training does not start
+the experimental DDS adapter. The earlier adapter bundle remains available only
+with an explicitly selected experimental build; it is not a setup prerequisite.
 
 The simulated guidance/workflow checkpoint was reviewed on **15 November 2026**.
 [Qualification below](#what-is-actually-qualified) separates accepted workflows,
@@ -30,8 +35,8 @@ a new evidence directory. Existing runs are never overwritten.
 
 1. Sign into QGC with the disposable lab account `admin/admin`.
 2. Flight commands start blocked. In this isolated simulator, permit following
-   through Options when ready, then take off manually. With the public 30 m
-   relative-altitude floor and 2 m warning buffer, settle above 32 m before
+   through Options when ready, then take off manually. With the public 5 m
+   relative-altitude floor and 2 m warning buffer, settle above 7 m before
    Start (40 m is convenient for these training scenarios).
 3. Select a visible object, Start following, adjust supported speed controls,
    then test Stop and a fresh Start. Stop must report confirmed Hold.
@@ -41,8 +46,10 @@ a new evidence directory. Existing runs are never overwritten.
    implemented yet.
 5. For native FW, use the normal runway Takeoff action, settle at the selected
    flight altitude, then select a visible object and use FW Navigation Chase.
-   Its speed control requests airspeed, not MC translation speed; native PX4
-   minimum-speed and flight-envelope handling remain authoritative.
+   Its speed control requests an airspeed reference, not MC translation speed.
+   Stock MAVLink uses attitude/thrust projection with the resolved PX4 envelope;
+   it does not retain native TECS. Missing airspeed uses a labelled navigation
+   speed proxy, which cannot establish actual stall margin.
 6. Close QGC or press Ctrl+C in the launcher to close that token-owned stack.
    Unrelated applications and containers remain untouched.
 
@@ -96,11 +103,14 @@ retain private IPC, and every component retains the isolated simulator network;
 no host-network, privileged-container or physical-device access is added.
 Use these display-enabled containers only with trusted local development builds.
 Prepare the verified builds/dependencies using the
-[native build guide](../../../native/gazebo-build.md) and QGC's build instructions.
+[stock Gazebo build guide](../../../native/gazebo-build.md#stock-firmware-workflow) and QGC's build instructions.
 Copy `tools/training-launcher.example.json` to
 `~/.config/pixeagle/training.json`, then fill its absolute dependency paths once.
 Optional search paths go in `environment`; only tool/library/module search-path
 variables are accepted. No passwords belong in this file.
+The example uses a stock build and needs no adapter-bundle paths. Pin the build
+manifest first; changing its firmware policy changes the selected runtime and
+must not be used to relabel an old binary as stock.
 
 `arguments` contains shared canonical-runner options. Each profile contains
 only its scene-specific options. Duplicate options are rejected instead of
@@ -108,6 +118,14 @@ silently overriding one another. `audience: advanced` hides an entry from the
 beginner menu. `unavailable_reason` marks an incomplete launcher recipe and
 prevents launching it even through headless/dry-run selection. These labels
 cannot grant the backend permission to fly an unsupported profile.
+
+For a new verified build, training binds the scene template to that build's
+packaged resource hashes, records the original template and changed-resource
+provenance, then runs the same complete model/world/airframe validation. Original
+descriptors and historical evidence are not rewritten. Other qualification
+callers retain strict historical build binding unless they explicitly request a
+new template binding. A recompiled plugin or firmware is new evidence, not a
+retroactive operator pass.
 
 Useful canonical options:
 

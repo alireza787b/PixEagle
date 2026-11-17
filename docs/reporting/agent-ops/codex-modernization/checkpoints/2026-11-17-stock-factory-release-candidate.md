@@ -17,7 +17,7 @@ Sync preview rather than silently changing installed command authority. Malforme
 policy cannot partially replace a published configuration.
 
 Factory configuration: VIDEO_FILE/CSRT, MC Position, target altitude guidance off,
-engagement altitude hold, circuit breaker on, relative altitude 5–100 m, 2 m
+zero horizontal/vertical velocity intent with yaw centering, circuit breaker on, relative altitude 5–100 m, 2 m
 warning buffer, total speed 1 m/s and forward/right/down caps 0.5 m/s. The normal
 FW envelope remains `px4_configured_max`. A floor is estimator/home referenced,
 not terrain clearance or a guarantee of pull-out distance. Private owner files
@@ -86,3 +86,55 @@ is not airspeed or stall-margin proof. Experimental policy removes projection
 upper-speed and pitch/sink soft ceilings; bank, actuator, minimum-reference,
 altitude and authority constraints remain. Transition ends following and requires
 a new Start after settling. Prefer explicit Stop before a planned transition.
+
+## Expectation audit and stock Gazebo follow-up
+
+The exact `d2a105f4d` cloud run **43960050257** passed all jobs. Private QGC run
+**43956447633** passed Windows/Linux/Android; downloaded package hashes, source
+identity and formats match `134fecd04`. Old local installers were removed only
+after replacement verification. Signature verification is not claimed: the
+private attestation lookup returned HTTP 404.
+
+The audit found the operator launcher still required the older native bundle for
+FW/VTOL. The shared builder now supports unmodified stock Gazebo, and the selected
+verified firmware policy determines whether an experimental adapter is needed.
+The example and local operator recipe use stock firmware without that bundle.
+New runtime scene descriptors bind templates to current verified build resources
+and retain original template hashes/resource changes; historical descriptors,
+strict qualification callers and raw evidence stay unchanged.
+
+Build: `reports/native-guidance/gazebo-stock-20261117-r1/gazebo-build-manifest.json`,
+unmodified PX4 `722ebc9635`, with the explicitly declared no-pitot sensor variant.
+MC, conventional FW, quadplane and tailsitter templates pass their new binding
+and existing resource/airframe closure checks. Original SIH build authority is
+retained at `d2a105f4d`; changing a builder does not requalify an older manifest.
+
+The fresh full-stack ground check also reproduced missing telemetry identity
+without an open GCS: MAVSDK's reply on its own link did not establish the REST
+route. Discovery now requests only AUTOPILOT_VERSION on the configured route,
+off the flight event loop, with shared bounded demand. Receipt success grants no
+identity/authority; the original poller still verifies UID and heartbeat progress.
+Active following sends no discovery query. FW sensor/proxy transitions are logged
+once rather than on every frame. No guidance law or numerical flight limit changed.
+
+`reports/sitl/stock-gazebo-startup-20261117-r4/smoke-result.json` passes live rendered
+video, authenticated observational connection, verified aircraft association,
+disarmed state, circuit breaker on and following inactive, with no native adapter.
+Its remaining Start reasons are `vehicle_not_armed` and `target_not_tracking`.
+This is a ground/startup check, not a Gazebo flight or optical-mechanics pass.
+Earlier runs retain the missing-identity finding and fixture-auth mistakes.
+
+Renewed targeted gates: 420 stock build/scenario/projection checks; 158 discovery/
+integration/source checks. The pre-discovery full unit renewal passed 7,753 tests
+with 11 optional GI skips. The final full run and exact follow-up cloud revision
+must be recorded before release promotion. Private guidance overlays remain
+outside Git; their hardware adoption and the operator's stock Gazebo flight test
+remain the next checkpoints.
+
+The final local unit run passed 7,760 tests with 11 optional skips and retained
+one unrelated model-swap fixture failure: its five-second race deadline included
+spawned-process imports. A readiness handshake now separates process startup from
+the unchanged five-second file-swap window; all 48 model-backend tests pass with
+the actual inode/provenance assertions intact. The API/integration/tool/document
+selection passed 565 checks. Exact-head cloud CI must renew the complete selection
+before publication. No test was excluded and no runtime model trust policy changed.

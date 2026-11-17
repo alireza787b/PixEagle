@@ -89,17 +89,15 @@ def authority(repository: Path = ROOT, *, simulator: str = "sih",
         raise ValueError("Unsupported simulator build recipe")
     if firmware_policy not in {"experimental", "stock"}:
         raise ValueError("Unknown simulator firmware policy")
-    if firmware_policy == "stock" and simulator != "sih":
-        raise ValueError("Stock firmware qualification currently supports SIH only")
     if resource_variant != "stock" and simulator != "gazebo":
         raise ValueError("Gazebo resource variants require the Gazebo build")
     lock = json.loads((repository / "native/dependencies.lock.json").read_text())
     if firmware_policy == "stock":
         stock = lock.get("stock_px4")
-        if (not isinstance(stock, dict) or set(stock) != {"commit", "version", "additional_sih_submodules"}
+        if (not isinstance(stock, dict) or set(stock) != {"commit", "version", "additional_submodules"}
                 or not isinstance(stock["commit"], str) or not re.fullmatch(r"[0-9a-f]{40}", stock["commit"])):
             raise ValueError("Stock PX4 requires an explicit reviewed source pin")
-        extra = stock["additional_sih_submodules"]
+        extra = stock["additional_submodules"]
         if (not isinstance(extra, list)
                 or any(not isinstance(name, str) or not name or Path(name).is_absolute()
                        or any(part in {".", ".."} for part in name.split("/")) for name in extra)

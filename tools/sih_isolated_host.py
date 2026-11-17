@@ -78,7 +78,8 @@ def _simulation_model(simulator: str, manifest: dict | None, requested: str | No
 def simulation_launch_args(simulator: str, baseline: dict, manifest: dict | None, *,
                            runtime: Path, token: str, name: str, model: str | None = None,
                            startup_parameters: dict[str, str] | None = None,
-                           gazebo_scenario: str | None = None, desktop_network_id: str | None = None) -> list[str]:
+                           gazebo_scenario: str | None = None, desktop_network_id: str | None = None,
+                           bind_gazebo_template: bool = False) -> list[str]:
     """Stage a private rootfs and plan the owned primary; never launch it.
 
     Callers own the fixture parameter allowlist and native bounds. Values here
@@ -92,7 +93,7 @@ def simulation_launch_args(simulator: str, baseline: dict, manifest: dict | None
         from tools.gazebo_scenario import verified_scenario
         if simulator != "gazebo" or manifest is None:
             raise ValueError("A runtime scenario requires a verified Gazebo build")
-        scenario = verified_scenario(gazebo_scenario, baseline, manifest)
+        scenario = verified_scenario(gazebo_scenario, baseline, manifest, bind_to_build=bind_gazebo_template)
     model = _simulation_model(simulator, manifest, model, scenario=scenario)
     options = []
     source_build = baseline.get("kind") in {"verified_source_build", "verified_gazebo_source_build"}

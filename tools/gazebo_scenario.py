@@ -289,7 +289,7 @@ def airframe_identity(scenario: dict, files: dict[str, bytes]) -> dict:
     return expected
 
 
-def verified_scenario(name: str, baseline: dict, manifest: dict) -> dict:
+def verified_scenario(name: str, baseline: dict, manifest: dict, *, bind_to_build: bool = False) -> dict:
     """Consume the result of the canonical build validator, then check scenario resources."""
     if not isinstance(name, str) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*-v[1-9][0-9]*", name):
         raise ValueError("Unknown Gazebo runtime scenario")
@@ -314,9 +314,32 @@ def verified_scenario(name: str, baseline: dict, manifest: dict) -> dict:
     if (not isinstance(value, dict) or set(value) != fields or type(value["schema_version"]) is not int
             or value["schema_version"] not in (1, 2, 3, 5) or value["name"] != name):
         raise ValueError("Invalid Gazebo scenario descriptor")
+    if type(bind_to_build) is not bool:
+        raise ValueError("Gazebo scenario binding must be explicit")
+    binding = {}
+    if bind_to_build:
+        # Freeze a new runtime descriptor against verified build artifacts.
+        # The original template and historical build binding stay untouched.
+        if not isinstance(value["resources"], dict) or not value["resources"]:
+            raise ValueError("Gazebo scenario resources are missing")
+        binding = {"template_sha256": hashlib.sha256(raw).hexdigest(),
+                   "template_build_manifest_sha256": value["build_manifest_sha256"], "changed_resources": {}}
+        for relative, previous in value["resources"].items():
+            if not isinstance(relative, str):
+                raise ValueError("Gazebo scenario resource path is invalid")
+            area, _, member = relative.partition("/")
+            current = manifest.get("artifacts", {}).get(area, {}).get(member) if area in {"etc", "gazebo"} else None
+            if not isinstance(current, dict):
+                raise ValueError(f"Gazebo scenario resource is absent from the verified build: {relative}")
+            if current != previous:
+                binding["changed_resources"][relative] = {"template": previous, "build": current}
+            value["resources"][relative] = dict(current)
+        value.update(build_manifest_sha256=baseline.get("manifest_sha256"), image_id=baseline.get("image_id"),
+                     binary_sha256=baseline.get("binary_sha256"))
+        raw = json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
     if (manifest.get("kind") != "pixeagle_gazebo_build"
             or baseline.get("kind") != "verified_gazebo_source_build"
-            or manifest.get("build", {}).get("resource_variant") is not None
+            or (manifest.get("build", {}).get("resource_variant") is not None and not bind_to_build)
             or any(value[key] != baseline.get(key) for key in ("image_id", "binary_sha256"))
             or value["build_manifest_sha256"] != baseline.get("manifest_sha256")
             or manifest.get("image_id") != value["image_id"]
@@ -405,6 +428,7 @@ def verified_scenario(name: str, baseline: dict, manifest: dict) -> dict:
         raise ValueError("Gazebo scenario camera is missing or ambiguous")
     return {"name": name, "descriptor_sha256": hashlib.sha256(raw).hexdigest(), "descriptor": value,
             "expected_parameters": expected, "build_manifest_sha256": baseline["manifest_sha256"],
+            **({"template_binding": binding} if binding else {}),
             **({'articulated_geometry': geometry} if geometry is not None else {}),
             **({"added_resources": additions} if additions else {})}
 

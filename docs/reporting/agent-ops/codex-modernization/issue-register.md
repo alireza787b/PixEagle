@@ -519,3 +519,10 @@ remain open. Integration work is unpublished.
   unmodified PX4 tailsitter MC/FW application checks and renewed backend/client
   gates pass. Hardware and exact-head cloud/package acceptance remain separate;
   see the [candidate checkpoint](checkpoints/2026-11-17-stock-factory-release-candidate.md).
+
+- **2026-11-17 — Expectation audit follow-up:** stock Gazebo training no longer
+  requires the experimental native bundle. Template binding keeps verified
+  resources, historical descriptors and original provenance separate. Full-stack
+  startup reproduced an independent telemetry UID discovery gap; bounded metadata
+  requests repair it without granting authority or reconfiguring active following.
+  Disarmed video/association checks pass; operator flight and hardware remain pending.

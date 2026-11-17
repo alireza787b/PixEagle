@@ -113,6 +113,22 @@ def test_sensorless_feedback_is_a_named_proxy_and_never_an_airspeed_measurement(
     assert result.observed_speed_m_s == 13.
 
 
+def test_speed_source_transitions_are_logged_once_without_masking_low_airspeed(caplog):
+    state = aircraft_state(airspeed=AirspeedObservation("unavailable", None, None, 100., False))
+    controller, identity, _ = setup(state=state)
+    with caplog.at_level('INFO', logger='classes.fixed_wing_mavlink_control'):
+        calculate(controller, identity, state)
+        calculate(controller, identity, state)
+        low = replace(state, airspeed=AirspeedObservation("sensor", 0., 0., 100., True))
+        result = calculate(controller, identity, low)
+        assert result.speed_basis == "sensor" and result.limiting_reason == "underspeed_recovery"
+        calculate(controller, identity, low)
+    records = [record.message for record in caplog.records if record.name == 'classes.fixed_wing_mavlink_control']
+    assert len(records) == 2
+    assert 'source=ground_speed_proxy' in records[0]
+    assert 'source=sensor observed_m_s=0.000' in records[1]
+
+
 def test_dive_throttle_floor_is_respected_without_exceeding_actuator_limits():
     controller, identity, state = setup(unbounded=True, dive_throttle=.8)
     result = calculate(controller, identity, state, Vector3(1, 0, 1), speed=12.)

@@ -170,13 +170,17 @@ def record_container_log(container, destination):
             stdout=stream, stderr=subprocess.STDOUT, start_new_session=True)
 
 
-def native_training_assets(args, simulator, scenario):
+def native_training_assets(args, simulator, scenario, *, firmware_policy="experimental"):
     """Runtime availability never grants profile or phase admission."""
     from classes.aircraft_state import AircraftKind, aircraft_kind_from_mavlink
 
     kind = aircraft_kind_from_mavlink(scenario['expected_parameters'].get('MAV_TYPE'))
     if simulator != 'gazebo' or kind not in (AircraftKind.MULTICOPTER, AircraftKind.FIXED_WING, AircraftKind.VTOL):
         raise ValueError('Training requires a declared MC, FW or VTOL Gazebo scenario')
+    if firmware_policy == 'stock':
+        return None
+    if firmware_policy != 'experimental':
+        raise ValueError('Unknown training firmware policy')
     if kind is AircraftKind.MULTICOPTER:
         # Ordinary MC uses MAVSDK. Shared machine dependency paths must not
         # opt it into native FW/VTOL registration or bootstrap requirements.
@@ -496,8 +500,9 @@ def run(args):
     for port in ((args.port, args.dashboard_port) if args.dashboard_build else (args.port,)):
         require_free_loopback_port(port)
     simulator, baseline, manifest = host.verified_simulation_build(args.build_manifest, repository=ROOT)
-    scenario = verified_scenario(args.scenario, baseline, manifest)
-    assets = native_training_assets(args, simulator, scenario)
+    scenario = verified_scenario(args.scenario, baseline, manifest, bind_to_build=True)
+    assets = native_training_assets(args, simulator, scenario,
+        firmware_policy=baseline['firmware'].get('policy', 'experimental'))
     token = uuid.uuid4().hex
     camera_source = camera_training_source(args, scenario, token)
     rendered_gimbal = scenario['descriptor'].get('articulated_camera')
@@ -528,6 +533,8 @@ def run(args):
     containers = []
     receipt = dict(kind='isolated-gazebo-training-v1', source_commit=host.command('git', '-C', str(ROOT), 'rev-parse', 'HEAD'),
         scenario=scenario, firmware_build=baseline, commands_blocked_at_start=True,
+        firmware_policy=baseline['firmware'].get('policy', 'experimental'),
+        native_adapter_prepared=assets is not None,
         token=token, containers=containers, qgc_identity=qgc_identity, operator_ui_enabled=operator_ui, started_at=time.time())
     write(runtime / 'run.json', receipt)
     try:
@@ -535,7 +542,7 @@ def run(args):
         receipt['network_id'] = network_id
         launch = host.simulation_launch_args(simulator, baseline, manifest, runtime=runtime, token=token,
             name='pixeagle-training-px4-' + token[:12], gazebo_scenario=args.scenario,
-            desktop_network_id=network_id)
+            desktop_network_id=network_id, bind_gazebo_template=True)
         image_index = launch.index(baseline['image_id'])
         launch[image_index:image_index] = display_mounts()
         primary = host.command(*launch)
@@ -694,7 +701,8 @@ def main():
                         help='Target-directed vertical guidance in this disposable qualification profile')
     parser.add_argument('--runtime', type=Path, required=True)
     parser.add_argument('--build-manifest', type=Path, required=True)
-    parser.add_argument('--adapter-bundle', type=Path, help='Exact reviewed native runtime bundle (required for FW/VTOL)')
+    parser.add_argument('--adapter-bundle', type=Path,
+                        help='Reviewed native runtime bundle; only for an explicitly selected experimental firmware build')
     parser.add_argument('--adapter-file-manifest', type=Path)
     parser.add_argument('--scenario', default='x500-mono-camera-aruco-v1')
     parser.add_argument('--follower-mode', default='mc_velocity_chase',

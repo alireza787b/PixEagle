@@ -15,6 +15,13 @@
   Saved legacy configuration requires Config Sync preview/apply for adoption.
 - Renew unmodified official PX4 simulation and private QGC proxy-speed labels.
   Read-only reports distinguish requested, submitted and PX4-observed motion.
+- Extend the shared verified builder to stock Gazebo. Stock training no longer
+  requires a native-adapter bundle; the example launcher uses that stock path.
+  Earlier native experiments and their evidence remain explicitly separate.
+- Discover missing telemetry-route identity through a bounded, read-only
+  AUTOPILOT_VERSION request, independent of MAVSDK's link and an open GCS.
+  Keep existing received-identity guards and skip discovery during following.
+  Log FW sensor/proxy feedback changes once per source transition.
 - Prerelease pending matched package and hardware acceptance. Stock FW
   attitude/thrust projection is not TECS; ground-speed proxy cannot prove stall
   margin. Private expert profiles and aircraft firmware remain separate.

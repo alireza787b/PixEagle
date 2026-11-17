@@ -8,6 +8,33 @@ passed in `reports/native-guidance/gazebo-quadtailsitter-control-20261113-r1`
 and `reports/sitl/follower-consolidation-20261111/s7-gazebo-disarmed-runtime-r1`.
 These are build/startup evidence, not flight qualification.
 
+## Stock firmware workflow
+
+For ordinary current training, compile the reviewed unmodified upstream pin:
+
+```bash
+python3 tools/build_native_guidance.py --target gazebo --firmware-policy stock \
+  --px4-source /path/to/clean-pinned-PX4 \
+  --output-dir reports/native-guidance/gazebo-stock
+```
+
+Initialize the recursive submodules declared by `gazebo_build` and
+`stock_px4.additional_submodules` in `dependencies.lock.json`. The stock source
+must remain clean and match the exact stock commit/version. No firmware patch,
+DDS adapter or aircraft parameter write is applied. The same resource hashing,
+build/image validation and isolated renderer are used for both policies.
+`--gazebo-resource-variant quadtailsitter-no-pitot-v1` removes only the declared
+simulated airspeed sensor, preserving the unmodified firmware and other resources.
+
+Put the resulting `gazebo-build-manifest.json` in the training launcher's
+`--build-manifest` argument. The verified manifest selects stock MAVLink without
+adapter-bundle arguments. This is build/startup preparation; repeat the operator
+workflow before claiming the new stack accepted. Historical manifests retain
+their original builder authority and must not be relabelled or overwritten.
+
+The sections below describe the earlier explicitly selected experimental build.
+It remains separate from the normal stock workflow.
+
 ## Inputs
 
 The firmware revision and reviewed extension still come from

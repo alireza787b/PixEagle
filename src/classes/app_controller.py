@@ -3500,6 +3500,10 @@ class AppController:
                 return
             await self.px4_interface.connect()
             await self.px4_interface.observe_aircraft_identity()
+            manager = getattr(self, 'mavlink_data_manager', None)
+            request_identity = getattr(manager, 'request_aircraft_identity', None)
+            if callable(request_identity):
+                await asyncio.to_thread(request_identity)
 
     async def connect_px4(
         self, native_start_guard=None, *, native_attempt_id=None, native_aircraft_uid=None,

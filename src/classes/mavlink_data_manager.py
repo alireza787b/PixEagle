@@ -1,4 +1,5 @@
 from collections import deque
+from copy import deepcopy
 import threading
 import time
 import requests
@@ -71,6 +72,8 @@ class MavlinkDataManager:
         self._stop_event = threading.Event()
         self._thread = None
         self._lock = threading.RLock()
+        self._identity_request_lock = threading.Lock()
+        self._identity_request_after = 0.0
         self.velocity_buffer = deque(maxlen=10)  # Buffer for velocity smoothing
         self.min_velocity_threshold = 0.5  # m/s, adjust based on your drone's characteristics
         self.gamma = 0
@@ -147,6 +150,38 @@ class MavlinkDataManager:
                 connected=self.enabled and self.connection_state == "connected"
                 and not self._stop_event.is_set() and not self._validation_timeout_active(),
             )
+
+    def request_aircraft_identity(self):
+        """Request metadata on this route; only received packets establish identity.
+
+        This is AUTOPILOT_VERSION discovery, never a flight-mode/setpoint action.
+        Concurrent viewers share one request and the existing poller's results.
+        """
+        if not self.enabled or self._stop_event.is_set() or not self._identity_request_lock.acquire(blocking=False):
+            return False
+        try:
+            with self._lock:
+                now = time.monotonic()
+                if self.get_aircraft_identity().get('fresh') or now < self._identity_request_after:
+                    return False
+                self._identity_request_after = now + max(self.polling_interval, self.stale_timeout_s)
+            packet = deepcopy(self._request_json('/v1/helper/mavlink?name=COMMAND_LONG'))
+            if (not isinstance(packet, dict) or not isinstance(packet.get('message'), dict)
+                    or packet['message'].get('type') != 'COMMAND_LONG'):
+                raise ValueError('mavlink_identity_query_template_invalid')
+            packet['message'].update(command={'type': 'MAV_CMD_REQUEST_MESSAGE'}, confirmation=0,
+                target_system=self.system_id, target_component=self.component_id,
+                param1=148.0, param2=0.0, param3=0.0, param4=0.0, param5=0.0, param6=0.0, param7=0.0)
+            validation_timeout = self._validation_timeout_exception()
+            if validation_timeout is not None:
+                raise validation_timeout
+            response = requests.post(f'http://{self.mavlink_host}:{self.mavlink_port}/v1/mavlink',
+                                     json=packet, timeout=self.request_timeout_s)
+            response.raise_for_status()
+            self.logger.debug('Requested AUTOPILOT_VERSION on telemetry route %d/%d', self.system_id, self.component_id)
+            return True
+        finally:
+            self._identity_request_lock.release()
 
     def get_flight_state(self):
         """Read observed flight state; phase freshness is independent of HTTP/heartbeat."""

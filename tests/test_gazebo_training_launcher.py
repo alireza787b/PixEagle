@@ -129,7 +129,26 @@ def test_startup_authentication_uses_only_the_typed_login_fields(tmp_path, monke
         json=dict(username='test-account', password='test-secret'), timeout=3)
 
 
-def test_vtol_adapter_is_required_before_staging_or_launch(tmp_path, monkeypatch):
+@pytest.mark.parametrize('kind', [2, 1, 19, 20, 21, 22, 23, 24, 47])
+def test_stock_training_uses_no_native_bundle_bootstrap_or_new_command_owner(tmp_path, monkeypatch, kind):
+    from types import SimpleNamespace
+    verify = Mock(side_effect=AssertionError('Stock training must use ordinary MAVLink'))
+    monkeypatch.setattr(training.native_runtime, 'verify_adapter', verify)
+    args = SimpleNamespace(adapter_bundle=tmp_path / 'absent', adapter_file_manifest=tmp_path / 'absent.json')
+    assert training.native_training_assets(args, 'gazebo', {'expected_parameters': {'MAV_TYPE': kind}},
+                                           firmware_policy='stock') is None
+    verify.assert_not_called()
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_unknown_firmware_policy_does_not_implicitly_enable_a_training_transport():
+    from types import SimpleNamespace
+    with pytest.raises(ValueError, match='firmware policy'):
+        training.native_training_assets(SimpleNamespace(), 'gazebo', {'expected_parameters': {'MAV_TYPE': 22}},
+                                        firmware_policy='guess')
+
+
+def test_experimental_vtol_adapter_is_required_before_staging_or_launch(tmp_path, monkeypatch):
     from types import SimpleNamespace
     commands = Mock(side_effect=AssertionError('must not launch'))
     monkeypatch.setattr(training.host, 'command', commands)
