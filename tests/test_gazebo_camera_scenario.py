@@ -227,6 +227,64 @@ def test_board_stages_only_declared_read_only_world_without_changing_build(tmp_p
     assert manifest == before and 'worlds/training_board_v1.sdf' not in manifest['artifacts']['gazebo']
 
 
+@pytest.mark.parametrize('fault', [None, 'undeclared', 'collision', 'asset_hash', 'asset_executable'])
+def test_fixed_camera_scene_reuses_bounded_props_and_textures(tmp_path, package, fault):
+    value, manifest, baseline, save, world_path = board_package(package)
+    before = deepcopy(manifest)
+    root = Path(__file__).resolve().parents[1] / 'native/gazebo'
+    coast = json.loads((root / 'scenarios/quadtailsitter-gimbal-training-coast-v1.json').read_text())
+    value['scene_assets'] = deepcopy(coast['scene_assets'])
+    for relative in value['scene_assets']:
+        path = scenario.SCENARIOS.parent / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes((root / relative).read_bytes())
+    value['scene_additions'] = [{'name': 'pixeagle_sign', 'pose': [20, 5, 3, 0, 0, 0]}]
+    value['scene_models'].append('pixeagle_sign')
+    document = ET.parse(world_path)
+    sign = ET.fromstring('<model name="pixeagle_sign"><static>true</static><pose>20 5 3 0 0 0</pose>'
+        '<link name="art"><visual name="sign"><geometry><plane><size>4 2</size></plane></geometry>'
+        '<material><pbr><metal><albedo_map>model://pixeagle_training_art/materials/textures/'
+        'pixeagle-banner.png</albedo_map></metal></pbr></material></visual></link></model>')
+    document.find('world').append(sign)
+    if fault == 'collision': ET.SubElement(sign.find('link'), 'collision', name='hidden')
+    document.write(world_path)
+    if fault == 'undeclared': value['scene_additions'][0]['name'] = 'missing_sign'
+    if fault == 'asset_hash': next(iter(value['scene_assets'].values()))['sha256'] = '0' * 64
+    if fault == 'asset_executable': next(iter(value['scene_assets'].values()))['executable'] = True
+    save(repin=True)
+    if fault:
+        with pytest.raises(ValueError):
+            scenario.verified_scenario(BOARD, baseline, manifest)
+    else:
+        checked = scenario.verified_scenario(BOARD, baseline, manifest)
+        assert checked['expected_parameters']['MAV_TYPE'] == 2
+        assert checked['descriptor']['camera'] == value['camera']
+        assert set(checked['added_resources']) == {value['added_world']['resource'], *value['scene_assets']}
+    assert manifest == before
+
+
+def test_mc_coast_keeps_stock_aircraft_and_same_shared_world(tmp_path, monkeypatch):
+    from tools import build_gazebo_training_world as builder
+    root = Path(__file__).resolve().parents[1] / 'native/gazebo/scenarios'
+    base = json.loads((root / 'x500-mono-camera-board-v3.json').read_text())
+    coast = json.loads((root / 'quadtailsitter-gimbal-training-coast-v2.json').read_text())
+    current = json.loads((root / 'x500-mono-camera-training-coast-v2.json').read_text())
+    for key in ('model', 'camera', 'airframe_id', 'airframe_chain', 'identity_parameters', 'spawn_pose'):
+        assert current[key] == base[key]
+    for key in ('world', 'scene_models', 'added_world', 'target', 'scene_additions', 'scene_assets'):
+        assert current[key] == coast[key]
+    assert 'articulated_camera' not in current and len(current['scene_additions']) > 34
+    (tmp_path / 'scenarios').mkdir()
+    original = (root / 'x500-mono-camera-board-v3.json').read_bytes()
+    (tmp_path / 'scenarios/x500-mono-camera-board-v3.json').write_bytes(original)
+    world = tmp_path / coast['added_world']['resource']
+    world.parent.mkdir()
+    world.write_bytes((root.parent / coast['added_world']['resource']).read_bytes())
+    monkeypatch.setattr(builder, 'RESOURCE', tmp_path)
+    assert builder.fixed_camera_scene('x500-mono-camera-board-v3', coast, current['name']) == current
+    assert (tmp_path / 'scenarios/x500-mono-camera-board-v3.json').read_bytes() == original
+
+
 @pytest.mark.parametrize('change', ['hash', 'executable', 'file_mode', 'replace_packaged', 'traversal', 'symlink',
     'missing', 'extra_declaration', 'target_frame', 'target_nan', 'target_bool', 'target_size', 'target_aim',
     'target_rotated', 'target_pose', 'target_plugin', 'target_sensor', 'target_collision', 'target_dynamic',

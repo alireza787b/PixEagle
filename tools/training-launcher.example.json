@@ -26,9 +26,9 @@
       "label": "Multicopter \u00b7 2D camera tracking",
       "arguments": [
         "--scenario",
-        "x500-mono-camera-board-v3",
+        "x500-mono-camera-training-coast-v2",
         "--follower-mode",
-        "mc_velocity_chase",
+        "mc_velocity_position",
         "--altitude-control",
         "off"
       ]
@@ -37,7 +37,7 @@
       "label": "Fixed-wing \u00b7 2D camera tracking",
       "arguments": [
         "--scenario",
-        "rc-cessna-mono-camera-courtyard-v1",
+        "rc-cessna-mono-camera-training-coast-v2",
         "--follower-mode",
         "fw_navigation_chase",
         "--altitude-control",
@@ -48,7 +48,7 @@
       "label": "Quadplane \u00b7 2D camera tracking",
       "arguments": [
         "--scenario",
-        "standard-vtol-mono-camera-courtyard-v4",
+        "standard-vtol-mono-camera-training-coast-v2",
         "--follower-mode",
         "mc_velocity_chase",
         "--altitude-control",
@@ -59,7 +59,7 @@
       "label": "Tailsitter \u00b7 external gimbal (ideal mechanics)",
       "arguments": [
         "--scenario",
-        "quadtailsitter-gimbal-training-coast-v1",
+        "quadtailsitter-gimbal-training-coast-v2",
         "--follower-mode",
         "gm_velocity_vector",
         "--mount-type",

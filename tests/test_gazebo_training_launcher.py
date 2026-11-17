@@ -13,6 +13,31 @@ import pytest
 from tools import run_gazebo_training as training
 
 
+def test_spectator_camera_uses_only_owned_gui_topics_and_confirms_actual_target(monkeypatch):
+    owned = Mock()
+    command = Mock(side_effect=['', 'track_mode: FOLLOW\nfollow_target { name: "x500_0" }'])
+    monkeypatch.setattr(training.host, 'owned_container_info', owned)
+    monkeypatch.setattr(training.host, 'command', command)
+    result = training.start_spectator_follow('simulator', 'token', 'x500_0')
+    assert result['active'] and result['model'] == 'x500_0'
+    owned.assert_called_once_with('simulator', 'token')
+    assert command.call_args_list[0].args[6] == '/gui/track'
+    assert command.call_args_list[1].args[-1] == '/gui/currently_tracked'
+    assert 'follow_target { name: "x500_0" }' in command.call_args_list[0].args[-1]
+
+
+@pytest.mark.parametrize('status', [
+    'track_mode: FOLLOW_FREE_LOOK\nfollow_target { name: "x500_0" }',
+    'track_mode: FOLLOW\nfollow_target { name: "another_aircraft" }',
+    'track_mode: FOLLOW\ntrack_target { name: "x500_0" }',
+])
+def test_spectator_does_not_report_unconfirmed_or_wrong_camera_as_ready(monkeypatch, status):
+    monkeypatch.setattr(training.host, 'owned_container_info', Mock())
+    monkeypatch.setattr(training.host, 'command', Mock(side_effect=['', status]))
+    monkeypatch.setattr(training.time, 'monotonic', Mock(side_effect=[0, 0, 2]))
+    assert training.start_spectator_follow('simulator', 'token', 'x500_0', timeout=1)['active'] is False
+
+
 def test_live_receiver_log_retains_stdout_and_stderr_before_launcher_shutdown(tmp_path, monkeypatch):
     docker = tmp_path / 'docker'
     docker.write_text(f'#!{sys.executable}\nimport sys\n'

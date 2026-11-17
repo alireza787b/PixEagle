@@ -78,6 +78,30 @@ def qgc_settings(directory: Path, endpoint: str, *, identity: dict) -> Path:
     return destination
 
 
+def start_spectator_follow(primary, token, model, *, timeout=20):
+    """Configure only Gazebo's standard GUI camera; never an aircraft or sensor."""
+    host.owned_container_info(primary, token)
+    if not isinstance(model, str) or not re.fullmatch(r'[a-z][a-z0-9_]*', model):
+        raise ValueError('Spectator view requires the verified Gazebo model name')
+    message = (f'track_mode: FOLLOW follow_target {{ name: "{model}" }} '
+        'follow_offset { x: -10 y: -14 z: 8 } follow_pgain: 0.12 track_pgain: 0.12')
+    deadline = time.monotonic() + timeout
+    last = None
+    while time.monotonic() < deadline:
+        try:
+            host.command('docker', 'exec', primary, 'gz', 'topic', '-t', '/gui/track',
+                '-m', 'gz.msgs.CameraTrack', '-p', message, timeout=3)
+            status = host.command('docker', 'exec', primary, 'gz', 'topic', '-e', '-n', '1',
+                '-t', '/gui/currently_tracked', timeout=3)
+            if (re.search(r'(?m)^track_mode: FOLLOW$', status)
+                    and re.search(r'follow_target\s*\{[^}]*\bname:\s*"' + re.escape(model) + r'"', status)):
+                return dict(active=True, model=model, topic='/gui/track', observed_status=status)
+            last = 'Waiting for the GUI camera to confirm its target'
+        except subprocess.SubprocessError as error:
+            last = type(error).__name__
+    return dict(active=False, model=model, reason=last)
+
+
 def display_mounts() -> list[str]:
     display = os.environ.get('DISPLAY', '')
     authority = Path(os.environ.get('XAUTHORITY', ''))
@@ -646,6 +670,8 @@ def run(args):
             write(runtime / 'run.json', receipt)
             host.command('docker', 'exec', '--detach', '--user', str(os.getuid()), primary,
                          'gz', 'sim', '-g')
+            receipt['spectator_camera'] = start_spectator_follow(primary, token, checked['model'])
+            write(runtime / 'run.json', receipt)
             print(f'QGC opened. Backend: http://127.0.0.1:{args.port} · isolated simulation only', flush=True)
         else:
             print(f'Validation backend ready: http://127.0.0.1:{args.port} · operator windows disabled', flush=True)

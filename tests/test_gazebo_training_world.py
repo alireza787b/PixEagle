@@ -13,13 +13,28 @@ from tools import build_gazebo_training_world as builder
 from tools import gazebo_scenario as scenario
 
 
+@pytest.mark.parametrize('template,name', list(builder.CAMERA_SCENES.items()))
+def test_each_airframe_uses_one_shared_world_without_changing_camera_or_aircraft(template, name):
+    source = builder.RESOURCE / 'scenarios'
+    original = json.loads((source / (template + '.json')).read_text())
+    selected = json.loads((source / (name + '.json')).read_text())
+    shared = json.loads((source / 'quadtailsitter-gimbal-training-coast-v2.json').read_text())
+    for key in ('model', 'airframe_id', 'airframe_chain', 'identity_parameters', 'spawn_pose', 'camera'):
+        assert selected[key] == original[key]
+    for key in ('added_world', 'scene_models', 'scene_assets', 'scene_additions', 'world'):
+        assert selected[key] == shared[key]
+    for key in ('camera_mount', 'added_model', 'server_config'):
+        assert selected.get(key) == original.get(key)
+
+
 def test_coastal_world_build_is_repeatable_and_preserves_the_aircraft(tmp_path, monkeypatch):
     source = builder.RESOURCE
     resource = tmp_path / 'resources'
     (resource / 'scenarios').mkdir(parents=True)
     (resource / 'worlds').mkdir()
     template = 'quadtailsitter-gimbal-camera-courtyard-v1.json'
-    shutil.copy(source / 'scenarios' / template, resource / 'scenarios' / template)
+    for name in (template, *(key + '.json' for key in builder.CAMERA_SCENES)):
+        shutil.copy(source / 'scenarios' / name, resource / 'scenarios' / name)
     shutil.copy(source / 'worlds/training_gimbal_courtyard_v1.sdf', resource / 'worlds/training_gimbal_courtyard_v1.sdf')
     original = json.loads((resource / 'scenarios' / template).read_text())
     monkeypatch.setattr(builder, 'RESOURCE', resource)
@@ -29,13 +44,19 @@ def test_coastal_world_build_is_repeatable_and_preserves_the_aircraft(tmp_path, 
     first_bytes = world.read_bytes(), image.read_bytes()
     assert builder.build() == first
     assert (world.read_bytes(), image.read_bytes()) == first_bytes
-    for field in ('model', 'airframe_id', 'resources', 'image_id', 'binary_sha256', 'airframe_chain'):
+    for field in ('model', 'airframe_id', 'image_id', 'binary_sha256', 'airframe_chain'):
         assert first[field] == original[field]
+    assert all(first['resources'][name] == pin for name, pin in original['resources'].items())
     assert first['articulated_camera'] == original['articulated_camera']
     assert first['camera_mount'] == original['camera_mount']
     names = set(first['scene_models'])
     assert {'pixeagle_airship', 'pixeagle_balloon_0', 'training_sea', 'training_pier',
-            'pixeagle_surface_vessel_0', 'tracker_test_car_0', 'pixeagle_road_art'} <= names
+            'pixeagle_surface_vessel_0', 'tracker_test_car_0', 'pixeagle_road_art',
+            'pixeagle_aircraft_display_0', 'pixeagle_operations_center', 'coastal_tree_0'} <= names
+    for name in builder.CAMERA_SCENES.values():
+        selected = json.loads((resource / 'scenarios' / (name + '.json')).read_text())
+        assert selected['added_world'] == first['added_world']
+        assert selected['scene_assets'] == first['scene_assets']
     for model in ET.parse(world).findall('./world/model'):
         assert model.findtext('static') == 'true'
     assert image.stat().st_size < 100_000

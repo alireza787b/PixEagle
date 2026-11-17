@@ -202,7 +202,7 @@ def _added_world(value: dict, manifest: dict, files: dict) -> dict:
                 or any(model.findall(".//" + kind) for kind in ("plugin", "sensor", "include", "uri", "collision"))):
             raise ValueError("Gazebo target must match its static visual-only panel declaration")
         world.remove(model)
-        if value["schema_version"] >= 3:
+        if "scene_additions" in value:
             _remove_static_scene_additions(world, value["scene_additions"], files)
         base = ET.fromstring(files["gazebo/" + addition["base_resource"]]).find("world")
         if base is None:
@@ -303,14 +303,13 @@ def verified_scenario(name: str, baseline: dict, manifest: dict, *, bind_to_buil
               "scene_models", "resources", "spawn_pose", "camera"}
     if isinstance(value, dict) and value.get("schema_version") in (2, 3, 5):
         fields |= {"added_world", "target"}
+        fields |= {key for key in ("scene_additions", "scene_assets") if key in value}
     if isinstance(value, dict) and value.get("schema_version") in (3, 5):
         fields |= {"base_model", "added_model", "scene_additions", "camera_mount"}
         if "server_config" in value:
             fields.add("server_config")
         if value['schema_version'] == 5:
             fields.add('articulated_camera')
-            if 'scene_assets' in value:
-                fields.add('scene_assets')
     if (not isinstance(value, dict) or set(value) != fields or type(value["schema_version"]) is not int
             or value["schema_version"] not in (1, 2, 3, 5) or value["name"] != name):
         raise ValueError("Invalid Gazebo scenario descriptor")
@@ -385,7 +384,7 @@ def verified_scenario(name: str, baseline: dict, manifest: dict, *, bind_to_buil
         additions, geometry = _articulated_camera(value, manifest, files)
     if value['schema_version'] in (3, 5):
         additions.update(_added_camera_model(value, manifest, files))
-    if value['schema_version'] == 5:
+    if 'scene_assets' in value:
         additions.update(_scene_assets(value, files))
     if "server_config" in value:
         additions.update(_raw_camera_server(value, files))

@@ -5,6 +5,7 @@ airframe/firmware. They declare their visual content and payload separately from
 
 | Scene | Camera | Content |
 | --- | --- | --- |
+| `*-training-coast-v2` | Native MC, native FW, quadplane, fixed-nose tailsitter or articulated gimbal | Shared coastal showcase: PixEagle art, airfield, aircraft displays, operations center, marina, vessels, cars, trees, balloons and airship |
 | `quadtailsitter-nose-camera-courtyard-v1` | Fixed nose | Accepted fixed-nose image-tracker workflow |
 | `quadtailsitter-gimbal-camera-courtyard-v1` | Fixed-joint articulated training gimbal | Small scene for protocol/geometry/recovery checks |
 | `quadtailsitter-gimbal-training-coast-v1` | Same articulated gimbal | PixEagle signs and road mural, cars, sculpture, balloons, airship, coastal road, pier and three vessels |
@@ -29,6 +30,30 @@ locally; there are no online model downloads. Descriptor hashes pin every added
 world/texture. The verifier restricts art to bounded nonexecutable PNG files and
 requires declared static props; it does not permit hidden aircraft/plugin
 changes. Do not edit archived run evidence to match a regenerated scene.
+The generator also composes the fixed-camera multicopter descriptor from its
+unchanged stock camera/airframe template and the same scenery. World props and
+art are independent of the camera mechanism and follower choice.
+
+The launcher defaults to the v2 showcase for all five training profiles. The
+historical worlds remain available for focused regression and retained evidence.
+`coastal-scenes.json` declares camera-template/output pairs. Add a compatible
+scenario there, regenerate, validate its resource closure, then reference its ID
+in the launcher configuration. Aircraft, mount and camera contracts stay in the
+scenario descriptor; dependency locations stay in the workstation recipe. Neither
+Dashboard nor QGC needs a new aircraft/world branch.
+
+The v2 aircraft displays reuse the pinned PX4 Gazebo `rc_cessna` mesh; no new
+network model download is required. Local generated PNG branding uses standard
+PBR materials. Meshes retain their original upstream provenance through the
+verified build manifest. These are deliberately bounded visual props, not new
+aircraft dynamics, maritime physics, moving traffic or collision qualification.
+
+The operator runner configures Gazebo's native `CameraTracking` GUI topic after
+verifying the actual model name, and records its confirmed target. This spectator
+view is independent of the onboard camera, PixEagle tracker and flight control.
+Escape releases the spectator view; normal Gazebo camera controls remain usable.
+See [Gazebo GUI](https://gazebosim.org/docs/harmonic/gui/) and
+[CameraTracking](https://github.com/gazebosim/gz-gui/blob/gz-gui8/src/plugins/camera_tracking/CameraTracking.cc).
 
 The gimbal scenes use a pinned derivative of PX4's stock ZXY gimbal, physically
 attached by a fixed joint. Gazebo's standard joint-position controllers use

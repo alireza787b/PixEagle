@@ -33,6 +33,13 @@ The menu reuses PixEagle's terminal banner. Dependency paths remain in the local
 `~/.config/pixeagle/training.json`; they are not typed each time. Every run gets
 a new evidence directory. Existing runs are never overwritten.
 
+All prepared profiles use the shared [PixEagle coastal showcase](../../../native/gazebo/README.md).
+The Gazebo spectator view follows the verified aircraft automatically, independently
+of PixEagle tracking/following. Escape releases that spectator view. The beginner
+MC profile starts in public MC Position: yaw centering without target-directed
+translation or a cruise-speed dial. For a pursuit test, choose MC Chase while
+following is inactive; saved public velocity limits remain conservative.
+
 1. Sign into QGC with the disposable lab account `admin/admin`.
 2. Flight commands start blocked. In this isolated simulator, permit following
    through Options when ready, then take off manually. With the public 5 m

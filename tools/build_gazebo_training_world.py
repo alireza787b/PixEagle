@@ -9,11 +9,20 @@ import hashlib
 import json
 import math
 from pathlib import Path
+import re
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 RESOURCE = ROOT / 'native/gazebo'
 ART = 'models/pixeagle_training_art/materials/textures'
+SCENE_RECIPES = json.loads((RESOURCE / 'coastal-scenes.json').read_text())
+if set(SCENE_RECIPES) != {'version', 'camera_scenes'} or SCENE_RECIPES['version'] != 1:
+    raise ValueError('Unsupported coastal scene recipe')
+CAMERA_SCENES = SCENE_RECIPES['camera_scenes']
+if (not isinstance(CAMERA_SCENES, dict) or not CAMERA_SCENES
+        or any(not isinstance(name, str) or not re.fullmatch(r'[a-z0-9]+(?:-[a-z0-9]+)*-v[1-9][0-9]*', name)
+               for pair in CAMERA_SCENES.items() for name in pair)):
+    raise ValueError('Coastal scenes require named camera templates and outputs')
 
 
 def text(node, name, value):
@@ -32,6 +41,11 @@ def visual(model, name, shape, size, *, pose=(0, 0, 0, 0, 0, 0), color='.15 .6 .
         text(form, 'size', ' '.join(str(n) for n in size))
         if shape == 'plane':
             text(form, 'normal', '0 0 1')
+    elif shape == 'ellipsoid':
+        text(form, 'radii', ' '.join(str(n) for n in size))
+    elif shape == 'mesh':
+        text(form, 'uri', size[0])
+        text(form, 'scale', ' '.join(str(n) for n in size[1:]))
     elif shape == 'sphere':
         text(form, 'radius', size[0])
     elif shape == 'cylinder':
@@ -42,11 +56,11 @@ def visual(model, name, shape, size, *, pose=(0, 0, 0, 0, 0, 0), color='.15 .6 .
     material = ET.SubElement(item, 'material')
     text(material, 'ambient', color)
     text(material, 'diffuse', color)
+    metal = ET.SubElement(ET.SubElement(material, 'pbr'), 'metal')
+    text(metal, 'metalness', .05)
+    text(metal, 'roughness', .7)
     if texture is not None:
-        metal = ET.SubElement(ET.SubElement(material, 'pbr'), 'metal')
         text(metal, 'albedo_map', f'model://{ART.removeprefix("models/")}/{texture}')
-        text(metal, 'metalness', 0)
-        text(metal, 'roughness', .8)
 
 
 def label(model, name, *, width=20., height=5., pose=(0, 0, 0, math.pi/2, 0, 0)):
@@ -70,11 +84,25 @@ def art_assets():
             for path in sorted(directory.glob('*.png'))}
 
 
+def fixed_camera_scene(template, scenery, name):
+    value = json.loads((RESOURCE / 'scenarios' / (template + '.json')).read_text())
+    value.update(name=name, **{key: scenery[key] for key in (
+        'world', 'scene_models', 'added_world', 'target', 'scene_additions', 'scene_assets')})
+    names = {item['name'] for item in scenery['scene_additions']}
+    for model in ET.parse(RESOURCE / scenery['added_world']['resource']).findall('./world/model'):
+        if model.get('name') in names:
+            for uri in model.findall('.//uri'):
+                relative = 'gazebo/models/' + uri.text.removeprefix('model://')
+                value['resources'][relative] = scenery['resources'][relative]
+    (RESOURCE / 'scenarios' / (name + '.json')).write_text(json.dumps(value, indent=2) + '\n')
+    return value
+
+
 def build():
     base = json.loads((RESOURCE / 'scenarios/quadtailsitter-gimbal-camera-courtyard-v1.json').read_text())
     document = ET.parse(RESOURCE / base['added_world']['resource'])
     world = document.find('world')
-    world.set('name', 'pixeagle_training_coast_v1')
+    world.set('name', 'pixeagle_training_coast_v2')
     declarations = []
 
     def model(name, pose):
@@ -101,16 +129,14 @@ def build():
     # Airborne test objects provide finite elevated targets from several bearings.
     for index, (x, y, z, color) in enumerate([(45, 100, 55, '.12 .75 .7 1'), (-85, 85, 85, '.95 .52 .12 1'), (190, -30, 110, '.3 .48 .9 1')]):
         balloon = model(f'pixeagle_balloon_{index}', (x, y, z, 0, 0, math.atan2(-x, y)))
-        visual(balloon, 'envelope', 'sphere', (7,), color=color)
+        visual(balloon, 'envelope', 'ellipsoid', (7, 7, 9), color=color)
         visual(balloon, 'collar', 'cylinder', (2, 3), pose=(0, 0, -7, 0, 0, 0), color='.15 .18 .2 1')
         visual(balloon, 'basket', 'box', (3, 3, 2), pose=(0, 0, -13, 0, 0, 0), color='.35 .2 .1 1')
         for a, b in [(-1, -1), (-1, 1), (1, -1), (1, 1)]:
             visual(balloon, f'rope_{a}_{b}', 'cylinder', (.045, 5), pose=(a, b, -10, 0, 0, 0), color='.2 .2 .2 1')
         label(balloon, 'advertisement', width=11, height=3, pose=(0, -7.1, 0, math.pi/2, 0, 0))
     ship = model('pixeagle_airship', (-130, 190, 100, 0, 0, -.5))
-    visual(ship, 'body', 'cylinder', (4, 26), pose=(0, 0, 0, 0, math.pi/2, 0), color='.82 .87 .9 1')
-    for x in (-13, 13):
-        visual(ship, f'end_{x}', 'sphere', (4,), pose=(x, 0, 0, 0, 0, 0), color='.82 .87 .9 1')
+    visual(ship, 'body', 'ellipsoid', (19, 4.5, 4.5), color='.82 .87 .9 1')
     visual(ship, 'gondola', 'box', (8, 3, 2), pose=(0, 0, -5, 0, 0, 0), color='.05 .2 .3 1')
     visual(ship, 'tail_vertical', 'box', (6, .3, 9), pose=(-14, 0, 0, 0, 0, 0))
     visual(ship, 'tail_horizontal', 'box', (6, 10, .3), pose=(-14, 0, 0, 0, 0, 0))
@@ -131,7 +157,7 @@ def build():
     label(dock, 'dock_brand', width=24, height=7, pose=(0, 0, 1.02, 0, 0, 0))
     for index, (x, y, yaw) in enumerate([(430, 65, .2), (590, -100, -.6), (680, 220, 1.)]):
         boat = model(f'pixeagle_surface_vessel_{index}', (x, y, 0, 0, 0, yaw))
-        visual(boat, 'hull', 'box', (26, 8, 2), pose=(0, 0, 1.2, 0, 0, 0), color='.06 .12 .18 1')
+        visual(boat, 'hull', 'ellipsoid', (15, 4.5, 2.2), pose=(0, 0, 1.3, 0, 0, 0), color='.06 .12 .18 1')
         visual(boat, 'deck', 'box', (22, 7, .6), pose=(0, 0, 2.5, 0, 0, 0), color='.8 .8 .72 1')
         visual(boat, 'bridge', 'box', (6, 5, 5), pose=(-4, 0, 5, 0, 0, 0), color='.9 .94 .92 1')
         visual(boat, 'window', 'box', (6.1, 5.1, 1.2), pose=(-4, 0, 6, 0, 0, 0), color='.08 .28 .42 1')
@@ -144,15 +170,49 @@ def build():
         visual(car, 'cabin', 'box', (2.1, 1.7, .8), pose=(-.2, 0, 1.6, 0, 0, 0), color='.1 .2 .28 1')
         for a, b in [(-1.5, -1), (-1.5, 1), (1.5, -1), (1.5, 1)]:
             visual(car, f'wheel_{a}_{b}', 'cylinder', (.4, .25), pose=(a, b, .4, math.pi/2, 0, 0), color='.03 .03 .03 1')
-    base.update(name='quadtailsitter-gimbal-training-coast-v1', world=world.get('name'), scene_assets=art_assets())
+    apron = model('pixeagle_airfield', (-100, -65, .02, 0, 0, 0))
+    visual(apron, 'apron', 'box', (210, 72, .02), color='.25 .28 .3 1')
+    for i in range(9):
+        visual(apron, f'parking_{i}', 'box', (.18, 20, .02), pose=(-90+i*22, 4, .025, 0, 0, 0), color='.92 .8 .38 1')
+    label(apron, 'apron_brand', width=42, height=11, pose=(0, -20, .04, 0, 0, 0))
+    airport = model('pixeagle_operations_center', (-125, -125, 0, 0, 0, 0))
+    visual(airport, 'building', 'box', (55, 22, 10), pose=(0, 0, 5, 0, 0, 0), color='.77 .79 .76 1')
+    visual(airport, 'glass', 'box', (51, .12, 4), pose=(0, 11.1, 6, 0, 0, 0), color='.12 .27 .34 1')
+    visual(airport, 'roof', 'box', (58, 25, .5), pose=(0, 0, 10.3, 0, 0, 0), color='.16 .22 .26 1')
+    label(airport, 'building_brand', width=30, height=5, pose=(0, 11.2, 6, math.pi/2, 0, 0))
+    tower = model('pixeagle_control_tower', (-50, -125, 0, 0, 0, 0))
+    visual(tower, 'shaft', 'box', (6, 6, 24), pose=(0, 0, 12, 0, 0, 0), color='.7 .72 .69 1')
+    visual(tower, 'cab', 'box', (11, 11, 5), pose=(0, 0, 25, 0, 0, 0), color='.1 .25 .32 1')
+    visual(tower, 'roof', 'box', (13, 13, .6), pose=(0, 0, 28, 0, 0, 0), color='.12 .18 .22 1')
+    aircraft_resources = json.loads((RESOURCE / 'scenarios/rc-cessna-mono-camera-courtyard-v1.json').read_text())['resources']
+    for index, pose in enumerate([(-165, -62, 2, 0, 0, 0), (-115, -62, 2, 0, 0, 0), (80, 160, 70, 0, -.08, .6)]):
+        aircraft = model(f'pixeagle_aircraft_display_{index}', pose)
+        member = 'gazebo/models/rc_cessna/meshes/body.dae'
+        base['resources'][member] = aircraft_resources[member]
+        visual(aircraft, 'airframe', 'mesh', ('model://rc_cessna/meshes/body.dae', .7, .7, .7), color='.88 .91 .92 1')
+        label(aircraft, 'aircraft_brand', width=6, height=1.5, pose=(0, 0, 1.4, 0, 0, 0))
+    park = model('pixeagle_greenbelt', (90, -145, .025, 0, 0, 0))
+    visual(park, 'lawn', 'box', (120, 100, .02), color='.25 .38 .23 1')
+    for i in range(18):
+        tree = model(f'coastal_tree_{i}', (30+(i%6)*22, -185+(i//6)*34, 0, 0, 0, i*.3))
+        visual(tree, 'trunk', 'cylinder', (.45, 5), pose=(0, 0, 2.5, 0, 0, 0), color='.28 .19 .12 1')
+        visual(tree, 'crown', 'ellipsoid', (3.8, 3.1, 5.5), pose=(0, 0, 7, 0, 0, 0), color='.12 .29 .17 1')
+    for i in range(6):
+        cargo = model(f'marina_container_{i}', (315+(i%3)*15, -45+(i//3)*9, 0, 0, 0, 0))
+        visual(cargo, 'container', 'box', (12, 5, 4), pose=(0, 0, 2, 0, 0, 0), color=('.15 .48 .5 1' if i%2 else '.78 .37 .16 1'))
+        for rib in range(7):
+            visual(cargo, f'rib_{rib}', 'box', (.08, 5.05, 3.8), pose=(-5+rib*1.6, 0, 2, 0, 0, 0), color='.3 .32 .31 1')
+    base.update(name='quadtailsitter-gimbal-training-coast-v2', world=world.get('name'), scene_assets=art_assets())
     base['scene_additions'] += declarations
     base['scene_models'] += [item['name'] for item in declarations]
-    relative = 'worlds/pixeagle_training_coast_v1.sdf'
+    relative = 'worlds/pixeagle_training_coast_v2.sdf'
     ET.indent(document, space='  ')
     document.write(RESOURCE / relative, encoding='utf-8', xml_declaration=True)
     base['added_world'].update(resource=relative, sha256=hashlib.sha256((RESOURCE / relative).read_bytes()).hexdigest())
     destination = RESOURCE / 'scenarios' / (base['name'] + '.json')
     destination.write_text(json.dumps(base, indent=2) + '\n')
+    for template, name in CAMERA_SCENES.items():
+        fixed_camera_scene(template, base, name)
     return base
 
 
