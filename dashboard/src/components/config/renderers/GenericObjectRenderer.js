@@ -6,6 +6,8 @@ import {
   Select, MenuItem, FormControl
 } from '@mui/material';
 import { ExpandMore, ExpandLess, Info } from '@mui/icons-material';
+import { PropertyValueEditor } from '../PropertyEditorShared';
+import { normalizePropertySchema } from '../../../utils/configEditorSchemaUtils';
 
 /**
  * GenericObjectRenderer - Schema-driven editor for flat objects
@@ -33,7 +35,7 @@ const formatLabel = (key) => {
 const getFieldType = (propSchema, value) => {
   if (propSchema?.enum) return 'enum';
   if (propSchema?.type === 'boolean' || typeof value === 'boolean') return 'boolean';
-  if (propSchema?.type === 'number' || propSchema?.type === 'integer' || typeof value === 'number') return 'number';
+  if (['number', 'integer', 'float'].includes(propSchema?.type) || typeof value === 'number') return 'number';
   return 'string';
 };
 
@@ -228,6 +230,10 @@ const PropertyRow = ({
           />
         );
       case 'number':
+        if (schema?.nullable === true) {
+          return <PropertyValueEditor propMeta={normalizePropertySchema(propKey, schema)}
+            value={value} onChange={onChange} disabled={disabled} mobile={compact} />;
+        }
         return (
           <NumberField
             label={propKey}

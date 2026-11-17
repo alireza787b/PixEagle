@@ -109,11 +109,12 @@ def get_offboard_start_preflight(owner: Any) -> dict[str, Any]:
             "reason",
             "Tracker output is not usable for following",
         )
+        failure_code = following_readiness_failure_code(tracker_runtime)
         code = {
             "video_replay_not_authorized": "ACTION_OFFBOARD_REPLAY_NOT_AUTHORIZED",
             "video_or_tracker_not_fresh": "ACTION_OFFBOARD_VIDEO_FRAME_NOT_USABLE",
             "tracker_not_usable": "ACTION_OFFBOARD_TRACKER_NOT_USABLE",
-        }[following_readiness_failure_code(tracker_runtime)]
+        }.get(failure_code, failure_code)
         issues.append({"code": code, "message": str(tracker_reason)})
     elif not missing_components:
         altitude = evaluate_following_start_altitude(app_controller)

@@ -1,0 +1,1357 @@
+{
+  "scope": "Selected actual stopped standard-VTOL component evidence; parser/capture regression only, not a new SIH execution",
+  "provenance": {
+    "case_id": "s7-protocol3-standard-vtol-runtime-r4/first-mc-to-fw",
+    "revision": "c2e053dacb262540d3dae512ff09a3d186411152",
+    "files_sha256": {
+      "wire.jsonl": "da9b87c19c541d8b9cdcf05d393a2764e446c6089ce5a5e9d3f01212a7190cf4",
+      "manifest.json": "4efbd8e0cfa4d03c93c6946647b5f000cbea3b14b1f8a1cf6f211fafa2ca7605",
+      "final-observation.jsonl": "3cfe7e08969b09d723cb1357390cda0f322fc896bdd91c9363dc50c51b412588",
+      "post-stop-observations.jsonl": "2b997da79ada573cf8c27509acf6c467125112279edbfdaee383f08374987b3a",
+      "px4/pose_trace.jsonl": "7055baaff6cf99df49f69c6da81483f04fc899848a357802a39326af15f1d3d5",
+      "trace/target_truth.jsonl": "910ce5676447db8870497bac0591d7f2a791ad0de7bc30260412bd9c5c0dfddd",
+      "trace/follower_state.jsonl": "bcdcd6b6efe707dbab8fcb8973a7b09573d63e01dd7a6b1286969380c5eb5020",
+      "trace/offboard_publish_trace.jsonl": "87e220602ff5c86c046a763f7eb8a4ddd923373a28fc8f522358fc85ca89ed66"
+    },
+    "packet_representation": "Original canonical NativeGuidanceClient-returned packet; raw wire differs only by its documented local top-level attitude_timing injection.",
+    "capture_clock_basis": "Original wire recorder host monotonic origin + original reply timestamp; no source sample receipt changed."
+  },
+  "scenario": {
+    "schema_version": 2,
+    "name": "first-mc-to-fw",
+    "frame": "local_ned",
+    "rate_hz": 20,
+    "mount_type": "VERTICAL",
+    "airframe": "vtol",
+    "evidence_provenance": "px4_sih",
+    "stable_flight": {
+      "required": true,
+      "settle_samples": 7
+    },
+    "follower": {
+      "profile": "gm_velocity_vector",
+      "purpose": "Direct vector pursuit using gimbal angles and body frame velocity",
+      "input_contract": "gimbal_angles",
+      "command_contract": "vtol_external",
+      "speed_source_policy": "native_auto",
+      "altitude_control": false
+    },
+    "constraints": {
+      "altitude": {
+        "min": 3.0,
+        "max": 120.0
+      }
+    },
+    "continuity_policy": {
+      "mode": "bounded_decay",
+      "max_coast_time_s": 8.0,
+      "max_coast_distance_m": 4.0,
+      "max_retarget_time_s": 8.0,
+      "reacquire_confirmation_s": 0.5,
+      "authority_restore_time_s": 0.5,
+      "terminal_action": "hold",
+      "retarget_angle_blend_fraction": 0.7,
+      "retarget_provisional_authority_fraction": 0.5,
+      "retarget_restore_time_s": 0.5,
+      "configuration_origin": "follower_override:GM_VELOCITY_VECTOR"
+    },
+    "target": {
+      "waypoints": [
+        {
+          "time_s": 0.0,
+          "position_ned": [
+            178.1441579650018,
+            35.0,
+            -30.0
+          ]
+        },
+        {
+          "time_s": 15.61460447099671,
+          "position_ned": [
+            185.95146020050015,
+            35.0,
+            -30.0
+          ]
+        }
+      ]
+    },
+    "acceptance": [
+      "2 m altitude envelope remains unchanged",
+      "independent native active gap <=0.100 s required",
+      "real transition, terminal backend session and original-token release required",
+      "no automatically resumed following or later publication; actual PX4 pose is movement truth"
+    ],
+    "initial_conditions": {
+      "vehicle_ned": [
+        -0.002677149372175336,
+        -0.023096946999430656,
+        -29.982025146484375
+      ]
+    },
+    "faults": [
+      {
+        "kind": "pilot_transition",
+        "at_s": 8.0,
+        "requested_phase": "fixed_wing"
+      }
+    ]
+  },
+  "follow_start_monotonic_s": 55062.010286605,
+  "acquisition": {
+    "runtime_id": "94c7b623a89a460fd0872021fea19534",
+    "identity": {
+      "follow_session_id": "first-mc-to-fw",
+      "binding": {
+        "aircraft_uid": "5283920058631409231",
+        "connection_generation": "sih-first-mc-to-fw",
+        "telemetry_generation": 1
+      },
+      "guidance_generation": 1
+    },
+    "token": "ac83d3f2958b67489561c34b7076034c",
+    "firmware_incarnation": "d61c9f4b35668d68589126085956d58d",
+    "source_revision": 3,
+    "source_nav_state": 4,
+    "source_nav_state_timestamp": 27896000,
+    "mode_id": 23,
+    "activation_timestamp": 66884000
+  },
+  "observations": [
+    {
+      "wire_line": 684,
+      "captured_at_monotonic_s": 55070.495085384,
+      "packet": {
+        "aircraft_state": {
+          "airspeed": {
+            "equivalent_m_s": 1.2259554862976074,
+            "observed_at_monotonic_s": 55070.401529738,
+            "source": "sensor",
+            "true_m_s": 1.264595627784729,
+            "valid": true
+          },
+          "altitude_amsl_m": 519.3242797851562,
+          "altitude_reference_generation": 2,
+          "attitude_body_to_ned": {
+            "w": 0.9960375428199768,
+            "x": 0.005238099489361048,
+            "y": -0.059684738516807556,
+            "z": 0.06572387367486954
+          },
+          "binding": {
+            "aircraft_uid": "5283920058631409231",
+            "connection_generation": "sih-first-mc-to-fw",
+            "telemetry_generation": 1
+          },
+          "fixed_wing_envelope": {
+            "altitude_response_time_s": 5.0,
+            "bank_limit_rad": 0.8726646304130554,
+            "climb_rate_m_s": 5.0,
+            "maximum_eas_m_s": 12.0,
+            "minimum_eas_m_s": 7.0,
+            "revision": "7472000",
+            "sink_rate_m_s": 5.0,
+            "source": "px4_native_performance_model",
+            "trim_eas_m_s": 10.0,
+            "vertical_acceleration_limit_m_s2": 7.0
+          },
+          "is_tailsitter": false,
+          "is_vtol": true,
+          "navigation_heading_rad": 0.131514310836792,
+          "observed_at_monotonic_s": 55070.393797532,
+          "phase": "vtol_transition",
+          "relative_altitude_m": 29.925933837890625,
+          "rescue_active": false,
+          "sequence": 265,
+          "source": "px4_dds_native",
+          "velocity_ned_m_s": {
+            "x": 1.1240699291229248,
+            "y": 0.13722527027130127,
+            "z": 0.01937304437160492
+          },
+          "attitude_timing": {
+            "publication_received_at_monotonic_s": 55070.482611199,
+            "publication_timestamp_us": 1794463905906112,
+            "quat_reset_counter": 1,
+            "sample_received_at_monotonic_s": 55070.482611199,
+            "sample_timestamp_us": 1794463905906112,
+            "time_basis": "px4_uxrce_adjusted_us"
+          }
+        },
+        "attitude_timing": {
+          "publication_received_at_monotonic_s": 55070.482611199,
+          "publication_timestamp_us": 1794463905906112,
+          "quat_reset_counter": 1,
+          "sample_received_at_monotonic_s": 55070.482611199,
+          "sample_timestamp_us": 1794463905906112,
+          "time_basis": "px4_uxrce_adjusted_us"
+        },
+        "fresh": true,
+        "native_guidance_feedback": {
+          "airspeed_control_enabled": true,
+          "controller_active": false,
+          "effective_eas_m_s": null,
+          "fixed_wing_attitude_age_s": 0.0,
+          "fixed_wing_forward_ned": [
+            0.9830783605575562,
+            0.12902235984802246,
+            0.13003920018672943
+          ],
+          "fixed_wing_frame_is_tailsitter": false,
+          "fixed_wing_heading_rad": 0.13049736618995667,
+          "nav_state": 23,
+          "nav_state_timestamp": 66884000,
+          "observed_at_monotonic_s": 55070.393797532,
+          "requested_eas_m_s": null,
+          "underspeed_ratio": null
+        },
+        "nav_state": 23,
+        "nav_state_timestamp": 66884000,
+        "neutral_drain_active": false,
+        "neutral_drain_failure": "",
+        "owner_confirmed": false,
+        "phase_source_health": {
+          "vehicle_status_age_s": 0.09721714499755763,
+          "vehicle_status_timeout_s": 1.0,
+          "vtol_status_age_s": 0.09717169999930775,
+          "vtol_status_timeout_s": 2.0
+        },
+        "phase_status_fresh": true,
+        "publications": 251,
+        "release_pending": false,
+        "release_receipt": {
+          "acquisition": {
+            "activation_timestamp": 66884000,
+            "firmware_incarnation": "d61c9f4b35668d68589126085956d58d",
+            "identity": {
+              "binding": {
+                "aircraft_uid": "5283920058631409231",
+                "connection_generation": "sih-first-mc-to-fw",
+                "telemetry_generation": 1
+              },
+              "follow_session_id": "first-mc-to-fw",
+              "guidance_generation": 1
+            },
+            "mode_id": 23,
+            "runtime_id": "94c7b623a89a460fd0872021fea19534",
+            "source_nav_state": 4,
+            "source_nav_state_timestamp": 27896000,
+            "source_revision": 3,
+            "token": "ac83d3f2958b67489561c34b7076034c"
+          },
+          "observed_nav_state": 4,
+          "observed_nav_state_timestamp": 75068000,
+          "outcome": "hold_confirmed"
+        },
+        "rescue_active": false,
+        "runtime_id": "94c7b623a89a460fd0872021fea19534",
+        "source_health": {
+          "airspeed_fresh": true,
+          "attitude_fresh": true,
+          "bound": true,
+          "envelope_fresh": true,
+          "home_altitude_valid": true,
+          "out_of_order_packets": 3,
+          "position_fresh": true,
+          "position_valid": true
+        },
+        "vehicle_pose": {
+          "observed_at_monotonic_s": 55070.482601352,
+          "px4_timestamp_us": 1794463905902112,
+          "quaternion_wxyz": [
+            0.9960375428199768,
+            0.005238099489361048,
+            -0.059684738516807556,
+            0.06572387367486954
+          ],
+          "source": "px4_dds_observed",
+          "vehicle_ned": [
+            4.1660027503967285,
+            0.3199506402015686,
+            -29.885284423828125
+          ]
+        }
+      }
+    },
+    {
+      "wire_line": 686,
+      "captured_at_monotonic_s": 55070.600267647,
+      "packet": {
+        "aircraft_state": {
+          "airspeed": {
+            "equivalent_m_s": 0.8337442874908447,
+            "observed_at_monotonic_s": 55070.502930416,
+            "source": "sensor",
+            "true_m_s": 0.8600301742553711,
+            "valid": true
+          },
+          "altitude_amsl_m": 519.3211059570312,
+          "altitude_reference_generation": 2,
+          "attitude_body_to_ned": {
+            "w": 0.9966347217559814,
+            "x": 0.0054252902045845985,
+            "y": -0.04764330014586449,
+            "z": 0.06648346781730652
+          },
+          "binding": {
+            "aircraft_uid": "5283920058631409231",
+            "connection_generation": "sih-first-mc-to-fw",
+            "telemetry_generation": 1
+          },
+          "fixed_wing_envelope": {
+            "altitude_response_time_s": 5.0,
+            "bank_limit_rad": 0.8726646304130554,
+            "climb_rate_m_s": 5.0,
+            "maximum_eas_m_s": 12.0,
+            "minimum_eas_m_s": 7.0,
+            "revision": "7472000",
+            "sink_rate_m_s": 5.0,
+            "source": "px4_native_performance_model",
+            "trim_eas_m_s": 10.0,
+            "vertical_acceleration_limit_m_s2": 7.0
+          },
+          "is_tailsitter": false,
+          "is_vtol": true,
+          "navigation_heading_rad": 0.13300278782844543,
+          "observed_at_monotonic_s": 55070.499040369,
+          "phase": "vtol_transition",
+          "relative_altitude_m": 29.922760009765625,
+          "rescue_active": false,
+          "sequence": 266,
+          "source": "px4_dds_native",
+          "velocity_ned_m_s": {
+            "x": 1.214867115020752,
+            "y": 0.14959782361984253,
+            "z": 0.028014007955789566
+          },
+          "attitude_timing": {
+            "publication_received_at_monotonic_s": 55070.58433186,
+            "publication_timestamp_us": 1794463906006112,
+            "quat_reset_counter": 1,
+            "sample_received_at_monotonic_s": 55070.58433186,
+            "sample_timestamp_us": 1794463906006112,
+            "time_basis": "px4_uxrce_adjusted_us"
+          }
+        },
+        "attitude_timing": {
+          "publication_received_at_monotonic_s": 55070.58433186,
+          "publication_timestamp_us": 1794463906006112,
+          "quat_reset_counter": 1,
+          "sample_received_at_monotonic_s": 55070.58433186,
+          "sample_timestamp_us": 1794463906006112,
+          "time_basis": "px4_uxrce_adjusted_us"
+        },
+        "fresh": true,
+        "native_guidance_feedback": {
+          "airspeed_control_enabled": true,
+          "controller_active": true,
+          "effective_eas_m_s": 7.088010311126709,
+          "fixed_wing_attitude_age_s": 0.0,
+          "fixed_wing_forward_ned": [
+            0.9848071932792664,
+            0.1306498944759369,
+            0.11439135670661926
+          ],
+          "fixed_wing_frame_is_tailsitter": false,
+          "fixed_wing_heading_rad": 0.1318952590227127,
+          "nav_state": 4,
+          "nav_state_timestamp": 75068000,
+          "observed_at_monotonic_s": 55070.499040369,
+          "requested_eas_m_s": null,
+          "underspeed_ratio": 0.0
+        },
+        "nav_state": 4,
+        "nav_state_timestamp": 75068000,
+        "neutral_drain_active": false,
+        "neutral_drain_failure": "",
+        "owner_confirmed": false,
+        "phase_source_health": {
+          "vehicle_status_age_s": 0.047761832996911835,
+          "vehicle_status_timeout_s": 1.0,
+          "vtol_status_age_s": 0.2022236310003791,
+          "vtol_status_timeout_s": 2.0
+        },
+        "phase_status_fresh": true,
+        "publications": 251,
+        "release_pending": false,
+        "release_receipt": {
+          "acquisition": {
+            "activation_timestamp": 66884000,
+            "firmware_incarnation": "d61c9f4b35668d68589126085956d58d",
+            "identity": {
+              "binding": {
+                "aircraft_uid": "5283920058631409231",
+                "connection_generation": "sih-first-mc-to-fw",
+                "telemetry_generation": 1
+              },
+              "follow_session_id": "first-mc-to-fw",
+              "guidance_generation": 1
+            },
+            "mode_id": 23,
+            "runtime_id": "94c7b623a89a460fd0872021fea19534",
+            "source_nav_state": 4,
+            "source_nav_state_timestamp": 27896000,
+            "source_revision": 3,
+            "token": "ac83d3f2958b67489561c34b7076034c"
+          },
+          "observed_nav_state": 4,
+          "observed_nav_state_timestamp": 75068000,
+          "outcome": "hold_confirmed"
+        },
+        "rescue_active": false,
+        "runtime_id": "94c7b623a89a460fd0872021fea19534",
+        "source_health": {
+          "airspeed_fresh": true,
+          "attitude_fresh": true,
+          "bound": true,
+          "envelope_fresh": true,
+          "home_altitude_valid": true,
+          "out_of_order_packets": 3,
+          "position_fresh": true,
+          "position_valid": true
+        },
+        "vehicle_pose": {
+          "observed_at_monotonic_s": 55070.584320225,
+          "px4_timestamp_us": 1794463906006112,
+          "quaternion_wxyz": [
+            0.9966347217559814,
+            0.0054252902045845985,
+            -0.04764330014586449,
+            0.06648346781730652
+          ],
+          "source": "px4_dds_observed",
+          "vehicle_ned": [
+            4.286858558654785,
+            0.3355524241924286,
+            -29.882110595703125
+          ]
+        }
+      }
+    },
+    {
+      "wire_line": 688,
+      "captured_at_monotonic_s": 55070.70548909,
+      "packet": {
+        "aircraft_state": {
+          "airspeed": {
+            "equivalent_m_s": 1.2318816184997559,
+            "observed_at_monotonic_s": 55070.604925902,
+            "source": "sensor",
+            "true_m_s": 1.2707223892211914,
+            "valid": true
+          },
+          "altitude_amsl_m": 519.3178100585938,
+          "altitude_reference_generation": 2,
+          "attitude_body_to_ned": {
+            "w": 0.9970346093177795,
+            "x": 0.006248165853321552,
+            "y": -0.037414491176605225,
+            "z": 0.06695695966482162
+          },
+          "binding": {
+            "aircraft_uid": "5283920058631409231",
+            "connection_generation": "sih-first-mc-to-fw",
+            "telemetry_generation": 1
+          },
+          "fixed_wing_envelope": {
+            "altitude_response_time_s": 5.0,
+            "bank_limit_rad": 0.8726646304130554,
+            "climb_rate_m_s": 5.0,
+            "maximum_eas_m_s": 12.0,
+            "minimum_eas_m_s": 7.0,
+            "revision": "7472000",
+            "sink_rate_m_s": 5.0,
+            "source": "px4_native_performance_model",
+            "trim_eas_m_s": 10.0,
+            "vertical_acceleration_limit_m_s2": 7.0
+          },
+          "is_tailsitter": false,
+          "is_vtol": true,
+          "navigation_heading_rad": 0.1338026374578476,
+          "observed_at_monotonic_s": 55070.605271444,
+          "phase": "vtol_transition",
+          "relative_altitude_m": 29.919464111328125,
+          "rescue_active": false,
+          "sequence": 267,
+          "source": "px4_dds_native",
+          "velocity_ned_m_s": {
+            "x": 1.3635833263397217,
+            "y": 0.17340053617954254,
+            "z": 0.030343083664774895
+          },
+          "attitude_timing": {
+            "publication_received_at_monotonic_s": 55070.687058111,
+            "publication_timestamp_us": 1794463906106112,
+            "quat_reset_counter": 1,
+            "sample_received_at_monotonic_s": 55070.687058111,
+            "sample_timestamp_us": 1794463906106112,
+            "time_basis": "px4_uxrce_adjusted_us"
+          }
+        },
+        "attitude_timing": {
+          "publication_received_at_monotonic_s": 55070.687058111,
+          "publication_timestamp_us": 1794463906106112,
+          "quat_reset_counter": 1,
+          "sample_received_at_monotonic_s": 55070.687058111,
+          "sample_timestamp_us": 1794463906106112,
+          "time_basis": "px4_uxrce_adjusted_us"
+        },
+        "fresh": true,
+        "native_guidance_feedback": {
+          "airspeed_control_enabled": true,
+          "controller_active": true,
+          "effective_eas_m_s": 7.192008972167969,
+          "fixed_wing_attitude_age_s": 0.0,
+          "fixed_wing_forward_ned": [
+            0.9870771169662476,
+            0.13232915103435516,
+            0.09037571400403976
+          ],
+          "fixed_wing_frame_is_tailsitter": false,
+          "fixed_wing_heading_rad": 0.13326703011989594,
+          "nav_state": 4,
+          "nav_state_timestamp": 75068000,
+          "observed_at_monotonic_s": 55070.605271444,
+          "requested_eas_m_s": null,
+          "underspeed_ratio": 0.0
+        },
+        "nav_state": 4,
+        "nav_state_timestamp": 75068000,
+        "neutral_drain_active": false,
+        "neutral_drain_failure": "",
+        "owner_confirmed": false,
+        "phase_source_health": {
+          "vehicle_status_age_s": 0.15291548899404006,
+          "vehicle_status_timeout_s": 1.0,
+          "vtol_status_age_s": 0.3073772869975073,
+          "vtol_status_timeout_s": 2.0
+        },
+        "phase_status_fresh": true,
+        "publications": 251,
+        "release_pending": false,
+        "release_receipt": {
+          "acquisition": {
+            "activation_timestamp": 66884000,
+            "firmware_incarnation": "d61c9f4b35668d68589126085956d58d",
+            "identity": {
+              "binding": {
+                "aircraft_uid": "5283920058631409231",
+                "connection_generation": "sih-first-mc-to-fw",
+                "telemetry_generation": 1
+              },
+              "follow_session_id": "first-mc-to-fw",
+              "guidance_generation": 1
+            },
+            "mode_id": 23,
+            "runtime_id": "94c7b623a89a460fd0872021fea19534",
+            "source_nav_state": 4,
+            "source_nav_state_timestamp": 27896000,
+            "source_revision": 3,
+            "token": "ac83d3f2958b67489561c34b7076034c"
+          },
+          "observed_nav_state": 4,
+          "observed_nav_state_timestamp": 75068000,
+          "outcome": "hold_confirmed"
+        },
+        "rescue_active": false,
+        "runtime_id": "94c7b623a89a460fd0872021fea19534",
+        "source_health": {
+          "airspeed_fresh": true,
+          "attitude_fresh": true,
+          "bound": true,
+          "envelope_fresh": true,
+          "home_altitude_valid": true,
+          "out_of_order_packets": 3,
+          "position_fresh": true,
+          "position_valid": true
+        },
+        "vehicle_pose": {
+          "observed_at_monotonic_s": 55070.687044034,
+          "px4_timestamp_us": 1794463906102112,
+          "quaternion_wxyz": [
+            0.9970346093177795,
+            0.006248165853321552,
+            -0.037414491176605225,
+            0.06695695966482162
+          ],
+          "source": "px4_dds_observed",
+          "vehicle_ned": [
+            4.409790515899658,
+            0.35125482082366943,
+            -29.878814697265625
+          ]
+        }
+      }
+    },
+    {
+      "wire_line": 690,
+      "captured_at_monotonic_s": 55070.810306298,
+      "packet": {
+        "aircraft_state": {
+          "airspeed": {
+            "equivalent_m_s": 1.3307204246520996,
+            "observed_at_monotonic_s": 55070.707955222,
+            "source": "sensor",
+            "true_m_s": 1.3726656436920166,
+            "valid": true
+          },
+          "altitude_amsl_m": 519.314208984375,
+          "altitude_reference_generation": 2,
+          "attitude_body_to_ned": {
+            "w": 0.9972666501998901,
+            "x": 0.007534286472946405,
+            "y": -0.029201550409197807,
+            "z": 0.06745325773954391
+          },
+          "binding": {
+            "aircraft_uid": "5283920058631409231",
+            "connection_generation": "sih-first-mc-to-fw",
+            "telemetry_generation": 1
+          },
+          "fixed_wing_envelope": {
+            "altitude_response_time_s": 5.0,
+            "bank_limit_rad": 0.8726646304130554,
+            "climb_rate_m_s": 5.0,
+            "maximum_eas_m_s": 12.0,
+            "minimum_eas_m_s": 7.0,
+            "revision": "7472000",
+            "sink_rate_m_s": 5.0,
+            "source": "px4_native_performance_model",
+            "trim_eas_m_s": 10.0,
+            "vertical_acceleration_limit_m_s2": 7.0
+          },
+          "is_tailsitter": false,
+          "is_vtol": true,
+          "navigation_heading_rad": 0.1347411572933197,
+          "observed_at_monotonic_s": 55070.712491463,
+          "phase": "vtol_transition",
+          "relative_altitude_m": 29.915863037109375,
+          "rescue_active": false,
+          "sequence": 268,
+          "source": "px4_dds_native",
+          "velocity_ned_m_s": {
+            "x": 1.5880528688430786,
+            "y": 0.2106819450855255,
+            "z": 0.027884209528565407
+          },
+          "attitude_timing": {
+            "publication_received_at_monotonic_s": 55070.789870799,
+            "publication_timestamp_us": 1794463906206112,
+            "quat_reset_counter": 1,
+            "sample_received_at_monotonic_s": 55070.789870799,
+            "sample_timestamp_us": 1794463906206112,
+            "time_basis": "px4_uxrce_adjusted_us"
+          }
+        },
+        "attitude_timing": {
+          "publication_received_at_monotonic_s": 55070.789870799,
+          "publication_timestamp_us": 1794463906206112,
+          "quat_reset_counter": 1,
+          "sample_received_at_monotonic_s": 55070.789870799,
+          "sample_timestamp_us": 1794463906206112,
+          "time_basis": "px4_uxrce_adjusted_us"
+        },
+        "fresh": true,
+        "native_guidance_feedback": {
+          "airspeed_control_enabled": true,
+          "controller_active": true,
+          "effective_eas_m_s": 7.2960076332092285,
+          "fixed_wing_attitude_age_s": 0.0,
+          "fixed_wing_forward_ned": [
+            0.9885797500610352,
+            0.1331029236316681,
+            0.07066622376441956
+          ],
+          "fixed_wing_frame_is_tailsitter": false,
+          "fixed_wing_heading_rad": 0.13383570313453674,
+          "nav_state": 4,
+          "nav_state_timestamp": 75068000,
+          "observed_at_monotonic_s": 55070.712491463,
+          "requested_eas_m_s": null,
+          "underspeed_ratio": 0.0
+        },
+        "nav_state": 4,
+        "nav_state_timestamp": 75068000,
+        "neutral_drain_active": false,
+        "neutral_drain_failure": "",
+        "owner_confirmed": false,
+        "phase_source_health": {
+          "vehicle_status_age_s": 0.2577850409943494,
+          "vehicle_status_timeout_s": 1.0,
+          "vtol_status_age_s": 0.41224683899781667,
+          "vtol_status_timeout_s": 2.0
+        },
+        "phase_status_fresh": true,
+        "publications": 251,
+        "release_pending": false,
+        "release_receipt": {
+          "acquisition": {
+            "activation_timestamp": 66884000,
+            "firmware_incarnation": "d61c9f4b35668d68589126085956d58d",
+            "identity": {
+              "binding": {
+                "aircraft_uid": "5283920058631409231",
+                "connection_generation": "sih-first-mc-to-fw",
+                "telemetry_generation": 1
+              },
+              "follow_session_id": "first-mc-to-fw",
+              "guidance_generation": 1
+            },
+            "mode_id": 23,
+            "runtime_id": "94c7b623a89a460fd0872021fea19534",
+            "source_nav_state": 4,
+            "source_nav_state_timestamp": 27896000,
+            "source_revision": 3,
+            "token": "ac83d3f2958b67489561c34b7076034c"
+          },
+          "observed_nav_state": 4,
+          "observed_nav_state_timestamp": 75068000,
+          "outcome": "hold_confirmed"
+        },
+        "rescue_active": false,
+        "runtime_id": "94c7b623a89a460fd0872021fea19534",
+        "source_health": {
+          "airspeed_fresh": true,
+          "attitude_fresh": true,
+          "bound": true,
+          "envelope_fresh": true,
+          "home_altitude_valid": true,
+          "out_of_order_packets": 3,
+          "position_fresh": true,
+          "position_valid": true
+        },
+        "vehicle_pose": {
+          "observed_at_monotonic_s": 55070.789852062,
+          "px4_timestamp_us": 1794463906206112,
+          "quaternion_wxyz": [
+            0.9972666501998901,
+            0.007534286472946405,
+            -0.029201550409197807,
+            0.06745325773954391
+          ],
+          "source": "px4_dds_observed",
+          "vehicle_ned": [
+            4.562081336975098,
+            0.3707815408706665,
+            -29.875213623046875
+          ]
+        }
+      }
+    },
+    {
+      "wire_line": 692,
+      "captured_at_monotonic_s": 55070.915339196,
+      "packet": {
+        "aircraft_state": {
+          "airspeed": {
+            "equivalent_m_s": 1.3932005167007446,
+            "observed_at_monotonic_s": 55070.913999918,
+            "source": "sensor",
+            "true_m_s": 1.4371215105056763,
+            "valid": true
+          },
+          "altitude_amsl_m": 519.3115234375,
+          "altitude_reference_generation": 2,
+          "attitude_body_to_ned": {
+            "w": 0.9973827004432678,
+            "x": 0.009183431044220924,
+            "y": -0.021015454083681107,
+            "z": 0.06856951862573624
+          },
+          "binding": {
+            "aircraft_uid": "5283920058631409231",
+            "connection_generation": "sih-first-mc-to-fw",
+            "telemetry_generation": 1
+          },
+          "fixed_wing_envelope": {
+            "altitude_response_time_s": 5.0,
+            "bank_limit_rad": 0.8726646304130554,
+            "climb_rate_m_s": 5.0,
+            "maximum_eas_m_s": 12.0,
+            "minimum_eas_m_s": 7.0,
+            "revision": "7472000",
+            "sink_rate_m_s": 5.0,
+            "source": "px4_native_performance_model",
+            "trim_eas_m_s": 10.0,
+            "vertical_acceleration_limit_m_s2": 7.0
+          },
+          "is_tailsitter": false,
+          "is_vtol": true,
+          "navigation_heading_rad": 0.13682307302951813,
+          "observed_at_monotonic_s": 55070.819180992,
+          "phase": "vtol_transition",
+          "relative_altitude_m": 29.913177490234375,
+          "rescue_active": false,
+          "sequence": 269,
+          "source": "px4_dds_native",
+          "velocity_ned_m_s": {
+            "x": 1.9206279516220093,
+            "y": 0.26887521147727966,
+            "z": 0.01943627931177616
+          },
+          "attitude_timing": {
+            "publication_received_at_monotonic_s": 55070.914051675,
+            "publication_timestamp_us": 1794463906330112,
+            "quat_reset_counter": 1,
+            "sample_received_at_monotonic_s": 55070.914051675,
+            "sample_timestamp_us": 1794463906330112,
+            "time_basis": "px4_uxrce_adjusted_us"
+          }
+        },
+        "attitude_timing": {
+          "publication_received_at_monotonic_s": 55070.914051675,
+          "publication_timestamp_us": 1794463906330112,
+          "quat_reset_counter": 1,
+          "sample_received_at_monotonic_s": 55070.914051675,
+          "sample_timestamp_us": 1794463906330112,
+          "time_basis": "px4_uxrce_adjusted_us"
+        },
+        "fresh": true,
+        "native_guidance_feedback": {
+          "airspeed_control_enabled": true,
+          "controller_active": true,
+          "effective_eas_m_s": 7.400006294250488,
+          "fixed_wing_attitude_age_s": 0.0,
+          "fixed_wing_forward_ned": [
+            0.989372968673706,
+            0.13470391929149628,
+            0.05473538488149643
+          ],
+          "fixed_wing_frame_is_tailsitter": false,
+          "fixed_wing_heading_rad": 0.13531875610351562,
+          "nav_state": 4,
+          "nav_state_timestamp": 75068000,
+          "observed_at_monotonic_s": 55070.819180992,
+          "requested_eas_m_s": null,
+          "underspeed_ratio": 0.0
+        },
+        "nav_state": 4,
+        "nav_state_timestamp": 75068000,
+        "neutral_drain_active": false,
+        "neutral_drain_failure": "",
+        "owner_confirmed": false,
+        "phase_source_health": {
+          "vehicle_status_age_s": 0.36279360899789026,
+          "vehicle_status_timeout_s": 1.0,
+          "vtol_status_age_s": 0.5172554070013575,
+          "vtol_status_timeout_s": 2.0
+        },
+        "phase_status_fresh": true,
+        "publications": 251,
+        "release_pending": false,
+        "release_receipt": {
+          "acquisition": {
+            "activation_timestamp": 66884000,
+            "firmware_incarnation": "d61c9f4b35668d68589126085956d58d",
+            "identity": {
+              "binding": {
+                "aircraft_uid": "5283920058631409231",
+                "connection_generation": "sih-first-mc-to-fw",
+                "telemetry_generation": 1
+              },
+              "follow_session_id": "first-mc-to-fw",
+              "guidance_generation": 1
+            },
+            "mode_id": 23,
+            "runtime_id": "94c7b623a89a460fd0872021fea19534",
+            "source_nav_state": 4,
+            "source_nav_state_timestamp": 27896000,
+            "source_revision": 3,
+            "token": "ac83d3f2958b67489561c34b7076034c"
+          },
+          "observed_nav_state": 4,
+          "observed_nav_state_timestamp": 75068000,
+          "outcome": "hold_confirmed"
+        },
+        "rescue_active": false,
+        "runtime_id": "94c7b623a89a460fd0872021fea19534",
+        "source_health": {
+          "airspeed_fresh": true,
+          "attitude_fresh": true,
+          "bound": true,
+          "envelope_fresh": true,
+          "home_altitude_valid": true,
+          "out_of_order_packets": 3,
+          "position_fresh": true,
+          "position_valid": true
+        },
+        "vehicle_pose": {
+          "observed_at_monotonic_s": 55070.914027095,
+          "px4_timestamp_us": 1794463906326112,
+          "quaternion_wxyz": [
+            0.9973827004432678,
+            0.009183431044220924,
+            -0.021015454083681107,
+            0.06856951862573624
+          ],
+          "source": "px4_dds_observed",
+          "vehicle_ned": [
+            4.770906925201416,
+            0.39849853515625,
+            -29.872528076171875
+          ]
+        }
+      }
+    },
+    {
+      "wire_line": 694,
+      "captured_at_monotonic_s": 55071.020317676,
+      "packet": {
+        "aircraft_state": {
+          "airspeed": {
+            "equivalent_m_s": 2.391165256500244,
+            "observed_at_monotonic_s": 55071.017695366,
+            "source": "sensor",
+            "true_m_s": 2.4665307998657227,
+            "valid": true
+          },
+          "altitude_amsl_m": 519.3113403320312,
+          "altitude_reference_generation": 2,
+          "attitude_body_to_ned": {
+            "w": 0.9973959922790527,
+            "x": 0.010498111136257648,
+            "y": -0.015835613012313843,
+            "z": 0.0695727989077568
+          },
+          "binding": {
+            "aircraft_uid": "5283920058631409231",
+            "connection_generation": "sih-first-mc-to-fw",
+            "telemetry_generation": 1
+          },
+          "fixed_wing_envelope": {
+            "altitude_response_time_s": 5.0,
+            "bank_limit_rad": 0.8726646304130554,
+            "climb_rate_m_s": 5.0,
+            "maximum_eas_m_s": 12.0,
+            "minimum_eas_m_s": 7.0,
+            "revision": "7472000",
+            "sink_rate_m_s": 5.0,
+            "source": "px4_native_performance_model",
+            "trim_eas_m_s": 10.0,
+            "vertical_acceleration_limit_m_s2": 7.0
+          },
+          "is_tailsitter": false,
+          "is_vtol": true,
+          "navigation_heading_rad": 0.13897787034511566,
+          "observed_at_monotonic_s": 55070.926305041,
+          "phase": "vtol_transition",
+          "relative_altitude_m": 29.912994384765625,
+          "rescue_active": false,
+          "sequence": 270,
+          "source": "px4_dds_native",
+          "velocity_ned_m_s": {
+            "x": 2.2379157543182373,
+            "y": 0.3242749571800232,
+            "z": 0.004535487852990627
+          },
+          "attitude_timing": {
+            "publication_received_at_monotonic_s": 55071.01773167,
+            "publication_timestamp_us": 1794463906426112,
+            "quat_reset_counter": 1,
+            "sample_received_at_monotonic_s": 55071.01773167,
+            "sample_timestamp_us": 1794463906426112,
+            "time_basis": "px4_uxrce_adjusted_us"
+          }
+        },
+        "attitude_timing": {
+          "publication_received_at_monotonic_s": 55071.01773167,
+          "publication_timestamp_us": 1794463906426112,
+          "quat_reset_counter": 1,
+          "sample_received_at_monotonic_s": 55071.01773167,
+          "sample_timestamp_us": 1794463906426112,
+          "time_basis": "px4_uxrce_adjusted_us"
+        },
+        "fresh": true,
+        "native_guidance_feedback": {
+          "airspeed_control_enabled": true,
+          "controller_active": true,
+          "effective_eas_m_s": 7.504004955291748,
+          "fixed_wing_attitude_age_s": 0.0,
+          "fixed_wing_forward_ned": [
+            0.9897543787956238,
+            0.13657335937023163,
+            0.041641730815172195
+          ],
+          "fixed_wing_frame_is_tailsitter": false,
+          "fixed_wing_heading_rad": 0.13712121546268463,
+          "nav_state": 4,
+          "nav_state_timestamp": 75068000,
+          "observed_at_monotonic_s": 55070.926305041,
+          "requested_eas_m_s": null,
+          "underspeed_ratio": 0.0
+        },
+        "nav_state": 4,
+        "nav_state_timestamp": 75068000,
+        "neutral_drain_active": false,
+        "neutral_drain_failure": "",
+        "owner_confirmed": false,
+        "phase_source_health": {
+          "vehicle_status_age_s": 0.08037397199950647,
+          "vehicle_status_timeout_s": 1.0,
+          "vtol_status_age_s": 0.6222478799973032,
+          "vtol_status_timeout_s": 2.0
+        },
+        "phase_status_fresh": true,
+        "publications": 251,
+        "release_pending": false,
+        "release_receipt": {
+          "acquisition": {
+            "activation_timestamp": 66884000,
+            "firmware_incarnation": "d61c9f4b35668d68589126085956d58d",
+            "identity": {
+              "binding": {
+                "aircraft_uid": "5283920058631409231",
+                "connection_generation": "sih-first-mc-to-fw",
+                "telemetry_generation": 1
+              },
+              "follow_session_id": "first-mc-to-fw",
+              "guidance_generation": 1
+            },
+            "mode_id": 23,
+            "runtime_id": "94c7b623a89a460fd0872021fea19534",
+            "source_nav_state": 4,
+            "source_nav_state_timestamp": 27896000,
+            "source_revision": 3,
+            "token": "ac83d3f2958b67489561c34b7076034c"
+          },
+          "observed_nav_state": 4,
+          "observed_nav_state_timestamp": 75068000,
+          "outcome": "hold_confirmed"
+        },
+        "rescue_active": false,
+        "runtime_id": "94c7b623a89a460fd0872021fea19534",
+        "source_health": {
+          "airspeed_fresh": true,
+          "attitude_fresh": true,
+          "bound": true,
+          "envelope_fresh": true,
+          "home_altitude_valid": true,
+          "out_of_order_packets": 3,
+          "position_fresh": true,
+          "position_valid": true
+        },
+        "vehicle_pose": {
+          "observed_at_monotonic_s": 55071.017709377,
+          "px4_timestamp_us": 1794463906422112,
+          "quaternion_wxyz": [
+            0.9973959922790527,
+            0.010498111136257648,
+            -0.015835613012313843,
+            0.0695727989077568
+          ],
+          "source": "px4_dds_observed",
+          "vehicle_ned": [
+            4.969841003417969,
+            0.42575982213020325,
+            -29.872344970703125
+          ]
+        }
+      }
+    }
+  ],
+  "prefix_evidence": {
+    "pose": [
+      {
+        "timestamp": 8.330486874001508,
+        "vehicle_ned": [
+          4.015686988830566,
+          0.3011784851551056,
+          -29.887847900390625
+        ],
+        "vehicle_quaternion": [
+          0.9957936406135559,
+          0.0055566877126693726,
+          -0.0645269975066185,
+          0.06481149792671204
+        ],
+        "px4_timestamp_us": 1794463905766112,
+        "observed_at_monotonic_s": 55070.340773479,
+        "timestamp_basis": "native_pose_acquisition_receipt",
+        "native_fw_forward_ned": [
+          0.9834606051445007,
+          0.12766224145889282,
+          0.12848196923732758
+        ],
+        "source": "px4_dds_observed"
+      }
+    ],
+    "target": [
+      {
+        "timestamp": 8.386343912003213,
+        "target_ned": [
+          182.3373299210034,
+          35.0,
+          -30.0
+        ]
+      }
+    ],
+    "state": [
+      {
+        "timestamp": 8.386343912003213,
+        "state": "ACTIVE",
+        "speed_source": "sensor",
+        "airspeed_valid": true,
+        "airspeed_control_enabled": true,
+        "aircraft_phase": "multicopter",
+        "observed_eas_m_s": 0.9230138063430786,
+        "native_effective_eas_m_s": null,
+        "phase_state": "pursuit",
+        "phase_reason": "phase_and_target_confirmed",
+        "guidance_generation": 1,
+        "pursuit_paused": false,
+        "effective_continuity_policy": {
+          "mode": "bounded_decay",
+          "max_coast_time_s": 8.0,
+          "max_coast_distance_m": 4.0,
+          "max_retarget_time_s": 8.0,
+          "reacquire_confirmation_s": 0.5,
+          "authority_restore_time_s": 0.5,
+          "terminal_action": "hold",
+          "retarget_angle_blend_fraction": 0.7,
+          "retarget_provisional_authority_fraction": 0.5,
+          "retarget_restore_time_s": 0.5,
+          "configuration_origin": "follower_override:GM_VELOCITY_VECTOR"
+        },
+        "continuity": {
+          "schema_version": 1,
+          "source": "target_continuity_supervisor",
+          "authority_state": "ACTIVE",
+          "policy_mode": "bounded_decay",
+          "effective_policy": {
+            "mode": "bounded_decay",
+            "max_coast_time_s": 8.0,
+            "max_coast_distance_m": 4.0,
+            "max_retarget_time_s": 8.0,
+            "reacquire_confirmation_s": 0.5,
+            "authority_restore_time_s": 0.5,
+            "terminal_action": "hold",
+            "retarget_angle_blend_fraction": 0.7,
+            "retarget_provisional_authority_fraction": 0.5,
+            "retarget_restore_time_s": 0.5,
+            "configuration_origin": "follower_override:GM_VELOCITY_VECTOR"
+          },
+          "configuration_origin": "follower_override:GM_VELOCITY_VECTOR",
+          "terminal_action": "hold",
+          "session_epoch": 1,
+          "episode_id": 0,
+          "authority_fraction": 1.0,
+          "loss_elapsed_s": 0.0,
+          "coast_distance_m": 0.0,
+          "distance_budget_applies": true,
+          "pursuit_paused": false,
+          "reason_code": "confirmed_target_authority",
+          "handoff_pending": false,
+          "target_transition_pending": false,
+          "transition_phase": "none",
+          "effective_command_fields": {
+            "vel_body_fwd": 1.8739334647477215,
+            "vel_body_right": 0.0,
+            "vel_body_down": 0.0,
+            "yawspeed_deg_s": 1.185532011220435
+          },
+          "handoff_request": null,
+          "last_handoff_result": null,
+          "claim_boundary": "Process-local command-authority decision only; PX4 mode and vehicle response require separate observed confirmation."
+        },
+        "injected_target_loss": false,
+        "airspeed_fault_requested": false,
+        "events": [],
+        "limiting_reason": "confirmed_target_authority"
+      }
+    ],
+    "published": [
+      {
+        "record_type": "offboard_publish",
+        "timestamp": 8.344218409998575,
+        "publish_success": true,
+        "publish_status": {
+          "exists": true,
+          "running": true,
+          "task_active": true,
+          "health_state": "running",
+          "command_rate_hz": 20.0,
+          "command_period_s": 0.05,
+          "command_ttl_s": 0.3,
+          "command_failure_threshold": 3,
+          "publish_timeout_s": 0.25,
+          "last_intent_age_s": 0.008818166003038641,
+          "last_intent_fresh": true,
+          "failsafe_defaults_active": false,
+          "publish_count": 161,
+          "successful_publishes": 161,
+          "failed_publishes": 0,
+          "consecutive_failures": 0,
+          "stale_intent_resets": 0,
+          "rejected_intents": 0,
+          "last_publish_success": true,
+          "last_publish_reason": "heartbeat",
+          "last_publish_monotonic_s": 55070.354484486,
+          "last_error": null,
+          "last_dispatch_refusal": null,
+          "failure_policy_triggered": false,
+          "failure_policy_reason": null,
+          "failure_policy_triggered_at_monotonic_s": null,
+          "failure_policy_trigger_count": 0,
+          "terminal_failure": false,
+          "terminal_failure_reason": null,
+          "failure_action": "stop_following",
+          "sends_mavsdk_commands": false,
+          "dynamic_command_contract": true,
+          "observed_native_publications": 250,
+          "command_publication_source": "px4_native_external_mode",
+          "connection_generation": null,
+          "attitude_guard": null
+        },
+        "command_intent": {
+          "profile_name": "gm_velocity_vector",
+          "control_type": "velocity_body_offboard",
+          "fields": {
+            "vel_body_fwd": 1.8614334647477215,
+            "vel_body_right": 0.0,
+            "vel_body_down": 0.0,
+            "yawspeed_deg_s": 1.1839460530749062
+          },
+          "source": "GMVelocityVectorFollower",
+          "reason": "gm_velocity_vector_normal_tracking",
+          "created_at_monotonic_s": 55070.345668595,
+          "created_at_utc": "2026-11-12T06:11:45.872089",
+          "guidance_identity": {
+            "follow_session_id": "first-mc-to-fw",
+            "binding": {
+              "aircraft_uid": "5283920058631409231",
+              "connection_generation": "sih-first-mc-to-fw",
+              "telemetry_generation": 1
+            },
+            "guidance_generation": 1
+          }
+        }
+      },
+      {
+        "record_type": "offboard_publish",
+        "timestamp": 8.38989126800152,
+        "publish_success": null,
+        "publish_status": {
+          "exists": true,
+          "running": false,
+          "task_active": true,
+          "health_state": "failed",
+          "command_rate_hz": 20.0,
+          "command_period_s": 0.05,
+          "command_ttl_s": 0.3,
+          "command_failure_threshold": 3,
+          "publish_timeout_s": 0.25,
+          "last_intent_age_s": 0.0026720320020103827,
+          "last_intent_fresh": true,
+          "failsafe_defaults_active": false,
+          "publish_count": 161,
+          "successful_publishes": 161,
+          "failed_publishes": 0,
+          "consecutive_failures": 0,
+          "stale_intent_resets": 0,
+          "rejected_intents": 0,
+          "last_publish_success": null,
+          "last_publish_reason": "heartbeat",
+          "last_publish_monotonic_s": 55070.354484486,
+          "last_error": "aircraft_transition_observed",
+          "last_dispatch_refusal": {
+            "kind": "terminal",
+            "reason_code": "aircraft_transition_observed"
+          },
+          "failure_policy_triggered": true,
+          "failure_policy_reason": "terminal command-readiness failure: aircraft_transition_observed",
+          "failure_policy_triggered_at_monotonic_s": 55070.400070663,
+          "failure_policy_trigger_count": 1,
+          "terminal_failure": true,
+          "terminal_failure_reason": "aircraft_transition_observed",
+          "failure_action": "stop_following",
+          "sends_mavsdk_commands": false,
+          "dynamic_command_contract": true,
+          "observed_native_publications": null,
+          "command_publication_source": "px4_native_external_mode",
+          "connection_generation": null,
+          "attitude_guard": null
+        },
+        "command_intent": {
+          "profile_name": "gm_velocity_vector",
+          "control_type": "velocity_body_offboard",
+          "fields": {
+            "vel_body_fwd": 1.8739334647477215,
+            "vel_body_right": 0.0,
+            "vel_body_down": 0.0,
+            "yawspeed_deg_s": 1.185532011220435
+          },
+          "source": "GMVelocityVectorFollower",
+          "reason": "gm_velocity_vector_normal_tracking",
+          "created_at_monotonic_s": 55070.397492653,
+          "created_at_utc": "2026-11-12T06:11:45.923912",
+          "guidance_identity": {
+            "follow_session_id": "first-mc-to-fw",
+            "binding": {
+              "aircraft_uid": "5283920058631409231",
+              "connection_generation": "sih-first-mc-to-fw",
+              "telemetry_generation": 1
+            },
+            "guidance_generation": 1
+          }
+        }
+      }
+    ],
+    "tracker": []
+  },
+  "suffix_evidence": {
+    "pose": [
+      {
+        "timestamp": 9.007422772003338,
+        "vehicle_ned": [
+          4.969841003417969,
+          0.42575982213020325,
+          -29.872344970703125
+        ],
+        "vehicle_quaternion": [
+          0.9973959922790527,
+          0.010498111136257648,
+          -0.015835613012313843,
+          0.0695727989077568
+        ],
+        "px4_timestamp_us": 1794463906422112,
+        "observed_at_monotonic_s": 55071.017709377,
+        "timestamp_basis": "native_pose_acquisition_receipt",
+        "native_fw_forward_ned": [
+          0.9897543787956238,
+          0.13657335937023163,
+          0.041641730815172195
+        ],
+        "source": "px4_dds_observed"
+      }
+    ],
+    "target": [
+      {
+        "timestamp": 9.015501335998124,
+        "target_ned": [
+          182.65190863300086,
+          35.0,
+          -30.0
+        ]
+      }
+    ],
+    "state": [
+      {
+        "timestamp": 9.015501335998124,
+        "state": "INACTIVE",
+        "phase_state": "ended",
+        "authority_state": "INACTIVE",
+        "command_expected": false,
+        "observed_hold": true,
+        "publisher_running": false,
+        "publisher_task_active": false,
+        "command_owner_released_at": 9.015501335998124,
+        "aircraft_phase": "vtol_transition",
+        "limiting_reason": "session_cleanup_after_phase_evidence",
+        "events": [
+          "post_session_native_transition"
+        ]
+      }
+    ],
+    "published": [],
+    "tracker": []
+  }
+}

@@ -2,7 +2,18 @@
 
 > Comprehensive guide to PixEagle's autonomous target following system
 
-The follower system is the control core of PixEagle, translating tracker output into vehicle commands for autonomous target following. It supports multicopters, fixed-wing aircraft, and gimbal-only tracking.
+The follower system translates tracker evidence into aircraft command intent.
+Profiles have distinct multicopter, fixed-wing and external/gimbal input
+contracts. See the [qualification inventory](05-development/follower-sih-validation-matrix.md)
+for actual response evidence and live availability; implementation is not flight qualification.
+
+The [standard VTOL application checkpoint](../reporting/agent-ops/codex-modernization/checkpoints/2026-11-13-vtol-training-app.md)
+records bounded MC/FW Start, speed, Stop and transition-release evidence with an
+actual Gazebo-rendered camera. It does not qualify physical-camera timing or
+sensorless hardware. The current image workflow selects MC Chase or FW Navigation
+Chase while inactive; transition ends following and requires a fresh Start after
+settlement. Installed profiles that resolve configured MC/FW strategies at Start
+are proposed, not implemented.
 
 ---
 
@@ -11,7 +22,7 @@ The follower system is the control core of PixEagle, translating tracker output 
 | Section | Description |
 |---------|-------------|
 | [Architecture](01-architecture/README.md) | System design, inheritance, factory pattern |
-| [Follower Reference](02-reference/README.md) | All 8 follower implementations |
+| [Follower Reference](02-reference/README.md) | Registered follower purposes, contracts and qualification |
 | [GNC Concepts](03-gnc-concepts/README.md) | Proportional Navigation, L1, TECS, PID |
 | [Configuration](04-configuration/README.md) | Parameters, schema, tuning |
 | [Development Guide](05-development/README.md) | Creating new followers |
@@ -26,7 +37,7 @@ The follower system is the control core of PixEagle, translating tracker output 
 
 | Follower | Control Type | Use Case |
 |----------|--------------|----------|
-| [mc_velocity_chase](02-reference/mc-velocity-chase.md) | velocity_body_offboard | Proportional Navigation pursuit |
+| [mc_velocity_chase](02-reference/mc-velocity-chase.md) | velocity_body_offboard | Image-error pursuit with a forward ramp |
 | [mc_velocity_ground](02-reference/mc-velocity-ground.md) | velocity_body_offboard | Ground target tracking |
 | [mc_velocity_distance](02-reference/mc-velocity-distance.md) | velocity_body_offboard | Visual centering with zero forward velocity |
 | [mc_velocity_position](02-reference/mc-velocity-position.md) | velocity_body_offboard | Zero horizontal velocity with yaw/altitude |
@@ -36,7 +47,8 @@ The follower system is the control core of PixEagle, translating tracker output 
 
 | Follower | Control Type | Use Case |
 |----------|--------------|----------|
-| [fw_attitude_rate](02-reference/fw-attitude-rate.md) | attitude_rate | L1 Navigation + TECS energy management |
+| [fw_navigation_chase](02-reference/fw-navigation-chase.md) | fixed_wing_external | Calibrated image pursuit through native PX4 navigation; experimental, bounded Gazebo application evidence |
+| [fw_attitude_rate](02-reference/fw-attitude-rate.md) | attitude_rate | Research visual guidance; current live gate remains |
 
 ### Gimbal (GM)
 
@@ -49,7 +61,7 @@ The follower system is the control core of PixEagle, translating tracker output 
 
 ## Control Types
 
-The follower system uses two control types:
+The existing profile schema uses two MAVSDK control types:
 
 ```
 velocity_body_offboard - MAVSDK offboard velocity (vel_body_fwd, vel_body_right, vel_body_down)
@@ -59,7 +71,10 @@ attitude_rate          - Angular rate commands (rollspeed, pitchspeed, yawspeed,
 ### When to Use Each
 
 - **velocity_body_offboard**: Most multicopter applications. Stable, GPS-aided control.
-- **attitude_rate**: Fixed-wing (required), aggressive multicopter tracking, GPS-denied operation.
+- **attitude_rate**: Advanced direct rates/thrust; it does not itself qualify GPS-denied or fixed-wing operation.
+
+The experimental native image and Vector paths separately command FW course,
+EAS and altitude/height rate. See the [FW policy](04-configuration/fixed-wing-guidance-policy.md).
 
 ---
 
@@ -76,7 +91,7 @@ attitude_rate          - Angular rate commands (rollspeed, pitchspeed, yawspeed,
                             ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                      FollowerFactory                             │
-│  - Registry pattern (8 implementations + 14 removed aliases)    │
+│  - Explicit registered implementations and removed aliases      │
 │  - Lazy initialization                                          │
 │  - Profile validation                                           │
 └───────────────────────────┬─────────────────────────────────────┘
@@ -94,7 +109,7 @@ attitude_rate          - Angular rate commands (rollspeed, pitchspeed, yawspeed,
         ▼                   ▼                   ▼
 ┌───────────────┐   ┌───────────────┐   ┌───────────────┐
 │ MC Followers  │   │ FW Followers  │   │ GM Followers  │
-│ (5 variants)  │   │ (1 variant)   │   │ (2 variants)  │
+│ image inputs │   │ native/rates │   │ external rays│
 └───────────────┘   └───────────────┘   └───────────────┘
 ```
 
@@ -108,7 +123,7 @@ In `configs/config.yaml`:
 
 ```yaml
 Follower:
-  FOLLOWER_MODE: "mc_velocity_chase"  # Proportional Navigation pursuit
+  FOLLOWER_MODE: "mc_velocity_chase"  # Optional image pursuit; factory default is mc_velocity_position
 ```
 
 ### 2. Configure Safety Limits
@@ -123,9 +138,11 @@ Safety:
     MAX_YAW_RATE: 45.0           # deg/s
 ```
 
-These global values are hard runtime ceilings/floors. Optional
-`Safety.FollowerOverrides` entries may only tighten them; raise the global
-envelope deliberately when a vehicle or site requires a larger range.
+Saved `Safety.FollowerOverrides` may only tighten the global envelope.
+Supported session-speed controls deliberately replace saved velocity caps for
+that session; they do not override altitude, rate, authority or circuit-breaker
+protections. See [session speed](04-configuration/session-speed.md) before
+interpreting saved versus effective limits.
 
 ### 3. Run PixEagle
 

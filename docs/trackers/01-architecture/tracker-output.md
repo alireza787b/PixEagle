@@ -201,6 +201,23 @@ Source-specific timeout policy stays at the source boundary. Vision frame age,
 detector cadence, and external gimbal packet age have different timing models,
 so followers must not invent their own duplicate age checks.
 
+### Measured image provenance
+
+Classic and SmartTracker outputs may carry an immutable `image_measurement`.
+The controller commits it after an accepted fresh result, using the exact input
+frame's `CaptureStamp`, actual pixel/dimensions, geometry revision and target
+generation. Polling retains that sample; repeated, cached or predicted frames
+cannot renew its receipt time. Target/source changes invalidate the binding.
+Smart overrides reuse the same observation; external gimbal angles remain
+independent of video. The optional field round-trips through
+`TrackerOutput.to_dict()` / `from_dict()` without refreshing timestamps.
+
+Uncalibrated input uses `calibration_revision: null` and
+`image_to_calibration: null`; its image coordinates remain usable by existing
+image followers. Bearing conversion still requires explicit matching calibration
+and a declared mapping. Receipt time is not sensor exposure time, and this
+metadata does not qualify attitude alignment or enable native FW following.
+
 ---
 
 ## Validation
@@ -289,6 +306,7 @@ Schemas are defined in `configs/tracker_schemas.yaml`:
 ```yaml
 tracker_data_types:
   POSITION_2D:
+    representation: image_position
     name: "2D Position Tracking"
     category: "position"
     required_fields:
@@ -304,19 +322,23 @@ tracker_data_types:
 
 ## Tracker-Follower Compatibility
 
-The schema system ensures trackers and followers use compatible data:
+The shared follower catalog derives eligibility from profile requirements and
+declared measurement semantics. Optional fields do not guarantee support:
 
 ```yaml
-# From tracker_schemas.yaml
-compatibility:
-  followers:
-    MCVelocityChaseFollower:
-      required_schemas:
-        - POSITION_2D
-      compatible_schemas:
-        - POSITION_3D
-        - MULTI_TARGET
+# follower_commands.yaml profile
+required_tracker_data: [POSITION_2D]
+
+# tracker_schemas.yaml data type
+representation: image_position
+required_fields: [position_2d]
 ```
+
+There is no independent tracker/follower compatibility matrix. SmartTracker's
+selected-target field guarantee and each actual sample are checked separately.
+Provider-angle samples remain incompatible with image followers even if they
+also contain projected coordinates. See the
+[schema guide](../../developers/SCHEMA_DRIVEN_DEVELOPMENT_GUIDE.md).
 
 ---
 

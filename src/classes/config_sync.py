@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 from typing import Any, Dict, List, Literal, Optional
@@ -21,7 +22,7 @@ class ConfigSyncOperation(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     op_type: Literal["ADD_NEW", "ADOPT_DEFAULT", "REMOVE_RETIRED"]
-    path: List[str] = Field(min_length=1, max_length=2)
+    path: List[str] = Field(min_length=1, max_length=16)
     value: Optional[Any] = None
 
     @field_validator("path")
@@ -79,9 +80,18 @@ def _display_path(path: List[str]) -> Dict[str, Any]:
     return {"path": list(path)}
 
 
+def _leaf_values(mapping: Dict[str, Any], path: Optional[List[str]] = None):
+    """Enumerate exact mapping leaves; arrays and empty mappings stay atomic."""
+    for key, value in mapping.items():
+        child_path = [*(path or []), key]
+        if isinstance(value, dict) and value:
+            yield from _leaf_values(value, child_path)
+        else:
+            yield child_path, value
+
+
 def build_defaults_sync_report(service: ConfigService) -> Dict[str, Any]:
     """Build a redacted path-based defaults and retirement report."""
-    schema = service.get_schema()
     current_config = service.get_sync_config()
     default_config = service.get_effective_defaults()
     sync_meta = service.get_sync_meta()
@@ -93,60 +103,23 @@ def build_defaults_sync_report(service: ConfigService) -> Dict[str, Any]:
     registered_retirements = []
     unknown_extensions = []
     registry = service.get_retirement_registry()
+    guidance_migration = service.get_gimbal_guidance_migration()
     retirements_by_path = {
         tuple(retirement["path"]): retirement
         for retirement in registry["retirements"]
     }
 
-    schema_sections = schema.get("sections", {})
-
-    def schema_for(path: List[str]) -> Dict[str, Any]:
-        root_schema = schema_sections.get(path[0], {})
-        if len(path) == 1:
-            return root_schema if isinstance(root_schema, dict) else {}
-        parameters = (
-            root_schema.get("parameters", {}) if isinstance(root_schema, dict) else {}
-        )
-        value = parameters.get(path[1], {})
-        return value if isinstance(value, dict) else {}
-
-    def current_lookup(path: List[str]) -> tuple[bool, Any]:
-        if len(path) == 1:
-            return path[0] in current_config, current_config.get(path[0])
-        section = current_config.get(path[0])
-        return (
-            isinstance(section, dict) and path[1] in section,
-            section.get(path[1]) if isinstance(section, dict) else None,
-        )
-
-    def snapshot_lookup(path: List[str]) -> tuple[bool, Any]:
-        if len(path) == 1:
-            return path[0] in defaults_snapshot, defaults_snapshot.get(path[0])
-        section = defaults_snapshot.get(path[0])
-        return (
-            isinstance(section, dict) and path[1] in section,
-            section.get(path[1]) if isinstance(section, dict) else None,
-        )
-
-    active_paths: List[tuple[List[str], Any]] = []
-    for root_key, root_default in default_config.items():
-        if isinstance(root_default, dict):
-            active_paths.extend(
-                ([root_key, parameter], default_value)
-                for parameter, default_value in root_default.items()
-            )
-        else:
-            active_paths.append(([root_key], root_default))
-
-    for path, new_default in sorted(active_paths, key=lambda item: tuple(item[0])):
-        param_schema = schema_for(path)
+    for path, new_default in sorted(
+        _leaf_values(default_config), key=lambda item: tuple(item[0])
+    ):
+        param_schema = service.get_path_schema(path)
         public_new_default = service.redact_value(new_default, path)
         sensitive = (
             service.is_sensitive_path(path)
             or public_new_default != new_default
         )
-        has_current, current_value = current_lookup(path)
-        if not has_current:
+        current_value = ConfigService._get_mapping_path(current_config, path, _MISSING)
+        if current_value is _MISSING:
             new_parameters.append(
                 {
                     **_display_path(path),
@@ -158,8 +131,8 @@ def build_defaults_sync_report(service: ConfigService) -> Dict[str, Any]:
             )
             continue
 
-        has_snapshot, old_default = snapshot_lookup(path)
-        if baseline_available and has_snapshot and old_default != new_default:
+        old_default = ConfigService._get_mapping_path(defaults_snapshot, path, _MISSING)
+        if baseline_available and old_default is not _MISSING and old_default != new_default:
             changed_defaults.append(
                 {
                     **_display_path(path),
@@ -174,37 +147,30 @@ def build_defaults_sync_report(service: ConfigService) -> Dict[str, Any]:
                 }
             )
 
-    active_path_keys = {tuple(path) for path, _ in active_paths}
-
-    def record_inactive(path: List[str], value: Any) -> None:
-        retirement = retirements_by_path.get(tuple(path))
-        if retirement:
+    for retirement in registry["retirements"]:
+        path = retirement["path"]
+        if ConfigService._mapping_path_exists(current_config, path):
+            migration = (guidance_migration if guidance_migration is not None
+                         and guidance_migration["path"] == path else None)
             registered_retirements.append(
                 {
                     **_display_path(path),
+                    **({"migration": migration} if migration is not None else {}),
                     "id": retirement["id"],
                     "retired_in_schema_version": retirement["retired_in_schema_version"],
                     "reason": retirement["reason"],
                     "replacement": retirement["replacement"],
                 }
             )
-        else:
-            unknown_extensions.append(
-                {"path": list(path), "value_type": _value_type(value)}
-            )
 
-    for root_key, current_value in current_config.items():
-        root_path = [root_key]
-        if isinstance(current_value, dict):
-            if tuple(root_path) not in active_path_keys and tuple(root_path) in retirements_by_path:
-                record_inactive(root_path, current_value)
-                continue
-            for parameter, nested_value in current_value.items():
-                path = [root_key, parameter]
-                if tuple(path) not in active_path_keys:
-                    record_inactive(path, nested_value)
-        elif tuple(root_path) not in active_path_keys:
-            record_inactive(root_path, current_value)
+    for path, value in _leaf_values(current_config):
+        if any(tuple(path[:len(retired)]) == retired for retired in retirements_by_path):
+            continue
+        if (
+            not ConfigService._mapping_path_exists(default_config, path)
+            and not service.get_path_schema(path)
+        ):
+            unknown_extensions.append({"path": list(path), "value_type": _value_type(value)})
 
     return {
         "contract_version": SYNC_CONTRACT_VERSION,
@@ -249,6 +215,7 @@ def build_defaults_sync_plan(
     errors: List[Dict[str, Any]] = []
     warnings: List[Dict[str, Any]] = []
     seen_paths = set()
+    candidate = copy.deepcopy(current_config)
 
     for idx, op in enumerate(operations):
         op_type = op.op_type
@@ -264,8 +231,15 @@ def build_defaults_sync_plan(
                 }
             )
             continue
+        if any(
+            operation_path[:len(seen)] == seen or seen[:len(operation_path)] == operation_path
+            for seen in seen_paths
+        ):
+            errors.append({"index": idx, "error": f"Overlapping operation for {path_label}"})
+            continue
         seen_paths.add(operation_path)
 
+        explicit_value = "value" in op.model_fields_set
         if op_type != "ADD_NEW" and op.value is not None:
             errors.append(
                 {
@@ -275,19 +249,9 @@ def build_defaults_sync_plan(
             )
             continue
 
-        if len(path) == 1:
-            has_current = path[0] in current_config
-            default_value = default_config.get(path[0], _MISSING)
-        else:
-            current_section = current_config.get(path[0], {})
-            default_section = default_config.get(path[0], {})
-            has_current = isinstance(current_section, dict) and path[1] in current_section
-            default_value = (
-                default_section.get(path[1], _MISSING)
-                if isinstance(default_section, dict)
-                else _MISSING
-            )
-        is_known_param = default_value is not _MISSING
+        has_current = ConfigService._mapping_path_exists(current_config, path)
+        default_value = ConfigService._get_mapping_path(default_config, path, _MISSING)
+        is_known_param = default_value is not _MISSING or bool(service.get_path_schema(path))
 
         normalized = {
             "op_type": op_type,
@@ -315,7 +279,7 @@ def build_defaults_sync_plan(
                     }
                 )
             else:
-                if op.value is None and default_value is _MISSING:
+                if not explicit_value and default_value is _MISSING:
                     errors.append(
                         {
                             "index": idx,
@@ -323,7 +287,7 @@ def build_defaults_sync_plan(
                         }
                     )
                     continue
-                normalized["target_value"] = default_value if op.value is None else op.value
+                normalized["target_value"] = op.value if explicit_value else default_value
 
         elif op_type == "ADOPT_DEFAULT":
             if default_value is _MISSING:
@@ -376,8 +340,48 @@ def build_defaults_sync_plan(
                     }
                 )
                 continue
+            try:
+                ConfigService._set_mapping_path(candidate, path, normalized["target_value"])
+            except ValueError as exc:
+                errors.append({"index": idx, "error": str(exc)})
+                continue
 
+        if op_type == "REMOVE_RETIRED" and not normalized["skip"]:
+            ConfigService._remove_mapping_path(candidate, path)
         plan_operations.append(normalized)
+
+    guidance_migration = None
+    try:
+        from classes.gimbal_guidance_config_migration import canonical_guidance_restrictions
+        canonical_guidance_restrictions(candidate)
+        guidance_migration = service.get_gimbal_guidance_migration(candidate=candidate)
+        if guidance_migration is not None:
+            from classes.gimbal_guidance_config_migration import LEGACY_PATH, ALLOWED_PATH, LIMITS_PATH
+            related = any(op["path"][:2] == LEGACY_PATH[:2] for op in plan_operations)
+            if related:
+                before = guidance_migration["effective_before"]
+                after = guidance_migration["effective_after"]
+                warnings.append({"warning": (
+                    f"Gimbal guidance: before ({before['origin']}) special manoeuvres "
+                    f"{before['special_manoeuvres']}, observed-ray windows {before['observation_limits']}; "
+                    f"after special manoeuvres {after['special_manoeuvres']}, "
+                    f"observed-ray windows {after['observation_limits']}. "
+                    "Camera mechanics, target-centre alignment and exposure timing remain unqualified."
+                )})
+            if guidance_migration["review_required"] and guidance_migration["legacy_removed_in_candidate"]:
+                explicit = guidance_migration["canonical_choices_present"]
+                for choice in (ALLOWED_PATH, LIMITS_PATH):
+                    if not ConfigService._mapping_path_exists(current_config, choice):
+                        explicit = explicit and any(
+                            op.path == choice and op.op_type == "ADD_NEW" and "value" in op.model_fields_set
+                            for op in operations)
+                if not explicit:
+                    errors.append({"error": "Custom gimbal retirement requires explicit ALLOWED_MANOEUVRES and complete OBSERVATION_LIMITS choices."})
+                errors.extend({"error": error} for error in guidance_migration["restriction_errors"])
+                if guidance_migration["recommendation_error"]:
+                    errors.append({"error": guidance_migration["recommendation_error"]})
+    except (TypeError, ValueError) as exc:
+        errors.append({"error": f"Gimbal guidance migration cannot be previewed: {exc}"})
 
     changed_count = sum(1 for op in plan_operations if not op["skip"])
     config_digest = _digest(current_config)
@@ -393,10 +397,12 @@ def build_defaults_sync_plan(
         "registry_digest": registry["registry_digest"],
         "schema_version": service.get_schema_version(),
         "source_state_digests": source_state_digests,
+        "gimbal_guidance_migration": guidance_migration,
     }
     return {
         "contract_version": SYNC_CONTRACT_VERSION,
         "valid": len(errors) == 0,
+        "gimbal_guidance_migration": guidance_migration,
         "errors": errors,
         "warnings": warnings,
         "operations": plan_operations,

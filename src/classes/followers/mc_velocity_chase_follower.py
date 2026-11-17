@@ -69,6 +69,7 @@ from classes.followers.base_follower import BaseFollower
 from classes.followers.custom_pid import CustomPID
 from classes.followers.yaw_rate_smoother import YawRateSmoother  # WP9: canonical import
 from classes.parameters import Parameters
+from classes.safety_types import AltitudeLimits
 from classes.follower_config_manager import get_follower_config_manager
 from classes.tracker_output import TrackerOutput
 import logging
@@ -153,6 +154,8 @@ class MCVelocityChaseFollower(BaseFollower):
         # v5.0.0: Use SafetyManager for velocity limits (single source of truth)
         self.max_forward_velocity = self.velocity_limits.forward
         self.forward_ramp_rate = config.get('FORWARD_RAMP_RATE', 0.5)
+        self.startup_requested_speed = config.get('REQUESTED_SPEED')
+        self._session_controls = self.create_session_controls()
         # Shared params from FollowerConfigManager (General → FollowerOverrides → Fallback)
         fcm = get_follower_config_manager()
         _fn = 'MC_VELOCITY_CHASE'
@@ -538,11 +541,16 @@ class MCVelocityChaseFollower(BaseFollower):
             if not np.isfinite(dt) or dt < 0.0:
                 raise ValueError("Forward-ramp interval must be finite and non-negative")
 
-            # Determine target velocity based on system state
+            control = self._requested_speed_control()
+            requested = (self.max_forward_velocity if control is None or control.revision == 0
+                         and getattr(self, 'startup_requested_speed', None) is None
+                         else control.value if control.override_active
+                         else min(self.max_forward_velocity, control.value))
             if self.emergency_stop_active:
                 target_velocity = 0.0
             else:
-                target_velocity = self.max_forward_velocity
+                target_velocity = requested
+            self.target_forward_velocity = target_velocity
 
             # Calculate velocity change
             ramp_rate = self.forward_ramp_rate
@@ -558,11 +566,10 @@ class MCVelocityChaseFollower(BaseFollower):
                 self.current_forward_velocity += velocity_change
             
             # Apply absolute velocity limits
-            self.current_forward_velocity = np.clip(
-                self.current_forward_velocity,
-                0.0,  # Never go backward
-                self.max_forward_velocity
-            )
+            if control is not None and control.override_active:
+                self.current_forward_velocity = max(0., self.current_forward_velocity)
+            else:
+                self.current_forward_velocity = np.clip(self.current_forward_velocity, 0., self.max_forward_velocity)
             
             logger.debug(f"Forward velocity updated: {self.current_forward_velocity:.2f} m/s "
                         f"(target: {target_velocity:.2f} m/s, dt: {dt:.3f}s)")
@@ -1247,6 +1254,11 @@ class MCVelocityChaseFollower(BaseFollower):
             return True
 
         try:
+            current_altitude = getattr(self.px4_controller, 'current_altitude', None)
+            if not AltitudeLimits.is_valid_altitude(current_altitude):
+                logger.warning("Aircraft altitude is unavailable")
+                return False
+
             # Cache safety behavior for this method (avoids repeated lookups)
             safety = self.safety_manager.get_safety_behavior(self._follower_config_name)
 
@@ -1259,17 +1271,15 @@ class MCVelocityChaseFollower(BaseFollower):
 
             self.last_altitude_check_time = current_time
 
-            # Get current altitude from PX4 controller
-            current_altitude = getattr(self.px4_controller, 'current_altitude', 0.0)
             min_altitude = self.min_altitude_limit
             max_altitude = self.max_altitude_limit
             warning_buffer = self.altitude_warning_buffer
 
             # Check for violations
-            altitude_violation = (current_altitude < min_altitude or current_altitude > max_altitude)
+            altitude_violation = (current_altitude < min_altitude or AltitudeLimits.above(current_altitude, max_altitude))
             altitude_warning = (
                 current_altitude < (min_altitude + warning_buffer) or
-                current_altitude > (max_altitude - warning_buffer)
+                AltitudeLimits.above(current_altitude, max_altitude, buffer=warning_buffer)
             )
 
             if altitude_violation:
@@ -1314,6 +1324,38 @@ class MCVelocityChaseFollower(BaseFollower):
             logger.error(f"Altitude safety check failed: {e}")
             return False
 
+    def create_airframe_session(self, identity, capabilities, *, session_factory=None, **policy):
+        """Reuse native ownership with the existing image-guided MC command law."""
+        from classes.aircraft_state import AirframePhase
+        from classes.airframe_session_controls import AirframeSessionControls
+        from classes.phase_guidance_session import PhaseGuidanceSession
+        if getattr(self, '_airframe_session', None) is not None:
+            raise ValueError('airframe_session_already_bound')
+        # App supplies the shared factory policy; MC has no FW energy strategy.
+        policy.pop('fixed_wing_policy', None)
+        factory = PhaseGuidanceSession if session_factory is None else session_factory
+        session = factory(
+            identity, capabilities, profile_name=self.profile_name,
+            controls=AirframeSessionControls.from_multicopter_control(identity, self._requested_speed_control()),
+            supported_phases=frozenset({AirframePhase.MULTICOPTER}),
+            altitude_control=self.enable_altitude_control, altitude_limits=self.altitude_limits, **policy,
+        )
+        self._airframe_session = session
+        self._airframe_session_bound = False
+        self._native_initial_speed_revision = 0 if self._session_controls['requested_speed'].revision == 0 else -1
+        return session
+
+    def bind_airframe_session(self, session) -> None:
+        from classes.aircraft_state import AirframePhase
+        from classes.phase_guidance_session import PhaseGuidanceSession
+        if (not isinstance(session, PhaseGuidanceSession)
+                or session.supported_phases != frozenset({AirframePhase.MULTICOPTER})):
+            raise ValueError('airframe_session_binding_invalid')
+        super().bind_airframe_session(session)
+        # Phase binding advances the editor revision without a speed edit.
+        if getattr(self, '_native_initial_speed_revision', -1) == 0:
+            self._native_initial_speed_revision = session.controls.current_control.revision
+
     def calculate_control_commands(self, tracker_data: TrackerOutput) -> bool:
         """
         Calculates and sets body velocity control commands with dual-mode lateral guidance.
@@ -1343,7 +1385,16 @@ class MCVelocityChaseFollower(BaseFollower):
         Returns:
             bool: Whether a complete nominal command intent was produced.
         """
+        session = getattr(self, '_airframe_session', None)
         try:
+            if session is not None:
+                from classes.guidance_phase_session import PhaseSessionState
+                if not getattr(self, '_airframe_session_bound', False):
+                    raise ValueError('native_guidance_session_unbound')
+                session.require_state()
+                if session.phase_owner.state is not PhaseSessionState.PURSUIT:
+                    self._last_command_intent = session.baseline()
+                    return True
             self.last_ramp_update_time, dt = self.bounded_control_delta(
                 self.last_ramp_update_time,
                 self.ramp_update_rate,
@@ -1369,7 +1420,7 @@ class MCVelocityChaseFollower(BaseFollower):
 
             # === ADAPTIVE DIVE/CLIMB CONTROL ===
             # Calculate vertical rate and apply adaptive corrections if enabled
-            if self.adaptive_mode_enabled:
+            if self.adaptive_mode_enabled and self.enable_altitude_control:
                 try:
                     # Phase 1: Calculate vertical rate error
                     smoothed_rate, expected_rate, rate_error = self._calculate_target_vertical_rate(
@@ -1393,6 +1444,13 @@ class MCVelocityChaseFollower(BaseFollower):
                 except Exception as e:
                     logger.error(f"Adaptive dive/climb failed: {e}")
                     # Continue with non-adaptive velocities on error
+
+            if not self.enable_altitude_control:
+                down_velocity = 0.0
+                self.smoothed_down_velocity = 0.0
+                self.adaptive_correction_down = 0.0
+                self.adaptive_correction_fwd = 0.0
+                self.adaptive_active = False
 
             raw_yaw_rate_deg_s = 0.0
 
@@ -1429,6 +1487,8 @@ class MCVelocityChaseFollower(BaseFollower):
                 reason='mc_velocity_chase_normal_tracking',
             ):
                 raise RuntimeError("Failed to apply MC velocity chase command intent")
+            if session is not None:
+                self._last_command_intent = session.multicopter_intent(self.get_last_command_intent())
             
             # Update telemetry metadata
             self.update_telemetry_metadata('last_target_coords', target_coords)
@@ -1452,6 +1512,8 @@ class MCVelocityChaseFollower(BaseFollower):
             return True
             
         except Exception as e:
+            if session is not None:
+                self._invalidate_command_intent(str(e))
             logger.error(f"Error calculating control commands: {e}")
             return False
 
@@ -1617,12 +1679,55 @@ class MCVelocityChaseFollower(BaseFollower):
             chase_report += f"  Max Forward Speed: {config.get('max_forward_velocity', 0.0):.1f} m/s\n"
             chase_report += f"  Ramp Rate: {config.get('ramp_rate', 0.0):.1f} m/s²\n"
             chase_report += f"  Altitude Control: {'✓' if config.get('altitude_control_enabled', False) else '✗'}\n"
-            chase_report += f"  Altitude Limits: {config.get('min_altitude_limit', 0.0):.0f}-{config.get('max_altitude_limit', 0.0):.0f}m\n"
+            chase_report += f"  Altitude Limits: {config.get('min_altitude_limit', 0.0):.0f}-{config.get('max_altitude_limit') if config.get('max_altitude_limit') is not None else 'none'}m\n"
             
             return base_report + chase_report
             
         except Exception as e:
             return f"Error generating body velocity chase status report: {e}"
+
+    def create_session_controls(self) -> dict:
+        return self._create_translation_speed_controls(self.velocity_limits.max_magnitude,
+            startup=getattr(self, 'startup_requested_speed', None))
+
+    def update_session_control(self, control_id, value, revision):
+        super().update_session_control(control_id, value, revision)
+        self._sync_translation_speed_override()
+        self._update_velocity_pid_limits()
+
+    def _update_velocity_pid_limits(self) -> None:
+        limits = self.velocity_limits
+        for name, maximum in (('pid_right', limits.lateral), ('pid_down', limits.vertical)):
+            controller = getattr(self, name, None)
+            if controller is not None:
+                controller.output_limits = (-maximum, maximum)
+
+    def _session_velocity_envelope(self):
+        return self._translation_speed_envelope(self.current_forward_velocity)
+
+    def limit_session_control_command(self, fields: Dict[str, float]) -> Dict[str, float]:
+        control = self._requested_speed_control()
+        if (control is None or control.revision == getattr(self, '_native_initial_speed_revision', 0)
+                and getattr(self, 'startup_requested_speed', None) is None):
+            return dict(fields)
+        return self._limit_translation_speed(fields, acceleration=self.forward_ramp_rate,
+                                              update_rate_hz=self.ramp_update_rate, ramp_increase=True)
+
+    def on_command_submitted(self, fields: Dict[str, float]) -> None:
+        self.record_submitted_command(fields)
+
+    def release_session_controls(self) -> None:
+        self._clear_session_velocity()
+        self._update_velocity_pid_limits()
+        super().release_session_controls()
+
+    def reset_control_session(self) -> None:
+        super().reset_control_session()
+        self.current_forward_velocity = self.initial_forward_velocity
+        self.target_forward_velocity = self.max_forward_velocity
+
+    def reset_target_state(self, reason: str) -> bool:
+        return self.reset_chase_state() is not False
 
     def reset_chase_state(self) -> None:
         """
@@ -1688,6 +1793,7 @@ class MCVelocityChaseFollower(BaseFollower):
         Activates emergency stop mode, setting all velocities to zero.
         """
         try:
+            self.release_session_controls()
             self.emergency_stop_active = True
             self.current_forward_velocity = 0.0
             self.smoothed_right_velocity = 0.0

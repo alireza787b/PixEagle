@@ -101,17 +101,14 @@ dashboard/.env
         "scripts/service/run.sh",
         "scripts/service/utils.sh",
         "scripts/setup/config-sync-status.py",
-        "src/classes/config_service.py",
-        "src/classes/config_sync.py",
-        "src/classes/config_validator.py",
-        "src/classes/follower_types.py",
-        "src/classes/gimbal_geometry.py",
-        "src/classes/safety_types.py",
     ):
         destination = root / relative_path
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(REPO_ROOT / relative_path, destination)
-    (root / "src" / "classes" / "__init__.py").touch()
+    shutil.copytree(
+        REPO_ROOT / "src" / "classes", root / "src" / "classes",
+        dirs_exist_ok=True, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+    )
     init_script = root / "scripts" / "init.sh"
     init_script.write_text(
         """#!/usr/bin/env bash

@@ -86,7 +86,7 @@ const groupBySection = (items) => {
 const itemDisplayName = (item) => {
   const path = getConfigSyncItemPath(item);
   if (path.length === 1) return path[0];
-  if (path.length === 2) return path[1];
+  if (path.length > 1) return path.slice(1).join('.');
   return 'Unknown path';
 };
 

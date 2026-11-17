@@ -76,6 +76,144 @@ def test_disabled_owner_creates_no_provider(monkeypatch):
     factory.assert_not_called()
 
 
+@pytest.mark.parametrize('operation', ['stop', 'detach', 'close'])
+def test_manual_ready_wait_keeps_cancellation_bounded_and_attaches_only_idle_current_executor(monkeypatch, operation):
+    import threading
+    from classes.camera_manual_executor import CameraManualExecutor
+
+    entered, finish, cancelled = threading.Event(), threading.Event(), threading.Event()
+    original_run = CameraManualExecutor._run
+    candidates, results = [], []
+
+    def delayed_ready(executor):
+        candidates.append(executor)
+        entered.set()
+        if finish.wait(.75):
+            original_run(executor)
+
+    monkeypatch.setattr(CameraManualExecutor, '_run', delayed_ready)
+    control = SimpleNamespace(prepare_manual=AsyncMock(), send_manual_intent=Mock(), stop=Mock(return_value=True),
+                              close=Mock(), capabilities=('pan', 'stop'))
+    provider = SimpleNamespace(running=True, manual_control=control, start_listening=Mock(return_value=True))
+    provider.stop_listening = Mock(side_effect=lambda: setattr(provider, 'running', False))
+    runtime = CameraRuntime(SimpleNamespace(), {'ENABLED': True})
+    runtime.provider = provider
+    old_guard = runtime.guard()
+    starting = threading.Thread(target=lambda: results.append(runtime.start()))
+
+    def cancel():
+        if operation == 'stop':
+            runtime.acquire('fixture', 'stop')
+        elif operation == 'detach':
+            runtime.detach_tracker()
+        else:
+            runtime.close()
+        cancelled.set()
+
+    stopping = threading.Thread(target=cancel)
+    starting.start()
+    try:
+        try:
+            assert entered.wait(1.)
+            stopping.start()
+            assert cancelled.wait(.1), 'Camera cancellation blocked behind executor readiness'
+        finally:
+            finish.set()
+            starting.join(2.)
+            if stopping.ident is not None:
+                stopping.join(2.)
+        assert not starting.is_alive() and not stopping.is_alive()
+        assert results == [operation != 'close']
+        assert len(candidates) == 1
+        candidate = candidates[0]
+        assert candidate.snapshot()['gesture_id'] is None
+        control.send_manual_intent.assert_not_called()
+        if operation == 'close':
+            assert runtime._manual is None and candidate._closed
+            assert not candidate._thread.is_alive()
+        else:
+            assert runtime._manual is candidate and not candidate._closed
+            with pytest.raises(ValueError, match='changed'):
+                runtime.validate_guard(old_guard)
+            fresh = APIGimbalControlRequest(operation='manual_begin', gesture_id='fresh-gesture', sequence=0,
+                intent={'axis': 'pan', 'value': 1.}, confirm=True, idempotency_key='fresh-begin',
+                camera_context={'client_id': 'fixture', 'guard': runtime.guard()})
+            assert runtime.manual_action('fixture', fresh)['manual']['gesture_id'] == 'fresh-gesture'
+            control.send_manual_intent.assert_not_called()
+    finally:
+        runtime.close()
+    assert not candidates[0]._thread.is_alive()
+
+
+@pytest.mark.parametrize('complete', [True, False])
+def test_independent_normalized_provider_requires_accepted_lifecycle_completion(complete):
+    from classes.gimbal_provider import GimbalInputProvider
+
+    class Provider:
+        provider_id, display_name, protocol_name = 'normalized_fixture', 'Fixture', 'fixture'
+        running, angle_sample_sequence, manual_control = False, 0, None
+
+        def set_lifecycle_observer(self, observer):
+            self.observer = observer
+
+        def start_listening(self):
+            if self.running:
+                return True
+            token = self.observer('starting', None)
+            if token is None:
+                return False
+            self.running = True
+            if not complete:
+                return True
+            if self.observer('started', token) is False:
+                self.stop_listening()
+                return False
+            return True
+
+        def stop_listening(self):
+            if self.running:
+                self.observer('stopping', None)
+            self.running = False
+
+        def get_current_data(self):
+            return None
+
+        def get_connection_status(self):
+            return 'unavailable'
+
+        def get_statistics(self):
+            return {}
+
+        def get_health_status(self):
+            return {}
+
+        def is_tracking_active(self):
+            return False
+
+        def get_provider_metadata(self):
+            return {'provider': self.provider_id}
+
+    provider = Provider()
+    assert isinstance(provider, GimbalInputProvider)
+    runtime = CameraRuntime(SimpleNamespace(), {'ENABLED': True})
+    runtime.provider = provider
+    assert runtime.start() is complete
+    if not complete:
+        assert runtime.angle_observation_context() is None
+        assert not provider.running
+        runtime.close()
+        return
+    first = runtime.angle_observation_context()
+    assert first is not None
+    assert runtime.start() and runtime.angle_observation_context() == first
+    provider.stop_listening()
+    assert runtime.angle_observation_context() is None
+    assert provider.start_listening()
+    assert runtime.angle_observation_context() != first
+    runtime.close()
+    assert not provider.running
+
+
 async def test_native_move_scoped_idempotency_and_guard(camera):
     owner, runtime, _, execute = camera
     payload = request(runtime)

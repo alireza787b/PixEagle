@@ -39,25 +39,15 @@ logger = logging.getLogger(__name__)
 # Thread lock for config reload operations
 _config_reload_lock = threading.RLock()
 
-# Lazy imports to avoid circular dependencies
-_safety_manager = None
-_follower_config_manager = None
-
 def _get_safety_manager():
-    """Lazy load SafetyManager to avoid circular import."""
-    global _safety_manager
-    if _safety_manager is None:
-        from classes.safety_manager import SafetyManager
-        _safety_manager = SafetyManager.get_instance()
-    return _safety_manager
+    """Resolve the registered manager lazily without retaining a second owner."""
+    from classes.safety_manager import SafetyManager
+    return SafetyManager.get_instance()
 
 def _get_follower_config_manager():
-    """Lazy load FollowerConfigManager to avoid circular import."""
-    global _follower_config_manager
-    if _follower_config_manager is None:
-        from classes.follower_config_manager import FollowerConfigManager
-        _follower_config_manager = FollowerConfigManager.get_instance()
-    return _follower_config_manager
+    """Use the same registered instance as followers after lifecycle changes."""
+    from classes.follower_config_manager import FollowerConfigManager
+    return FollowerConfigManager.get_instance()
 
 
 class _ParametersMeta(type):
@@ -115,12 +105,13 @@ class Parameters(metaclass=_ParametersMeta):
     _GROUPED_SECTIONS = [
         'Safety',        # Unified safety config (v5.0.0+)
         'TargetContinuity', # Shared target-evidence command-authority policy
+        'FixedWingGuidance', # Shared native FW navigation policy
         'TrackerSafety', # Boundary behavior is consumed as one tracker policy
         # Per-follower sections (unique params only)
         'MC_VELOCITY_POSITION', 'MC_VELOCITY_DISTANCE', 'MC_VELOCITY_GROUND',
         'MC_VELOCITY_CHASE', 'MC_ATTITUDE_RATE',
         'GM_VELOCITY_VECTOR', 'GM_VELOCITY_CHASE',
-        'FW_ATTITUDE_RATE',
+        'FW_ATTITUDE_RATE', 'FW_NAVIGATION_CHASE',
         # Tracker sections
         'GimbalTracker',
         'ClassicTracker_Common',
@@ -466,6 +457,55 @@ class Parameters(metaclass=_ParametersMeta):
             failures.append(f"target-continuity config validation failed: {exc}")
             logger.warning("Could not validate target-continuity config: %s", exc)
 
+        try:
+            from classes.aircraft_state import AircraftLayout, finite_number
+            from classes.fixed_wing_guidance_policy import FixedWingGuidancePolicy
+
+            FixedWingGuidancePolicy.from_mapping(normalized_config.get("FixedWingGuidance"))
+            AircraftLayout(normalized_config.get("Follower", {}).get("AIRFRAME_LAYOUT", "AUTO"))
+            follower = normalized_config.get("Follower", {})
+            if not 0. <= finite_number(follower.get("AIRFRAME_PHASE_CONFIRMATION_S", .5), "phase_confirmation") <= 5.:
+                raise ValueError("phase_confirmation_out_of_range")
+        except Exception as exc:
+            failures.append(f"aircraft-guidance config validation failed: {exc}")
+            logger.warning("Could not validate aircraft-guidance config: %s", exc)
+
+        if "FW_NAVIGATION_CHASE" in normalized_config:
+            try:
+                from classes.bearing_geometry_policy import BearingGeometryPolicy
+
+                BearingGeometryPolicy.from_mapping(normalized_config["FW_NAVIGATION_CHASE"])
+            except (TypeError, ValueError) as exc:
+                failures.append(f"FW navigation geometry validation failed: {exc}")
+                logger.warning("Could not validate FW navigation geometry: %s", exc)
+
+        if isinstance(normalized_config.get('GimbalTracker'), dict):
+            try:
+                from classes.gazebo_gimbal_source import validate_gazebo_gimbal_config
+                validate_gazebo_gimbal_config(normalized_config['GimbalTracker'])
+            except (TypeError, ValueError) as exc:
+                failures.append(f'Gazebo gimbal configuration validation failed: {exc}')
+
+        video_source = normalized_config.get("VideoSource")
+        calibration = video_source.get("FIXED_CAMERA_CALIBRATION") if isinstance(video_source, dict) else None
+        if isinstance(video_source, dict) and (
+                video_source.get("GAZEBO_CAMERA") is not None
+                or video_source.get("VIDEO_SOURCE_TYPE") == "GAZEBO_CAMERA"):
+            try:
+                from classes.gazebo_capture import GazeboCameraSettings
+
+                GazeboCameraSettings.from_mapping(video_source.get("GAZEBO_CAMERA"))
+            except (TypeError, ValueError) as exc:
+                failures.append(f"Gazebo camera configuration validation failed: {exc}")
+        if calibration is not None:
+            try:
+                from classes.fixed_camera_calibration import FixedCameraCalibration
+
+                FixedCameraCalibration.from_mapping(calibration)
+            except (TypeError, ValueError) as exc:
+                failures.append(f"fixed-camera calibration validation failed: {exc}")
+                logger.warning("Could not validate fixed-camera calibration: %s", exc)
+
         if strict and failures:
             raise RuntimeError("; ".join(failures))
         return normalized_config
@@ -638,7 +678,7 @@ class Parameters(metaclass=_ParametersMeta):
         return getattr(cls, section_name, {})
 
     @classmethod
-    def get_effective_limit(cls, limit_name: str, follower_name: Optional[str] = None) -> float:
+    def get_effective_limit(cls, limit_name: str, follower_name: Optional[str] = None) -> Optional[float]:
         """
         Get the effective safety limit for a given parameter.
 
@@ -653,7 +693,7 @@ class Parameters(metaclass=_ParametersMeta):
             follower_name: Optional follower section name (e.g., 'MC_VELOCITY_CHASE')
 
         Returns:
-            float: The effective limit value
+            The effective limit value; None means no MAX_ALTITUDE mission ceiling.
 
         Example:
             >>> Parameters.get_effective_limit('MIN_ALTITUDE', 'MC_VELOCITY_CHASE')
@@ -668,6 +708,8 @@ class Parameters(metaclass=_ParametersMeta):
             value = safety_manager.get_limit(limit_name, follower_name)
             if value is not None:
                 return float(value)
+            if limit_name == 'MAX_ALTITUDE':
+                return None
         except Exception as e:
             logger.error(f"SafetyManager error for {limit_name}: {e}")
 
@@ -701,7 +743,7 @@ class Parameters(metaclass=_ParametersMeta):
         return cls.get_effective_limit(limit_name, follower_name)
 
     @classmethod
-    def get_altitude_limits(cls, follower_name: Optional[str] = None) -> tuple:
+    def get_altitude_limits(cls, follower_name: Optional[str] = None) -> tuple[float, Optional[float]]:
         """
         Convenience method to get both altitude limits at once.
 
@@ -709,7 +751,7 @@ class Parameters(metaclass=_ParametersMeta):
             follower_name: Optional follower section name
 
         Returns:
-            tuple: (min_altitude, max_altitude) in meters
+            (min_altitude, max_altitude) in meters; max_altitude may be None.
 
         Example:
             >>> Parameters.get_altitude_limits('MC_VELOCITY_CHASE')

@@ -139,7 +139,7 @@ class MockOffboard:
     async def start(self) -> None:
         """Start offboard mode."""
         if self._should_fail_start:
-            from mavsdk.offboard import OffboardError
+            from mavsdk_grpc.offboard import OffboardError
             raise OffboardError(None, self._error_message)
         self._is_active = True
         self._start_count += 1
@@ -152,7 +152,7 @@ class MockOffboard:
     async def set_velocity_body(self, velocity: MockVelocityBodyYawspeed) -> None:
         """Set body-frame velocity setpoint."""
         if self._should_fail_command:
-            from mavsdk.offboard import OffboardError
+            from mavsdk_grpc.offboard import OffboardError
             raise OffboardError(None, self._error_message)
 
         self._commands_sent.append(CommandRecord(
@@ -168,7 +168,7 @@ class MockOffboard:
     async def set_attitude_rate(self, attitude: MockAttitudeRate) -> None:
         """Set attitude rate setpoint."""
         if self._should_fail_command:
-            from mavsdk.offboard import OffboardError
+            from mavsdk_grpc.offboard import OffboardError
             raise OffboardError(None, self._error_message)
 
         self._commands_sent.append(CommandRecord(

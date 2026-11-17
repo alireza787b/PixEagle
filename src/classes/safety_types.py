@@ -21,7 +21,7 @@ Design Philosophy:
 
 from typing import NamedTuple, Optional, Dict, Any
 from enum import Enum
-from math import radians
+from math import isfinite, radians
 
 
 class VehicleType(Enum):
@@ -51,9 +51,52 @@ class VelocityLimits(NamedTuple):
 class AltitudeLimits(NamedTuple):
     """Altitude limits in meters."""
     min_altitude: float        # MIN_ALTITUDE
-    max_altitude: float        # MAX_ALTITUDE
+    max_altitude: Optional[float]  # None means no mission ceiling
     warning_buffer: float      # ALTITUDE_WARNING_BUFFER
     safety_enabled: bool = True
+
+    def above_maximum(self, altitude: float, *, buffer: float = 0.0,
+                      inclusive: bool = False) -> bool:
+        """Check a configured upper boundary; an absent ceiling is never reached."""
+        return self.above(altitude, self.max_altitude, buffer=buffer, inclusive=inclusive)
+
+    @staticmethod
+    def above(altitude: float, maximum: Optional[float], *, buffer: float = 0.0,
+              inclusive: bool = False) -> bool:
+        """Compare against the same optional ceiling in legacy cached consumers."""
+        if maximum is None:
+            return False
+        boundary = maximum - buffer
+        return altitude >= boundary if inclusive else altitude > boundary
+
+    @staticmethod
+    def is_valid_altitude(altitude: Any) -> bool:
+        """An absent ceiling does not make missing or nonfinite height valid."""
+        return isinstance(altitude, (int, float)) and not isinstance(altitude, bool) and isfinite(altitude)
+
+    @staticmethod
+    def below(altitude: float, maximum: Optional[float], *, inclusive: bool = False) -> bool:
+        """Require a finite height below the ceiling, when one is configured."""
+        if not AltitudeLimits.is_valid_altitude(altitude):
+            return False
+        return maximum is None or (altitude <= maximum if inclusive else altitude < maximum)
+
+    def contains(self, altitude: float) -> bool:
+        """Require a finite relative altitude inside the configured bounds."""
+        return self.below(altitude, self.max_altitude, inclusive=True) and altitude >= self.min_altitude
+
+    def require_hold_target(self, target_amsl_m: float, *, current_amsl_m: float,
+                            current_relative_m: float) -> None:
+        """Check an absolute hold using the current native AMSL-to-relative offset."""
+        if not self.safety_enabled:
+            return
+        if not self.contains(current_relative_m):
+            raise ValueError("altitude_hard_limit")
+        if not self.is_valid_altitude(current_amsl_m) or not self.is_valid_altitude(target_amsl_m):
+            raise ValueError("altitude_hold_target_invalid")
+        target_relative = target_amsl_m - (current_amsl_m - current_relative_m)
+        if not self.contains(target_relative):
+            raise ValueError("altitude_hold_target_outside_limits")
 
 
 class RateLimits(NamedTuple):
@@ -127,5 +170,6 @@ FOLLOWER_VEHICLE_TYPE = {
     'GM_VELOCITY_VECTOR': VehicleType.MULTICOPTER,
     'GM_VELOCITY_CHASE': VehicleType.MULTICOPTER,
     # Fixed-wing followers
+    'FW_NAVIGATION_CHASE': VehicleType.FIXED_WING,
     'FW_ATTITUDE_RATE': VehicleType.FIXED_WING,
 }

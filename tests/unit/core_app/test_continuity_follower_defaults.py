@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from classes.target_continuity import ContinuityMode, ContinuityPolicy
+from classes.target_continuity import AirframePhase, ContinuityMode, ContinuityPolicy
 from tests.unit.core_app.test_target_continuity import (
     _context, _evidence, _intent, _policy, _supervisor,
 )
@@ -31,6 +31,28 @@ def test_legacy_policy_is_not_implicitly_upgraded():
     assert policy.mode is ContinuityMode.IMMEDIATE_HANDOFF
     assert policy.max_retarget_time_s == 6.0
     assert "FollowerOverrides" not in raw
+
+
+def test_native_fw_policy_does_not_inherit_mc_travel_budget_or_change_mc_policy():
+    config = yaml.safe_load((Path(__file__).resolve().parents[3] / "configs/config_default.yaml").read_text())
+    policy = ContinuityPolicy.resolve(config["TargetContinuity"], "gm_velocity_vector", AirframePhase.FIXED_WING)
+    assert policy.mode is ContinuityMode.BOUNDED_FLIGHT
+    assert policy.max_coast_time_s == policy.max_retarget_time_s == 8.
+    assert policy.configuration_origin.startswith("phase_override:fixed_wing/")
+    mc = ContinuityPolicy.resolve(config["TargetContinuity"], "gm_velocity_vector", AirframePhase.MULTICOPTER)
+    assert mc.mode is ContinuityMode.BOUNDED_DECAY
+    assert mc.max_coast_distance_m == 4.
+    legacy = ContinuityPolicy.resolve(None, "gm_velocity_vector", AirframePhase.FIXED_WING)
+    assert legacy.mode is ContinuityMode.IMMEDIATE_HANDOFF
+    assert legacy.configuration_origin == "compatibility_defaults"
+
+
+@pytest.mark.parametrize("phases", [None, {"unknown": {}}, {"fixed_wing": None},
+                                     {"fixed_wing": {"MODE": "typo"}},
+                                     {"fixed_wing": {"MAX_COAST_TIME_S": float("inf")}}])
+def test_every_phase_policy_is_validated_even_when_mc_is_selected(phases):
+    with pytest.raises(ValueError):
+        ContinuityPolicy.resolve({"PhaseOverrides": phases}, "gm_velocity_vector", AirframePhase.MULTICOPTER)
 
 
 @pytest.mark.parametrize("overrides", [
@@ -120,8 +142,10 @@ def test_missing_continuity_is_explicit_config_sync_addition(tmp_path):
     assert service.get_config() == before
     migrated = copy.deepcopy(before)
     for operation in plan["operations"]:
-        section, parameter = operation["path"]
-        migrated.setdefault(section, {})[parameter] = operation["target_value"]
+        cursor = migrated
+        for component in operation["path"][:-1]:
+            cursor = cursor.setdefault(component, {})
+        cursor[operation["path"][-1]] = operation["target_value"]
     assert {k: v for k, v in migrated.items() if k != "TargetContinuity"} == before
     for follower in ("gm_velocity_chase", "gm_velocity_vector"):
         policy = ContinuityPolicy.resolve(migrated["TargetContinuity"], follower)

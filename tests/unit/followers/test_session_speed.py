@@ -143,7 +143,7 @@ def override_follower():
     follower.max_velocity = 1
     follower.safety_manager = SafetyManager()
     follower.safety_manager.load_from_config({'Safety': {'GlobalLimits': {
-        'MAX_VELOCITY': 1, 'MAX_VELOCITY_FORWARD': 1,
+        'MIN_ALTITUDE': 3, 'MAX_VELOCITY': 1, 'MAX_VELOCITY_FORWARD': 1,
         'MAX_VELOCITY_LATERAL': .2, 'MAX_VELOCITY_VERTICAL': .25,
     }}})
     follower.setpoint_handler = SimpleNamespace(profile_config={'session_controls': {'requested_speed': {
@@ -157,7 +157,7 @@ def test_operator_override_replaces_all_velocity_caps_at_the_final_command_bound
 
     follower = override_follower()
     monkeypatch.setattr(SafetyManager, '_instance', follower.safety_manager)
-    monkeypatch.setattr('classes.parameters._safety_manager', follower.safety_manager)
+    monkeypatch.setattr('classes.parameters._get_safety_manager', lambda: follower.safety_manager)
     follower.update_session_control('requested_speed', 4, 0)
     follower.current_velocity_magnitude = 4
     commands = _run_normalization(follower, 40, 30)

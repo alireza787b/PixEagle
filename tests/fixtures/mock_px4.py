@@ -142,6 +142,11 @@ class MockPX4Controller:
         """Returns attitude object."""
         return self.attitude
 
+    def get_guidance_attitude(self):
+        """The fixture stores radians; production telemetry adapters own units."""
+        from classes.aircraft_state import Quaternion
+        return Quaternion.from_euler(self.current_roll, self.current_pitch, self.current_yaw), self.current_yaw
+
     # Command verification methods
     @property
     def rtl_triggered(self) -> bool:

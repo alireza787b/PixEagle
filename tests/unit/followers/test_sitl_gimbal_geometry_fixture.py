@@ -55,8 +55,8 @@ def test_moving_world_target_crosses_camera_center_without_sign_reversal():
     assert left[2] > center[2] == 0 > right[2]
 
 
-def test_target_must_be_finite_and_in_front_of_vehicle():
-    for target in ((0, 0, 0), (-10, 0, 0), (math.nan, 0, 0)):
+def test_target_must_be_finite_and_distinct_from_vehicle():
+    for target in ((0, 0, 0), (math.nan, 0, 0)):
         with pytest.raises(ValueError):
             camera_angles_for_world_target((0, 0, 0), target, (1, 0, 0, 0), "VERTICAL")
     with pytest.raises(ValueError, match="quaternion"):

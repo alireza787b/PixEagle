@@ -1,0 +1,355 @@
+diff --git a/msg/CMakeLists.txt b/msg/CMakeLists.txt
+index 822607d03e..71e308f990 100644
+--- a/msg/CMakeLists.txt
++++ b/msg/CMakeLists.txt
+@@ -268,6 +268,7 @@ set(msg_files
+ 	versioned/ConfigOverrides.msg
+ 	versioned/FixedWingLateralSetpoint.msg
+ 	versioned/FixedWingLongitudinalSetpoint.msg
++	versioned/FixedWingGuidanceStatus.msg
+ 	versioned/GotoSetpoint.msg
+ 	versioned/HomePosition.msg
+ 	versioned/LateralControlConfiguration.msg
+diff --git a/msg/versioned/FixedWingGuidanceStatus.msg b/msg/versioned/FixedWingGuidanceStatus.msg
+new file mode 100644
+index 0000000000..ccdff32253
+--- /dev/null
++++ b/msg/versioned/FixedWingGuidanceStatus.msg
+@@ -0,0 +1,37 @@
++# Native fixed-wing envelope and command outcome, for external navigation modes.
++# Read-only: no value in this message changes controller configuration.
++
++uint32 MESSAGE_VERSION = 0
++
++uint64 timestamp # [us] Publication time since system start
++uint64 timestamp_sample # [us] Local-position observation used by the controller
++uint64 parameter_revision # [us] Time of latest native parameter resolution
++uint64 nav_state_timestamp # [us] Time the current navigation mode was activated
++uint64 autopilot_uid # Same legacy hardware UID as MAVLink AUTOPILOT_VERSION
++uint64 firmware_git_hash # Native firmware git version, for runtime provenance
++uint8 nav_state # [enum VehicleStatus.NAVIGATION_STATE] Observed mode
++float32 home_altitude_amsl # [m] Current estimator/home altitude reference; not terrain clearance
++uint32 home_update_count # Changes when the native home reference changes
++bool home_altitude_valid
++
++float32 fixed_wing_heading # [rad] Native FW-frame heading; includes PX4's tailsitter frame conversion
++float32[3] fixed_wing_forward_ned # Unit FW-forward axis in NED, after the native attitude conversion
++float32 fixed_wing_attitude_sample_age # [s] Age of the native attitude observation, NaN before first sample
++bool fixed_wing_frame_is_tailsitter # Frame convention used by the native FW controller for this observation
++
++float32 minimum_equivalent_airspeed # [m/s] Native load/flap/weight-dependent minimum, before course/wind adjustments
++float32 trim_equivalent_airspeed # [m/s] Native trim including weight/altitude dependencies
++float32 maximum_equivalent_airspeed # [m/s] Configured native maximum
++float32 climb_rate_limit # [m/s] Native maximum climb rate at current density
++float32 sink_rate_limit # [m/s] Native maximum sink rate
++float32 vertical_acceleration_limit # [m/s^2] Native vertical acceleration configuration, not a guaranteed measured deceleration
++float32 altitude_response_time # [s] Current native altitude response time constant, not a physical settling guarantee
++float32 bank_limit # [rad] Native configured bank envelope
++
++float32 requested_equivalent_airspeed # [m/s] External/native request, NaN if using native default
++float32 effective_equivalent_airspeed # [m/s] Actual bounded/slewed native reference, NaN while inactive
++float32 observed_equivalent_airspeed # [m/s] Qualified observation, NaN in native sensorless control
++float32 underspeed_ratio # [-] Native underspeed response, NaN while inactive
++bool controller_active
++bool airspeed_control_enabled # Fresh qualified input and native airspeed control enabled
++bool owner_bound_mode_changes_supported # SET_NAV_STATE accepts expected mode/activation-time guard
+diff --git a/src/modules/commander/CMakeLists.txt b/src/modules/commander/CMakeLists.txt
+index 2aabe2b612..1290a5f3da 100644
+--- a/src/modules/commander/CMakeLists.txt
++++ b/src/modules/commander/CMakeLists.txt
+@@ -93,3 +93,4 @@ if(CONFIG_SENSORS_VEHICLE_MAGNETOMETER)
+ endif()
+ px4_add_functional_gtest(SRC ModeManagementTest.cpp LINKLIBS modules__commander)
+ px4_add_functional_gtest(SRC HomePositionTest.cpp LINKLIBS modules__commander)
++px4_add_unit_gtest(SRC ExpectedModeGuardTest.cpp)
+diff --git a/src/modules/commander/Commander.cpp b/src/modules/commander/Commander.cpp
+index 67bcb95f45..5228058fe6 100644
+--- a/src/modules/commander/Commander.cpp
++++ b/src/modules/commander/Commander.cpp
+@@ -39,6 +39,7 @@
+  */
+ 
+ #include "Commander.hpp"
++#include "ExpectedModeGuard.hpp"
+ 
+ /* commander module headers */
+ #include "Arming/ArmAuthorization/ArmAuthorization.h"
+@@ -1088,6 +1089,15 @@ Commander::handle_command(const vehicle_command_s &cmd)
+ 	case vehicle_command_s::VEHICLE_CMD_SET_NAV_STATE: { // Used from ROS
+ 			uint8_t desired_nav_state = static_cast<uint8_t>(lroundf(cmd.param1));
+ 
++			// Optional compare-and-change for external-mode handoff. A queued
++			// companion command must not overwrite a newer pilot/failsafe mode.
++			// param2 is the observed mode; param5 is its activation time in us.
++			if (!px4::matchesExpectedMode(_vehicle_status.nav_state, _vehicle_status.nav_state_timestamp,
++						      cmd.param2, cmd.param5)) {
++				cmd_result = vehicle_command_ack_s::VEHICLE_CMD_RESULT_TEMPORARILY_REJECTED;
++				break;
++			}
++
+ 			if (_user_mode_intention.change(desired_nav_state, getSourceFromCommand(cmd))) {
+ 				cmd_result = vehicle_command_ack_s::VEHICLE_CMD_RESULT_ACCEPTED;
+ 
+diff --git a/src/modules/commander/ExpectedModeGuard.hpp b/src/modules/commander/ExpectedModeGuard.hpp
+new file mode 100644
+index 0000000000..ce92c78a2b
+--- /dev/null
++++ b/src/modules/commander/ExpectedModeGuard.hpp
+@@ -0,0 +1,28 @@
++// SPDX-License-Identifier: BSD-3-Clause
++#pragma once
++
++#include <cmath>
++#include <cstdint>
++
++namespace px4
++{
++
++inline bool matchesExpectedMode(uint8_t mode, uint64_t activated_at, float expected_mode, double expected_activation)
++{
++	if (!std::isfinite(expected_activation) || expected_activation <= 0.) {
++		return true;
++	}
++
++	// The command's double field represents integer microseconds exactly here.
++	constexpr double maximum_exact_integer = static_cast<double>(uint64_t{1} << 53);
++
++	if (!std::isfinite(expected_mode) || expected_mode < 0.f || expected_mode > UINT8_MAX
++	    || expected_activation > maximum_exact_integer) {
++		return false;
++	}
++
++	return static_cast<uint8_t>(lroundf(expected_mode)) == mode
++	       && static_cast<uint64_t>(llround(expected_activation)) == activated_at;
++}
++
++} // namespace px4
+diff --git a/src/modules/commander/ExpectedModeGuardTest.cpp b/src/modules/commander/ExpectedModeGuardTest.cpp
+new file mode 100644
+index 0000000000..c9675f0685
+--- /dev/null
++++ b/src/modules/commander/ExpectedModeGuardTest.cpp
+@@ -0,0 +1,26 @@
++// SPDX-License-Identifier: BSD-3-Clause
++#include "ExpectedModeGuard.hpp"
++#include <gtest/gtest.h>
++#include <limits>
++
++TEST(ExpectedModeGuard, RetainsOrdinaryNativeModeRequests)
++{
++	EXPECT_TRUE(px4::matchesExpectedMode(23, 1000000, 0.f, 0.));
++	EXPECT_TRUE(px4::matchesExpectedMode(23, 1000000, NAN, NAN));
++}
++
++TEST(ExpectedModeGuard, RejectsDelayedHandoffAfterTakeoverOrModeReentry)
++{
++	EXPECT_TRUE(px4::matchesExpectedMode(23, 1000000, 23.f, 1000000.));
++	EXPECT_FALSE(px4::matchesExpectedMode(5, 1000000, 23.f, 1000000.));
++	EXPECT_FALSE(px4::matchesExpectedMode(23, 2000000, 23.f, 1000000.));
++	EXPECT_FALSE(px4::matchesExpectedMode(23, 1000000, NAN, 1000000.));
++	EXPECT_FALSE(px4::matchesExpectedMode(23, 1000000, 256.f, 1000000.));
++	EXPECT_FALSE(px4::matchesExpectedMode(23, 1000000, 23.f, std::numeric_limits<double>::max()));
++}
++
++TEST(ExpectedModeGuard, SupportsManualModeZeroAsAnExpectedState)
++{
++	EXPECT_TRUE(px4::matchesExpectedMode(0, 1000000, 0.f, 1000000.));
++	EXPECT_FALSE(px4::matchesExpectedMode(0, 1000001, 0.f, 1000000.));
++}
+diff --git a/src/modules/fw_lateral_longitudinal_control/CMakeLists.txt b/src/modules/fw_lateral_longitudinal_control/CMakeLists.txt
+index 553845c41d..6309dffd27 100644
+--- a/src/modules/fw_lateral_longitudinal_control/CMakeLists.txt
++++ b/src/modules/fw_lateral_longitudinal_control/CMakeLists.txt
+@@ -1,6 +1,7 @@
+ set(CONTROL_DEPENDENCIES
+         npfg
+         tecs
++        version
+ )
+ 
+ 
+diff --git a/src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.cpp b/src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.cpp
+index ae87526bca..61d07d7d31 100644
+--- a/src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.cpp
++++ b/src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.cpp
+@@ -33,6 +33,9 @@
+ 
+ #include "FwLateralLongitudinalControl.hpp"
+ #include <px4_platform_common/events.h>
++#include <px4_platform_common/board_common.h>
++#include <px4_platform_common/defines.h>
++#include <lib/version/version.h>
+ 
+ using math::constrain;
+ using math::max;
+@@ -105,6 +108,7 @@ FwLateralLongitudinalControl::parameters_update()
+ 	updateParams();
+ 	_performance_model.updateParameters();
+ 	_performance_model.runSanityChecks();
++	_parameter_revision = hrt_absolute_time();
+ 
+ 	_tecs.set_max_climb_rate(_performance_model.getMaximumClimbRate(_air_density));
+ 	_tecs.set_max_sink_rate(_param_fw_t_sink_max.get());
+@@ -209,6 +213,8 @@ void FwLateralLongitudinalControl::Run()
+ 					(_vehicle_status_sub.get().vehicle_type == vehicle_status_s::VEHICLE_TYPE_FIXED_WING
+ 					 || _vehicle_status_sub.get().in_transition_mode);
+ 
++		float effective_airspeed_sp{NAN};
++
+ 		if (should_run) {
+ 
+ 			// ----- Longitudinal ------
+@@ -221,6 +227,7 @@ void FwLateralLongitudinalControl::Run()
+ 
+ 			const float airspeed_sp_eas = adapt_airspeed_setpoint(control_interval, _long_control_sp.equivalent_airspeed,
+ 						      _min_airspeed_from_guidance, _lateral_control_state.wind_speed.length());
++			effective_airspeed_sp = airspeed_sp_eas;
+ 
+ 			// If the both altitude and height rate are set, set altitude setpoint to NAN
+ 			const float altitude_sp = PX4_ISFINITE(_long_control_sp.height_rate) ? NAN : _long_control_sp.altitude;
+@@ -347,6 +354,8 @@ void FwLateralLongitudinalControl::Run()
+ 
+ 		}
+ 
++		publishGuidanceStatus(now, should_run, effective_airspeed_sp);
++
+ 		// Publish flight phase with low rate, but immediately if updated
+ 		const bool flight_phase_updated = current_flight_phase != _flight_phase_estimation_pub.get().flight_phase;
+ 		const hrt_abstime time_since_last_flightphase_pub = now - _flight_phase_estimation_pub.get().timestamp;
+@@ -363,6 +372,61 @@ void FwLateralLongitudinalControl::Run()
+ 	perf_end(_loop_perf);
+ }
+ 
++void FwLateralLongitudinalControl::publishGuidanceStatus(hrt_abstime now, bool active, float effective_airspeed)
++{
++	if (now - _last_guidance_status_publication < 100_ms) {
++		return;
++	}
++
++	fixed_wing_guidance_status_s status{};
++	status.timestamp = hrt_absolute_time();
++	status.timestamp_sample = now;
++	status.parameter_revision = _parameter_revision;
++	status.nav_state = _vehicle_status_sub.get().nav_state;
++	status.nav_state_timestamp = _vehicle_status_sub.get().nav_state_timestamp;
++	_home_position_sub.update();
++	status.home_altitude_amsl = _home_position_sub.get().alt;
++	status.home_update_count = _home_position_sub.get().update_count;
++	status.home_altitude_valid = _home_position_sub.get().valid_alt;
++	status.fixed_wing_heading = _yaw;
++	_fixed_wing_forward_ned.copyTo(status.fixed_wing_forward_ned);
++	status.fixed_wing_attitude_sample_age = (_fixed_wing_attitude_timestamp > 0 && status.timestamp >= _fixed_wing_attitude_timestamp)
++						? (status.timestamp - _fixed_wing_attitude_timestamp) * 1e-6f : NAN;
++	status.fixed_wing_frame_is_tailsitter = _fixed_wing_frame_is_tailsitter;
++	uuid_uint32_t uid;
++	board_get_uuid32(uid);
++	status.autopilot_uid = (static_cast<uint64_t>(uid[PX4_CPU_UUID_WORD32_UNIQUE_M]) << 32) | uid[PX4_CPU_UUID_WORD32_UNIQUE_H];
++#ifdef CONFIG_ARCH_BOARD_PX4_SITL
++	status.autopilot_uid += _vehicle_status_sub.get().system_id - 1;
++#endif
++	status.firmware_git_hash = px4_firmware_version_binary();
++	// The FW attitude frame is near singular while a tailsitter is upright.
++	// MC/transition needs the native unloaded reference, not a bank-derived
++	// stall margin for a wing that is not providing coordinated FW lift.
++	const auto &vehicle_status = _vehicle_status_sub.get();
++	const bool fixed_wing_flight = vehicle_status.vehicle_type == vehicle_status_s::VEHICLE_TYPE_FIXED_WING
++				       && !vehicle_status.in_transition_mode;
++	const float guidance_load_factor = fixed_wing_flight ? _load_factor_from_bank_angle : 1.f;
++	status.minimum_equivalent_airspeed = _performance_model.getMinimumCalibratedAirspeed(guidance_load_factor, _flaps_setpoint);
++	status.trim_equivalent_airspeed = _performance_model.getCalibratedTrimAirspeed();
++	status.maximum_equivalent_airspeed = _performance_model.getMaximumCalibratedAirspeed();
++	status.climb_rate_limit = _performance_model.getMaximumClimbRate(_air_density);
++	status.sink_rate_limit = _param_fw_t_sink_max.get();
++	status.vertical_acceleration_limit = _param_fw_t_vert_acc.get();
++	status.altitude_response_time = _tecs_alt_time_const_slew_rate.getState();
++	status.bank_limit = radians(_param_fw_r_lim.get());
++	status.requested_equivalent_airspeed = active ? _long_control_sp.equivalent_airspeed : NAN;
++	status.effective_equivalent_airspeed = effective_airspeed;
++	status.airspeed_control_enabled = _param_fw_use_airspd.get() && _time_airspeed_last_valid != 0
++					  && hrt_elapsed_time(&_time_airspeed_last_valid) < 1_s;
++	status.observed_equivalent_airspeed = status.airspeed_control_enabled ? _long_control_state.airspeed_eas : NAN;
++	status.underspeed_ratio = active ? _tecs.get_underspeed_ratio() : NAN;
++	status.controller_active = active;
++	status.owner_bound_mode_changes_supported = true;
++	_guidance_status_pub.publish(status);
++	_last_guidance_status_publication = now;
++}
++
+ void FwLateralLongitudinalControl::updateControllerConfiguration(hrt_abstime timestamp)
+ {
+ 	if (_lateral_configuration.timestamp == 0) {
+@@ -689,6 +753,9 @@ void FwLateralLongitudinalControl::updateAttitude() {
+ 
+ 		const Eulerf euler_angles(R);
+ 		_yaw = euler_angles.psi();
++		_fixed_wing_forward_ned = R.col(0);
++		_fixed_wing_attitude_timestamp = att.timestamp_sample;
++		_fixed_wing_frame_is_tailsitter = _vehicle_status_sub.get().is_vtol_tailsitter;
+ 
+ 		_load_factor_from_bank_angle = 1.0f / max(cosf(euler_angles.phi()), FLT_EPSILON);
+ 
+diff --git a/src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.hpp b/src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.hpp
+index a44724fe76..96bf571878 100644
+--- a/src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.hpp
++++ b/src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.hpp
+@@ -68,7 +68,9 @@
+ #include <uORB/topics/fixed_wing_lateral_setpoint.h>
+ #include <uORB/topics/fixed_wing_lateral_status.h>
+ #include <uORB/topics/fixed_wing_longitudinal_setpoint.h>
++#include <uORB/topics/fixed_wing_guidance_status.h>
+ #include <uORB/topics/fuel_tank_status.h>
++#include <uORB/topics/home_position.h>
+ #include <uORB/topics/normalized_unsigned_setpoint.h>
+ #include <uORB/topics/flight_phase_estimation.h>
+ #include <uORB/topics/lateral_control_configuration.h>
+@@ -124,6 +126,7 @@ private:
+ 	uORB::Subscription _vehicle_attitude_sub{ORB_ID(vehicle_attitude)};
+ 	uORB::Subscription _vehicle_landed_sub{ORB_ID(vehicle_land_detected)};
+ 	uORB::SubscriptionData<vehicle_status_s> _vehicle_status_sub{ORB_ID(vehicle_status)};
++	uORB::SubscriptionData<home_position_s> _home_position_sub{ORB_ID(home_position)};
+ 	uORB::Subscription _fw_lateral_ctrl_sub{ORB_ID(fixed_wing_lateral_setpoint)};
+ 	uORB::Subscription _fw_longitudinal_ctrl_sub{ORB_ID(fixed_wing_longitudinal_setpoint)};
+ 	uORB::Subscription _long_control_configuration_sub{ORB_ID(longitudinal_control_configuration)};
+@@ -141,6 +144,9 @@ private:
+ 	uORB::Publication <tecs_status_s> _tecs_status_pub{ORB_ID(tecs_status)};
+ 	uORB::PublicationData <flight_phase_estimation_s> _flight_phase_estimation_pub{ORB_ID(flight_phase_estimation)};
+ 	uORB::Publication <fixed_wing_lateral_status_s> _fixed_wing_lateral_status_pub{ORB_ID(fixed_wing_lateral_status)};
++	uORB::Publication <fixed_wing_guidance_status_s> _guidance_status_pub{ORB_ID(fixed_wing_guidance_status)};
++	hrt_abstime _parameter_revision{};
++	hrt_abstime _last_guidance_status_publication{};
+ 
+ 	DEFINE_PARAMETERS(
+ 		(ParamFloat<px4::params::FW_PSP_OFF>) _param_fw_psp_off,
+@@ -194,6 +200,9 @@ private:
+ 	hrt_abstime _time_wind_last_received{0};
+ 	SlewRate<float> _roll_slew_rate;
+ 	float _yaw{0.f};
++	matrix::Vector3f _fixed_wing_forward_ned{NAN, NAN, NAN};
++	hrt_abstime _fixed_wing_attitude_timestamp{};
++	bool _fixed_wing_frame_is_tailsitter{};
+ 	struct lateral_control_state {
+ 		matrix::Vector2f ground_speed;
+ 		matrix::Vector2f wind_speed;
+@@ -221,6 +230,7 @@ private:
+ 	float _min_airspeed_from_guidance{0.f}; // need to store it bc we only update after running longitudinal controller
+ 
+ 	void parameters_update();
++	void publishGuidanceStatus(hrt_abstime now, bool active, float effective_airspeed);
+ 	void update_control_state(hrt_abstime now);
+ 
+ 	uint8_t tecs_update_pitch_throttle(const float control_interval, float alt_sp, float airspeed_sp,
+diff --git a/src/modules/uxrce_dds_client/dds_topics.yaml b/src/modules/uxrce_dds_client/dds_topics.yaml
+index 656c301769..c19621c906 100644
+--- a/src/modules/uxrce_dds_client/dds_topics.yaml
++++ b/src/modules/uxrce_dds_client/dds_topics.yaml
+@@ -97,6 +97,10 @@ publications:
+     type: px4_msgs::msg::AirspeedValidated
+     rate_limit: 50.
+ 
++  - topic: /fmu/out/fixed_wing_guidance_status
++    type: px4_msgs::msg::FixedWingGuidanceStatus
++    rate_limit: 10.
++
+   - topic: /fmu/out/vtol_vehicle_status
+     type: px4_msgs::msg::VtolVehicleStatus
+ 

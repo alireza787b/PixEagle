@@ -28,6 +28,9 @@
 *.json text eol=lf
 *.toml text eol=lf
 
+# Unified-diff context preserves upstream indentation and blank lines.
+/native/px4/patches/*.patch text eol=lf -whitespace
+
 # Makefiles - MUST use LF
 Makefile text eol=lf
 makefile text eol=lf

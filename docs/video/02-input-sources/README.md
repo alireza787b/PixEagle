@@ -1,10 +1,11 @@
 # Video Input Sources
 
-> Complete guide to all 7 supported video source types
+> Camera, replay and isolated simulation inputs
 
 ## Overview
 
-PixEagle supports 7 video input sources, each optimized for specific use cases. The `VideoHandler` automatically selects the appropriate backend (OpenCV or GStreamer) based on configuration.
+`VideoHandler` selects the capture backend from the configured source. Ordinary
+camera inputs and the isolated simulator share the same downstream processing.
 
 ## Source Types
 
@@ -17,6 +18,7 @@ PixEagle supports 7 video input sources, each optimized for specific use cases. 
 | [HTTP Stream](http-stream.md) | `HTTP_STREAM` | Optional | HTTP video sources |
 | [CSI Camera](csi-camera.md) | `CSI_CAMERA` | Required | Raspberry Pi, Jetson |
 | [Custom GStreamer](custom-gstreamer.md) | `CUSTOM_GSTREAMER` | Required | Advanced pipelines |
+| [Gazebo camera](gazebo-camera.md) | `GAZEBO_CAMERA` | Not required by reader | Launcher-managed, stamped simulation images |
 
 ## Quick Selection Guide
 

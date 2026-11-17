@@ -18,6 +18,7 @@ The tracker system provides the visual perception layer of PixEagle, detecting a
 | [Configuration](04-configuration/README.md) | Schema system, parameters, tuning |
 | [Development Guide](05-development/README.md) | Creating custom trackers |
 | [Integration](06-integration/README.md) | Follower and external system integration |
+| [Camera mounting](06-integration/camera-mounting.md) | Fixed cameras, gimbal presets and MC/FW/VTOL frame conventions |
 
 ---
 
@@ -76,7 +77,7 @@ Each tracker supports specific data types:
 | DaSiamRPN | BBOX_CONFIDENCE | POSITION_2D, VELOCITY_AWARE |
 | dlib | POSITION_2D | BBOX_CONFIDENCE, VELOCITY_AWARE |
 | SmartTracker | MULTI_TARGET | POSITION_2D, BBOX_CONFIDENCE |
-| Gimbal | GIMBAL_ANGLES | ANGULAR, POSITION_2D |
+| Gimbal | GIMBAL_ANGLES | ANGULAR; no synthesized image position |
 
 ---
 

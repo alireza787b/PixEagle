@@ -4,7 +4,7 @@
 
 `BaseFollower` is the abstract base class that all follower implementations inherit from. It provides centralized safety management, schema-aware setpoint handling, and common utilities.
 
-**Source**: `src/classes/followers/base_follower.py` (1,142 lines)
+**Source**: `src/classes/followers/base_follower.py`
 
 ---
 
@@ -84,7 +84,7 @@ def follow_target(self, tracker_data: TrackerOutput) -> bool:
 
 ```python
 def get_control_type(self) -> str:
-    """Returns control type: 'velocity_body_offboard' or 'attitude_rate'."""
+    """Return the profile/session's declared command type."""
 ```
 
 ### get_available_fields
@@ -111,8 +111,37 @@ def set_command_fields(self, field_values: Dict[str, float], *, reason: str | No
     """
 ```
 
-Concrete followers use `set_command_fields()` for command output. Partial
-single-field publication is not supported at the follower boundary.
+MAVSDK followers use `set_command_fields()` for command output. Native FW uses
+the handler's `set_native_intent()` with a complete, session-bound typed variant.
+Partial single-field publication is unsupported at either boundary.
+
+### Read-only guidance input validation
+
+```python
+def require_guidance_input(
+    self, tracker_output: TrackerOutput | None, aircraft_state: AircraftState | None,
+) -> None:
+    """Raise a reason-code ValueError if additional observation requirements fail."""
+```
+
+The default is a no-op for existing image-PID/provider contracts. A calibrated
+strategy uses this synchronous hook to validate its exact source, measurement,
+calibration and attitude association. It returns `None` or raises a short reason
+code; it cannot create a measurement, refresh its receipt or publish commands.
+Invalid hook contracts and unexpected errors fail closed.
+
+Canonical startup readiness and target-evidence normalization call the same
+hook. Read-only native discovery supplies real aircraft state before the final
+input check and mode acquisition. Target/source identity is checked again after
+discovery, after engagement and before activation; ordinary same-geometry frame
+progress is allowed. A never-engaged discovery owner is locally aborted without
+requesting Hold. Once acquisition has been attempted, normal owner-aware cleanup
+remains necessary.
+
+During a session, unavailable input becomes uncertain evidence for the existing
+continuity supervisor. It must not use the gimbal immediate-failure flags or
+introduce a new recovery timer. Non-video target evidence remains independent
+of video-only source resets.
 
 ### get_all_command_fields
 
@@ -132,7 +161,7 @@ BaseFollower integrates with the centralized SafetyManager:
 ```python
 # Required during construction; initialization failure aborts follower creation.
 self.safety_manager = get_safety_manager()
-self._follower_config_name = self._derive_follower_config_name()
+self._follower_config_name = self.setpoint_handler.profile_config["config_section"]
 ```
 
 ### Dynamic Safety Properties
@@ -351,19 +380,11 @@ def is_circuit_breaker_active(self) -> bool:
 
 ---
 
-## Config Name Derivation
+## Configuration identity
 
-### _derive_follower_config_name
-
-```python
-def _derive_follower_config_name(self) -> str:
-    """
-    Convert class name to config section name.
-
-    MCVelocityChaseFollower -> MC_VELOCITY_CHASE
-    FWAttitudeRateFollower -> FW_ATTITUDE_RATE
-    """
-```
+The validated profile's explicit `config_section` selects shared operational
+overrides and SafetyManager lookup. Renaming or subclassing an implementation
+does not change its configuration. There is no class-name-derived fallback.
 
 ---
 

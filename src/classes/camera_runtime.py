@@ -8,7 +8,8 @@ import time
 import uuid
 from contextlib import asynccontextmanager, contextmanager, nullcontext
 
-from classes.gimbal_provider import create_gimbal_provider
+from classes.gimbal_provider import GimbalInputProvider, create_gimbal_provider
+from classes.gimbal_types import CameraObservationSource
 
 
 class CameraLifecycleBusy(ValueError):
@@ -24,9 +25,10 @@ class CameraRuntime:
     def __init__(self, app, settings):
         self.app = app
         self.settings = dict(settings)
-        self.provider = None
+        self._provider = None
         self.camera_id = str(uuid.uuid4())
         self._lock = threading.RLock()
+        self._start_lock = threading.Lock()
         self._actor = None
         self._lease_until = 0.0
         self._hold_started = 0.0
@@ -39,6 +41,22 @@ class CameraRuntime:
         self._initial_source_epoch = None
         self._manual = None
         self._lifecycle_users = 0
+        self._observation_available = False
+        self._source_generation = 0
+        self._bound_provider = None
+        self._observation_since = time.monotonic()
+        self._observation_min_sequence = 0
+
+    @property
+    def provider(self):
+        return self._provider
+
+    @provider.setter
+    def provider(self, value):
+        with self._lock:
+            if self._bound_provider is not None and value is not self._bound_provider:
+                raise ValueError('camera_provider_replacement_requires_new_owner')
+            self._provider = value
 
     def get_provider(self):
         with self._lock:
@@ -46,17 +64,102 @@ class CameraRuntime:
                 raise ValueError("Camera provider is disabled")
             if self.provider is None:
                 self.provider = create_gimbal_provider(self.settings)
+            if self.provider is not self._bound_provider:
+                if isinstance(self.provider, GimbalInputProvider):
+                    provider = self.provider
+                    provider.set_lifecycle_observer(lambda event, token: self._provider_lifecycle(provider, event, token))
+                self._bound_provider = self.provider
             return self.provider
 
     def start(self):
-        provider = self.get_provider()
-        started = bool(provider.running or provider.start_listening())
-        control = getattr(provider, "manual_control", None)
-        if (started and callable(getattr(control, "prepare_manual", None))
-                and callable(getattr(control, "send_manual_intent", None)) and self._manual is None):
-            from classes.camera_manual_executor import CameraManualExecutor
-            self._manual = CameraManualExecutor(self, control)
-        return started
+        with self._start_lock:
+            with self._lock:
+                provider = self.get_provider()
+                restarting = not provider.running
+                observed_lifecycle = isinstance(provider, GimbalInputProvider)
+                if restarting and not observed_lifecycle:
+                    self._retire_observation_source()
+            started = bool(provider.start_listening()) if restarting else True
+            with self._lock:
+                current = not self._closed and provider is self.provider
+                if observed_lifecycle:
+                    current = current and self._observation_available
+                control = getattr(provider, 'manual_control', None)
+                prepare_manual = (started and current and callable(getattr(control, 'prepare_manual', None))
+                                  and callable(getattr(control, 'send_manual_intent', None)) and self._manual is None)
+                source_generation = self._source_generation
+            if prepare_manual:
+                from classes.camera_manual_executor import CameraManualExecutor
+                candidate = CameraManualExecutor(self, control)
+                with self._lock:
+                    attach = (not self._closed and provider is self.provider and self._manual is None
+                              and control is getattr(provider, 'manual_control', None)
+                              and source_generation == self._source_generation)
+                    if attach:
+                        self._manual = candidate
+                if not attach:
+                    candidate.close()
+            with self._lock:
+                current = not self._closed and provider is self.provider and source_generation == self._source_generation
+                if observed_lifecycle:
+                    current = current and self._observation_available
+                discard_transport = self._closed or source_generation == self._source_generation
+            if started and not current and restarting and discard_transport:
+                provider.stop_listening()
+            return started and current
+
+    def _retire_observation_source(self):
+        self._source_generation += 1
+        self._generation += 1
+        self._observation_available = False
+        self._observation_since = time.monotonic()
+        sequence = getattr(self.provider, 'angle_sample_sequence', 0)
+        self._observation_min_sequence = sequence if type(sequence) is int else 0
+
+    def _provider_lifecycle(self, provider, event, token):
+        with self._lock:
+            if provider is not self.provider or provider is not self._bound_provider:
+                return None if event == 'starting' else False
+            if event == 'starting':
+                if self._closed:
+                    return None
+                self._retire_observation_source()
+                return self._source_generation
+            if event == 'stopping':
+                self._retire_observation_source()
+            elif event == 'started':
+                current = not self._closed and token == self._source_generation
+                self._observation_available = current
+                return current
+            elif event == 'failed' and token == self._source_generation:
+                self._observation_available = False
+            return False
+
+    def angle_source_identity(self) -> CameraObservationSource | None:
+        with self._lock:
+            if not isinstance(self.provider, GimbalInputProvider) or self.provider is not self._bound_provider:
+                return None
+            return CameraObservationSource(self.camera_id, self._source_generation)
+
+    def angle_observation_context(self) -> CameraObservationSource | None:
+        with self._lock:
+            if self._closed or not self._observation_available or self.provider is None or not self.provider.running:
+                return None
+            return self.angle_source_identity()
+
+    def angle_receipt_matches_source(self, source, sequence, received) -> bool:
+        with self._lock:
+            return (type(sequence) is int and sequence > self._observation_min_sequence
+                    and self._receipt_matches_source(source, received))
+
+    def tracking_receipt_matches_source(self, source, received) -> bool:
+        with self._lock:
+            return self._receipt_matches_source(source, received)
+
+    def _receipt_matches_source(self, source, received):
+        return (source is not None and source == self.angle_observation_context()
+                and isinstance(received, (int, float)) and not isinstance(received, bool)
+                and self._observation_since < received <= time.monotonic())
 
     def guard(self):
         publisher = getattr(self.app, "frame_publisher", None)
@@ -142,15 +245,17 @@ class CameraRuntime:
             self._motion = False
 
     def close(self):
-        if self._manual is not None:
-            self._manual.close()
         with self._lock:
             self._closed = True
-            self._generation += 1
-            if self.provider is not None:
-                self.provider.stop_listening()
+            self._retire_observation_source()
+            self._observation_available = False
+            provider, manual = self.provider, self._manual
             self._motion = False
             self._lease_until = 0.0
+        if manual is not None:
+            manual.close()
+        if provider is not None:
+            provider.stop_listening()
 
     @contextmanager
     def lifecycle_reservation(self, *, cancel_manual=False):

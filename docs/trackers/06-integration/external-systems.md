@@ -27,7 +27,10 @@ TrackerOutput(
 
 Followers must not depend on vendor packets. New gimbal hardware support should
 be implemented as a provider that returns normalized angles, tracking state,
-freshness, health, and metadata.
+freshness, health, and metadata. The application producer binds independent
+angle/status receipts to immutable `gimbal_observation` source metadata. It
+does not turn angles into image pixels. See the
+[provider contract](../05-development/external-gimbal-providers.md).
 
 ### Configuration
 
@@ -66,43 +69,18 @@ AIRCRAFT_BODY  → Aircraft body frame
 NED            → North-East-Down world frame
 ```
 
-### Transformation Pipeline
+### Shared Transformation Boundary
 
-```python
-# In CoordinateTransformer
-def gimbal_to_ned(self, gimbal_angles, aircraft_attitude):
-    # 1. Gimbal body to aircraft body
-    body_vector = self.gimbal_angles_to_body_vector(
-        gimbal_angles.yaw,
-        gimbal_angles.pitch,
-        gimbal_angles.roll
-    )
+Keep received angles unchanged. Resolve `GimbalTracker.MOUNT_TYPE` and its
+explicit expert mapping through `gimbal_geometry.py`; both gimbal followers
+reuse that body-ray calculation. World-frame guidance uses the physical
+FRD-to-NED quaternion with qualified sample association. MAVLink body-velocity
+commands instead use the explicit heading-frame boundary; these are different
+operations, especially at nonzero roll/pitch and on a tailsitter.
 
-    # 2. Aircraft body to NED (using aircraft attitude)
-    ned_vector = self.body_to_ned(
-        body_vector,
-        aircraft_attitude.roll,
-        aircraft_attitude.pitch,
-        aircraft_attitude.yaw
-    )
-
-    return ned_vector
-```
-
-### Mount Offset Compensation
-
-```python
-# Account for gimbal mounting offset
-def apply_mount_offset(self, angles, mount_config):
-    offset_yaw = mount_config.get('yaw_offset', 0.0)
-    offset_pitch = mount_config.get('pitch_offset', 0.0)
-
-    return (
-        angles.yaw + offset_yaw,
-        angles.pitch + offset_pitch,
-        angles.roll
-    )
-```
+Do not add tracker-local Euler transforms or follower-local mount offsets.
+See the [mounting reference](../02-reference/gimbal-tracker.md#mount-configurations)
+and [observation/frame contract](../../followers/05-development/follower-consolidation-plan.md#4-observation-mount-and-px4-frames).
 
 ---
 

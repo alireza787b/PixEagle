@@ -15,7 +15,7 @@ import pytest
 import math
 from copy import deepcopy
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 import yaml
 import os
 
@@ -28,11 +28,12 @@ import os
 def mock_schema():
     """Create a mock schema for testing."""
     return {
-        'schema_version': '2.1.0',
+        'schema_version': '2.5.0',
         'follower_profiles': {
             'mc_velocity_chase': {
                 'control_type': 'velocity_body_offboard',
                 'airframe_phase': 'multicopter',
+                'live_qualified_phases': ['multicopter'],
                 'display_name': 'MC Velocity Chase',
                 'description': 'Body-frame velocity control',
                 'required_fields': ['vel_body_fwd', 'vel_body_right', 'vel_body_down', 'yawspeed_deg_s']
@@ -40,12 +41,14 @@ def mock_schema():
             'fw_attitude_rate': {
                 'control_type': 'attitude_rate',
                 'airframe_phase': 'fixed_wing',
+                'live_qualified_phases': [],
                 'display_name': 'FW Attitude Rate',
                 'description': 'Angular rate control',
                 'required_fields': ['rollspeed_deg_s', 'pitchspeed_deg_s', 'yawspeed_deg_s', 'thrust']
             },
             'mc_velocity_position': {
                 'airframe_phase': 'multicopter',
+                'live_qualified_phases': ['multicopter'],
                 'control_type': 'velocity_body_offboard',
                 'display_name': 'MC Velocity Position',
                 'description': 'Position-based velocity control',
@@ -106,9 +109,11 @@ def mock_schema():
         },
         'control_types': {
             'velocity_body_offboard': {
+                'transport': 'mavsdk',
                 'mavsdk_method': 'set_velocity_body',
             },
             'attitude_rate': {
+                'transport': 'mavsdk',
                 'mavsdk_method': 'set_attitude_rate',
             },
         },
@@ -564,7 +569,7 @@ class TestFollowerCommandSchemaContract:
         path = Path(__file__).resolve().parents[3] / 'configs' / 'follower_commands.yaml'
         contract = SetpointHandler.load_and_validate_schema(path)
 
-        assert contract['schema_version'] == '2.1.0'
+        assert contract['schema_version'] == '2.5.0'
         assert contract['removed_profile_aliases']['mc_velocity'] == 'mc_velocity_chase'
         assert contract['control_types']['velocity_body_offboard']['mavsdk_method'] == (
             'set_velocity_body'
@@ -574,7 +579,19 @@ class TestFollowerCommandSchemaContract:
         'mutate,match',
         [
             (
+                lambda schema: schema['follower_profiles']['mc_velocity_chase'].__setitem__('family', []),
+                'family is invalid',
+            ),
+            (
+                lambda schema: schema['follower_profiles']['mc_velocity_chase'].__setitem__('visibility', 'always'),
+                'visibility is invalid',
+            ),
+            (
                 lambda schema: schema.__setitem__('schema_version', '3.0.0'),
+                'unsupported follower command schema_version',
+            ),
+            (
+                lambda schema: schema.__setitem__('schema_version', '2.3.0'),
                 'unsupported follower command schema_version',
             ),
             (
@@ -605,6 +622,20 @@ class TestFollowerCommandSchemaContract:
                 ),
                 'unsupported metadata',
             ),
+            *[(lambda schema, bad=bad: schema['follower_profiles']['gm_velocity_vector'].__setitem__(
+                'native_phase_contracts', bad), 'native_phase_contracts is invalid')
+              for bad in ('fixed_wing', ['fixed_wing', 'fixed_wing'], ['unknown'], [{}], [True])],
+            (
+                lambda schema: schema.__setitem__('schema_version', '2.4.0'),
+                'unsupported follower command schema_version',
+            ),
+            (
+                lambda schema: schema['follower_profiles']['mc_velocity_chase'].pop('live_qualified_phases'),
+                'live_qualified_phases',
+            ),
+            *[(lambda schema, bad=bad: schema['follower_profiles']['mc_velocity_chase'].__setitem__(
+                'live_qualified_phases', bad), 'live_qualified_phases')
+              for bad in (None, 'multicopter', ['multicopter', 'multicopter'], ['fixed_wing'], ['unknown'], [True], [{}])],
         ],
     )
     def test_complete_schema_validation_fails_closed(self, mutate, match):
@@ -635,6 +666,238 @@ class TestFollowerCommandSchemaContract:
         errors = command_intent_contract_errors(intent, contract)
 
         assert any('Python int or float' in error for error in errors)
+
+
+@pytest.fixture
+def native_schema():
+    """Extra native profile fixture independent of the registered catalog."""
+    from classes.setpoint_handler import validate_follower_command_schema
+
+    schema = TestFollowerCommandSchemaContract._canonical_schema()
+    profile = deepcopy(schema['follower_profiles']['fw_attitude_rate'])
+    profile.update(
+        control_type='fixed_wing_external',
+        required_fields=[],
+        display_name='Fixture Native FW',
+    )
+    schema['follower_profiles']['fixture_native_fw'] = profile
+    schema['ui_config']['profile_display_order'].append('fixture_native_fw')
+    return validate_follower_command_schema(schema)
+
+
+@pytest.fixture
+def native_handler(native_schema):
+    from classes.setpoint_handler import SetpointHandler
+
+    with patch.object(SetpointHandler, '_schema_cache', native_schema):
+        yield SetpointHandler('fixture_native_fw')
+
+
+def native_intent(**changes):
+    from classes.aircraft_state import AircraftBinding, GuidanceSessionIdentity
+    from classes.command_intent import CommandIntent
+
+    values = {
+        'profile_name': 'fixture_native_fw',
+        'control_type': 'fixed_wing_external',
+        'fields': {'course_rad': 0.25, 'equivalent_airspeed_m_s': 18.0, 'height_rate_m_s': -1.0},
+        'source': 'native_contract_test',
+        'guidance_identity': GuidanceSessionIdentity('follow-a', AircraftBinding('aircraft-a', 'connection-a', 1), 1),
+    }
+    values.update(changes)
+    return CommandIntent(**values)
+
+
+class TestNativeFollowerCommandSchema:
+    def test_canonical_native_contract_has_explicit_phase_permission_and_no_scalar_defaults(self):
+        from classes.fixed_wing_vector_guidance import FixedWingCommand
+
+        schema = TestFollowerCommandSchemaContract._canonical_schema()
+        native = schema['control_types']['fixed_wing_external']
+        assert native['transport'] == 'px4_native'
+        assert 'mavsdk_method' not in native
+        assert {name: frozenset(fields) for name, fields in native['field_variants'].items()} == (
+            FixedWingCommand.field_variants()
+        )
+        assert not set().union(*FixedWingCommand.field_variants().values()) & set(schema['command_fields'])
+        native_profiles = [profile for profile in schema['follower_profiles'].values()
+                           if schema['control_types'][profile['control_type']]['transport'] == 'px4_native']
+        assert native_profiles
+        assert all(profile['required_fields'] == [] for profile in native_profiles)
+        assert schema['follower_profiles']['fw_navigation_chase']['live_qualified_phases'] == ['fixed_wing']
+
+    @pytest.mark.parametrize('mutate,match', [
+        (lambda schema: schema['control_types']['fixed_wing_external'].__setitem__('mavsdk_method', 'set_velocity_body'),
+         'cannot declare a MAVSDK method'),
+        (lambda schema: schema['control_types']['fixed_wing_external'].__setitem__('transport', 'unknown'),
+         'transport must be mavsdk or px4_native'),
+        (lambda schema: schema['control_types']['velocity_body_offboard'].pop('transport'),
+         'transport must be mavsdk or px4_native'),
+        (lambda schema: schema['control_types']['velocity_body_offboard'].__setitem__('field_variants', {}),
+         'field_variants requires px4_native'),
+        (lambda schema: schema['control_types']['fixed_wing_external'].pop('field_variants'),
+         'field_variants must match FixedWingCommand'),
+        (lambda schema: schema['control_types']['fixed_wing_external']['field_variants'].__setitem__('extra', []),
+         'field_variants must match FixedWingCommand'),
+        (lambda schema: schema['control_types']['fixed_wing_external']['field_variants'].__setitem__('height_rate', ['course_rad']),
+         'must match FixedWingCommand'),
+        (lambda schema: schema['control_types']['fixed_wing_external']['field_variants'].__setitem__('height_rate', ['course_rad'] * 3),
+         'must not contain duplicates'),
+        (lambda schema: schema['control_types']['fixed_wing_external']['field_variants'].__setitem__('height_rate', [' course_rad', 'equivalent_airspeed_m_s', 'height_rate_m_s']),
+         'must match FixedWingCommand'),
+        (lambda schema: schema['follower_profiles']['fixture_native_fw'].__setitem__('required_fields', ['vel_body_fwd']),
+         'native FW profiles require empty required_fields'),
+        (lambda schema: schema['follower_profiles']['fixture_native_fw'].__setitem__('airframe_phase', 'multicopter'),
+         'fixed_wing airframe_phase'),
+        (lambda schema: schema['follower_profiles']['mc_velocity_chase'].__setitem__('required_fields', []),
+         'required_fields must not be empty'),
+        (lambda schema: schema['command_fields'].__setitem__('course_rad', deepcopy(schema['command_fields']['vel_body_fwd'])),
+         'native command fields must not declare scalar defaults'),
+    ])
+    def test_native_metadata_fails_closed(self, native_schema, mutate, match):
+        from classes.setpoint_handler import validate_follower_command_schema
+
+        mutate(native_schema)
+        with pytest.raises(ValueError, match=match):
+            validate_follower_command_schema(native_schema)
+
+    def test_native_evidence_contract_uses_supplied_session_identity(self, native_schema):
+        from dataclasses import asdict
+        from classes.setpoint_handler import command_intent_contract_errors
+
+        intent = asdict(native_intent())
+        assert command_intent_contract_errors(intent, native_schema) == []
+        intent['fields']['height_rate_m_s'] = math.nan
+        assert any('height_rate_invalid' in error for error in command_intent_contract_errors(intent, native_schema))
+        intent['fields']['height_rate_m_s'] = 0
+        intent.pop('guidance_identity')
+        assert any('GuidanceSessionIdentity' in error for error in command_intent_contract_errors(intent, native_schema))
+
+    @pytest.mark.parametrize('identity', [None, {}, {'binding': None}, {'binding': {}, 'unexpected': 1}])
+    def test_native_evidence_identity_fails_closed(self, native_schema, identity):
+        from dataclasses import asdict
+        from classes.setpoint_handler import command_intent_contract_errors
+
+        intent = asdict(native_intent())
+        intent['guidance_identity'] = identity
+        assert command_intent_contract_errors(intent, native_schema)
+
+
+class TestNativeSetpointHandler:
+    def test_initial_state_has_no_command_or_fallback(self, native_handler):
+        from classes.fixed_wing_vector_guidance import FixedWingCommand
+
+        assert native_handler.get_fields() == {}
+        assert native_handler.get_last_command_intent() is None
+        assert native_handler.get_transport() == 'px4_native'
+        assert native_handler.get_allowed_field_variants() == FixedWingCommand.field_variants()
+        assert native_handler.validate_profile_consistency()
+
+    @pytest.mark.parametrize('method,args,kwargs', [
+        ('set_field', ('course_rad', 1.0), {}),
+        ('set_fields', ({},), {}),
+        ('configure_fallback_defaults', ({'course_rad': 1.0},), {'source': 'test'}),
+        ('get_fallback_defaults', (), {}),
+        ('get_fallback_default_sources', (), {}),
+        ('get_mavsdk_dispatch_method', (), {}),
+    ])
+    def test_scalar_fallback_and_mavsdk_apis_refuse_native(self, native_handler, method, args, kwargs):
+        with pytest.raises(ValueError, match='native profiles require|does not use MAVSDK'):
+            getattr(native_handler, method)(*args, **kwargs)
+        assert native_handler.get_fields() == {}
+        assert native_handler.get_last_command_intent() is None
+
+    def test_variants_replace_current_fields_and_reset_clears_them(self, native_handler):
+        first = native_intent()
+        accepted = native_handler.set_native_intent(first)
+        assert accepted == first
+        assert accepted.guidance_identity is first.guidance_identity
+        assert native_handler.get_fields() == first.fields
+
+        altitude = native_intent(fields={'course_rad': -.5, 'equivalent_airspeed_m_s': 21.0, 'altitude_amsl_m': 550.0})
+        native_handler.set_native_intent(altitude)
+        assert native_handler.get_fields() == altitude.fields
+        assert 'height_rate_m_s' not in native_handler.get_fields()
+        native_handler.reset_setpoints()
+        assert native_handler.get_fields() == {}
+        assert native_handler.get_last_command_intent() is None
+        assert set(native_handler.get_allowed_field_variants()) == {'height_rate', 'altitude'}
+
+    def test_caller_mutation_does_not_change_accepted_snapshot(self, native_handler):
+        intent = native_intent()
+        accepted = native_handler.set_native_intent(intent)
+        intent.fields['course_rad'] = math.nan
+        assert accepted.fields['course_rad'] == .25
+        assert native_handler.get_fields()['course_rad'] == .25
+        metadata = native_handler.get_control_type_metadata('fixed_wing_external')
+        metadata['field_variants']['height_rate'].clear()
+        assert len(native_handler.get_allowed_field_variants()['height_rate']) == 3
+
+    def test_unavailable_fallback_read_does_not_invalidate_native_intent(self, native_handler):
+        accepted = native_handler.set_native_intent(native_intent())
+        with pytest.raises(ValueError):
+            native_handler.get_fallback_defaults()
+        assert native_handler.get_last_command_intent() == accepted
+
+    @pytest.mark.parametrize('changes', [
+        {'profile_name': 'gm_velocity_vector'},
+        {'control_type': 'velocity_body_offboard'},
+        {'guidance_identity': None},
+        {'guidance_identity': {'follow_session_id': 'follow-a'}},
+        {'fields': {}},
+        {'fields': None},
+        {'fields': {'course_rad': 0, 'equivalent_airspeed_m_s': 20}},
+        {'fields': {'course_rad': 0, 'equivalent_airspeed_m_s': 20, 'height_rate_m_s': 0, 'altitude_amsl_m': 550}},
+        {'fields': {'course_rad': 0, 'equivalent_airspeed_m_s': 20, 'height_rate_m_s': 0, 'vel_body_fwd': 1}},
+        *[{'fields': {'course_rad': value, 'equivalent_airspeed_m_s': 20, 'height_rate_m_s': 0}}
+          for value in (math.nan, math.inf, True, '0.25')],
+        *[{'fields': {'course_rad': 0, 'equivalent_airspeed_m_s': value, 'height_rate_m_s': 0}}
+          for value in (0, -1, math.nan, True, '20')],
+        {'fields': {'course_rad': 0, 'equivalent_airspeed_m_s': 20, 'height_rate_m_s': math.nan}},
+        {'fields': {'course_rad': 0, 'equivalent_airspeed_m_s': 20, 'altitude_amsl_m': math.inf}},
+    ])
+    def test_rejected_native_command_is_atomic_and_invalidates_previous_intent(self, native_handler, changes):
+        native_handler.set_native_intent(native_intent())
+        before = native_handler.get_fields()
+        with pytest.raises(ValueError):
+            native_handler.set_native_intent(native_intent(**changes))
+        assert native_handler.get_fields() == before
+        assert native_handler.get_last_command_intent() is None
+
+    def test_untyped_native_intent_is_rejected(self, native_handler):
+        with pytest.raises(ValueError, match='must be a CommandIntent'):
+            native_handler.set_native_intent({})
+
+    def test_mavsdk_profile_cannot_accept_native_intent(self, setpoint_handler):
+        with pytest.raises(ValueError, match='requires px4_native transport'):
+            setpoint_handler.set_native_intent(native_intent())
+
+    @pytest.mark.parametrize('populate', [False, True])
+    def test_ordinary_commander_cannot_admit_native_profile(self, native_handler, populate):
+        from classes.offboard_commander import OffboardCommander
+
+        intent = native_intent()
+        if populate:
+            native_handler.set_native_intent(intent)
+        commander = OffboardCommander(MagicMock(), native_handler)
+        assert commander.submit_intent(intent) is False
+        assert commander._last_intent is None
+        assert commander.rejected_intents == 1
+
+    @pytest.mark.asyncio
+    async def test_mavsdk_dispatch_never_sends_native_profile(self, native_handler):
+        from classes.px4_interface_manager import PX4InterfaceManager
+
+        native_handler.set_native_intent(native_intent())
+        manager = PX4InterfaceManager.__new__(PX4InterfaceManager)
+        manager.setpoint_handler = native_handler
+        manager._validation_mavsdk_disconnect_error = MagicMock(return_value=None)
+        manager.send_attitude_rate_commands = AsyncMock()
+        manager.send_velocity_body_offboard_commands = AsyncMock()
+
+        assert await manager.send_commands_unified() is False
+        manager.send_attitude_rate_commands.assert_not_awaited()
+        manager.send_velocity_body_offboard_commands.assert_not_awaited()
 
 
 class TestSetpointHandlerValidation:

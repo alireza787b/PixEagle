@@ -521,28 +521,23 @@ class TestAvailableFollowers:
 
     def test_returns_all_canonical_followers(self, fcm, config_with_general):
         """Profiles without configured overrides remain in the catalog."""
+        from classes.setpoint_handler import SetpointHandler
+
         fcm.load_from_config(config_with_general)
 
-        assert set(fcm.get_available_followers()) == {
-            'MC_VELOCITY_GROUND',
-            'MC_VELOCITY_DISTANCE',
-            'MC_VELOCITY_POSITION',
-            'MC_VELOCITY_CHASE',
-            'GM_VELOCITY_CHASE',
-            'GM_VELOCITY_VECTOR',
-            'FW_ATTITUDE_RATE',
-            'MC_ATTITUDE_RATE',
-        }
+        assert set(fcm.get_available_followers()) == {name.upper() for name in SetpointHandler.get_available_profiles()}
 
     def test_catalog_remains_complete_without_overrides(
         self,
         fcm,
         config_with_general,
     ):
+        from classes.setpoint_handler import SetpointHandler
+
         config_with_general['Follower']['FollowerOverrides'] = {}
         fcm.load_from_config(config_with_general)
 
-        assert len(fcm.get_available_followers()) == 8
+        assert set(fcm.get_available_followers()) == {name.upper() for name in SetpointHandler.get_available_profiles()}
 
 
 # =============================================================================

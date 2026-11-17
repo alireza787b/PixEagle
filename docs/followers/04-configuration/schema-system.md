@@ -1,279 +1,126 @@
-# Schema System
+# Follower profile and command schema
 
-> Profile and field definitions for followers
+`configs/follower_commands.yaml` is the checked-in authority for profile
+requirements, command fields/units and dispatch contracts. It is a developer
+contract asset, separate from saved operator settings in ConfigService.
+`SetpointHandler` validates it before use; current schema version is `2.5.0`.
 
-The schema system defines follower profiles, command fields, and control types in `configs/follower_commands.yaml`.
+## Profile declaration
 
-The Dashboard Follower control saves the selected profile through the same
-validated configuration path used by the API. The profile is shown as `Saved`
-until a follow session engages it, and it is applied when the next follower
-session is created. Changing it does not require a process reboot; changing an
-engaged live command contract is blocked until following is stopped.
-
----
-
-## Schema Structure
+A profile excerpt:
 
 ```yaml
-schema_version: "2.1.0"
-
-# Field definitions
-command_fields:
-  vel_body_fwd:
-    type: float
-    default: 0.0
-    unit: "m/s"
-    description: "Body frame forward velocity"
-
-# Profile definitions
 follower_profiles:
   mc_velocity_chase:
-    airframe_phase: multicopter
+    config_section: MC_VELOCITY_CHASE
+    family: multicopter
+    visibility: basic
     display_name: "MC Velocity Chase"
-    control_type: "velocity_body_offboard"
-    required_fields: [...]
-
-# Control type definitions
-control_types:
-  velocity_body_offboard:
-    mavsdk_method: "set_velocity_body"
-    description: "Offboard body velocity commands"
+    description: "Pursuit profile: forward ramp with yaw or sideslip and optional vertical control"
+    airframe_phase: multicopter
+    live_qualified_phases: [multicopter]
+    control_type: velocity_body_offboard
+    required_fields: [vel_body_fwd, vel_body_right, vel_body_down, yawspeed_deg_s]
+    ui_category: velocity
+    required_tracker_data: [POSITION_2D]
+    optional_tracker_data: [BBOX_CONFIDENCE, VELOCITY_AWARE, MULTI_TARGET]
 ```
 
----
+Families are `multicopter`, `fixed_wing`, `external` and `vtol`; visibility
+is `basic`, `advanced` or `experimental`. These describe presentation and
+requirements, not permission to fly. Keep stable profile IDs and explicit
+implementation registration. A new YAML profile without an implementation
+remains visible but unavailable.
 
-## Command Fields
+`live_qualified_phases` is a required, unique list drawn from the profile's
+declared phases. Use `[]` while a profile is unqualified. A native command
+contract describes capability; it never grants live admission. Start checks the
+actual phase against this list in addition to aircraft/input readiness. The
+catalog's aggregate `live_eligible` means at least one phase is admitted, not
+that every declared phase is. VTOL admission additionally requires qualified
+transition release, the native ownership contract and current source readiness;
+the [standard VTOL application checkpoint](../../reporting/agent-ops/codex-modernization/checkpoints/2026-11-13-vtol-training-app.md) records the bounded Gazebo case.
 
-### Velocity Fields
+Developer-owned command schemas upgrading from 2.4 must supply this declaration
+explicitly; there is no permissive fallback. This migration does not rewrite
+saved operator configuration or qualify new aircraft behavior.
+
+`config_section` explicitly binds algorithm settings, shared follower overrides
+and SafetyManager lookup. Renaming/subclassing a Python implementation must not
+change that binding. Developer-owned declarations must add it when upgrading
+from schema 2.2; there is no class-name-derived fallback. Saved operator settings
+keep their existing section names and values.
+
+Every required command field belongs to every atomic snapshot. Partial/optional
+command snapshots are unsupported. Units, scalar types and any static structural
+bounds live in `command_fields`; operational limits remain owned by SafetyManager
+or native PX4, not copied into this schema.
+
+Control types declare `transport: mavsdk` with a MAVSDK method, or
+`transport: px4_native` with exact typed field variants. Native FW objectives
+have either course/EAS/height-rate or course/EAS/AMSL-altitude, with no scalar
+defaults. A native-only profile therefore declares `required_fields: []`;
+`FixedWingCommand` validates the complete variant and session binding.
+
+The registered `fw_navigation_chase` declares that native FW contract and
+`live_qualified_phases: [fixed_wing]`. It accepts image-position tracker selection,
+then separately requires measured calibration and exact attitude association.
+See its [reference](../02-reference/fw-navigation-chase.md); compatible pixels
+alone cannot satisfy native pursuit readiness.
+
+## Native phase contracts
+
+The developing Vector path explicitly declares:
 
 ```yaml
-command_fields:
-  vel_body_fwd:
-    type: float
-    default: 0.0
-    unit: "m/s"
-    description: "Body frame forward velocity"
-    clamp: true
-
-  vel_body_right:
-    type: float
-    default: 0.0
-    unit: "m/s"
-    description: "Body frame right velocity"
-    clamp: true
-
-  vel_body_down:
-    type: float
-    default: 0.0
-    unit: "m/s"
-    description: "Body frame down velocity (positive = descend)"
-    clamp: true
+native_phase_contracts:
+  multicopter: velocity_body_offboard
+  fixed_wing: fixed_wing_external
+  vtol_transition: vtol_transition_external
 ```
 
-### Rate Fields
+This mapping replaces `native_airframe_phases`; it is not an alias or a
+qualification certificate. Native FW uses course/EAS/altitude or height rate;
+MC uses its own velocity contract. Do not rename fields to pretend commands
+are interchangeable. The current adapter supports only its declared native
+contracts; extending one requires an implementation and qualification.
 
-```yaml
-command_fields:
-  yawspeed_deg_s:
-    type: float
-    default: 0.0
-    unit: "deg/s"
-    description: "Yaw rate"
-    clamp: true
+An observed transition ends following and releases the native owner. A new Start
+requires fresh settled phase and source readiness. The bounded Gazebo application
+checkpoint verifies this workflow; historical continuing-session transitions
+cannot qualify it. Installed MC/FW recipe resolution remains a separate planned
+step; the current image workflow chooses its registered leaf profile explicitly.
 
-  rollspeed_deg_s:
-    type: float
-    default: 0.0
-    unit: "deg/s"
-    description: "Roll rate"
-    clamp: true
+## Shared eligibility and clients
 
-  pitchspeed_deg_s:
-    type: float
-    default: 0.0
-    unit: "deg/s"
-    description: "Pitch rate"
-    clamp: true
-```
+`follower_catalog.py` reads this profile plus the tracker's observation
+representation and field guarantees. It checks actual samples again at runtime.
+There is no independent tracker/follower class compatibility matrix.
 
-### Thrust Field
+`GET /api/v1/integration/following` carries the same catalog for first-party
+clients. Selection, implementation/live gating and current Start readiness are
+different results. Preserve unavailable saved selections and explain the reason;
+do not silently choose another mode or infer capability from an ID prefix.
 
-```yaml
-command_fields:
-  thrust:
-    type: float
-    default: 0.5
-    unit: "normalized"
-    description: "Normalized thrust (0.0-1.0)"
-    limits:
-      min: 0.0
-      max: 1.0
-    clamp: true
-```
+Local preview eligibility is derived from the nominal control type's canonical
+transport: implemented MAVSDK contracts can record local intent; native-only
+contracts cannot acquire a native owner in `COMMAND_PREVIEW`. The additive
+`preview_eligible` / `preview_reason_code` catalog fields describe that separate
+decision. A live-qualified phase does not grant preview support or vice versa.
 
----
+Profile selection is saved through ConfigService while following is inactive.
+A new session resolves it; changing the selected profile does not require a
+process reboot. Existing clients retain the `compatible` projection until their
+catalog migration. See the [extension guide](../../developers/SCHEMA_DRIVEN_DEVELOPMENT_GUIDE.md)
+for the exact metadata and validation workflow.
 
-## Follower Profiles
+## Command boundary
 
-### Profile Structure
+Followers submit complete nominal `CommandIntent` snapshots; they do not send
+MAVSDK/DDS commands directly. Shared continuity and final authorization precede
+the command owner. Neither a valid schema nor an accepted nominal intent proves
+publication or aircraft response.
 
-```yaml
-follower_profiles:
-  profile_name:
-    display_name: "Human-Readable Name"
-    description: "Profile purpose and behavior"
-    control_type: "velocity_body_offboard"
-    required_fields: ["field1", "field2", "field3"]
-    ui_category: "velocity"
-    required_tracker_data: ["POSITION_2D"]
-    optional_tracker_data: ["BBOX_CONFIDENCE"]
-```
-
-### Example: MC Velocity Chase
-
-```yaml
-mc_velocity_chase:
-  display_name: "MC Velocity Chase"
-  description: "Quadcopter chase with velocity ramping and dual-mode lateral guidance"
-  control_type: "velocity_body_offboard"
-  required_fields:
-    - vel_body_fwd
-    - vel_body_right
-    - vel_body_down
-    - yawspeed_deg_s
-  ui_category: "velocity"
-  required_tracker_data:
-    - POSITION_2D
-  optional_tracker_data:
-    - BBOX_CONFIDENCE
-    - VELOCITY_AWARE
-```
-
-### Example: FW Attitude Rate
-
-```yaml
-fw_attitude_rate:
-  display_name: "FW Attitude Rate"
-  description: "Fixed-wing with L1 navigation and TECS"
-  control_type: "attitude_rate"
-  required_fields:
-    - rollspeed_deg_s
-    - pitchspeed_deg_s
-    - yawspeed_deg_s
-    - thrust
-  ui_category: "attitude"
-  required_tracker_data:
-    - POSITION_2D
-```
-
----
-
-## Control Types
-
-```yaml
-control_types:
-  velocity_body_offboard:
-    mavsdk_method: "set_velocity_body"
-    description: "Offboard body velocity commands"
-    ui_display: "Body Velocity Offboard"
-
-  attitude_rate:
-    mavsdk_method: "set_attitude_rate"
-    description: "Angular rate commands with thrust"
-    ui_display: "Attitude Rate"
-```
-
----
-
-## Tracker Data Types
-
-```yaml
-tracker_data_types:
-  POSITION_2D:
-    description: "Normalized 2D position (-1 to +1)"
-
-  POSITION_3D:
-    description: "3D position with depth"
-
-  GIMBAL_ANGLES:
-    description: "Gimbal pan/tilt angles"
-
-  BBOX_CONFIDENCE:
-    description: "Bounding box with confidence score"
-
-  VELOCITY_AWARE:
-    description: "Target velocity estimation"
-```
-
----
-
-## SetpointHandler Usage
-
-### Loading a Profile
-
-```python
-from classes.setpoint_handler import SetpointHandler
-
-handler = SetpointHandler("mc_velocity_chase")
-
-# Get profile info
-print(handler.get_display_name())    # "MC Velocity Chase"
-print(handler.get_control_type())    # "velocity_body_offboard"
-```
-
-### Setting Command Snapshots
-
-```python
-# Set a complete command snapshot with validation
-handler.set_fields({
-    "vel_body_fwd": 5.0,
-    "vel_body_right": -2.0,
-    "vel_body_down": 0.0,
-    "yawspeed_deg_s": 0.0,
-}, source="docs_example")
-
-# Get all fields
-fields = handler.get_fields()
-# {'vel_body_fwd': 5.0, 'vel_body_right': -2.0, 'vel_body_down': 0.0}
-```
-
-### Validation
-
-```python
-# Check profile consistency
-valid = handler.validate_profile_consistency()
-
-# Get telemetry
-telemetry = handler.get_telemetry_data()
-```
-
----
-
-## Adding New Profiles
-
-1. Add command fields (if new):
-
-```yaml
-command_fields:
-  new_field:
-    type: float
-    default: 0.0
-    unit: "m/s"
-    description: "New field description"
-```
-
-2. Add profile:
-
-```yaml
-follower_profiles:
-  new_profile:
-    display_name: "New Profile"
-    control_type: "velocity_body_offboard"
-    required_fields: ["new_field", ...]
-```
-
-3. Register in FollowerFactory:
-
-```python
-FollowerFactory.register_follower('new_profile', NewFollowerClass)
-```
+The [qualification inventory](../05-development/follower-sih-validation-matrix.md)
+records that separate evidence. The [consolidation plan](../05-development/follower-consolidation-plan.md)
+tracks phase/strategy migration and removal gates.

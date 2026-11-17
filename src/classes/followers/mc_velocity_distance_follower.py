@@ -10,6 +10,7 @@ not estimate or hold target range.
 from classes.followers.base_follower import BaseFollower
 from classes.followers.custom_pid import CustomPID
 from classes.parameters import Parameters
+from classes.safety_types import AltitudeLimits
 from classes.follower_config_manager import get_follower_config_manager
 from classes.followers.yaw_rate_smoother import YawRateSmoother
 from classes.tracker_output import TrackerOutput
@@ -76,7 +77,7 @@ class MCVelocityDistanceFollower(BaseFollower):
         # Smoothing state for velocity EMA (initialized to 0; updated each control cycle)
         self._last_vel_right = 0.0
         self._last_vel_down = 0.0
-        self._last_update_time = time.time()
+        self._last_update_time = time.monotonic()
 
         # Initialize control system components
         self._initialize_pid_controllers()
@@ -92,6 +93,23 @@ class MCVelocityDistanceFollower(BaseFollower):
                    f"Yaw control: {'enabled' if self.yaw_enabled else 'disabled'}, "
                    f"Target: {self.initial_target_coords}")
     
+    def reset_target_state(self, reason: str) -> bool:
+        for controller in (self.pid_y, self.pid_z, self.pid_yaw_rate):
+            if controller is not None:
+                controller.reset()
+        self.yaw_smoother.reset()
+        self._last_vel_right = 0.0
+        self._last_vel_down = 0.0
+        self._last_update_time = time.monotonic()
+        return True
+
+    def prepare_authorized_command(self, fields: Dict[str, float], *, loss_decay: bool) -> Dict[str, float]:
+        fields = super().prepare_authorized_command(fields, loss_decay=loss_decay)
+        # Retained NED lateral motion can acquire a forward component when yaw
+        # changes; visual centering still owns no forward command during recovery.
+        fields["vel_body_fwd"] = 0.0
+        return fields
+
     def _initialize_pid_controllers(self) -> None:
         """
         Initialize PID controllers for active axes with proper configuration.
@@ -224,13 +242,13 @@ class MCVelocityDistanceFollower(BaseFollower):
         """
         try:
             current_altitude = self.px4_controller.current_altitude
-            if current_altitude is None:
+            if not AltitudeLimits.is_valid_altitude(current_altitude):
                 logger.warning("Unable to get current altitude - halting altitude control")
                 return 0.0
             
             logger.debug(f"Altitude control - Current: {current_altitude:.1f}m, "
                         f"Min: {self.min_descent_height:.1f}m, "
-                        f"Max: {self.max_climb_height:.1f}m")
+                        f"Max: {self.max_climb_height if self.max_climb_height is not None else 'none'}m")
             
             # Calculate PID-controlled vertical command
             command = self.positive_image_axis_pid_command(
@@ -247,7 +265,7 @@ class MCVelocityDistanceFollower(BaseFollower):
                     logger.debug("At minimum descent height - descent halted")
                     return 0.0
             else:  # Climbing (negative command)
-                if current_altitude < self.max_climb_height:
+                if AltitudeLimits.below(current_altitude, self.max_climb_height):
                     logger.debug(f"Climb command: {command:.3f} m/s")
                     return command
                 else:
@@ -336,7 +354,10 @@ class MCVelocityDistanceFollower(BaseFollower):
                 self.pid_y,
                 target_coords[0],
             )
-            vel_body_down = self._control_altitude_bidirectional(target_coords[1])
+            vel_body_down = (
+                self._control_altitude_bidirectional(target_coords[1])
+                if self.altitude_control_enabled else 0.0
+            )
             yaw_rate_rad_s = self._calculate_yaw_control(target_coords[0])
             
             # Update command fields using schema-aware interface (body offboard with deg/s yaw)
@@ -348,14 +369,15 @@ class MCVelocityDistanceFollower(BaseFollower):
             if self.command_smoothing_enabled:
                 alpha = self.smoothing_factor
                 vel_body_right = alpha * self._last_vel_right + (1.0 - alpha) * vel_body_right
-                vel_body_down = alpha * self._last_vel_down + (1.0 - alpha) * vel_body_down
+                if self.altitude_control_enabled:
+                    vel_body_down = alpha * self._last_vel_down + (1.0 - alpha) * vel_body_down
                 self._last_vel_right = vel_body_right
-                self._last_vel_down = vel_body_down
+            self._last_vel_down = vel_body_down
 
             # Apply YawRateSmoother (deadzone + rate-limiting + speed-scaling + EMA)
-            now = time.time()
-            dt = now - self._last_update_time
-            self._last_update_time = now
+            self._last_update_time, dt = self.bounded_control_delta(
+                self._last_update_time, self.control_update_rate,
+            )
             yawspeed_deg_s = self.yaw_smoother.apply(yawspeed_deg_s, dt)
 
             if not self.set_command_fields(

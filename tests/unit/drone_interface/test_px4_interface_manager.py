@@ -16,10 +16,14 @@ import pytest
 import math
 import asyncio
 import time
+import struct
 from types import SimpleNamespace
 from unittest.mock import patch, MagicMock, AsyncMock, PropertyMock
 import sys
 import os
+
+from classes.command_dispatch_guard import DispatchRefusalKind, DispatchRefused
+from classes.command_intent import CommandIntent
 
 # Add fixtures to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'fixtures'))
@@ -49,6 +53,8 @@ def mock_mavsdk_system():
     mock_system.action = MagicMock()
     mock_system.action.return_to_launch = AsyncMock()
     mock_system.telemetry = MagicMock()
+    mock_system.telemetry.set_rate_position = AsyncMock()
+    mock_system.telemetry.set_rate_velocity_ned = AsyncMock()
     return mock_system
 
 
@@ -94,6 +100,7 @@ def mock_mavlink_data_manager():
     mock_manager = MagicMock()
     mock_manager.fetch_attitude_observation = None
     mock_manager.fetch_ground_speed_observation = None
+    mock_manager.fetch_altitude_observation = None
     mock_manager.fetch_attitude_data = AsyncMock(return_value={
         'roll': 0.0,
         'pitch': 0.0,
@@ -157,6 +164,237 @@ def px4_interface(mock_parameters, mock_mavsdk_system, mock_setpoint_handler, mo
 # Test Classes
 # ============================================================================
 
+class TestFinalDispatchBoundary:
+    @pytest.fixture(autouse=True)
+    def _connected_with_telemetry(self, px4_interface):
+        px4_interface.active_mode = True
+        px4_interface._connection_state = "connected"
+        px4_interface._reset_telemetry_health("mavlink2rest")
+        px4_interface._commit_telemetry_snapshot(dict(
+            roll_deg=0., pitch_deg=0., yaw_deg=0., relative_altitude_m=50., ground_speed_m_s=0.,
+        ))
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("control_type,profile,fields,setter", [
+        ("velocity_body_offboard", "mc_velocity_chase", dict(
+            vel_body_fwd=.2, vel_body_right=.1, vel_body_down=-.1, yawspeed_deg_s=.3,
+        ), "set_velocity_body"),
+        ("attitude_rate", "fw_attitude_rate", dict(
+            rollspeed_deg_s=.2, pitchspeed_deg_s=.1, yawspeed_deg_s=-.1, thrust=.3,
+        ), "set_attitude_rate"),
+    ])
+    @pytest.mark.parametrize("refused", [False, True])
+    async def test_queued_sdk_attempt_retains_exact_snapshot_and_checks_at_dispatch(
+        self, px4_interface, control_type, profile, fields, setter, refused,
+    ):
+        handler = px4_interface.setpoint_handler
+        handler.profile_name = profile
+        handler.get_control_type.return_value = control_type
+        handler.get_fields.return_value = {key: 0. for key in fields}
+        accepted = CommandIntent(profile, control_type, dict(fields), "follower")
+        queued, release = asyncio.Event(), asyncio.Event()
+        real_wait_for = asyncio.wait_for
+        current = True
+        refusal = DispatchRefused("target_replaced", DispatchRefusalKind.SUPERSEDED)
+
+        def guard():
+            if not current:
+                raise refusal
+
+        async def queue_before_invocation(coroutine, timeout):
+            queued.set()
+            await release.wait()
+            return await real_wait_for(coroutine, timeout)
+
+        with patch("classes.px4_interface_manager.asyncio.wait_for", side_effect=queue_before_invocation):
+            task = asyncio.create_task(px4_interface.send_commands_unified(
+                command_intent=accepted, before_dispatch=guard,
+            ))
+            await queued.wait()
+            # Ordinary new frames must not replace the accepted command or
+            # invalidate its semantic owner. A target replacement must.
+            handler.get_fields.return_value = {key: 9. for key in fields}
+            accepted.fields.update({key: 8. for key in fields})
+            current = not refused
+            release.set()
+            if refused:
+                with pytest.raises(DispatchRefused) as error:
+                    await task
+                assert error.value is refusal
+            else:
+                assert await task is True
+        sdk_setter = getattr(px4_interface.drone.offboard, setter)
+        if refused:
+            sdk_setter.assert_not_called()
+            assert px4_interface._mavsdk_offboard_sender_state == "idle"
+        else:
+            actual = sdk_setter.call_args.args[0]
+            assert list(vars(actual).values()) == list(fields.values())
+            handler.get_fields.assert_not_called()
+            assert px4_interface._mavsdk_offboard_sender_state == "primed"
+        px4_interface.drone.offboard.stop.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("control_type", ["velocity_body_offboard", "attitude_rate"])
+    async def test_async_guard_refusal_survives_all_sender_layers(self, px4_interface, control_type):
+        handler = px4_interface.setpoint_handler
+        handler.get_control_type.return_value = control_type
+        if control_type == "attitude_rate":
+            handler.get_fields.return_value = dict(
+                rollspeed_deg_s=0., pitchspeed_deg_s=0., yawspeed_deg_s=0., thrust=.3,
+            )
+
+        async def invalid():
+            raise AssertionError("async guard must not run")
+
+        with pytest.raises(DispatchRefused, match="dispatch_guard_contract_invalid"):
+            await px4_interface.send_commands_unified(before_dispatch=invalid)
+        px4_interface.drone.offboard.set_velocity_body.assert_not_called()
+        px4_interface.drone.offboard.set_attitude_rate.assert_not_called()
+        assert px4_interface._mavsdk_offboard_sender_state == "idle"
+
+    @pytest.mark.asyncio
+    async def test_snapshot_profile_mismatch_never_reaches_sdk(self, px4_interface):
+        px4_interface.setpoint_handler.profile_name = "mc_velocity_position"
+        fields = dict(px4_interface.setpoint_handler.get_fields.return_value)
+        intent = CommandIntent("mc_velocity_chase", "velocity_body_offboard", fields, "follower")
+        assert await px4_interface.send_commands_unified(command_intent=intent) is False
+        px4_interface.drone.offboard.set_velocity_body.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_guarded_start_refusal_after_priming_has_no_mode_dispatch_or_hold(self, px4_interface):
+        current = True
+        receipts = []
+        refusal = DispatchRefused("source_changed", DispatchRefusalKind.TERMINAL)
+        px4_interface.drone.offboard.is_active = AsyncMock(return_value=False)
+
+        def guard():
+            if not current:
+                raise refusal
+
+        async def change_source(_duration):
+            nonlocal current
+            current = False
+
+        with patch("classes.px4_interface_manager.asyncio.sleep", side_effect=change_source):
+            with pytest.raises(DispatchRefused) as error:
+                await px4_interface.start_offboard_mode(
+                    before_dispatch=guard, on_mode_dispatch=lambda: receipts.append("sent"),
+                )
+        assert error.value is refusal
+        assert receipts == []
+        assert px4_interface.drone.offboard.set_velocity_body.await_count == 1
+        px4_interface.drone.offboard.start.assert_not_called()
+        px4_interface.drone.offboard.stop.assert_not_called()
+        assert px4_interface.last_start_cleanup_outcome["local_sender_quiesced"] is True
+        px4_interface.drone.offboard.is_active.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_guarded_start_checks_inside_queued_acquisition(self, px4_interface):
+        current = True
+        receipts = []
+        refusal = DispatchRefused("target_replaced", DispatchRefusalKind.SUPERSEDED)
+        px4_interface.drone.offboard.is_active = AsyncMock(return_value=False)
+        real_wait_for = asyncio.wait_for
+
+        def guard():
+            if not current:
+                raise refusal
+
+        async def delayed_acquisition(coroutine, timeout):
+            nonlocal current
+            if getattr(coroutine, "cr_code", None) and coroutine.cr_code.co_name == "acquire_guarded":
+                current = False
+            return await real_wait_for(coroutine, timeout)
+
+        with patch("classes.px4_interface_manager.asyncio.sleep", new_callable=AsyncMock), \
+             patch("classes.px4_interface_manager.asyncio.wait_for", side_effect=delayed_acquisition):
+            with pytest.raises(DispatchRefused) as error:
+                await px4_interface.start_offboard_mode(
+                    before_dispatch=guard, on_mode_dispatch=lambda: receipts.append("sent"),
+                )
+        assert error.value is refusal
+        assert receipts == []
+        assert px4_interface.drone.offboard.set_velocity_body.await_count == 2
+        px4_interface.drone.offboard.start.assert_not_called()
+        px4_interface.drone.offboard.stop.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_start_receipt_precedes_missing_acquire_ack(self, px4_interface):
+        receipts = []
+
+        async def no_ack():
+            assert receipts == ["possibly_sent"]
+            raise asyncio.TimeoutError
+
+        px4_interface.drone.offboard.start.side_effect = no_ack
+        with patch("classes.px4_interface_manager.asyncio.sleep", new_callable=AsyncMock):
+            outcome = await px4_interface.start_offboard_mode(
+                before_dispatch=lambda: None,
+                on_mode_dispatch=lambda: receipts.append("possibly_sent"),
+            )
+        assert outcome["status"] == "failed"
+        assert receipts == ["possibly_sent"]
+        px4_interface.drone.offboard.stop.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("failure", ["cancel", "timeout"])
+    async def test_unacknowledged_initial_setter_is_not_mistaken_for_idle(self, px4_interface, failure):
+        entered = asyncio.Event()
+        px4_interface.drone.offboard.is_active = AsyncMock(return_value=False)
+
+        async def no_ack(_setpoint):
+            entered.set()
+            assert px4_interface._mavsdk_offboard_sender_state == "primed"
+            if failure == "timeout":
+                raise asyncio.TimeoutError
+            await asyncio.Event().wait()
+
+        px4_interface.drone.offboard.set_velocity_body.side_effect = no_ack
+        task = asyncio.create_task(px4_interface.start_offboard_mode(before_dispatch=lambda: None))
+        await entered.wait()
+        if failure == "cancel":
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        else:
+            assert (await task)["status"] == "failed"
+        assert px4_interface.last_start_cleanup_outcome["attempted"] is True
+        assert px4_interface.last_start_cleanup_outcome["local_sender_quiesced"] is True
+        px4_interface.drone.offboard.is_active.assert_awaited_once()
+        px4_interface.drone.offboard.start.assert_not_called()
+        px4_interface.drone.offboard.stop.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_unconfirmed_pre_acquire_cleanup_remains_visible(self, px4_interface):
+        def refuse():
+            raise DispatchRefused("source_changed", DispatchRefusalKind.TERMINAL)
+
+        px4_interface._set_offboard_sender_state("primed", "earlier_attempt")
+        px4_interface.drone.offboard.is_active = AsyncMock(side_effect=asyncio.TimeoutError)
+        with pytest.raises(DispatchRefused):
+            await px4_interface.start_offboard_mode(before_dispatch=refuse)
+        assert px4_interface.last_start_cleanup_outcome["local_sender_quiesced"] is False
+        assert px4_interface._mavsdk_offboard_sender_state == "unknown"
+        px4_interface.drone.offboard.stop.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_invalid_acquisition_observer_never_sends_start_or_hold(self, px4_interface):
+        px4_interface.drone.offboard.is_active = AsyncMock(return_value=False)
+
+        async def invalid():
+            raise AssertionError("async acquisition observer must not run")
+
+        with patch("classes.px4_interface_manager.asyncio.sleep", new_callable=AsyncMock):
+            with pytest.raises(DispatchRefused, match="dispatch_guard_contract_invalid"):
+                await px4_interface.start_offboard_mode(
+                    before_dispatch=lambda: None, on_mode_dispatch=invalid,
+                )
+        assert px4_interface.drone.offboard.set_velocity_body.await_count == 2
+        px4_interface.drone.offboard.start.assert_not_called()
+        px4_interface.drone.offboard.stop.assert_not_called()
+        assert px4_interface.last_start_cleanup_outcome["local_sender_quiesced"] is True
+
 class TestPX4InterfaceManagerInitialization:
     """Tests for PX4InterfaceManager initialization."""
 
@@ -169,6 +407,20 @@ class TestPX4InterfaceManagerInitialization:
         assert px4_interface.current_ground_speed is None
         assert px4_interface.active_mode is False
         assert px4_interface.get_telemetry_readiness()["state"] == "idle"
+
+    @pytest.mark.parametrize('kind', ['multicopter', 'fixed_wing', 'vtol'])
+    def test_observed_aircraft_kind_requires_fresh_matching_identity(self, px4_interface, kind):
+        from classes.aircraft_state import AircraftKind
+        px4_interface.get_aircraft_identity = MagicMock(return_value={
+            'connected': True, 'autopilot_uid': '42',
+        })
+        flight = {'fresh': True, 'autopilot_uid': '42', 'aircraft_kind': kind}
+        px4_interface.mavlink_data_manager.get_flight_state.return_value = flight
+        assert px4_interface.get_aircraft_kind() is AircraftKind(kind)
+        flight['fresh'] = False
+        assert px4_interface.get_aircraft_kind() is AircraftKind.UNKNOWN
+        flight.update(fresh=True, autopilot_uid='another')
+        assert px4_interface.get_aircraft_kind() is AircraftKind.UNKNOWN
 
     def test_init_setpoint_handler_created(self, px4_interface):
         """Test setpoint handler is created."""
@@ -679,6 +931,268 @@ class TestPX4InterfaceManagerConnection:
 class TestPX4InterfaceManagerTelemetry:
     """Tests for telemetry updates."""
 
+    @staticmethod
+    def altitude_sample(*, received_at=100., marker=200, height=20.):
+        from classes.mavlink_data_manager import AltitudeSourceSample
+        return AltitudeSourceSample(
+            height_relative_m=height, vertical_speed_up_m_s=1.25, source_marker=marker,
+            sample_time_s=marker / 1000., received_at_monotonic_s=received_at,
+            sample_time_basis="px4_boot_ms_unwrapped; receipt_monotonic_age",
+            source="mavlink2rest:GLOBAL_POSITION_INT", altitude_reference_generation=1,
+        )
+
+    @pytest.mark.asyncio
+    async def test_altitude_observation_is_atomic_immutable_and_expires_despite_cached_reads(
+        self, px4_interface, mock_mavlink_data_manager, monkeypatch,
+    ):
+        from dataclasses import FrozenInstanceError
+        clock = [100.]
+        monkeypatch.setattr("classes.px4_interface_manager.time.monotonic", lambda: clock[0])
+        px4_interface.active_mode = True
+        px4_interface._reset_telemetry_health("mavlink2rest")
+        mock_mavlink_data_manager.fetch_altitude_observation = AsyncMock(return_value=self.altitude_sample())
+        assert await px4_interface._update_telemetry_via_mavlink2rest()
+        sample = px4_interface.get_altitude_observation()
+        assert sample.height_relative_m == px4_interface.current_altitude == 20.
+        assert sample.vertical_speed_up_m_s == 1.25
+        assert sample.connection_generation == px4_interface._connection_generation
+        assert sample.telemetry_generation == px4_interface._telemetry_generation
+        with pytest.raises(FrozenInstanceError):
+            sample.height_relative_m = 99.
+        clock[0] += .5
+        assert await px4_interface._update_telemetry_via_mavlink2rest()
+        assert px4_interface.get_altitude_observation() is sample
+        clock[0] += 1.6
+        assert await px4_interface._update_telemetry_via_mavlink2rest()
+        assert px4_interface.get_telemetry_readiness()["ready"]
+        assert px4_interface.get_altitude_observation() is None
+
+    @pytest.mark.asyncio
+    async def test_failed_gather_does_not_pair_new_altitude_timing_with_old_height(
+        self, px4_interface, mock_mavlink_data_manager, monkeypatch,
+    ):
+        monkeypatch.setattr("classes.px4_interface_manager.time.monotonic", lambda: 100.)
+        px4_interface.active_mode = True
+        px4_interface._reset_telemetry_health("mavlink2rest")
+        mock_mavlink_data_manager.fetch_altitude_observation = AsyncMock(return_value=self.altitude_sample())
+        assert await px4_interface._update_telemetry_via_mavlink2rest()
+        sample = px4_interface.get_altitude_observation()
+        mock_mavlink_data_manager.fetch_altitude_observation.return_value = self.altitude_sample(height=99., marker=400)
+        mock_mavlink_data_manager.fetch_attitude_data.return_value = None
+        assert not await px4_interface._update_telemetry_via_mavlink2rest()
+        assert px4_interface.current_altitude == 20.
+        assert px4_interface.get_altitude_observation() is sample
+        mock_mavlink_data_manager.fetch_altitude_observation.return_value = None
+        assert not await px4_interface._update_telemetry_via_mavlink2rest()
+        assert px4_interface.current_altitude == 20.
+        assert px4_interface.get_altitude_observation() is None
+
+    @pytest.mark.asyncio
+    async def test_unavailable_control_altitude_preserves_legacy_height_without_fabricated_vertical_speed(
+        self, px4_interface, mock_mavlink_data_manager,
+    ):
+        px4_interface.active_mode = True
+        px4_interface._reset_telemetry_health("mavlink2rest")
+        mock_mavlink_data_manager.fetch_altitude_observation = AsyncMock(return_value=None)
+        assert await px4_interface._update_telemetry_via_mavlink2rest()
+        assert px4_interface.current_altitude == 50.
+        assert px4_interface.get_altitude_observation() is None
+
+    @pytest.mark.asyncio
+    async def test_altitude_observation_cannot_cross_telemetry_owner_generation(
+        self, px4_interface, mock_mavlink_data_manager,
+    ):
+        px4_interface.active_mode = True
+        px4_interface._reset_telemetry_health("mavlink2rest")
+        async def superseded():
+            px4_interface._advance_connection_generation()
+            px4_interface._reset_telemetry_health("mavlink2rest")
+            return self.altitude_sample(received_at=time.monotonic())
+        mock_mavlink_data_manager.fetch_altitude_observation = AsyncMock(side_effect=superseded)
+        assert not await px4_interface._update_telemetry_via_mavlink2rest()
+        assert px4_interface.get_altitude_observation() is None
+
+    @pytest.mark.asyncio
+    async def test_future_altitude_receipt_does_not_partially_update_snapshot(
+        self, px4_interface, mock_mavlink_data_manager, monkeypatch,
+    ):
+        monkeypatch.setattr("classes.px4_interface_manager.time.monotonic", lambda: 100.)
+        px4_interface.active_mode = True
+        px4_interface._reset_telemetry_health("mavlink2rest")
+        mock_mavlink_data_manager.fetch_altitude_observation = AsyncMock(return_value=self.altitude_sample())
+        assert await px4_interface._update_telemetry_via_mavlink2rest()
+        sample = px4_interface.get_altitude_observation()
+        mock_mavlink_data_manager.fetch_altitude_observation.return_value = self.altitude_sample(received_at=101., height=99.)
+        assert not await px4_interface._update_telemetry_via_mavlink2rest()
+        assert px4_interface.current_altitude == 20.
+        assert px4_interface.get_altitude_observation() is None
+        px4_interface._reset_telemetry_health("mavlink2rest")
+        assert px4_interface.get_altitude_observation() is None
+
+    def test_mavsdk_height_without_a_home_reference_cannot_supply_control_altitude(self, px4_interface):
+        px4_interface.active_mode = True
+        px4_interface._reset_telemetry_health("mavsdk")
+        px4_interface._telemetry_pending_values.update(
+            relative_altitude_m=20., roll_deg=30., pitch_deg=20., yaw_deg=0.,
+            **px4_interface._consume_mavsdk_velocity_ned(SimpleNamespace(north_m_s=1., east_m_s=2., down_m_s=-4.)),
+        )
+        for status in px4_interface._telemetry_stream_status.values():
+            status["last_update_monotonic_s"] = time.monotonic()
+        assert px4_interface._try_commit_mavsdk_telemetry_snapshot()
+        assert px4_interface.get_altitude_observation() is None
+
+    @staticmethod
+    def stage_mavsdk_altitude(controller):
+        controller.active_mode = True
+        controller._reset_telemetry_health("mavsdk")
+        controller._telemetry_pending_values.update(
+            controller._consume_mavsdk_position(SimpleNamespace(relative_altitude_m=20., absolute_altitude_m=520.)),
+        )
+        controller._telemetry_pending_values.update(
+            controller._consume_mavsdk_attitude(SimpleNamespace(roll_deg=30., pitch_deg=20., yaw_deg=0.)),
+        )
+        controller._telemetry_pending_values.update(
+            controller._consume_mavsdk_velocity_ned(SimpleNamespace(north_m_s=3., east_m_s=4., down_m_s=-1.25)),
+        )
+        for status in controller._telemetry_stream_status.values():
+            status.update(last_update_monotonic_s=100., sample_count=1, state="running")
+
+    def test_mavsdk_paired_height_uses_position_receipt_clock_and_true_ned_vertical(
+        self, px4_interface, monkeypatch,
+    ):
+        clock = [100.]
+        monkeypatch.setattr("classes.px4_interface_manager.time.monotonic", lambda: clock[0])
+        self.stage_mavsdk_altitude(px4_interface)
+        assert px4_interface._try_commit_mavsdk_telemetry_snapshot()
+        first = px4_interface.get_altitude_observation()
+        assert first.height_relative_m == 20.
+        assert first.vertical_speed_up_m_s == 1.25
+        assert px4_interface.current_ground_speed == 5.
+        assert first.sample_time_s == first.received_at_monotonic_s == 100.
+        assert "receipt_monotonic" in first.sample_time_basis
+        assert first.source == "mavsdk:position+velocity_ned"
+        assert "velocity_body" not in px4_interface._telemetry_stream_status
+
+        clock[0] = 100.1
+        px4_interface._telemetry_stream_status["attitude"]["last_update_monotonic_s"] = 100.1
+        assert px4_interface._try_commit_mavsdk_telemetry_snapshot()
+        assert px4_interface.get_altitude_observation() is first
+        velocity = px4_interface._telemetry_stream_status["velocity_ned"]
+        velocity.update(last_update_monotonic_s=100.1, sample_count=2)
+        assert px4_interface._try_commit_mavsdk_telemetry_snapshot()
+        assert px4_interface.get_altitude_observation().sample_time_s == 100.
+
+        clock[0] = 100.2
+        px4_interface._telemetry_stream_status["position"].update(last_update_monotonic_s=100.2, sample_count=2)
+        assert px4_interface._try_commit_mavsdk_telemetry_snapshot()
+        second = px4_interface.get_altitude_observation()
+        assert second.sample_time_s == 100.2
+        assert second.received_at_monotonic_s == 100.1
+        assert second.altitude_reference_generation == first.altitude_reference_generation
+
+        px4_interface._telemetry_pending_values.update(
+            px4_interface._consume_mavsdk_position(SimpleNamespace(relative_altitude_m=19., absolute_altitude_m=520.)),
+        )
+        assert px4_interface._try_commit_mavsdk_telemetry_snapshot()
+        assert px4_interface.get_altitude_observation().altitude_reference_generation != second.altitude_reference_generation
+
+    def test_mavsdk_skew_or_invalid_source_clears_altitude_control_feedback(self, px4_interface, monkeypatch):
+        clock = [100.]
+        monkeypatch.setattr("classes.px4_interface_manager.time.monotonic", lambda: clock[0])
+        self.stage_mavsdk_altitude(px4_interface)
+        assert px4_interface._try_commit_mavsdk_telemetry_snapshot()
+        assert px4_interface.get_altitude_observation() is not None
+        clock[0] = 100.5
+        px4_interface._telemetry_stream_status["position"]["last_update_monotonic_s"] = 100.5
+        assert not px4_interface._try_commit_mavsdk_telemetry_snapshot()
+        assert px4_interface.get_altitude_observation() is None
+        for status in px4_interface._telemetry_stream_status.values():
+            status["last_update_monotonic_s"] = 100.5
+        px4_interface._telemetry_stream_status["velocity_ned"]["last_error"] = "nonfinite sample"
+        assert px4_interface._try_commit_mavsdk_telemetry_snapshot()
+        assert px4_interface.get_altitude_observation() is None
+        px4_interface._telemetry_stream_status["velocity_ned"]["last_error"] = None
+        px4_interface._telemetry_stream_status["position"]["last_update_monotonic_s"] = 100.6
+        assert not px4_interface._try_commit_mavsdk_telemetry_snapshot()
+        assert px4_interface.get_altitude_observation() is None
+
+    @staticmethod
+    def float32_sdk_position(home_m, height_m, *, wire_path):
+        from mavsdk_grpc.telemetry_pb2 import Position
+        if wire_path:
+            f32 = lambda value: struct.unpack("!f", struct.pack("!f", value))[0]
+            home = f32(home_m)
+            absolute = f32(home + height_m)
+            absolute_mm = int(f32(absolute * 1000.))
+            relative_mm = int(f32(f32(absolute - home) * 1000.))
+            return Position(absolute_altitude_m=absolute_mm / 1000., relative_altitude_m=relative_mm / 1000.)
+        return Position(absolute_altitude_m=home_m + height_m, relative_altitude_m=height_m)
+
+    @pytest.mark.parametrize("home_m", [500.1234, 5000.1234, 10000.1234, 30000.1234])
+    @pytest.mark.parametrize("wire_path", [False, True])
+    def test_sdk_float32_home_datum_stays_stable_as_height_changes_but_detects_a_reset(
+        self, px4_interface, monkeypatch, home_m, wire_path,
+    ):
+        clock = [100.]
+        monkeypatch.setattr("classes.px4_interface_manager.time.monotonic", lambda: clock[0])
+        self.stage_mavsdk_altitude(px4_interface)
+        generation = None
+        heights = [5. + index / 1000. for index in range(21)] + [10., 20., 30.125, 60.999, 119.999]
+        for index, height in enumerate(heights):
+            position = self.float32_sdk_position(home_m, height, wire_path=wire_path)
+            px4_interface._telemetry_pending_values.update(px4_interface._consume_mavsdk_position(position))
+            clock[0] += .01
+            for status in px4_interface._telemetry_stream_status.values():
+                status.update(last_update_monotonic_s=clock[0], sample_count=index + 1)
+            assert px4_interface._try_commit_mavsdk_telemetry_snapshot()
+            sample = px4_interface.get_altitude_observation()
+            if generation is None:
+                generation = sample.altitude_reference_generation
+            assert sample.altitude_reference_generation == generation
+
+        # The aircraft stays at the same absolute height while home moves by 5 cm.
+        position = self.float32_sdk_position(home_m + .05, heights[-1] - .05, wire_path=wire_path)
+        px4_interface._telemetry_pending_values.update(px4_interface._consume_mavsdk_position(position))
+        assert px4_interface._try_commit_mavsdk_telemetry_snapshot()
+        assert px4_interface.get_altitude_observation().altitude_reference_generation != generation
+
+    def test_sdk_reference_coherence_does_not_follow_accumulating_datum_drift(self, px4_interface, monkeypatch):
+        clock = [100.]
+        monkeypatch.setattr("classes.px4_interface_manager.time.monotonic", lambda: clock[0])
+        self.stage_mavsdk_altitude(px4_interface)
+        generations = []
+        for index in range(21):
+            position = self.float32_sdk_position(5000.1234 + index / 1000., 20., wire_path=True)
+            px4_interface._telemetry_pending_values.update(px4_interface._consume_mavsdk_position(position))
+            clock[0] += .01
+            for status in px4_interface._telemetry_stream_status.values():
+                status.update(last_update_monotonic_s=clock[0], sample_count=index + 1)
+            assert px4_interface._try_commit_mavsdk_telemetry_snapshot()
+            generations.append(px4_interface.get_altitude_observation().altitude_reference_generation)
+        assert generations[-1] > generations[0]
+
+    @pytest.mark.parametrize("values", [
+        dict(north_m_s=1., east_m_s=0., down_m_s=float("nan")),
+        dict(north_m_s=float("inf"), east_m_s=0., down_m_s=0.),
+        dict(x_m_s=1., y_m_s=0., z_m_s=-2.),
+    ])
+    def test_mavsdk_vertical_feedback_rejects_invalid_or_body_frame_velocity(self, px4_interface, values):
+        with pytest.raises((ValueError, AttributeError)):
+            px4_interface._consume_mavsdk_velocity_ned(SimpleNamespace(**values))
+
+    @pytest.mark.asyncio
+    async def test_mavsdk_height_stream_negotiation_failure_cannot_start_workers(self, px4_interface):
+        px4_interface.active_mode = True
+        px4_interface._reset_telemetry_health("mavsdk")
+        px4_interface.drone.telemetry.set_rate_velocity_ned.side_effect = RuntimeError("rate rejected")
+        with pytest.raises(RuntimeError, match="rate rejected"):
+            await px4_interface._update_telemetry_via_mavsdk(
+                connection_generation=px4_interface._connection_generation,
+                telemetry_generation=px4_interface._telemetry_generation,
+            )
+        assert px4_interface._telemetry_stream_tasks == {}
+        assert not px4_interface.get_telemetry_readiness()["ready"]
+
     @pytest.mark.asyncio
     async def test_ground_receipt_is_committed_with_its_value_not_failed_new_gather(
         self, px4_interface, mock_mavlink_data_manager,
@@ -1106,8 +1620,8 @@ class TestPX4InterfaceManagerTelemetry:
         px4_interface.drone.telemetry.attitude_euler.side_effect = lambda: stream(
             SimpleNamespace(roll_deg=1.5, pitch_deg=-2.5, yaw_deg=90.0)
         )
-        px4_interface.drone.telemetry.velocity_body.side_effect = lambda: stream(
-            SimpleNamespace(x_m_s=3.0, y_m_s=4.0, z_m_s=0.0)
+        px4_interface.drone.telemetry.velocity_ned.side_effect = lambda: stream(
+            SimpleNamespace(north_m_s=3.0, east_m_s=4.0, down_m_s=0.0)
         )
 
         px4_interface.active_mode = True
@@ -1133,6 +1647,8 @@ class TestPX4InterfaceManagerTelemetry:
             assert px4_interface.current_yaw == pytest.approx(97.0)
             assert px4_interface.current_ground_speed == pytest.approx(5.0)
             assert px4_interface.get_telemetry_readiness()["ready"] is True
+            px4_interface.drone.telemetry.set_rate_position.assert_awaited_once_with(1.)
+            px4_interface.drone.telemetry.set_rate_velocity_ned.assert_awaited_once_with(1.)
             assert px4_interface.get_connection_status()["telemetry_update_running"] is True
         finally:
             px4_interface.active_mode = False
@@ -1171,12 +1687,12 @@ class TestPX4InterfaceManagerTelemetry:
 
         async def velocity_stream():
             while True:
-                yield SimpleNamespace(x_m_s=6.0, y_m_s=8.0, z_m_s=0.0)
+                yield SimpleNamespace(north_m_s=6.0, east_m_s=8.0, down_m_s=0.0)
                 await asyncio.sleep(0.001)
 
         px4_interface.drone.telemetry.position.side_effect = position_stream
         px4_interface.drone.telemetry.attitude_euler.side_effect = attitude_stream
-        px4_interface.drone.telemetry.velocity_body.side_effect = velocity_stream
+        px4_interface.drone.telemetry.velocity_ned.side_effect = velocity_stream
         px4_interface.MIN_MAVSDK_STREAM_RETRY_DELAY_S = 0.001
         px4_interface.get_follower_data_refresh_period_s = MagicMock(return_value=0.001)
 
@@ -1197,7 +1713,7 @@ class TestPX4InterfaceManagerTelemetry:
 
             assert px4_interface._telemetry_stream_status["position"]["restart_count"] == 1
             assert px4_interface._telemetry_stream_status["attitude"]["sample_count"] > 0
-            assert px4_interface._telemetry_stream_status["velocity_body"]["sample_count"] > 0
+            assert px4_interface._telemetry_stream_status["velocity_ned"]["sample_count"] > 0
         finally:
             px4_interface.active_mode = False
             await px4_interface._cancel_telemetry_update_task()
@@ -2128,6 +2644,258 @@ class TestPX4InterfaceManagerSafeMAVSDKCall:
         px4_interface.drone.offboard.set_velocity_body.assert_not_awaited()
         px4_interface.drone.offboard.stop.assert_awaited_once()
         assert px4_interface._mavsdk_offboard_sender_state == "quiesced"
+
+
+class TestMavsdkReleaseAuthority:
+    @pytest.fixture(autouse=True)
+    def _original_owner(self, px4_interface):
+        px4_interface.active_mode = True
+        px4_interface._connection_state = 'connected'
+        px4_interface._aircraft_identity = {'autopilot_uid': 'original-aircraft'}
+        px4_interface._aircraft_identity_revision = 1
+        px4_interface.app_controller._following_session_id = 'original-session'
+        px4_interface._offboard_start_attempt_monotonic_s = 100.
+        px4_interface._offboard_mode_start_acknowledged = True
+        px4_interface._set_offboard_sender_state('primed', 'original-owner')
+        px4_interface.drone.offboard.is_active = AsyncMock(return_value=False)
+        self.flight = dict(fresh=True, autopilot_uid='original-aircraft', flight_mode=393216,
+                           offboard_exit_observed_at_monotonic_s=None)
+        px4_interface.mavlink_data_manager.offboard_mode_code = 393216
+        px4_interface.mavlink_data_manager.get_flight_state.side_effect = lambda: dict(self.flight)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('change', ['position', 'land', 'rtl', 'uid', 'connection', 'sdk',
+                                        'session', 'start', 'flight_uid', 'vtol_transition', 'phase', 'rescue'])
+    async def test_release_rechecks_after_queued_sdk_invocation(self, px4_interface, change):
+        from dataclasses import replace
+        from classes.aircraft_state import AirframePhase
+        from tests.unit.drone_interface.test_aircraft_state import aircraft_state
+
+        if change in {'vtol_transition', 'phase', 'rescue'}:
+            binding = px4_interface.get_aircraft_state_binding()
+            state = aircraft_state(binding=binding, phase=AirframePhase.MULTICOPTER,
+                                   is_vtol=True, observed_at_monotonic_s=time.monotonic())
+            assert px4_interface.commit_aircraft_state(state)
+        original_sdk = px4_interface.drone
+        entered, release = asyncio.Event(), asyncio.Event()
+        real_wait_for = asyncio.wait_for
+
+        async def queue_stop(coroutine, timeout):
+            if coroutine.cr_code.co_name == 'stop_if_owned':
+                entered.set()
+                await release.wait()
+            return await real_wait_for(coroutine, timeout)
+
+        with patch('classes.px4_interface_manager.asyncio.wait_for', side_effect=queue_stop):
+            task = asyncio.create_task(px4_interface.quiesce_offboard_sender(reason='original_stop', force=True))
+            await real_wait_for(entered.wait(), 1.)
+            if change in {'position', 'land', 'rtl'}:
+                self.flight.update(flight_mode={'position': 196608, 'land': 100925440, 'rtl': 84148224}[change],
+                                   offboard_exit_observed_at_monotonic_s=101.)
+            elif change == 'uid':
+                px4_interface._aircraft_identity = {'autopilot_uid': 'replacement-aircraft'}
+            elif change == 'connection':
+                px4_interface._connection_generation += 1
+            elif change == 'sdk':
+                px4_interface.drone = SimpleNamespace(offboard=SimpleNamespace(stop=AsyncMock(), is_active=AsyncMock()))
+            elif change == 'session':
+                px4_interface.app_controller._following_session_id = 'replacement-session'
+            elif change == 'start':
+                px4_interface._offboard_start_attempt_monotonic_s = 102.
+            elif change == 'flight_uid':
+                self.flight['autopilot_uid'] = 'replacement-aircraft'
+            else:
+                changes = dict(sequence=2)
+                if change != 'rescue':
+                    changes['phase'] = (AirframePhase.VTOL_TRANSITION if change == 'vtol_transition'
+                                        else AirframePhase.FIXED_WING)
+                else:
+                    changes['rescue_active'] = True
+                assert px4_interface.commit_aircraft_state(replace(state, **changes))
+            release.set()
+            result = await task
+        original_sdk.offboard.stop.assert_not_called()
+        px4_interface.drone.offboard.stop.assert_not_called()
+        assert not result['vehicle_hold_acknowledged']
+        if change in {'uid', 'connection', 'sdk', 'session', 'start'}:
+            assert result['local_sender_quiesced'] is False
+            assert result['state_after'] == 'unknown'
+            assert px4_interface._mavsdk_offboard_sender_state == 'primed'
+            assert px4_interface._offboard_mode_start_acknowledged is True
+            original_sdk.offboard.is_active.assert_not_called()
+            px4_interface.drone.offboard.is_active.assert_not_called()
+        else:
+            assert result['local_sender_quiesced'] is True
+            assert result['authority_released'] is True
+            original_sdk.offboard.is_active.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_same_owner_stop_ignores_target_updates(self, px4_interface):
+        entered, release = asyncio.Event(), asyncio.Event()
+        real_wait_for = asyncio.wait_for
+
+        async def queue_stop(coroutine, timeout):
+            if coroutine.cr_code.co_name == 'stop_if_owned':
+                entered.set()
+                await release.wait()
+            return await real_wait_for(coroutine, timeout)
+
+        with patch('classes.px4_interface_manager.asyncio.wait_for', side_effect=queue_stop):
+            task = asyncio.create_task(px4_interface.quiesce_offboard_sender(reason='operator_stop', force=True))
+            await real_wait_for(entered.wait(), 1.)
+            px4_interface.app_controller._tracking_session_generation = 99
+            release.set()
+            result = await task
+        assert result['vehicle_hold_acknowledged'] is True
+        assert result['local_sender_quiesced'] is True
+        px4_interface.drone.offboard.stop.assert_awaited_once()
+        px4_interface.drone.offboard.is_active.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_delayed_cleanup_task_keeps_original_owner(self, px4_interface):
+        original_sdk = px4_interface.drone
+        task = px4_interface._begin_sender_quiesce('original_stop', force=True)
+        px4_interface.app_controller._following_session_id = 'replacement-session'
+        px4_interface._set_offboard_sender_state('primed', 'replacement-owner')
+        result = await task
+        assert result['local_sender_quiesced'] is False
+        original_sdk.offboard.stop.assert_not_called()
+        assert px4_interface._mavsdk_offboard_sender_last_reason == 'replacement-owner'
+        assert px4_interface._offboard_mode_start_acknowledged is True
+
+    @pytest.mark.asyncio
+    async def test_joined_force_retry_does_not_recapture_replacement_owner(self, px4_interface):
+        entered, release = asyncio.Event(), asyncio.Event()
+
+        async def earlier_idle_cleanup():
+            entered.set()
+            await release.wait()
+            return dict(attempted=False, local_sender_quiesced=True)
+
+        px4_interface._sender_quiesce_task = asyncio.create_task(earlier_idle_cleanup())
+        await entered.wait()
+        original_begin = px4_interface._begin_sender_quiesce
+        with patch.object(px4_interface, '_begin_sender_quiesce', wraps=original_begin) as begin:
+            task = asyncio.create_task(px4_interface.quiesce_offboard_sender(reason='original_stop', force=True))
+            await asyncio.sleep(0)
+            px4_interface._aircraft_identity = {'autopilot_uid': 'replacement-aircraft'}
+            px4_interface._set_offboard_sender_state('primed', 'replacement-owner')
+            release.set()
+            result = await task
+        assert begin.call_count == 2
+        assert begin.call_args_list[0].kwargs['release'] is begin.call_args_list[1].kwargs['release']
+        assert result['local_sender_quiesced'] is False
+        px4_interface.drone.offboard.stop.assert_not_called()
+        assert px4_interface._mavsdk_offboard_sender_last_reason == 'replacement-owner'
+
+    @pytest.mark.asyncio
+    async def test_joined_cleanup_cannot_mutate_replacement_state(self, px4_interface):
+        entered, release = asyncio.Event(), asyncio.Event()
+        real_wait_for = asyncio.wait_for
+
+        async def queue_stop(coroutine, timeout):
+            if coroutine.cr_code.co_name == 'stop_if_owned':
+                entered.set()
+                await release.wait()
+            return await real_wait_for(coroutine, timeout)
+
+        with patch('classes.px4_interface_manager.asyncio.wait_for', side_effect=queue_stop):
+            first = asyncio.create_task(px4_interface.quiesce_offboard_sender(reason='first', force=True))
+            await real_wait_for(entered.wait(), 1.)
+            original_task = px4_interface._sender_quiesce_task
+            second = asyncio.create_task(px4_interface.quiesce_offboard_sender(reason='joined', force=True))
+            await asyncio.sleep(0)
+            assert px4_interface._sender_quiesce_task is original_task
+            px4_interface._connection_generation += 1
+            px4_interface._set_offboard_sender_state('primed', 'replacement-owner')
+            release.set()
+            results = await asyncio.gather(first, second)
+        assert all(not result['local_sender_quiesced'] for result in results)
+        px4_interface.drone.offboard.stop.assert_not_called()
+        assert px4_interface._mavsdk_offboard_sender_last_reason == 'replacement-owner'
+        assert px4_interface._offboard_mode_start_acknowledged is True
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('changed_owner', [False, True])
+    async def test_timeout_does_not_claim_quiescence_or_overwrite_replacement(self, px4_interface, changed_owner):
+        px4_interface.get_mavsdk_command_timeout_s = lambda: .01
+
+        async def no_ack():
+            if changed_owner:
+                px4_interface._connection_generation += 1
+                px4_interface._set_offboard_sender_state('primed', 'replacement-owner')
+            await asyncio.Event().wait()
+
+        px4_interface.drone.offboard.stop.side_effect = no_ack
+        result = await px4_interface.quiesce_offboard_sender(reason='original_stop', force=True)
+        assert result['local_sender_quiesced'] is False
+        assert result['vehicle_hold_acknowledged'] is False
+        assert px4_interface._offboard_mode_start_acknowledged is True
+        assert px4_interface._mavsdk_offboard_sender_state == ('primed' if changed_owner else 'unknown')
+        if changed_owner:
+            assert px4_interface._mavsdk_offboard_sender_last_reason == 'replacement-owner'
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('changed_owner', [False, True])
+    async def test_cancelled_release_task_retains_uncertainty(self, px4_interface, changed_owner):
+        entered = asyncio.Event()
+
+        async def no_ack():
+            entered.set()
+            await asyncio.Event().wait()
+
+        px4_interface.drone.offboard.stop.side_effect = no_ack
+        task = px4_interface._begin_sender_quiesce('original_stop', force=True)
+        await entered.wait()
+        if changed_owner:
+            px4_interface._connection_generation += 1
+            px4_interface._set_offboard_sender_state('primed', 'replacement-owner')
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert px4_interface._offboard_mode_start_acknowledged is True
+        assert px4_interface._mavsdk_offboard_sender_state == ('primed' if changed_owner else 'unknown')
+
+    @pytest.mark.asyncio
+    async def test_waiter_cancellation_does_not_cancel_owned_release(self, px4_interface):
+        entered, release = asyncio.Event(), asyncio.Event()
+
+        async def delayed_ack():
+            entered.set()
+            await release.wait()
+
+        px4_interface.drone.offboard.stop.side_effect = delayed_ack
+        waiter = asyncio.create_task(px4_interface.quiesce_offboard_sender(reason='operator_stop', force=True))
+        await entered.wait()
+        owner_task = px4_interface._sender_quiesce_task
+        waiter.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await waiter
+        assert not owner_task.cancelled()
+        release.set()
+        assert (await owner_task)['vehicle_hold_acknowledged'] is True
+        px4_interface.drone.offboard.stop.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_queued_cleanup_cannot_renew_its_expired_budget(self, px4_interface):
+        px4_interface.get_mavsdk_command_timeout_s = lambda: .01
+        real_wait_for = asyncio.wait_for
+        clock = [1000.]
+
+        async def expire_before_invocation(coroutine, timeout):
+            if coroutine.cr_code.co_name == 'stop_if_owned':
+                clock[0] += .02
+            return await real_wait_for(coroutine, timeout)
+
+        with patch('classes.px4_interface_manager.time.monotonic', side_effect=lambda: clock[0]), \
+             patch('classes.px4_interface_manager.asyncio.wait_for', side_effect=expire_before_invocation):
+            result = await px4_interface.quiesce_offboard_sender(reason='original_stop', force=True)
+        assert result['local_sender_quiesced'] is False
+        assert result['vehicle_hold_acknowledged'] is False
+        assert px4_interface._mavsdk_offboard_sender_state == 'unknown'
+        assert px4_interface._offboard_mode_start_acknowledged is True
+        px4_interface.drone.offboard.stop.assert_not_called()
+        px4_interface.drone.offboard.is_active.assert_not_called()
 
 
 class TestPX4CommandGateFailClosed:

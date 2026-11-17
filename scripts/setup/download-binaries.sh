@@ -515,6 +515,18 @@ download_binary() {
     return 0
 }
 
+confirm_binary_change() {
+    local prompt="$1" default_answer="$2" answer
+    if [[ "${PIXEAGLE_NONINTERACTIVE:-0}" == "1" ]]; then
+        log_info "Unattended setup: applying the selected binary plan; checksum verification remains required"
+        return 0
+    fi
+    printf '        %s' "$prompt"
+    read -r answer || return 1
+    answer="${answer:-$default_answer}"
+    [[ "$answer" =~ ^[Yy]$ ]]
+}
+
 # ============================================================================
 # Download MAVSDK
 # ============================================================================
@@ -547,18 +559,14 @@ download_mavsdk() {
             log_info "Keeping verified existing binary"
             return 0
         fi
-        echo -en "        Replace with pinned manifest binary? [y/N]: "
-        read -r REPLY
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        if ! confirm_binary_change "Replace with pinned manifest binary? [y/N]: " n; then
             log_error "Existing MAVSDK Server was not verified and was not replaced"
             return 1
         fi
     elif [[ -f "$legacy_path" ]] && [[ -x "$legacy_path" ]]; then
         log_info "MAVSDK Server exists in legacy location (root)"
         if verify_existing_binary "$legacy_path" "MAVSDK Server" "$asset" "$MAVSDK_VERSION" "$url" "$expected_sha" "legacy_existing"; then
-            echo -en "        Move verified binary to bin/? [Y/n]: "
-            read -r REPLY
-            if [[ -z "$REPLY" || $REPLY =~ ^[Yy]$ ]]; then
+            if confirm_binary_change "Move verified binary to bin/? [Y/n]: " y; then
                 mv "$legacy_path" "$binary_path"
                 verify_existing_binary "$binary_path" "MAVSDK Server" "$asset" "$MAVSDK_VERSION" "$url" "$expected_sha" "moved_legacy" || return 1
                 log_success "Moved verified MAVSDK Server to bin/"
@@ -567,9 +575,7 @@ download_mavsdk() {
             log_error "Verified legacy MAVSDK Server was not moved to bin/"
             return 1
         fi
-        echo -en "        Replace legacy binary with pinned manifest binary in bin/? [y/N]: "
-        read -r REPLY
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
+        if confirm_binary_change "Replace legacy binary with pinned manifest binary in bin/? [y/N]: " n; then
             rm -f "$binary_path"
             log_warn "Leaving unverified legacy MAVSDK Server in place while downloading verified bin/ copy"
         else
@@ -613,18 +619,14 @@ download_mavlink2rest() {
             log_info "Keeping verified existing binary"
             return 0
         fi
-        echo -en "        Replace with pinned manifest binary? [y/N]: "
-        read -r REPLY
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        if ! confirm_binary_change "Replace with pinned manifest binary? [y/N]: " n; then
             log_error "Existing MAVLink2REST was not verified and was not replaced"
             return 1
         fi
     elif [[ -f "$legacy_path" ]] && [[ -x "$legacy_path" ]]; then
         log_info "MAVLink2REST exists in legacy location (root)"
         if verify_existing_binary "$legacy_path" "MAVLink2REST" "$asset" "$MAVLINK2REST_VERSION" "$url" "$expected_sha" "legacy_existing"; then
-            echo -en "        Move verified binary to bin/? [Y/n]: "
-            read -r REPLY
-            if [[ -z "$REPLY" || $REPLY =~ ^[Yy]$ ]]; then
+            if confirm_binary_change "Move verified binary to bin/? [Y/n]: " y; then
                 mv "$legacy_path" "$binary_path"
                 verify_existing_binary "$binary_path" "MAVLink2REST" "$asset" "$MAVLINK2REST_VERSION" "$url" "$expected_sha" "moved_legacy" || return 1
                 log_success "Moved verified MAVLink2REST to bin/"
@@ -633,9 +635,7 @@ download_mavlink2rest() {
             log_error "Verified legacy MAVLink2REST was not moved to bin/"
             return 1
         fi
-        echo -en "        Replace legacy binary with pinned manifest binary in bin/? [y/N]: "
-        read -r REPLY
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
+        if confirm_binary_change "Replace legacy binary with pinned manifest binary in bin/? [y/N]: " n; then
             rm -f "$binary_path"
             log_warn "Leaving unverified legacy MAVLink2REST in place while downloading verified bin/ copy"
         else

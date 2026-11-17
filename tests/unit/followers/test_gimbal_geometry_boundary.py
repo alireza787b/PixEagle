@@ -7,6 +7,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from classes.aircraft_state import Quaternion
 from classes.followers.gm_velocity_chase_follower import GMVelocityChaseFollower
 from classes.followers.gm_velocity_vector_follower import GMVelocityVectorFollower
 from classes.gimbal_geometry import (
@@ -19,7 +20,7 @@ from classes.gimbal_geometry import (
     resolve_mount_type,
 )
 from classes.gimbal_guidance import (
-    GimbalGuidanceCapabilities,
+    GimbalManoeuvreSupport,
     GimbalGuidanceClassifier,
     GuidanceState,
 )
@@ -81,6 +82,27 @@ def test_vertical_guard_respects_canonical_disabled_altitude_policy(follower_typ
         follower.guard_gimbal_vertical_velocity(.4)
 
 
+@pytest.mark.parametrize("follower_type", [GMVelocityChaseFollower, GMVelocityVectorFollower])
+def test_absent_camera_mission_ceiling_keeps_floor_and_freshness_guards(follower_type):
+    follower = follower_type.__new__(follower_type)
+    follower._safety_checks_bypassed_for_testing = lambda: False
+    follower._follower_config_name = follower_type.__name__
+    aircraft = SimpleNamespace(current_altitude=1000., is_command_connection_ready=lambda **_: True)
+    follower.px4_controller = aircraft
+    follower.safety_manager = SimpleNamespace(get_altitude_limits=lambda _: SimpleNamespace(
+        min_altitude=3., max_altitude=None, warning_buffer=2., safety_enabled=True,
+    ))
+    assert follower.guard_gimbal_vertical_velocity(-.4) == -.4
+    aircraft.current_altitude = 5.
+    assert follower.guard_gimbal_vertical_velocity(.4) == 0.
+    aircraft.current_altitude = 2.99
+    with pytest.raises(ValueError, match="outside"):
+        follower.guard_gimbal_vertical_velocity(-.4)
+    aircraft.current_altitude = None
+    with pytest.raises(ValueError, match="unavailable"):
+        follower.guard_gimbal_vertical_velocity(-.4)
+
+
 @pytest.mark.parametrize("angles", [None, 0, (1.0,), (math.nan, 0, 0), (0, math.inf, 0), ("0", 0, 0)])
 def test_nonfinite_or_malformed_body_angles_are_rejected(angles):
     with pytest.raises(InvalidGimbalGeometry):
@@ -124,8 +146,8 @@ def test_horizontal_convention_preserves_synthetic_forward_right_down():
 def test_guidance_classifier_accepts_pure_vertical_ray_for_both_mounts(mount, angles):
     clock = [0.0]
     classifier = GimbalGuidanceClassifier(
-        capabilities=GimbalGuidanceCapabilities(
-            known=True, supports_vertical=True, supports_reverse=True,
+        manoeuvres=GimbalManoeuvreSupport(
+            supports_vertical=True, supports_reverse=True,
             supports_yaw_fallback=True,
         ),
         clock=lambda: clock[0],
@@ -272,6 +294,9 @@ def test_chase_guidance_errors_use_the_same_body_direction():
     follower.max_pitch_angle = 90.0
     follower.lateral_invert = False
     follower.vertical_invert = False
+    follower.px4_controller = SimpleNamespace(
+        get_guidance_attitude=lambda: (Quaternion(1., 0., 0., 0.), 0.),
+    )
 
     left, level = follower._transform_gimbal_to_control_frame(20, 90, 30)
     center, up = follower._transform_gimbal_to_control_frame(0, 60, 0)
@@ -293,6 +318,9 @@ def test_pitch_based_forward_speed_uses_camera_mount_neutral_and_override():
 def test_both_followers_reject_rearward_target_direction():
     chase = GMVelocityChaseFollower.__new__(GMVelocityChaseFollower)
     chase.mount_type = "VERTICAL"
+    chase.px4_controller = SimpleNamespace(
+        get_guidance_attitude=lambda: (Quaternion(1., 0., 0., 0.), 0.),
+    )
     vector = GMVelocityVectorFollower.__new__(GMVelocityVectorFollower)
     vector.mount_type = "VERTICAL"
 

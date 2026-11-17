@@ -261,6 +261,7 @@ const ImportDialog = ({
         <input
           ref={fileInputRef}
           type="file"
+          aria-label="Configuration YAML file"
           accept=".yaml,.yml"
           style={{ display: 'none' }}
           onChange={handleFileSelect}

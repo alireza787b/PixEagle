@@ -17,27 +17,16 @@ import {
   DialogContentText,
   DialogTitle
 } from '@mui/material';
-import { useFollowerProfiles, useCurrentFollowerProfile } from '../hooks/useFollowerSchema';
+import { useFollowerProfiles, useCurrentFollowerProfile, useFollowerProfileSelection } from '../hooks/useFollowerSchema';
 
 const FollowerProfileSelector = () => {
   const { profiles, loading: profilesLoading } = useFollowerProfiles();
   const { currentProfile, switchProfile, loading: currentLoading } = useCurrentFollowerProfile();
 
-  const [selectedProfile, setSelectedProfile] = useState('');
+  const { selectedProfile, setSelectedProfile, configuredMode } = useFollowerProfileSelection(currentProfile);
   const [switching, setSwitching] = useState(false);
   const [switchResult, setSwitchResult] = useState(null);
   const [confirmDialog, setConfirmDialog] = useState(false);
-
-  // Pre-select current active profile in dropdown
-  // Always keep dropdown in sync with configured/active profile
-  React.useEffect(() => {
-    if (currentProfile && currentProfile.mode && !switching) {
-      // Only update if different to avoid unnecessary re-renders
-      if (selectedProfile !== currentProfile.mode) {
-        setSelectedProfile(currentProfile.mode);
-      }
-    }
-  }, [currentProfile, switching, selectedProfile]);
 
   const handleProfileChange = (event) => {
     setSelectedProfile(event.target.value);
@@ -50,6 +39,7 @@ const FollowerProfileSelector = () => {
   };
 
   const handleConfirmSwitch = async () => {
+    if (followingEngaged || switching || !selectedProfile || selectedProfile === configuredMode) return;
     setConfirmDialog(false);
     setSwitching(true);
     setSwitchResult(null);
@@ -57,8 +47,6 @@ const FollowerProfileSelector = () => {
     try {
       const result = await switchProfile(selectedProfile);
       setSwitchResult(result);
-
-      // Don't reset selection - the useEffect will update it to current profile automatically
     } catch (error) {
       setSwitchResult({
         success: false,
@@ -85,8 +73,7 @@ const FollowerProfileSelector = () => {
   const availableProfiles = Object.entries(profiles).filter(
     ([key, profile]) => profile.implementation_available
   );
-  const followingEngaged = Boolean(currentProfile?.active);
-  const configuredMode = currentProfile?.configured_mode || currentProfile?.mode;
+  const followingEngaged = Boolean(currentProfile?.active || currentProfile?.status === 'engaged');
 
   return (
     <Box sx={{ mb: 0, minWidth: 0 }}>
@@ -207,7 +194,11 @@ const FollowerProfileSelector = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCancelSwitch}>Cancel</Button>
-          <Button onClick={handleConfirmSwitch} variant="contained">
+          <Button
+            onClick={handleConfirmSwitch}
+            variant="contained"
+            disabled={followingEngaged || switching || !selectedProfile || selectedProfile === configuredMode}
+          >
             Save Profile
           </Button>
         </DialogActions>

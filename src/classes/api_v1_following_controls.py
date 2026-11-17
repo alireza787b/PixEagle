@@ -1,14 +1,82 @@
 """Session-only follower controls shared by browser and native clients."""
 
 import math
+import time
 
+from classes.aircraft_state import AircraftState, AirframePhase, GuidanceSessionIdentity, finite_number
 from classes.api_v1_actions import ensure_api_action_store, new_api_action_record
 from classes.api_v1_native_targets import NativeTargetError
 from classes.api_v1_paths import API_V1_ACTION_FOLLOWING_CONTROL_PATH
 from classes.runtime_identity import INSTANCE_ID, RUNTIME_ID
 
 
-def session_control_snapshot(app, principal) -> list:
+def _observed_session_speed(app, control) -> tuple[float | None, str | None]:
+    """Read qualified measurements without refreshing or polling their producer."""
+    if app._is_command_preview_session():
+        return None, None
+    connection = app.px4_interface
+    getter = getattr(connection, 'get_aircraft_state', None)
+    if not callable(getter):
+        return None, None
+    state = getter()
+    if not isinstance(state, AircraftState):
+        return None, None
+    identity = connection.get_aircraft_identity()
+    if (not connection.is_command_connection_ready(require_fresh_telemetry=True)
+            or state.binding.aircraft_uid != app._following_session_aircraft_uid
+            or state.binding.connection_generation != app._following_session_connection_generation
+            or identity.get('autopilot_uid') != state.binding.aircraft_uid
+            or identity.get('connection_generation') != state.binding.connection_generation or state.rescue_active):
+        return None, None
+    phase = {'translation_3d': AirframePhase.MULTICOPTER,
+             'equivalent_airspeed': AirframePhase.FIXED_WING}.get(control.get('speed_basis', 'translation_3d'))
+    if state.phase is not phase or control.get('aircraft_phase') not in {None, phase.value}:
+        return None, None
+    native = getattr(app, '_airframe_follow_binding', None)
+    guidance = getattr(native, 'guidance', None)
+    generation = control.get('guidance_generation')
+    try:
+        timeout = finite_number(connection.get_telemetry_stale_timeout_s(), 'telemetry_timeout')
+        if generation is not None:
+            owned = getattr(guidance, 'identity', None)
+            if (not isinstance(owned, GuidanceSessionIdentity) or owned.follow_session_id != app._following_session_id
+                    or owned.binding != state.binding or owned.guidance_generation != generation
+                    or guidance.phase is not phase or native.owner_confirmed is not True
+                    or native.transport.identity != owned):
+                return None, None
+            guidance.require_state()
+            timeout = min(timeout, guidance.phase_owner.observation_timeout_s)
+        elif native is not None or phase is AirframePhase.FIXED_WING:
+            return None, None
+    except (TypeError, ValueError):
+        return None, None
+    now = time.monotonic()
+    if timeout <= 0 or not state.fresh(now, timeout):
+        return None, None
+    if phase is AirframePhase.MULTICOPTER:
+        magnitude = state.velocity_ned_m_s.magnitude
+        return magnitude if math.isfinite(magnitude) else None, None
+    airspeed = state.airspeed
+    if airspeed.fresh(now, timeout):
+        return airspeed.equivalent_m_s, airspeed.source
+    observation = getattr(native, 'observed_speed', None)
+    if callable(observation):
+        return observation(state, now=now, timeout_s=timeout)
+    # Missing EAS alone does not prove that the native sensorless mode is active.
+    feedback = native.transport.last_feedback
+    if (isinstance(feedback, dict) and feedback.get('controller_active') is True
+            and feedback.get('airspeed_control_enabled') is False
+            and guidance.phase_owner.capabilities.fixed_wing_supported is True):
+        try:
+            measured = finite_number(feedback.get('observed_at_monotonic_s'), 'native_feedback_time')
+        except ValueError:
+            return None, None
+        if state.observed_at_monotonic_s <= measured <= now and now - measured <= timeout:
+            return None, 'native_airspeedless'
+    return None, None
+
+
+def session_control_snapshot(app, principal, *, client_contract_version: int = 1) -> list:
     concrete = getattr(getattr(app, 'follower', None), 'follower', None)
     getter = getattr(concrete, 'session_controls', None)
     if not callable(getter) or not getattr(app, 'following_active', False):
@@ -29,23 +97,37 @@ def session_control_snapshot(app, principal) -> list:
                 or identity.get('autopilot_uid') != app._following_session_aircraft_uid
                 or identity.get('connection_generation') != app._following_session_connection_generation):
             reason = 'following_aircraft_unavailable'
-        manager = getattr(app, 'mavlink_data_manager', None)
-        flight = manager.get_flight_state() if manager is not None else {}
-        if (flight.get('fresh') is not True
-                or flight.get('autopilot_uid') != app._following_session_aircraft_uid
-                or type(flight.get('flight_mode')) is not int
-                or flight['flight_mode'] != getattr(manager, 'offboard_mode_code', None)):
-            reason = 'following_authority_unavailable'
+        native = getattr(app, '_airframe_follow_binding', None)
+        if native is not None:
+            if not native.owner_confirmed:
+                reason = 'following_authority_unavailable'
+            elif native.pursuit_paused:
+                reason = 'phase_confirmation_pending'
+        else:
+            manager = getattr(app, 'mavlink_data_manager', None)
+            flight = manager.get_flight_state() if manager is not None else {}
+            if (flight.get('fresh') is not True
+                    or flight.get('autopilot_uid') != app._following_session_aircraft_uid
+                    or type(flight.get('flight_mode')) is not int
+                    or flight['flight_mode'] != getattr(manager, 'offboard_mode_code', None)):
+                reason = 'following_authority_unavailable'
         from classes.circuit_breaker import FollowerCircuitBreaker
         if FollowerCircuitBreaker.is_active():
             reason = 'circuit_breaker_active'
     submitted = getattr(concrete, '_submitted_command_fields', None)
-    effective = (math.sqrt(sum(submitted[name] ** 2 for name in
-                              ('vel_body_fwd', 'vel_body_right', 'vel_body_down')))
-                 if submitted else None)
+    velocity_fields = ('vel_body_fwd', 'vel_body_right', 'vel_body_down')
+    effective = None
+    if isinstance(submitted, dict):
+        if all(name in submitted for name in velocity_fields):
+            effective = math.hypot(*(submitted[name] for name in velocity_fields))
+        elif isinstance(submitted.get('equivalent_airspeed_m_s'), (int, float)):
+            effective = submitted['equivalent_airspeed_m_s']
     increasing = reason is None and state == 'ACTIVE' and not continuity.get('target_transition_pending')
     result = []
     for control in getter():
+        if client_contract_version < 2 and (control.get('speed_basis', 'translation_3d') != 'translation_3d'
+                                            or control.get('guidance_generation') is not None):
+            continue
         limiting = (getattr(concrete, '_vertical_limit_status', None)
                     or ('target_recovery' if not increasing and reason is None else reason))
         if limiting is None and control['control_id'] == 'requested_speed' and effective is not None:
@@ -53,8 +135,10 @@ def session_control_snapshot(app, principal) -> list:
                 limiting = 'slowing_down'
             elif effective < control['value'] - .001:
                 limiting = 'guidance_limited'
+        observed, observed_source = _observed_session_speed(app, control)
         result.append(dict(control, available=reason is None, increase_allowed=increasing,
-                           reason_code=reason, effective_command_magnitude=effective, limiting_reason=limiting))
+                           reason_code=reason, effective_command_magnitude=effective, limiting_reason=limiting,
+                           observed_speed_m_s=observed, observed_speed_source=observed_source))
     return result
 
 
@@ -88,10 +172,12 @@ async def set_following_control(owner, request, response, http_request):
                         or request.aircraft_uid != app._following_session_aircraft_uid
                         or request.connection_generation != app._following_session_connection_generation):
                     raise NativeTargetError('following_session_stale', 'Following changed. Refresh status.')
-                controls = session_control_snapshot(app, principal)
+                controls = session_control_snapshot(app, principal, client_contract_version=2)
                 control = next((item for item in controls if item['control_id'] == request.control_id), None)
                 if control is None:
                     raise NativeTargetError('session_control_unsupported', 'This follower does not support this control.')
+                if request.guidance_generation != control.get('guidance_generation'):
+                    raise NativeTargetError('session_control_phase_stale', 'Flight phase changed. Review the current speed control.')
                 if not control['available']:
                     raise NativeTargetError(control['reason_code'], 'Speed adjustment is temporarily unavailable.')
                 if request.value is not None and request.value > control['value'] and not control['increase_allowed']:
@@ -111,7 +197,7 @@ async def set_following_control(owner, request, response, http_request):
                     status_value='validated' if request.dry_run else 'success',
                     accepted=True, executed=not request.dry_run,
                     following_active_before=True, following_active_after=True,
-                    result={'session_controls': session_control_snapshot(app, principal),
+                    result={'session_controls': session_control_snapshot(app, principal, client_contract_version=2),
                             'follow_session_id': app._following_session_id},
                 )
                 record['audit_event']['actor'] = {'kind': principal.kind.value, 'subject': principal.subject}

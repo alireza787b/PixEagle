@@ -14,6 +14,7 @@ This section covers developing new followers for PixEagle.
 | [Testing Followers](testing-followers.md) | Testing methodology |
 | [Best Practices](best-practices.md) | Code standards |
 | [Follower SIH qualification](sih-follower-qualification.md) | Scenario contracts, isolated PX4 runner, and evidence gates |
+| [Follower consolidation plan](follower-consolidation-plan.md) | Draft MC/FW/VTOL profiles, input/frame contracts, migration and qualification slices |
 
 ---
 
@@ -49,9 +50,11 @@ class MyCustomFollower(BaseFollower):
 
 follower_profiles:
   my_custom_profile:
+    family: multicopter
+    visibility: advanced
     display_name: "My Custom Follower"
     control_type: "velocity_body_offboard"
-    required_fields: ["vel_body_fwd", "vel_body_right"]
+    required_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s"]
 ```
 
 ### 3. Register with Factory

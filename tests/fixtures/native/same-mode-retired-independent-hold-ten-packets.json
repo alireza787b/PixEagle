@@ -1,0 +1,285 @@
+{
+  "evidence_kind": "Retained failed SIH observation subset; not a successful corrected runtime",
+  "source_case": "r3-std-settled_vtol_mc--same_mode_reselection",
+  "source_artifact": "hold-coherence-observations.jsonl",
+  "source_sha256": "4fc9456ae4ea8943b45b1fdfcab2f10d40d78a0141004ff479e154ad66eb7ac2",
+  "source_tool_revision": "582d3a89df336a85d5c7ddd7c25e0c3c2f66d95c",
+  "source_result": "ownership_fixture_hold_coherence_timeout",
+  "encoding": "Only selected original fields are retained. All ten identical original release_receipt objects are deduplicated into original_receipt and restored without modification by the fixture loader.",
+  "original_receipt": {
+    "acquisition": {
+      "activation_timestamp": 42320000,
+      "firmware_incarnation": "3947e90571e2dd0c63f0739c13fa333f",
+      "identity": {
+        "binding": {
+          "aircraft_uid": "5283920058631409231",
+          "connection_generation": "ownership-ownership-r3-std-settled_vtol_mc--same_mode_reselection",
+          "telemetry_generation": 1
+        },
+        "follow_session_id": "ownership-r3-std-settled_vtol_mc--same_mode_reselection",
+        "guidance_generation": 1
+      },
+      "mode_id": 23,
+      "runtime_id": "b69a5e10bbe9e0ab4fb73d2d365c629b",
+      "source_nav_state": 4,
+      "source_nav_state_timestamp": 30560000,
+      "source_revision": 3,
+      "token": "74158fb27905f2ece5b25551197cd0cc"
+    },
+    "observed_nav_state": 23,
+    "observed_nav_state_timestamp": 42320000,
+    "outcome": "owner_already_released"
+  },
+  "packets": [
+    {
+      "timestamp": 7.970159643999068,
+      "runtime_id": "b69a5e10bbe9e0ab4fb73d2d365c629b",
+      "fresh": true,
+      "phase_status_fresh": true,
+      "owner_confirmed": false,
+      "rescue_active": false,
+      "nav_state": 23,
+      "nav_state_timestamp": 42320000,
+      "publications": 94,
+      "release_pending": false,
+      "neutral_drain_active": false,
+      "neutral_drain_failure": "",
+      "phase_source_health": {
+        "vehicle_status_timeout_s": 1.0,
+        "vehicle_status_age_s": 0.00926560400694143
+      },
+      "aircraft_state": {
+        "binding": {
+          "aircraft_uid": "5283920058631409231",
+          "connection_generation": "ownership-ownership-r3-std-settled_vtol_mc--same_mode_reselection",
+          "telemetry_generation": 1
+        }
+      }
+    },
+    {
+      "timestamp": 8.075750092000817,
+      "runtime_id": "b69a5e10bbe9e0ab4fb73d2d365c629b",
+      "fresh": true,
+      "phase_status_fresh": true,
+      "owner_confirmed": false,
+      "rescue_active": false,
+      "nav_state": 4,
+      "nav_state_timestamp": 47036000,
+      "publications": 94,
+      "release_pending": false,
+      "neutral_drain_active": false,
+      "neutral_drain_failure": "",
+      "phase_source_health": {
+        "vehicle_status_timeout_s": 1.0,
+        "vehicle_status_age_s": 0.008825511002214625
+      },
+      "aircraft_state": {
+        "binding": {
+          "aircraft_uid": "5283920058631409231",
+          "connection_generation": "ownership-ownership-r3-std-settled_vtol_mc--same_mode_reselection",
+          "telemetry_generation": 1
+        }
+      }
+    },
+    {
+      "timestamp": 8.180721761993482,
+      "runtime_id": "b69a5e10bbe9e0ab4fb73d2d365c629b",
+      "fresh": true,
+      "phase_status_fresh": true,
+      "owner_confirmed": false,
+      "rescue_active": false,
+      "nav_state": 4,
+      "nav_state_timestamp": 47036000,
+      "publications": 94,
+      "release_pending": false,
+      "neutral_drain_active": false,
+      "neutral_drain_failure": "",
+      "phase_source_health": {
+        "vehicle_status_timeout_s": 1.0,
+        "vehicle_status_age_s": 0.11383393299183808
+      },
+      "aircraft_state": {
+        "binding": {
+          "aircraft_uid": "5283920058631409231",
+          "connection_generation": "ownership-ownership-r3-std-settled_vtol_mc--same_mode_reselection",
+          "telemetry_generation": 1
+        }
+      }
+    },
+    {
+      "timestamp": 8.285674287006259,
+      "runtime_id": "b69a5e10bbe9e0ab4fb73d2d365c629b",
+      "fresh": true,
+      "phase_status_fresh": true,
+      "owner_confirmed": false,
+      "rescue_active": false,
+      "nav_state": 4,
+      "nav_state_timestamp": 47036000,
+      "publications": 94,
+      "release_pending": false,
+      "neutral_drain_active": false,
+      "neutral_drain_failure": "",
+      "phase_source_health": {
+        "vehicle_status_timeout_s": 1.0,
+        "vehicle_status_age_s": 0.2188241349940654
+      },
+      "aircraft_state": {
+        "binding": {
+          "aircraft_uid": "5283920058631409231",
+          "connection_generation": "ownership-ownership-r3-std-settled_vtol_mc--same_mode_reselection",
+          "telemetry_generation": 1
+        }
+      }
+    },
+    {
+      "timestamp": 8.390471421007533,
+      "runtime_id": "b69a5e10bbe9e0ab4fb73d2d365c629b",
+      "fresh": true,
+      "phase_status_fresh": true,
+      "owner_confirmed": false,
+      "rescue_active": false,
+      "nav_state": 4,
+      "nav_state_timestamp": 47036000,
+      "publications": 94,
+      "release_pending": false,
+      "neutral_drain_active": false,
+      "neutral_drain_failure": "",
+      "phase_source_health": {
+        "vehicle_status_timeout_s": 1.0,
+        "vehicle_status_age_s": 0.3237198970018653
+      },
+      "aircraft_state": {
+        "binding": {
+          "aircraft_uid": "5283920058631409231",
+          "connection_generation": "ownership-ownership-r3-std-settled_vtol_mc--same_mode_reselection",
+          "telemetry_generation": 1
+        }
+      }
+    },
+    {
+      "timestamp": 8.49553672199545,
+      "runtime_id": "b69a5e10bbe9e0ab4fb73d2d365c629b",
+      "fresh": true,
+      "phase_status_fresh": true,
+      "owner_confirmed": false,
+      "rescue_active": false,
+      "nav_state": 4,
+      "nav_state_timestamp": 47036000,
+      "publications": 94,
+      "release_pending": false,
+      "neutral_drain_active": false,
+      "neutral_drain_failure": "",
+      "phase_source_health": {
+        "vehicle_status_timeout_s": 1.0,
+        "vehicle_status_age_s": 0.005263416998786852
+      },
+      "aircraft_state": {
+        "binding": {
+          "aircraft_uid": "5283920058631409231",
+          "connection_generation": "ownership-ownership-r3-std-settled_vtol_mc--same_mode_reselection",
+          "telemetry_generation": 1
+        }
+      }
+    },
+    {
+      "timestamp": 8.60064957200666,
+      "runtime_id": "b69a5e10bbe9e0ab4fb73d2d365c629b",
+      "fresh": true,
+      "phase_status_fresh": true,
+      "owner_confirmed": false,
+      "rescue_active": false,
+      "nav_state": 4,
+      "nav_state_timestamp": 47036000,
+      "publications": 94,
+      "release_pending": false,
+      "neutral_drain_active": false,
+      "neutral_drain_failure": "",
+      "phase_source_health": {
+        "vehicle_status_timeout_s": 1.0,
+        "vehicle_status_age_s": 0.11026673899323214
+      },
+      "aircraft_state": {
+        "binding": {
+          "aircraft_uid": "5283920058631409231",
+          "connection_generation": "ownership-ownership-r3-std-settled_vtol_mc--same_mode_reselection",
+          "telemetry_generation": 1
+        }
+      }
+    },
+    {
+      "timestamp": 8.705555424006889,
+      "runtime_id": "b69a5e10bbe9e0ab4fb73d2d365c629b",
+      "fresh": true,
+      "phase_status_fresh": true,
+      "owner_confirmed": false,
+      "rescue_active": false,
+      "nav_state": 4,
+      "nav_state_timestamp": 47036000,
+      "publications": 94,
+      "release_pending": false,
+      "neutral_drain_active": false,
+      "neutral_drain_failure": "",
+      "phase_source_health": {
+        "vehicle_status_timeout_s": 1.0,
+        "vehicle_status_age_s": 0.2152313489932567
+      },
+      "aircraft_state": {
+        "binding": {
+          "aircraft_uid": "5283920058631409231",
+          "connection_generation": "ownership-ownership-r3-std-settled_vtol_mc--same_mode_reselection",
+          "telemetry_generation": 1
+        }
+      }
+    },
+    {
+      "timestamp": 8.810575933996006,
+      "runtime_id": "b69a5e10bbe9e0ab4fb73d2d365c629b",
+      "fresh": true,
+      "phase_status_fresh": true,
+      "owner_confirmed": false,
+      "rescue_active": false,
+      "nav_state": 4,
+      "nav_state_timestamp": 47036000,
+      "publications": 94,
+      "release_pending": false,
+      "neutral_drain_active": false,
+      "neutral_drain_failure": "",
+      "phase_source_health": {
+        "vehicle_status_timeout_s": 1.0,
+        "vehicle_status_age_s": 0.32025599299231544
+      },
+      "aircraft_state": {
+        "binding": {
+          "aircraft_uid": "5283920058631409231",
+          "connection_generation": "ownership-ownership-r3-std-settled_vtol_mc--same_mode_reselection",
+          "telemetry_generation": 1
+        }
+      }
+    },
+    {
+      "timestamp": 8.915906270005507,
+      "runtime_id": "b69a5e10bbe9e0ab4fb73d2d365c629b",
+      "fresh": true,
+      "phase_status_fresh": true,
+      "owner_confirmed": false,
+      "rescue_active": false,
+      "nav_state": 4,
+      "nav_state_timestamp": 47036000,
+      "publications": 94,
+      "release_pending": false,
+      "neutral_drain_active": false,
+      "neutral_drain_failure": "",
+      "phase_source_health": {
+        "vehicle_status_timeout_s": 1.0,
+        "vehicle_status_age_s": 0.425458661004086
+      },
+      "aircraft_state": {
+        "binding": {
+          "aircraft_uid": "5283920058631409231",
+          "connection_generation": "ownership-ownership-r3-std-settled_vtol_mc--same_mode_reselection",
+          "telemetry_generation": 1
+        }
+      }
+    }
+  ]
+}

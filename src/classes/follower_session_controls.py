@@ -16,14 +16,15 @@ class SessionControl:
     revision: int = 0
     configured_maximum: float | None = None
     override_active: bool = False
+    description: str | None = None
 
     def updated(self, value: float, revision: int) -> "SessionControl":
-        if revision != self.revision:
+        if type(revision) is not int or revision != self.revision:
             raise ValueError("session_control_revision_stale")
         if value is None:
             if self.configured_maximum is None:
                 raise ValueError('session_control_reset_unsupported')
-            return replace(self, value=min(self.value, self.configured_maximum),
+            return replace(self, value=max(self.minimum, min(self.value, self.configured_maximum)),
                            override_active=False, revision=self.revision + 1)
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
             raise ValueError("session_control_value_invalid")
@@ -37,4 +38,4 @@ class SessionControl:
                     minimum=self.minimum, maximum=self.maximum, step=self.step,
                     value=self.value, revision=self.revision,
                     configured_maximum=self.configured_maximum, override_active=self.override_active,
-                    reset_supported=self.configured_maximum is not None)
+                    reset_supported=self.configured_maximum is not None, description=self.description)

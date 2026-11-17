@@ -1,0 +1,449 @@
+"""Native phase reports preserve course/EAS semantics and observed geometry."""
+
+import csv
+from dataclasses import replace
+import json
+import math
+from pathlib import Path
+import shutil
+import subprocess
+
+import pytest
+import yaml
+
+from classes.sih_visualization import (
+    VisualizationScenario, VisualizationValidationError, analyze_timeline, build_timeline, write_csv,
+)
+from tools.sih_visualizer import build_html, write_png
+
+
+ROOT = Path(__file__).resolve().parents[2]
+NATIVE_SCENARIO = ROOT / "tools/sih_visualization_scenarios/gimbal-vector-native-fw.yaml"
+
+
+def rendered_metadata(summary, *, samples=None, selected_index=None):
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Embedded report JavaScript checks require Node.js")
+    scenario = VisualizationScenario.from_yaml(ROOT / "tools/sih_visualization_scenarios/fw-navigation-native-image.yaml")
+    samples = samples if samples is not None else build_timeline(scenario, native_evidence())
+    html = build_html(scenario, samples, summary)
+    script = html.split("<script>", 1)[1].split("</script>", 1)[0]
+    harness = r"""
+const vm = require('node:vm');
+const input = JSON.parse(require('node:fs').readFileSync(0, 'utf8'));
+const elements = new Map();
+const gradient = {addColorStop() {}};
+const context = new Proxy({}, {get(target, key) {
+    return key in target ? target[key] : key === 'createLinearGradient' ? () => gradient : () => {};
+}});
+function element() {
+    const classes = new Set();
+    return {textContent: '', children: [], style: {}, width: 1000, height: 650, clientWidth: 700,
+        checked: true, value: '1', classList: {add(value) {classes.add(value);}},
+        append(...items) {this.children.push(...items);}, replaceChildren(...items) {this.children = items;},
+        addEventListener() {}, getContext() {return context;}};
+}
+const document = {getElementById(id) {
+    if (!elements.has(id)) elements.set(id, element());
+    return elements.get(id);
+}, createElement: element, querySelectorAll: () => []};
+vm.runInNewContext(input.script, {document, setTimeout, clearTimeout}, {timeout: 1000});
+if (input.selected_index != null) document.getElementById('scrub').oninput({target: {value: input.selected_index}});
+const text = id => document.getElementById(id).textContent;
+console.log(JSON.stringify({evidence: text('evidenceKind'), coverage: text('coverage'),
+    motion: text('motionSummary'), scenario: text('scenario'), index: document.getElementById('scrub').value,
+    values: Object.fromEntries(document.getElementById('values').children.map(row => row.children.map(cell => cell.textContent)))}));
+"""
+    process = subprocess.run([node, "-e", harness], input=json.dumps({"script": script, "selected_index": selected_index}),
+                             text=True, capture_output=True, check=True, timeout=10)
+    return json.loads(process.stdout)
+
+
+def test_validated_native_report_header_uses_actual_pose_records_and_component_source():
+    metadata = rendered_metadata({"evidence_kind": "px4_sih", "pose_observed_samples": 870,
+        "evidence_counts": {"pose": 290}, "qualification_scope": "native_guidance_component_only",
+        "qualification_result": {"passed": True}})
+    assert metadata["evidence"] == "PX4-observed SIH · component"
+    assert metadata["coverage"] == "PX4 pose: 290 records"
+    assert "PX4-observed pose" in metadata["motion"]
+    assert "Speed policy: native_auto" in metadata["scenario"]
+
+
+def test_application_scope_is_explicit_without_claiming_camera_or_http_acceptance():
+    metadata = rendered_metadata({"evidence_kind": "px4_sih", "pose_observed_samples": 10,
+        "evidence_counts": {"pose": 4}, "qualification_scope": "stock_application_lifecycle",
+        "qualification_result": {"passed": True}})
+    assert metadata["evidence"] == "PX4-observed SIH · application lifecycle"
+    assert metadata["coverage"] == "PX4 pose: 4 records"
+    assert metadata["values"]["speed policy"] == "native_auto"
+    assert "speed source" not in metadata["values"]
+    assert metadata["index"] == 0
+
+
+@pytest.mark.parametrize("kind,expected", [("imported_trace", "Imported trace · read-only"),
+                                          (None, "Imported trace · read-only"),
+                                          ("px4_sih", "PX4-observed SIH · component")])
+def test_older_report_metadata_labels_aligned_count_without_inventing_raw_frames(kind, expected):
+    summary = {"pose_observed_samples": 870}
+    if kind is not None:
+        summary["evidence_kind"] = kind
+    metadata = rendered_metadata(summary)
+    assert metadata["evidence"] == expected
+    assert metadata["coverage"] == "Aligned pose samples: 870"
+    if kind != "px4_sih":
+        assert "imported pose trace" in metadata["motion"]
+        assert "PX4-observed pose" not in metadata["motion"]
+
+
+def test_synthetic_report_header_keeps_fixture_label_and_synthetic_sample_count():
+    metadata = rendered_metadata({"evidence_kind": "synthetic_fixture", "pose_observed_samples": 870,
+                                  "evidence_counts": {"pose": 290}})
+    assert metadata["evidence"] == "Synthetic moving-target fixture"
+    assert metadata["coverage"] == "Synthetic pose: 870 samples"
+    assert "synthetic vehicle pose" in metadata["motion"]
+
+
+@pytest.mark.parametrize("count", [None, -1, "290", 2.5])
+def test_unavailable_raw_pose_count_keeps_explicit_aligned_fallback(count):
+    metadata = rendered_metadata({"evidence_kind": "px4_sih", "pose_observed_samples": 870,
+                                  "evidence_counts": {"pose": count}})
+    assert metadata["coverage"] == "Aligned pose samples: 870"
+
+
+def test_actual_speed_source_is_shown_only_when_present_on_current_sample():
+    scenario = VisualizationScenario.from_yaml(NATIVE_SCENARIO)
+    first = build_timeline(scenario, native_evidence())[0]
+    second = replace(first, timestamp=.1, speed_source="sensor_airspeed")
+    metadata = rendered_metadata({"evidence_kind": "px4_sih", "pose_observed_samples": 2},
+                                 samples=[first, second], selected_index=1)
+    assert metadata["values"]["speed source"] == "sensor_airspeed"
+    assert "speed policy" not in metadata["values"]
+
+
+def native_evidence():
+    return {
+        "pose": [{"timestamp": 0., "vehicle_ned": [0., 0., -30.],
+                  "vehicle_quaternion": [math.sqrt(.5), 0., math.sqrt(.5), 0.],
+                  "native_fw_forward_ned": [1., 0., 0.]}],
+        "target": [{"timestamp": 0., "target_ned": [80., 0., -30.]}],
+        "tracker": [{"timestamp": 0., "requested_speed": 16., "target_ned": [999., 0., 0.],
+                     "command_intent": {"control_type": "fixed_wing_external", "fields": {
+                         "course_rad": 0., "equivalent_airspeed_m_s": 16., "altitude_amsl_m": 519.}}}],
+        "published": [{"timestamp": 0., "publish_success": True, "command_intent": {
+            "control_type": "fixed_wing_external", "fields": {
+                "course_rad": math.pi / 2, "equivalent_airspeed_m_s": 15., "altitude_amsl_m": 519.}}}],
+        "state": [{"timestamp": 0., "aircraft_phase": "fixed_wing", "state": "active",
+                   "observed_eas_m_s": 14.8, "native_effective_eas_m_s": 15.}],
+    }
+
+
+def test_native_scenario_uses_versioned_registered_command_contract():
+    scenario = VisualizationScenario.from_yaml(NATIVE_SCENARIO)
+    assert scenario.schema_version == 2
+    assert scenario.command_contract == "fixed_wing_external"
+    assert scenario.speed_source_policy == "native_auto"
+    assert scenario.altitude_control is False
+
+
+@pytest.mark.parametrize("changes,reason", [
+    ({"schema_version": 1}, "schema_version 2"),
+    ({"schema_version": True}, "schema_version"),
+    ({"follower": {"speed_source_policy": "ground_speed_only"}}, "automatic speed-source"),
+    ({"follower": {"profile": "gm_velocity_chase"}}, "contract must be"),
+    ({"follower": {"input_contract": "image_position_2d"}}, "contract must be"),
+])
+def test_native_scenario_rejects_legacy_or_incompatible_contracts(tmp_path, changes, reason):
+    raw = yaml.safe_load(NATIVE_SCENARIO.read_text())
+    for key, value in changes.items():
+        if key == "follower":
+            raw[key].update(value)
+        else:
+            raw[key] = value
+    path = tmp_path / "scenario.yaml"
+    path.write_text(yaml.safe_dump(raw))
+    with pytest.raises(VisualizationValidationError, match=reason):
+        VisualizationScenario.from_yaml(path)
+
+
+def test_shared_phase_contract_accepts_stock_automatic_speed_policy(tmp_path):
+    raw = yaml.safe_load(NATIVE_SCENARIO.read_text())
+    raw["follower"]["speed_source_policy"] = "auto"
+    path = tmp_path / "stock-scenario.yaml"
+    path.write_text(yaml.safe_dump(raw))
+    scenario = VisualizationScenario.from_yaml(path)
+    assert scenario.speed_source_policy == "auto"
+    assert scenario.command_contract == "fixed_wing_external"
+
+
+def test_native_report_uses_submitted_course_and_independent_target_not_eas_as_velocity(tmp_path):
+    scenario = VisualizationScenario.from_yaml(NATIVE_SCENARIO)
+    sample = build_timeline(scenario, native_evidence())[0]
+    assert sample.command["equivalent_airspeed_m_s"] == 15.
+    assert sample.course_direction_ned == pytest.approx((0., 1., 0.), abs=1e-12)
+    assert sample.command_ned is None
+    assert sample.effective_speed is None
+    assert sample.requested_speed == 16.
+    assert sample.target_ned == (80., 0., -30.)
+    assert sample.vehicle_forward_ned == (1., 0., 0.)  # PX4 already resolved tailsitter frame.
+    assert sample.vehicle_quaternion[2] == pytest.approx(math.sqrt(.5))
+    assert sample.observed_eas_m_s == 14.8
+    assert sample.native_effective_eas_m_s == 15.
+    output = tmp_path / "trace.csv"
+    write_csv(output, [sample])
+    with output.open() as stream:
+        row = next(csv.DictReader(stream))
+    assert row["effective_speed"] == row["command_n"] == ""
+    assert float(row["equivalent_airspeed_m_s"]) == 15.
+    assert float(row["target_timestamp_s"]) == 0.
+    assert row["aircraft_phase"] == "fixed_wing"
+    assert row["command_contract"] == "fixed_wing_external"
+
+
+def test_native_fw_axis_is_unknown_without_px4_frame_evidence():
+    scenario = VisualizationScenario.from_yaml(NATIVE_SCENARIO)
+    evidence = native_evidence()
+    del evidence["pose"][0]["native_fw_forward_ned"]
+    sample = build_timeline(scenario, evidence)[0]
+    assert sample.vehicle_forward_ned is None
+    assert sample.vehicle_quaternion is not None
+
+
+def test_released_vtol_fw_pose_keeps_native_axis_without_command_intent():
+    scenario = replace(VisualizationScenario.from_yaml(NATIVE_SCENARIO),
+                       airframe="vtol", command_contract="vtol_external")
+    evidence = native_evidence()
+    evidence["tracker"] = evidence["published"] = []
+    evidence["state"][0].update(state="INACTIVE", authority_state="INACTIVE",
+        command_expected=False, observed_hold=True, publisher_running=False,
+        publisher_task_active=False, command_owner_released_at=0.)
+    sample = build_timeline(scenario, evidence)[0]
+    assert sample.aircraft_phase == "fixed_wing"
+    assert sample.vehicle_forward_ned == (1., 0., 0.)
+    assert sample.command_contract is None
+    assert sample.command == {}
+    assert sample.command_expected is False
+
+
+def test_actual_fw_axis_does_not_follow_a_retained_mc_command_contract():
+    scenario = replace(VisualizationScenario.from_yaml(NATIVE_SCENARIO),
+                       airframe="vtol", command_contract="vtol_external")
+    evidence = native_evidence()
+    evidence["published"][0]["command_intent"] = {
+        "control_type": "velocity_body_offboard", "fields": {
+            "vel_body_fwd": 2., "vel_body_right": 0., "vel_body_down": 0.}}
+    sample = build_timeline(scenario, evidence)[0]
+    assert sample.aircraft_phase == "fixed_wing"
+    assert sample.vehicle_forward_ned == (1., 0., 0.)
+    assert sample.command_contract == "velocity_body_offboard"
+    assert sample.command["vel_body_fwd"] == 2.
+
+
+@pytest.mark.parametrize("phase", ["multicopter", "vtol_transition", "unknown", None])
+def test_retained_fw_intent_cannot_choose_fw_pose_axis_without_actual_fw_phase(phase):
+    scenario = replace(VisualizationScenario.from_yaml(NATIVE_SCENARIO),
+                       airframe="vtol", command_contract="vtol_external")
+    evidence = native_evidence()
+    evidence["state"][0]["aircraft_phase"] = phase
+    sample = build_timeline(scenario, evidence)[0]
+    assert sample.aircraft_phase == phase
+    assert sample.vehicle_forward_ned == pytest.approx((0., 0., -1.), abs=1e-12)
+    assert sample.command_contract == "fixed_wing_external"
+
+
+def test_released_fw_axis_stays_unknown_when_native_frame_evidence_is_missing():
+    scenario = replace(VisualizationScenario.from_yaml(NATIVE_SCENARIO),
+                       airframe="vtol", command_contract="vtol_external")
+    evidence = native_evidence()
+    evidence["tracker"] = evidence["published"] = []
+    evidence["state"][0]["state"] = "INACTIVE"
+    del evidence["pose"][0]["native_fw_forward_ned"]
+    sample = build_timeline(scenario, evidence)[0]
+    assert sample.aircraft_phase == "fixed_wing"
+    assert sample.vehicle_forward_ned is None
+    assert sample.vehicle_quaternion is not None
+    assert sample.command_contract is None
+
+
+@pytest.mark.parametrize("native_axis", [True, False])
+def test_legacy_pure_fw_missing_phase_keeps_native_axis_requirement(native_axis):
+    scenario = VisualizationScenario.from_yaml(NATIVE_SCENARIO)
+    evidence = native_evidence()
+    evidence["state"] = []
+    if not native_axis:
+        del evidence["pose"][0]["native_fw_forward_ned"]
+    sample = build_timeline(scenario, evidence)[0]
+    assert sample.aircraft_phase is None
+    assert sample.vehicle_forward_ned == ((1., 0., 0.) if native_axis else None)
+    assert sample.command_contract == "fixed_wing_external"
+
+
+def test_vtol_report_changes_contract_only_from_current_intent(tmp_path):
+    raw = yaml.safe_load(NATIVE_SCENARIO.read_text())
+    raw["airframe"] = "vtol"
+    raw["follower"]["command_contract"] = "vtol_external"
+    path = tmp_path / "vtol.yaml"
+    path.write_text(yaml.safe_dump(raw))
+    scenario = VisualizationScenario.from_yaml(path)
+    evidence = native_evidence()
+    evidence["published"][0]["command_intent"] = {
+        "control_type": "vtol_transition_external", "fields": {
+            "course_rad": .5, "equivalent_airspeed_m_s": 15.,
+        }}
+    sample = build_timeline(scenario, evidence)[0]
+    assert sample.command_contract == "vtol_transition_external"
+    assert sample.command_ned is None
+    assert sample.course_direction_ned is not None
+    evidence["published"][0]["command_intent"].pop("control_type")
+    assert build_timeline(scenario, evidence)[0].command_contract is None
+
+
+def test_vtol_report_uses_canonical_settled_phase_group_without_a_transition_strategy(tmp_path, monkeypatch):
+    from classes import sih_visualization as model
+
+    info = dict(model._profile_contracts()["gm_velocity_vector"])
+    assert info["native_phase_contracts"] == {
+        "multicopter": "velocity_body_offboard", "fixed_wing": "fixed_wing_external"}
+    monkeypatch.setattr(model, "_profile_contracts", lambda: {"future_external_profile": info})
+    raw = yaml.safe_load(NATIVE_SCENARIO.read_text())
+    raw["airframe"] = "vtol"
+    raw["follower"].update(profile="future_external_profile", command_contract="vtol_external")
+    path = tmp_path / "future-vtol.yaml"
+    path.write_text(yaml.safe_dump(raw))
+    assert VisualizationScenario.from_yaml(path).command_contract == "vtol_external"
+
+
+@pytest.mark.parametrize("phase_group", [
+    {"multicopter": "velocity_body_offboard"},
+    {"multicopter": "velocity_body_offboard", "vtol_transition": "vtol_transition_external"},
+    {"multicopter": "attitude_rate", "fixed_wing": "fixed_wing_external"},
+])
+def test_vtol_report_refuses_an_incompatible_canonical_phase_group(tmp_path, monkeypatch, phase_group):
+    from classes import sih_visualization as model
+
+    info = dict(model._profile_contracts()["gm_velocity_vector"], native_phase_contracts=phase_group,
+                live_qualified_phases=[])
+    monkeypatch.setattr(model, "_profile_contracts", lambda: {"gm_velocity_vector": info})
+    raw = yaml.safe_load(NATIVE_SCENARIO.read_text())
+    raw["airframe"] = "vtol"
+    raw["follower"]["command_contract"] = "vtol_external"
+    path = tmp_path / "incompatible-vtol.yaml"
+    path.write_text(yaml.safe_dump(raw))
+    with pytest.raises(VisualizationValidationError, match="contract must be"):
+        VisualizationScenario.from_yaml(path)
+
+
+def test_fixed_wing_only_profile_can_be_reported_on_vtol_without_claiming_mc(tmp_path):
+    raw = yaml.safe_load((ROOT / "tools/sih_visualization_scenarios/fw-navigation-native-image.yaml").read_text())
+    raw["airframe"] = "vtol"
+    path = tmp_path / "vtol-fw-only.yaml"
+    path.write_text(yaml.safe_dump(raw))
+    assert VisualizationScenario.from_yaml(path).command_contract == "fixed_wing_external"
+    for override in ({"command_contract": "velocity_body_offboard"}, {"command_contract": "vtol_external"},
+                     {"input_contract": "gimbal_angles"}):
+        changed = {**raw, "follower": raw["follower"] | override}
+        path.write_text(yaml.safe_dump(changed))
+        with pytest.raises(VisualizationValidationError, match="contract must be"):
+            VisualizationScenario.from_yaml(path)
+
+
+@pytest.mark.parametrize("override", [
+    {"input_contract": "image_position_2d"},
+    {"command_contract": "vtol_transition_external"},
+])
+def test_vtol_report_cannot_declare_wrong_input_or_new_transition_pursuit(tmp_path, override):
+    raw = yaml.safe_load(NATIVE_SCENARIO.read_text())
+    raw["airframe"] = "vtol"
+    raw["follower"].update({"command_contract": "vtol_external"} | override)
+    path = tmp_path / "invalid-vtol.yaml"
+    path.write_text(yaml.safe_dump(raw))
+    with pytest.raises(VisualizationValidationError):
+        VisualizationScenario.from_yaml(path)
+
+
+def test_native_report_does_not_mask_pose_or_command_gaps():
+    scenario = VisualizationScenario.from_yaml(NATIVE_SCENARIO)
+    evidence = native_evidence()
+    evidence["state"].append({"timestamp": 2., "aircraft_phase": "fixed_wing"})
+    samples = build_timeline(scenario, evidence)
+    assert samples[-1].stale is True
+    assert samples[-1].vehicle_ned is None
+    assert samples[-1].command == {}
+    assert samples[-1].course_direction_ned is None
+    evidence["pose"][0].pop("vehicle_ned")
+    assert build_timeline(scenario, evidence)[0].stale is True
+
+
+def test_target_speed_uses_truth_timestamps_not_interleaved_publication_times():
+    scenario = VisualizationScenario.from_yaml(NATIVE_SCENARIO)
+    evidence = native_evidence()
+    evidence["target"] = [{"timestamp": t, "target_ned": [80. + 6. * t, 0., -30.]}
+                          for t in (0., .05, .10)]
+    evidence["pose"] += [{"timestamp": t, "vehicle_ned": [0., 0., -30.]}
+                         for t in (.035, .085)]
+    samples = build_timeline(scenario, evidence)
+    summary = analyze_timeline(scenario, samples)
+    assert summary["target_speed_m_s"]["max"] == pytest.approx(6.)
+    assert summary["target_speed_m_s"]["mean"] == pytest.approx(6.)
+    assert summary["target_speed_m_s"]["samples"] == 2
+    assert [row.target_timestamp_s for row in samples] == [0., 0., .05, .05, .1]
+
+
+def test_imported_truth_gap_is_unknown_instead_of_replaced_by_scenario_motion():
+    scenario = VisualizationScenario.from_yaml(NATIVE_SCENARIO)
+    evidence = native_evidence()
+    evidence["pose"].append({"timestamp": 2., "vehicle_ned": [0., 0., -30.]})
+    sample = build_timeline(scenario, evidence)[-1]
+    assert sample.target_ned is None
+    assert sample.target_timestamp_s is None
+
+
+def test_recovery_events_and_reason_come_from_authoritative_continuity_trace():
+    scenario = VisualizationScenario.from_yaml(NATIVE_SCENARIO)
+    evidence = native_evidence()
+    evidence["state"][0].update(state="COASTING", events=["injected_target_loss"],
+                                limiting_reason="tracker_unusable_for_following")
+    sample = build_timeline(scenario, evidence)[0]
+    assert sample.limiting_reason == "tracker_unusable_for_following"
+    assert "injected_target_loss" in sample.events
+    summary = analyze_timeline(scenario, [sample])
+    assert summary["continuity_state_counts"] == {"COASTING": 1}
+
+
+def test_trace_reader_retains_zero_measurement_age():
+    scenario = VisualizationScenario.from_yaml(NATIVE_SCENARIO)
+    evidence = native_evidence()
+    evidence["tracker"][0]["measurement_age_s"] = 0.
+    evidence["tracker"][0]["tracker_output"] = {"metadata": {"measurement_age_s": .2}}
+    assert build_timeline(scenario, evidence)[0].measurement_age_s == 0.
+
+
+def test_native_analysis_distinguishes_eas_reference_and_altitude_suppression():
+    scenario = replace(VisualizationScenario.from_yaml(NATIVE_SCENARIO), requested_speed=15.)
+    evidence = native_evidence()
+    evidence["target"].append({"timestamp": 1., "target_ned": [120., 0., -30.]})
+    evidence["published"][0]["command_intent"]["fields"] = {
+        "course_rad": 0., "equivalent_airspeed_m_s": 15., "height_rate_m_s": -2.,
+    }
+    summary = analyze_timeline(scenario, build_timeline(scenario, evidence))
+    flags = {flag["type"] for flag in summary["flags"]}
+    assert "altitude_disabled_vertical_command" in flags
+    assert "target_faster_than_speed_reference" not in flags  # EAS isn't ground speed.
+    assert summary["command_contract_counts"]["fixed_wing_external"] >= 1
+
+
+def test_native_html_and_png_include_phase_specific_commands(tmp_path):
+    pytest.importorskip("matplotlib")
+    scenario = VisualizationScenario.from_yaml(NATIVE_SCENARIO)
+    samples = build_timeline(scenario, native_evidence())
+    html = build_html(scenario, samples, analyze_timeline(scenario, samples))
+    assert "EAS request" in html
+    assert "course intent" in html
+    assert "native EAS reference" in html
+    assert "observed EAS" in html
+    assert "quatRotate" not in html
+    assert "fetch(" not in html
+    assert '<script src=' not in html  # Saved reports work offline.
+    output = tmp_path / "summary.png"
+    write_png(output, scenario, samples)
+    assert output.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")

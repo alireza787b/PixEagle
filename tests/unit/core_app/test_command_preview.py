@@ -27,6 +27,7 @@ from classes.api_v1_snapshots import (
     get_following_command_publication_status,
 )
 from classes.app_controller import AppController
+from tests.fixtures.following_observation import bind_image_source, image_output
 from classes.fastapi_handler import FastAPIHandler
 from classes.following_readiness import (
     evaluate_command_preview_start_readiness,
@@ -38,7 +39,7 @@ from classes.tracker_output import TrackerDataType, TrackerOutput
 
 
 def _active_tracker_output() -> TrackerOutput:
-    return TrackerOutput(
+    return image_output(TrackerOutput(
         data_type=TrackerDataType.POSITION_2D,
         timestamp=time.time(),
         tracking_active=True,
@@ -52,7 +53,7 @@ def _active_tracker_output() -> TrackerOutput:
             "usable_for_following": True,
             "data_is_stale": False,
         },
-    )
+    ))
 
 
 class _PreviewVideo:
@@ -64,6 +65,17 @@ class _PreviewVideo:
 
 
 class _PreviewApp:
+    _freeze_following_observation_source = AppController._freeze_following_observation_source
+    _guidance_source_readiness = AppController._guidance_source_readiness
+    _guidance_source_verdict = AppController._guidance_source_verdict
+    _tracker_observation_source = staticmethod(AppController._tracker_observation_source)
+    _following_source_verdict = AppController._following_source_verdict
+    _following_source_context = AppController._following_source_context
+    _follow_start_input_identity = AppController._follow_start_input_identity
+
+    def __init__(self):
+        bind_image_source(self, _active_tracker_output())
+
     current_tracker_type = "CSRT"
     tracker = SimpleNamespace()
     smart_mode_active = False
@@ -83,6 +95,92 @@ class _PreviewApp:
 
     def _tracker_requires_video_for_following(self):
         return True
+
+
+@pytest.fixture
+def preview_contract(monkeypatch):
+    monkeypatch.setattr(Parameters, "FOLLOWER_EXECUTION_MODE", COMMAND_PREVIEW_EXECUTION_MODE)
+    state = {"available": True, "active": True, "reason": None}
+    monkeypatch.setattr(FollowerCircuitBreaker, "get_activation_state", classmethod(lambda cls: dict(state)))
+    return state
+
+
+@pytest.mark.parametrize("mode", ["mc_velocity_chase", "gm_velocity_vector", "fw_attitude_rate"])
+def test_mavsdk_intent_preview_remains_available_without_an_aircraft(mode, preview_contract, monkeypatch):
+    monkeypatch.setattr(Parameters, "FOLLOWER_MODE", mode)
+    result = evaluate_command_preview_start_readiness(_PreviewApp())
+    assert result["ready"] is True
+    assert result["commands_sent_to_px4"] is False
+
+
+@pytest.mark.parametrize("state,reason", [
+    ({"available": False, "active": True}, "available circuit breaker"),
+    ({"available": True, "active": False}, "remain active"),
+])
+def test_preview_keeps_circuit_breaker_precedence_for_native_profiles(state, reason, preview_contract, monkeypatch):
+    monkeypatch.setattr(Parameters, "FOLLOWER_MODE", "fw_navigation_chase")
+    preview_contract.update(state)
+    result = evaluate_command_preview_start_readiness(_PreviewApp())
+    assert result["ready"] is False and reason in result["reason"]
+    assert result.get("reason_code") is None
+
+
+def test_preview_contract_discovery_failure_is_structured_and_closed(preview_contract, monkeypatch):
+    monkeypatch.setattr("classes.follower_catalog.get_follower_profile", MagicMock(side_effect=RuntimeError("schema unavailable")))
+    result = evaluate_command_preview_start_readiness(_PreviewApp())
+    assert result["ready"] is False
+    assert result["reason_code"] == "command_preview_contract_unavailable"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change_during_apply", [False, True])
+async def test_native_only_preview_is_refused_before_construction_or_native_acquisition(
+    change_during_apply, preview_contract, monkeypatch,
+):
+    monkeypatch.setattr(Parameters, "FOLLOWER_MODE", "mc_velocity_chase" if change_during_apply else "fw_navigation_chase")
+    constructor = MagicMock(side_effect=AssertionError("native-only preview constructed components"))
+    monkeypatch.setattr("classes.app_controller.Follower", constructor)
+    monkeypatch.setattr("classes.app_controller.CommandPreviewController", constructor)
+    app = _PreviewApp()
+    app._follower_state_lock = asyncio.Lock()
+    app.follower = app.offboard_commander = app.setpoint_sender = None
+    app._get_command_preview_readiness = lambda: evaluate_command_preview_start_readiness(app)
+    app._cleanup_failed_follow_start = AsyncMock()
+    app._refresh_target_continuity_policy = MagicMock()
+    app.px4_interface = SimpleNamespace(connect=AsyncMock(), start_offboard_mode=AsyncMock())
+    app._prepare_airframe_follow_binding = AsyncMock()
+    app.observe_native_connection = AsyncMock()
+    app._airframe_follow_binding = None
+
+    async def apply():
+        monkeypatch.setattr(Parameters, "FOLLOWER_MODE", "fw_navigation_chase")
+        return {"applied_count": 1, "applied_paths": ["Follower.FOLLOWER_MODE"]}
+
+    app._apply_pending_follower_config = AsyncMock(side_effect=apply)
+    result = await AppController._connect_command_preview_on_flight_loop(app)
+    assert result["precondition"]["code"] == "command_preview_transport_unsupported"
+    assert result["errors"] and app.following_active is False
+    assert result["commands_sent_to_px4"] is False and result["px4_connection_attempted"] is False
+    constructor.assert_not_called()
+    app._refresh_target_continuity_policy.assert_not_called()
+    app.px4_interface.connect.assert_not_awaited()
+    app.px4_interface.start_offboard_mode.assert_not_awaited()
+    app._prepare_airframe_follow_binding.assert_not_awaited()
+    app.observe_native_connection.assert_not_awaited()
+    assert app._apply_pending_follower_config.await_count == int(change_during_apply)
+
+
+@pytest.mark.parametrize("mode,hint", [("fw_navigation_chase", False), ("fw_attitude_rate", True)])
+def test_live_refusal_recommends_preview_only_when_its_transport_is_supported(mode, hint, monkeypatch):
+    from classes.follower import FollowerFactory
+
+    monkeypatch.setattr(Parameters, "FOLLOWER_MODE", mode)
+    result = {"errors": []}
+    profile = FollowerFactory.get_follower_info(mode) | {"live_qualified_phases": []}
+    assert AppController._refuse_unqualified_live_profile(SimpleNamespace(px4_interface=None), profile, result)
+    assert result["precondition"]["code"] == "continuity_profile_not_live_qualified"
+    assert ("COMMAND_PREVIEW" in result["precondition"]["reason"]) is hint
+    assert result["errors"] == [result["precondition"]["reason"]]
 
 
 @pytest.mark.asyncio
@@ -276,6 +374,7 @@ async def test_typed_preview_start_has_no_px4_command_path(monkeypatch):
     app.current_tracker_type = "CSRT"
     app.smart_mode_active = False
     app.tracker = SimpleNamespace(normalized_center=(0.0, 0.0))
+    bind_image_source(app, _active_tracker_output())
     app.video_handler = _PreviewVideo(
         {
             "source": "fresh",
@@ -285,7 +384,7 @@ async def test_typed_preview_start_has_no_px4_command_path(monkeypatch):
             "usable_for_following": False,
         }
     )
-    app.get_tracker_output = _active_tracker_output
+    bind_image_source(app, _active_tracker_output())
     app._tracker_requires_video_for_following = lambda: True
     app.telemetry_handler = SimpleNamespace(follower=None)
     app.px4_interface = SimpleNamespace(
@@ -456,6 +555,7 @@ async def test_app_controller_preview_lifecycle_uses_no_px4_start_or_stop_path(
     app.offboard_commander = None
     app.setpoint_sender = None
     app.tracker = SimpleNamespace(normalized_center=(0.0, 0.0))
+    bind_image_source(app, _active_tracker_output())
     app.telemetry_handler = SimpleNamespace(follower=None)
     app.px4_interface = SimpleNamespace(setpoint_handler=None)
     app._active_following_controller = app.px4_interface

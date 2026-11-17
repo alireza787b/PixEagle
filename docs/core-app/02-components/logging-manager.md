@@ -27,6 +27,12 @@ Runtime log sessions are created when the backend starts through
 - `PIXEAGLE_RUNTIME_LOG_MAX_SESSIONS` - retained session count.
 - `PIXEAGLE_RUNTIME_LOG_MAX_BYTES` - retained total byte budget.
 
+Retention excludes live writer sessions, including the supervised backend and
+launcher component writers. Linux ownership uses boot identity and process
+start ticks, so a boot-time clock correction cannot make an active session
+look disposable. Completed sessions remain eligible for count/size cleanup;
+active component files retain their normal rotation limits.
+
 Each run stores:
 
 ```text

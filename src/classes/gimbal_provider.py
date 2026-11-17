@@ -11,7 +11,7 @@ is the existing Topotek SIP-over-UDP integration.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Mapping, Optional, Protocol, Union, runtime_checkable
+from typing import Any, Callable, Dict, List, Mapping, Optional, Protocol, Union, runtime_checkable
 
 from classes.gimbal_interface import GimbalInterface
 from classes.gimbal_types import GimbalData, TrackingState
@@ -39,6 +39,16 @@ class GimbalInputProvider(Protocol):
     provider_id: str
     display_name: str
     protocol_name: str
+    running: bool
+    angle_sample_sequence: int
+
+    def set_lifecycle_observer(self, observer: Callable[[str, int | None], int | bool | None]) -> None:
+        """Notify starting/stopping before transport changes, outside data locks.
+
+        Starting returns the owner's token. Started completion must reuse it
+        and refuse publication if the observer returns False; failed starts
+        notify failed. Repeated running starts emit no new incarnation.
+        """
 
     def start_listening(self) -> bool:
         """Start provider IO and make data available to the tracker."""
@@ -137,16 +147,6 @@ class SipUdpGimbalProvider(GimbalInterface):
             "packet_families": ["GAC", "TRC"],
             "diagnostic_packet_families": ["GIC", "GIA"],
             "control_enabled": self.manual_control is not None,
-            # These are capabilities of the normalized body-ray contract, not
-            # guesses derived from the raw yaw/pitch/roll channel names.
-            "guidance_capabilities": {
-                "known": True,
-                "supports_vertical": True,
-                "supports_reverse": True,
-                "supports_yaw_fallback": True,
-                "azimuth_limits_deg": [-180.0, 180.0],
-                "depression_limits_deg": [-90.0, 90.0],
-            },
         }
 
 
@@ -178,6 +178,13 @@ def create_gimbal_provider(
     provider_id = canonicalize_gimbal_provider(provider_config.provider)
 
     if provider_id == TOPOTEK_SIP_UDP_PROVIDER:
+        from classes.gazebo_gimbal_source import GazeboSipGimbalProvider, validate_gazebo_gimbal_config
+        settings = validate_gazebo_gimbal_config(provider_config.settings or {})
+        if settings is not None:
+            return GazeboSipGimbalProvider(settings,
+                control_enabled=provider_config.get('CONTROL_ENABLED', False) is True,
+                connection_timeout=float(provider_config.get('CONNECTION_TIMEOUT', 2.0)),
+                tracking_status_timeout=float(provider_config.get('TRACKING_STATUS_TIMEOUT', 2.0)))
         return SipUdpGimbalProvider(
             control_enabled=provider_config.get("CONTROL_ENABLED", False) is True,
             listen_port=int(provider_config.get("LISTEN_PORT", 9004)),

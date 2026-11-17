@@ -1,0 +1,11 @@
+--- a/src/modules/flight_mode_manager/tasks/Transition/FlightTaskTransition.cpp
++++ b/src/modules/flight_mode_manager/tasks/Transition/FlightTaskTransition.cpp
+@@ -86,6 +86,8 @@
+ 
+ 	// slowly move vertical velocity setpoint to zero
+ 	_velocity_setpoint(2) = _vel_z_filter.update(0.0f, _deltatime);
++	// The zero-input first-order filter derivative remains defined at zero dt.
++	_acceleration_setpoint(2) = -_velocity_setpoint(2) / kVerticalVelocityTimeConstant;
+ 
+ 	// calculate a horizontal acceleration vector which corresponds to an attitude composed of pitch up by _param_fw_psp_off
+ 	// and zero roll angle

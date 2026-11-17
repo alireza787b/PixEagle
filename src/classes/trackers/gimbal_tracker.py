@@ -28,7 +28,7 @@ Key Features:
 - Status-driven operation based on external gimbal tracking state
 - Topotek SIP-over-UDP status/angle ingestion through GimbalInterface
 - Automatic activation when gimbal reports TRACKING_ACTIVE (state=2)
-- Real-time angle conversion to normalized coordinates
+- Immutable angle receipt/source metadata, without image-coordinate projection
 - Background monitoring always active
 - Schema-compliant TrackerOutput generation
 - Integration with existing PixEagle architecture
@@ -59,7 +59,7 @@ Integration:
 -----------
 This tracker integrates seamlessly with PixEagle's existing architecture:
 - Follows BaseTracker interface exactly
-- Outputs standard TrackerOutput objects with ANGULAR data type
+- Outputs standard TrackerOutput objects with GIMBAL_ANGLES data type
 - Works with any compatible follower implementation
 - Appears in tracker selection UI automatically
 - No manual tracking control required from user
@@ -78,8 +78,9 @@ from classes.gimbal_provider import (
     create_gimbal_provider,
     list_supported_gimbal_providers,
 )
-from classes.gimbal_types import TrackingState, GimbalData
-from classes.coordinate_transformer import CoordinateTransformer, FrameType
+from classes.gimbal_types import TrackingState, GimbalData, GimbalAngleObservation
+from classes.gimbal_geometry import angle_geometry_revision, resolve_angle_geometry, resolve_mount_type
+from classes.camera_runtime import CameraRuntime
 from classes.parameters import Parameters
 
 logger = logging.getLogger(__name__)
@@ -98,7 +99,7 @@ class GimbalTracker(BaseTracker):
     Attributes:
     -----------
     - gimbal_provider: Normalized provider for external gimbal input
-    - coordinate_transformer (CoordinateTransformer): Coordinate conversion utilities
+    - _geometry_revision: Fingerprint of the canonical provider/mount angle mapping
     - tracker_name (str): Tracker identifier
     - monitoring_active (bool): Whether background monitoring is active
     - last_gimbal_data (Optional[GimbalData]): Last received gimbal data
@@ -157,8 +158,11 @@ class GimbalTracker(BaseTracker):
         self.gimbal_interface = self.gimbal_provider
         self.provider_metadata = self._get_provider_metadata()
 
-        # Initialize coordinate transformer
-        self.coordinate_transformer = CoordinateTransformer()
+        mount = resolve_mount_type(gimbal_cfg, getattr(Parameters, 'GM_VELOCITY_CHASE', {}),
+                                   getattr(Parameters, 'GM_VELOCITY_VECTOR', {}), allowed=('HORIZONTAL', 'VERTICAL'))
+        geometry = resolve_angle_geometry(gimbal_cfg, mount)
+        self._geometry_revision = angle_geometry_revision(self.provider_metadata.get('provider'), mount, geometry)
+        self._angle_observation = None
 
         # Monitoring state
         self.monitoring_active = False
@@ -366,6 +370,7 @@ class GimbalTracker(BaseTracker):
             dt = self.update_time()
 
             # Get current gimbal data (includes status and angles)
+            observation_owner = self._observation_owner()
             gimbal_data = self.gimbal_provider.get_current_data()
 
             if gimbal_data is None:
@@ -384,7 +389,8 @@ class GimbalTracker(BaseTracker):
             # ALWAYS process angles when available (continuous display mode)
             if gimbal_data.angles:
                 # We have angle data - process and cache it
-                success, tracker_output = self._process_gimbal_data(gimbal_data, tracking_active)
+                success, tracker_output = self._process_gimbal_data(gimbal_data, tracking_active,
+                                                                   observation_owner=observation_owner)
 
                 if success:
                     # Cache the successful result
@@ -573,7 +579,47 @@ class GimbalTracker(BaseTracker):
             logger.error(f"Error handling tracking state changes: {e}")
             return False
 
-    def _process_gimbal_data(self, gimbal_data: GimbalData, tracking_active: bool = False) -> Tuple[bool, Optional[TrackerOutput]]:
+    def _observation_owner(self):
+        runtime = self._camera_runtime
+        source = (runtime.angle_observation_context() if isinstance(runtime, CameraRuntime)
+                  and runtime.provider is self.gimbal_provider else None)
+        generation = getattr(self.app_controller, '_tracking_session_generation', None)
+        return source, generation if type(generation) is int and generation >= 0 else None
+
+    def _make_angle_observation(self, data, angles, system, owner):
+        if owner != self._observation_owner():
+            return None, 'gimbal_observation_owner_changed'
+        source, generation = owner
+        if isinstance(self._camera_runtime, CameraRuntime) and source is None:
+            return None, 'camera_observation_source_unavailable'
+        sequence = getattr(data, 'angle_sample_sequence', None)
+        received = getattr(data, 'angle_sample_monotonic', None)
+        if source is not None and not self._camera_runtime.angle_receipt_matches_source(source, sequence, received):
+            return None, 'gimbal_receipt_precedes_owner_generation'
+        try:
+            status = data.tracking_status
+            status_received = getattr(data, 'tracking_sample_monotonic', None)
+            status_retired = (source is not None and status is not None
+                              and not self._camera_runtime.tracking_receipt_matches_source(source, status_received))
+            if status_retired:
+                status = status_received = None
+            observation = GimbalAngleObservation(source, generation, self.provider_metadata['provider'],
+                self._geometry_revision, tuple(angles), system, sequence, received,
+                self._tracking_state_name(status.state) if status is not None and status_received is not None else None,
+                status_received if status is not None else None,
+                source_sample=getattr(data, 'source_sample', None))
+        except (ValueError, TypeError, KeyError):
+            return None, 'gimbal_receipt_metadata_unavailable'
+        if observation == self._angle_observation:
+            observation = self._angle_observation
+        else:
+            self._angle_observation = observation
+        reason = ('tracking_receipt_precedes_owner_generation' if status_retired
+                  else 'physical_target_identity_and_timing_unqualified' if source is not None else 'camera_owner_unavailable')
+        return observation, reason
+
+    def _process_gimbal_data(self, gimbal_data: GimbalData, tracking_active: bool = False,
+                            *, observation_owner=None) -> Tuple[bool, Optional[TrackerOutput]]:
         """
         Process gimbal data and create TrackerOutput with angle information.
 
@@ -588,6 +634,8 @@ class GimbalTracker(BaseTracker):
             Tuple[bool, Optional[TrackerOutput]]: Success flag and tracker output
         """
         try:
+            if observation_owner is None:
+                observation_owner = self._observation_owner()
             if not gimbal_data.angles:
                 return False, None
 
@@ -599,21 +647,8 @@ class GimbalTracker(BaseTracker):
                 logger.warning(f"Invalid gimbal angles: yaw={yaw}, pitch={pitch}, roll={roll}")
                 return False, None
 
-            # Convert gimbal angles to body frame target vector
-            target_vector_body = self.coordinate_transformer.gimbal_angles_to_body_vector(
-                yaw, pitch, roll, include_mount_offset=True
-            )
-
-            # Convert to normalized coordinates for PixEagle compatibility
-            normalized_coords = self.coordinate_transformer.vector_to_normalized_coords(
-                target_vector_body, FrameType.AIRCRAFT_BODY
-            )
-
             # Calculate confidence (high for direct gimbal data)
             confidence = self._calculate_confidence(gimbal_data)
-
-            # Get aircraft attitude if available
-            aircraft_attitude = self._get_aircraft_attitude()
 
             # Create TrackerOutput matching demo format exactly
             # Fields: yaw, pitch, roll, system, tracking, timestamp
@@ -635,6 +670,8 @@ class GimbalTracker(BaseTracker):
                 if isinstance(sample_monotonic, (int, float)) else
                 max(0.0, processing_timestamp - sample_timestamp)
             )
+            observation, observation_reason = self._make_angle_observation(
+                gimbal_data, (yaw, pitch, roll), gimbal_system, observation_owner)
 
             # Event-based logging: only log when tracking status changes
             has_tracking_data = gimbal_data.tracking_status is not None
@@ -649,8 +686,7 @@ class GimbalTracker(BaseTracker):
                 # Primary gimbal angle data
                 angular=(yaw, pitch, roll),
 
-                # Essential for follower compatibility
-                position_2d=normalized_coords,
+                gimbal_observation=observation,
                 confidence=confidence,
 
                 # Exact fields matching demo output
@@ -669,10 +705,8 @@ class GimbalTracker(BaseTracker):
                     'connection_health': self.gimbal_provider.get_health_status(),
                     'provider': self.provider_metadata.get('provider'),
                     'protocol': self.provider_metadata.get('protocol'),
-                    'guidance_capabilities': self.provider_metadata.get('guidance_capabilities'),
                     'timestamp': sample_timestamp,
                     'angle_sample_timestamp': sample_timestamp,
-                    'camera_provider_instance': str(id(self.gimbal_provider)),
                     'angle_sample_monotonic': sample_monotonic,
                     'angle_sample_sequence': getattr(gimbal_data, 'angle_sample_sequence', None),
                     'angle_sample_age_s': sample_age,
@@ -692,10 +726,21 @@ class GimbalTracker(BaseTracker):
                     'external_control': True,  # Controlled by external gimbal system
                     'gimbal_provider': self.provider_metadata.get('provider'),
                     'provider_protocol': self.provider_metadata.get('protocol'),
-                    'guidance_capabilities': self.provider_metadata.get('guidance_capabilities'),
-                    'usable_for_following': tracking_active
+                    'usable_for_following': tracking_active,
+                    'gimbal_observation_reason': observation_reason,
                 }
             )
+
+            if observation_owner != self._observation_owner():
+                tracker_output.gimbal_observation = None
+                tracker_output.metadata['gimbal_observation_reason'] = 'gimbal_observation_owner_changed'
+            current = tracker_output.gimbal_observation
+            if isinstance(self._camera_runtime, CameraRuntime) and (
+                    current is None or current.source is None or current.target_generation is None
+                    or tracking_active and current.tracking_state is None):
+                tracker_output.raw_data.update(usable_for_following=False, data_is_stale=True,
+                    identity_confirmed=False, freshness_reason=tracker_output.metadata['gimbal_observation_reason'])
+                tracker_output.metadata['usable_for_following'] = False
 
             return True, tracker_output
 
@@ -881,14 +926,12 @@ class GimbalTracker(BaseTracker):
                 'last_activation_time': self.tracking_activation_time,
                 'provider': self.provider_metadata.get('provider'),
                 'protocol': self.provider_metadata.get('protocol'),
-                'guidance_capabilities': self.provider_metadata.get('guidance_capabilities'),
             },
             metadata={
                 'tracker_class': self.__class__.__name__,
                 'tracking_inactive_reason': reason,
                 'external_gimbal_input': True,
                 'external_control_required': True,
-                'guidance_capabilities': self.provider_metadata.get('guidance_capabilities'),
             }
         )
 
@@ -937,7 +980,7 @@ class GimbalTracker(BaseTracker):
             'supports_confidence': True,
             'supports_velocity': False,
             'supports_bbox': False,
-            'supports_normalization': True,
+            'supports_normalization': False,
             'estimator_available': False,
             'multi_target': False,
             'real_time': True,
@@ -952,7 +995,6 @@ class GimbalTracker(BaseTracker):
             'status_driven': True,
             'gimbal_provider': self.provider_metadata.get('provider'),
             'provider_protocol': self.provider_metadata.get('protocol'),
-            'guidance_capabilities': self.provider_metadata.get('guidance_capabilities'),
             'supported_gimbal_providers': list_supported_gimbal_providers()
         }
 
@@ -982,7 +1024,6 @@ class GimbalTracker(BaseTracker):
             },
             'gimbal_interface_stats': interface_stats,
             'gimbal_provider_metadata': self.provider_metadata,
-            'coordinate_transformer_stats': self.coordinate_transformer.get_cache_info()
         }
 
     def reinitialize_tracker(self, frame: np.ndarray, bbox: Tuple[int, int, int, int]) -> None:

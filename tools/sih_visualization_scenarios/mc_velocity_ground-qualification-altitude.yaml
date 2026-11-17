@@ -1,0 +1,78 @@
+schema_version: 1
+name: mc_velocity_ground-fixed-camera-world-altitude-qualification
+rate_hz: 20
+frame: local_ned
+mount_type: HORIZONTAL
+airframe: multicopter
+evidence_provenance: synthetic_fixture
+stable_flight:
+  required: true
+  settle_samples: 7
+initial_conditions:
+  vehicle_ned:
+  - 0.0
+  - 0.0
+  - -40.0
+follower:
+  profile: mc_velocity_ground
+  purpose: Independent ground target with observed floor-limited descent
+  input_contract: image_position_2d
+  command_contract: velocity_body_offboard
+  speed_source_policy: none
+  altitude_control: true
+  requested_speed: null
+fixed_camera:
+  forward_body:
+  - 0.0
+  - 0.0
+  - 1.0
+  right_body:
+  - 0.0
+  - 1.0
+  - 0.0
+  down_body:
+  - -1.0
+  - 0.0
+  - 0.0
+  offset_body_m:
+  - 0.0
+  - 0.0
+  - 0.0
+  horizontal_fov_deg: 90.0
+  vertical_fov_deg: 60.0
+constraints:
+  velocity:
+    forward: 0.5
+    right: 0.5
+    down: 0.5
+  rate:
+    yaw: 45.0
+  altitude:
+    min: 30.0
+    max: 120.0
+continuity_policy:
+  mode: immediate_handoff
+target:
+  waypoints:
+  - time_s: 0.0
+    position_ned:
+    - 4.0
+    - 3.0
+    - 0.0
+  - time_s: 12.0
+    position_ned:
+    - 4.6
+    - 3.3
+    - 0.0
+faults: []
+qualification:
+  expected_handoff: false
+  altitude_tolerance_m: 2.0
+  position_tolerance_m: 2.0
+  minimum_vertical_response_m: 0.1
+acceptance:
+- Actual PX4 motion reduces projected image error independently of target motion
+- Observed NED z movement provides at least 0.1 m target-directed vertical closure;
+  no catch or stability guarantee
+- Published commands obey saved limits and the profile axis contract
+- Confirmed Hold after Stop with no later publication

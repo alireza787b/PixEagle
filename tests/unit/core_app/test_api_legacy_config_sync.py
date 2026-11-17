@@ -12,6 +12,7 @@ from classes.config_sync import (
     build_defaults_sync_plan,
     build_defaults_sync_report,
 )
+from classes.config_service import ConfigService
 
 
 pytestmark = [pytest.mark.unit]
@@ -20,6 +21,10 @@ pytestmark = [pytest.mark.unit]
 class FakeConfigService:
     def get_sync_config(self):
         return self.get_config()
+
+    def get_gimbal_guidance_migration(self, *, candidate=None):
+        from classes.gimbal_guidance_config_migration import assess_gimbal_guidance_migration
+        return assess_gimbal_guidance_migration(self.get_sync_config(), candidate=candidate)
 
     def __init__(self) -> None:
         self.schema = {
@@ -70,6 +75,11 @@ class FakeConfigService:
 
     def get_schema(self):
         return self.schema
+
+    def get_path_schema(self, path):
+        return ConfigService._schema_for_path(SimpleNamespace(
+            _schema=self.schema, _extension_section_schemas_locked=lambda: {}
+        ), path)
 
     def get_config(self):
         return self.current

@@ -60,6 +60,30 @@ describe('useDefaultsSync', () => {
     apiClient.get.mockResolvedValue({ data: report });
   });
 
+  it('accepts nested canonical paths through sixteen components', () => {
+    const path = ['GimbalTracker', 'GUIDANCE', 'OBSERVATION_LIMITS', 'AZIMUTH_LIMITS_DEG'];
+    expect(getConfigSyncItemPath({ path })).toEqual(path);
+    expect(getConfigSyncItemKey({ path })).toBe(JSON.stringify(path));
+    const deepest = Array.from({ length: 16 }, (_, index) => `level${index}`);
+    expect(getConfigSyncItemPath({ path: deepest })).toEqual(deepest);
+    [[], [...deepest, 'too_deep'], ['root', ' '], ['root', ' padded'], ['root', 1]].forEach((invalid) => {
+      expect(getConfigSyncItemPath({ path: invalid })).toEqual([]);
+    });
+  });
+
+  it('retains deep retirement paths when building reviewed operations', async () => {
+    const path = ['GimbalTracker', 'GUIDANCE', 'CAPABILITIES'];
+    apiClient.get.mockResolvedValue({ data: {
+      ...report,
+      registered_retirements: [{ id: 'split-guidance', path }],
+    } });
+    const { result } = renderHook(() => useDefaultsSync());
+    await waitFor(() => expect(result.current.reportAvailable).toBe(true));
+    expect(result.current.buildOperationsFromSelections({
+      selectedNew: [], selectedChanged: [], selectedRetired: [JSON.stringify(path)],
+    })).toEqual([{ op_type: 'REMOVE_RETIRED', path }]);
+  });
+
   it('builds canonical path operations and sends the v2 contract', async () => {
     apiClient.post
       .mockResolvedValueOnce({

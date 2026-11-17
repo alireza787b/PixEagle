@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 import tarfile
 
@@ -72,6 +73,10 @@ def test_runtime_log_session_lists_sessions_with_retention(tmp_path):
     )
     stale.initialize_session()
     stale_dir = Path(stale.session_dir)
+    marker = next(stale_dir.glob(".writer-*.json"))
+    writer = json.loads(marker.read_text())
+    writer["process_token"] = "retired-process"
+    marker.write_text(json.dumps(writer))
 
     active = RuntimeLogSessionManager(
         base_dir=tmp_path,
@@ -83,6 +88,35 @@ def test_runtime_log_session_lists_sessions_with_retention(tmp_path):
     sessions = active.list_sessions()
     assert [session["run_id"] for session in sessions] == ["pixeagle_active"]
     assert not stale_dir.exists()
+
+
+@pytest.mark.parametrize("budget", [1, 100 * 1024 * 1024])
+def test_retention_preserves_live_peer_after_clock_correction(tmp_path, budget):
+    peer = RuntimeLogSessionManager(base_dir=tmp_path, run_id="backend_live")
+    peer.initialize_session()
+    manifest = json.loads(peer.manifest_path.read_text())
+    manifest["pid"] = 99999999  # The initial launcher may have exited; the component writer is still alive.
+    peer.manifest_path.write_text(json.dumps(manifest))
+    os.utime(peer.session_dir, (1, 1))
+    active = RuntimeLogSessionManager(base_dir=tmp_path, run_id="launcher_live",
+                                      max_sessions=1, max_total_bytes=budget)
+    active.initialize_session()
+    assert peer.component_path().exists()
+    peer.append_component_message("backend", "still recording")
+    assert peer.read_entries(peer.run_id)[-1]["message"] == "still recording"
+
+
+def test_retention_reclaims_reused_pid_with_different_process_token(tmp_path):
+    peer = RuntimeLogSessionManager(base_dir=tmp_path, run_id="backend_retired")
+    peer.initialize_session()
+    marker = next(peer.session_dir.glob(".writer-*.json"))
+    writer = json.loads(marker.read_text())
+    writer["process_token"] = ["previous-boot", "1"]
+    marker.write_text(json.dumps(writer))
+    os.utime(peer.session_dir, (1, 1))
+    active = RuntimeLogSessionManager(base_dir=tmp_path, run_id="launcher_current", max_sessions=1)
+    active.initialize_session()
+    assert not peer.session_dir.exists()
 
 
 def test_redact_text_handles_url_credentials_and_named_secrets():

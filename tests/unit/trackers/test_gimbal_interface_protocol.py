@@ -1,6 +1,7 @@
 """Socket-free regression tests from the 2026-09-17 Topotek bench captures."""
 
 import unittest
+import socket
 from unittest.mock import Mock, patch
 
 from classes.gimbal_interface import ConnectionStatus, GimbalInterface
@@ -76,8 +77,12 @@ class GimbalProtocolTest(unittest.TestCase):
                 interface = GimbalInterface()
 
                 def receive(_size):
-                    interface.running = False
+                    interface.listen_socket.recvfrom.side_effect = finish
                     return ACTIVE, (source_ip, 59598)
+
+                def finish(_size):
+                    interface.running = False
+                    raise socket.timeout()
 
                 interface.listen_socket = Mock()
                 interface.listen_socket.recvfrom.side_effect = receive

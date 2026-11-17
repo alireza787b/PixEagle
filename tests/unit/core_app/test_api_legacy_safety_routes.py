@@ -495,6 +495,23 @@ async def test_follower_safety_limits_use_manager_units_and_override_summary(
 
 
 @pytest.mark.asyncio
+async def test_follower_safety_limits_preserve_explicit_absent_ceiling(monkeypatch):
+    from classes.safety_manager import SafetyManager
+
+    SafetyManager.reset_instance()
+    try:
+        manager = SafetyManager.get_instance()
+        manager.load_from_config({"Safety": {"GlobalLimits": {"MAX_ALTITUDE": None}}})
+        monkeypatch.setattr(routes, "_safety_manager_or_none", lambda: (True, manager))
+        limits = response_body(await routes.get_follower_safety_limits(FakeHandler(), "FW_NAVIGATION_CHASE"))
+        assert limits["altitude"]["max"] is None
+        assert limits["altitude"]["source"] == "GlobalLimits"
+        assert limits["altitude"]["min"] == 5.0
+    finally:
+        SafetyManager.reset_instance()
+
+
+@pytest.mark.asyncio
 async def test_follower_safety_limits_fallback_uses_parameters(monkeypatch):
     handler = FakeHandler()
     values = {

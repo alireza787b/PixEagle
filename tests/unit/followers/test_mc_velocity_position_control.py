@@ -79,7 +79,8 @@ def _build_position_stub(
     follower.smoothing_factor = smoothing_factor
     follower._last_yaw_command = 0.0
     follower._last_vertical_velocity_up_m_s = 0.0
-    follower._last_update_time = time.time()
+    follower.control_update_rate = 20.0
+    follower._last_update_time = time.monotonic()
 
     # YawRateSmoother stub (disabled — tests verify PID/threshold logic, not smoother)
     from classes.followers.yaw_rate_smoother import YawRateSmoother
@@ -159,6 +160,12 @@ def _run_control(follower: MCVelocityPositionFollower,
 # Tests: yaw error sign
 # ---------------------------------------------------------------------------
 
+def test_absent_ceiling_allows_climb_but_preserves_vertical_command_cap():
+    follower = _build_position_stub(max_climb_height=None, max_vertical_velocity=.5)
+    follower.px4_controller.current_altitude = 1000.
+    assert follower._calculate_altitude_command(-1.) == .5
+
+
 def test_yaw_command_follows_signed_image_error():
     """
     The signed image error is target_x - pid_setpoint.
@@ -233,7 +240,7 @@ def test_enabled_yaw_smoother_receives_degrees_per_second():
         smoothing_alpha=1.0,
         enable_speed_scaling=False,
     )
-    follower._last_update_time = time.time() - 0.1
+    follower._last_update_time = time.monotonic() - 0.1
 
     _run_control(follower, target_x=0.3, target_y=0.0)
 
@@ -319,7 +326,8 @@ def test_altitude_error_negative_means_target_above_setpoint():
     )
 
 
-def test_altitude_disabled_sends_zero_vel_body_down():
+@pytest.mark.parametrize("altitude", [50., None, float("nan"), float("inf"), -float("inf")])
+def test_altitude_disabled_sends_zero_vel_body_down(altitude):
     """
     When altitude_control_enabled=False, vel_body_down must be 0.0 regardless of
     where the target appears vertically.
@@ -327,7 +335,10 @@ def test_altitude_disabled_sends_zero_vel_body_down():
     follower = _build_position_stub(setpoint_y=0.0, altitude_control_enabled=False,
                                     yaw_control_threshold=1.0,
                                     command_smoothing_enabled=False)
+    follower.px4_controller.current_altitude = altitude
+    follower._calculate_altitude_command = MagicMock(side_effect=AssertionError("Altitude guidance is disabled"))
     _run_control(follower, target_x=0.0, target_y=0.9)
+    follower._calculate_altitude_command.assert_not_called()
 
     down_command = _last_command_fields(follower)['vel_body_down']
     assert down_command == 0.0, (

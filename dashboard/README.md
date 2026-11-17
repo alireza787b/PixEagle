@@ -58,6 +58,16 @@ operator acceptance gates are complete. Legacy tracking/control HTTP aliases
 have been replaced by typed `/api/v1/actions/*` routes and are no longer
 registered.
 
+## Follower profile selection
+
+Both profile selectors preserve an unsaved choice across status polls and failed
+save/read requests. Save remains an explicit action;
+an observed configured value acknowledges the choice only when the values match.
+A competing backend value stays visible without discarding the draft. Once the
+selection is acknowledged, later configuration changes update the selector.
+Following blocks profile editing and saving. Remounting the control, or a changed
+backend/source identity when supplied by the response, clears the old draft.
+
 ## Camera hold controls
 
 When the camera advertises `manual_begin` and `manual_update`, held pointer and

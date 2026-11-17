@@ -53,18 +53,19 @@ const formatValue = (value) => {
   return String(value);
 };
 
-const PropertyValueEditor = ({ propMeta, value, onChange, disabled, mobile = false }) => {
+export const PropertyValueEditor = ({ propMeta, value, onChange, disabled, mobile = false }) => {
   const defaultVal = propMeta?.default;
   const min = propMeta?.min;
   const max = propMeta?.max;
   const numericType = propMeta?.schemaType === 'integer' ? 'integer' : 'float';
   const step = propMeta?.step ?? (numericType === 'integer' ? 1 : 0.1);
-  const [localValue, setLocalValue] = useState(() => String(value ?? defaultVal ?? ''));
+  const numericText = value === null && propMeta?.nullable ? '' : String(value ?? defaultVal ?? '');
+  const [localValue, setLocalValue] = useState(numericText);
   const [isFocused, setIsFocused] = useState(false);
 
   useEffect(() => {
-    if (!isFocused) setLocalValue(String(value ?? defaultVal ?? ''));
-  }, [value, isFocused, defaultVal]);
+    if (!isFocused) setLocalValue(numericText);
+  }, [numericText, isFocused]);
 
   if (!propMeta || propMeta.editable === false || !['boolean', 'enum', 'string', 'number'].includes(propMeta.type)) {
     return (
@@ -144,8 +145,24 @@ const PropertyValueEditor = ({ propMeta, value, onChange, disabled, mobile = fal
     );
   }
 
+  if (propMeta.nullable && value === null) {
+    return (
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <Typography variant="body2">{propMeta.nullLabel || 'Not configured'}</Typography>
+        <Button disabled={disabled} onClick={() => onChange(defaultVal ?? min ?? 1)} size="small">
+          Set value
+        </Button>
+      </Box>
+    );
+  }
+
   return (
     <Box sx={{ width: '100%' }}>
+      {propMeta.nullable && (
+        <Button size="small" disabled={disabled} onClick={() => onChange(null)}>
+          {propMeta.nullLabel || 'Not configured'}
+        </Button>
+      )}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: mobile ? 0 : 200 }}>
         <TextField
           fullWidth={mobile}
@@ -486,7 +503,8 @@ export const AddPropertyDialog = ({
       setIsCustomMode(false);
       setSelectedProperty(propName);
       const meta = getPropertyMeta?.(propName, dialogFollower);
-      const defaultVal = referenceDefaults?.[propName] ?? meta?.default ?? 0;
+      const referenceValue = referenceDefaults?.[propName];
+      const defaultVal = referenceValue === null ? '' : referenceValue ?? meta?.default ?? 0;
       setPropertyValue(String(defaultVal));
     }
   };

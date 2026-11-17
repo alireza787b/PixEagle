@@ -6,7 +6,7 @@
 # profile definitions and enables extensible follower modes.
 
 # Schema version for future compatibility
-schema_version: "2.1.0"
+schema_version: "2.5.0"
 
 # ==============================================================================
 # Command Field Definitions
@@ -95,9 +95,13 @@ follower_profiles:
   
   # MC Velocity Ground Follower - Full velocity control for ground target tracking
   mc_velocity_ground:
+    config_section: MC_VELOCITY_GROUND
+    family: multicopter
+    visibility: advanced
     display_name: "MC Velocity Ground"
     description: "Full velocity control for tracking ground targets"
     control_type: "velocity_body_offboard"
+    live_qualified_phases: [multicopter]
     airframe_phase: "multicopter"
     required_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s"]
     ui_category: "velocity"
@@ -107,9 +111,13 @@ follower_profiles:
     
   # Historical key retained for visual-centering compatibility
   mc_velocity_distance:
+    config_section: MC_VELOCITY_DISTANCE
+    family: multicopter
+    visibility: advanced
     display_name: "MC Visual Centering"
     description: "Compatibility profile with zero forward velocity, lateral centering, optional vertical control and yaw; no range hold"
     control_type: "velocity_body_offboard"
+    live_qualified_phases: [multicopter]
     airframe_phase: "multicopter"
     # Use MAVSDK-native body velocity fields and degrees/sec for yaw
     required_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s"]
@@ -119,9 +127,13 @@ follower_profiles:
 
   # MC Velocity Position Follower - Limited movement, yaw and altitude only
   mc_velocity_position:
+    config_section: MC_VELOCITY_POSITION
+    family: multicopter
+    visibility: basic
     display_name: "MC Velocity Position"
     description: "Stationary profile: zero forward/right, visual yaw, optional vertical control"
     control_type: "velocity_body_offboard"
+    live_qualified_phases: [multicopter]
     airframe_phase: "multicopter"
     # Publish a complete MAVSDK body-velocity snapshot. Forward/right remain zero.
     # vel_body_down is positive down; follower negates its up-positive command.
@@ -132,10 +144,22 @@ follower_profiles:
     
   # MC Velocity Chase Follower - Quadcopter offboard velocity control
   mc_velocity_chase:
+    config_section: MC_VELOCITY_CHASE
+    family: multicopter
+    visibility: basic
     display_name: "MC Velocity Chase"
     description: "Pursuit profile: forward ramp with yaw or sideslip and optional vertical control"
     control_type: "velocity_body_offboard"
+    live_qualified_phases: [multicopter]
+    session_controls:
+      requested_speed:
+        label: Requested speed
+        description: "Total 3D translation ceiling for image-guided chase; commands may be smaller. Uses the configured startup request, or the saved forward target when unset. Zero ramps translation down; yaw guidance may continue."
+        unit: m/s
+        step: 0.5
     airframe_phase: "multicopter"
+    native_phase_contracts:
+      multicopter: velocity_body_offboard
     required_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s"]
     ui_category: "velocity"
     # Schema-driven tracker data requirements
@@ -144,9 +168,13 @@ follower_profiles:
 
   # GM PID Pursuit Follower - PID-based pursuit with coordinated turn guidance
   gm_velocity_chase:
+    config_section: GM_VELOCITY_CHASE
+    family: external
+    visibility: advanced
     display_name: "GM PID Pursuit"
     description: "PID-based pursuit control with coordinated turn guidance from gimbal angles"
     control_type: "velocity_body_offboard"  # Use body velocity offboard for body frame commands
+    live_qualified_phases: [multicopter]
     airframe_phase: "multicopter"           # Gimbal is the evidence source, not the vehicle type
     required_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s"]
     ui_category: "gimbal"
@@ -156,10 +184,17 @@ follower_profiles:
 
   # GM Velocity Vector Follower - Direct vector pursuit using gimbal angles
   gm_velocity_vector:
+    config_section: GM_VELOCITY_VECTOR
+    family: external
+    visibility: advanced
     display_name: "GM Velocity Vector"
-    description: "Direct vector pursuit using gimbal angles and body frame velocity"
+    description: "Pursues a gimbal-designated target with phase-specific multicopter or fixed-wing guidance"
     control_type: "velocity_body_offboard"
+    live_qualified_phases: [multicopter, fixed_wing]
     airframe_phase: "multicopter"           # Gimbal is the evidence source, not the vehicle type
+    native_phase_contracts:
+      multicopter: velocity_body_offboard
+      fixed_wing: fixed_wing_external
     required_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s"]
     ui_category: "gimbal"
     # Schema-driven tracker data requirements
@@ -168,14 +203,41 @@ follower_profiles:
     session_controls:
       requested_speed:
         label: Requested speed
+        description: "Requested 3D translation magnitude along the observed target direction; ramps, guidance and safety may reduce the submitted command."
+        unit: m/s
+        step: 0.5
+
+  # Calibrated image pursuit through the shared phase-bound guidance contract.
+  fw_navigation_chase:
+    config_section: FW_NAVIGATION_CHASE
+    family: fixed_wing
+    visibility: experimental
+    display_name: "FW Navigation Chase"
+    description: "Calibrated image pursuit with course, airspeed-reference and vertical-path objectives; source calibration and qualified command ownership required"
+    control_type: fixed_wing_external
+    airframe_phase: fixed_wing
+    live_qualified_phases: [fixed_wing]
+    native_phase_contracts:
+      fixed_wing: fixed_wing_external
+    required_fields: []
+    ui_category: navigation
+    required_tracker_data: [POSITION_2D]
+    optional_tracker_data: []
+    session_controls:
+      requested_speed:
+        label: Airspeed
         unit: m/s
         step: 0.5
 
   # FW Attitude Rate Follower - visual L1/TECS-inspired control
   fw_attitude_rate:
+    config_section: FW_ATTITUDE_RATE
+    family: fixed_wing
+    visibility: experimental
     display_name: "FW Attitude Rate"
     description: "Fixed-wing visual guidance with L1/TECS-inspired rate and thrust control"
     control_type: "attitude_rate"
+    live_qualified_phases: []
     airframe_phase: "fixed_wing"
     # Publishes MAVSDK attitude-rate and thrust fields.
     required_fields: ["rollspeed_deg_s", "pitchspeed_deg_s", "yawspeed_deg_s", "thrust"]
@@ -186,9 +248,13 @@ follower_profiles:
 
   # MC Attitude Rate Follower - direct angular-rate and thrust control
   mc_attitude_rate:
+    config_section: MC_ATTITUDE_RATE
+    family: multicopter
+    visibility: experimental
     display_name: "MC Attitude Rate"
     description: "High-authority multicopter visual control using attitude rates and thrust"
     control_type: "attitude_rate"
+    live_qualified_phases: [multicopter]
     airframe_phase: "multicopter"
     # Uses set_attitude_rate() - direct angular rate commands + thrust
     required_fields: ["rollspeed_deg_s", "pitchspeed_deg_s", "yawspeed_deg_s", "thrust"]
@@ -221,17 +287,28 @@ removed_profile_aliases:
 # ==============================================================================
 # Control Type Definitions
 # ==============================================================================
-# Maps control types to their corresponding MAVSDK methods
+# Declares command transports and exact native command variants.
 control_types:
   attitude_rate:
+    transport: mavsdk
     mavsdk_method: "set_attitude_rate"  
     description: "Attitude rate commands"
     ui_display: "Attitude Rate Control"
 
   velocity_body_offboard:
+    transport: mavsdk
     mavsdk_method: "set_velocity_body"
     description: "Offboard body velocity commands for quadcopters"
     ui_display: "Body Velocity Offboard"
+
+  # Registered experimental native profile; live admission is independently gated.
+  fixed_wing_external:
+    transport: px4_native
+    description: "Native PX4 fixed-wing course, EAS and vertical objective"
+    ui_display: "Native Fixed-Wing Guidance"
+    field_variants:
+      height_rate: [course_rad, equivalent_airspeed_m_s, height_rate_m_s]
+      altitude: [course_rad, equivalent_airspeed_m_s, altitude_amsl_m]
 
 # ==============================================================================
 # UI Configuration
@@ -253,7 +330,7 @@ ui_config:
       fields: ["rollspeed_deg_s", "pitchspeed_deg_s", "yawspeed_deg_s", "thrust"]
       color: "#FF5722"
 
-  profile_display_order: ["mc_velocity_ground", "mc_velocity_distance", "mc_velocity_position", "mc_velocity_chase", "mc_attitude_rate", "gm_velocity_chase", "gm_velocity_vector", "fw_attitude_rate"]
+  profile_display_order: ["mc_velocity_ground", "mc_velocity_distance", "mc_velocity_position", "mc_velocity_chase", "mc_attitude_rate", "gm_velocity_chase", "gm_velocity_vector", "fw_navigation_chase", "fw_attitude_rate"]
 
 # ==============================================================================
 # Validation Rules

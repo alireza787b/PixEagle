@@ -31,7 +31,7 @@ from ruamel.yaml import YAML as RuamelYAML
 from ruamel.yaml.comments import CommentedMap as RuamelCommentedMap
 
 
-CONFIG_SCHEMA_VERSION = '1.7.0'
+CONFIG_SCHEMA_VERSION = '1.10.0'
 
 
 # Define categories for sections
@@ -79,6 +79,8 @@ SECTION_CATEGORIES = {
     'GM_VELOCITY_CHASE': {'category': 'follower', 'display_name': 'Gimbal Velocity Chase', 'icon': 'control_camera'},
     'GM_VELOCITY_VECTOR': {'category': 'follower', 'display_name': 'Gimbal Velocity Vector', 'icon': 'control_camera'},
     'FW_ATTITUDE_RATE': {'category': 'follower', 'display_name': 'Fixed-Wing Attitude Rate', 'icon': 'flight'},
+    'FW_NAVIGATION_CHASE': {'category': 'follower', 'display_name': 'FW Navigation Chase (experimental)', 'icon': 'flight'},
+    'FixedWingGuidance': {'category': 'follower', 'display_name': 'Fixed-Wing Guidance', 'icon': 'flight'},
 
     # Safety & Control
     'Safety': {'category': 'safety', 'display_name': 'Safety Limits', 'icon': 'shield'},
@@ -267,6 +269,72 @@ def load_tracker_artifact_options(
 # Manual schema overrides for parameters where comment parsing is ambiguous.
 # Applied AFTER auto-generation. Keys are "SectionName.PARAM_NAME".
 SCHEMA_OVERRIDES = {
+    'FW_NAVIGATION_CHASE.VERTICAL_ENTER_HORIZONTAL_NORM': {
+        'type': 'float', 'min': 0.0, 'max': 1.0, 'step': 0.01,
+        'description': 'Near-vertical enter threshold on the unit NED ray horizontal magnitude; must be lower than exit.'},
+    'FW_NAVIGATION_CHASE.VERTICAL_EXIT_HORIZONTAL_NORM': {
+        'type': 'float', 'min': 0.0, 'max': 1.0, 'step': 0.01,
+        'description': 'Near-vertical exit threshold; must be higher than enter.'},
+    'FW_NAVIGATION_CHASE.REARWARD_ENTRY_BEARING_DEG': {
+        'type': 'float', 'min': 0.0, 'max': 180.0, 'step': 1.0, 'unit': 'deg',
+        'description': 'Absolute bearing at which coordinated-turn direction latches; must exceed forward re-entry.'},
+    'FW_NAVIGATION_CHASE.FORWARD_REENTRY_BEARING_DEG': {
+        'type': 'float', 'min': 0.0, 'max': 180.0, 'step': 1.0, 'unit': 'deg',
+        'description': 'Absolute bearing within which the turn-direction latch clears; must be below rearward entry.'},
+    'GimbalTracker.GAZEBO_INPUT': {
+        'type': 'object', 'nullable': True, 'reload_tier': 'system_restart',
+        'description': 'Private isolated simulator SIP source; null keeps normal camera UDP. Launcher managed; camera controls disabled.',
+        'properties': {
+            'socket_path': {'type': 'string'},
+            'source_clock_id': {'type': 'string'},
+            'world': {'type': 'string'},
+            'max_attitude_skew_s': {'type': 'number', 'min': 0.000001, 'unit': 'seconds'},
+            'control_contract': {'type': 'string', 'nullable': True, 'enum': ['rendered_scene_v1'],
+                                 'description': 'Private rendered scene control contract; absent/null is input-only.'},
+        },
+        'required': ['socket_path', 'source_clock_id', 'world', 'max_attitude_skew_s'],
+        'additional_properties': False,
+    },
+    'VideoSource.GAZEBO_CAMERA': {
+        'type': 'object', 'nullable': True, 'reload_tier': 'system_restart',
+        'description': 'Private isolated simulator image source and declared sample-clock identity; launcher managed.',
+        'properties': {
+            'socket_path': {'type': 'string'},
+            'source_clock_id': {'type': 'string'},
+            'world': {'type': 'string'},
+            'image_topic': {'type': 'string'},
+            'max_attitude_skew_s': {'type': 'number', 'min': 0.000001, 'unit': 'seconds'},
+        },
+        'required': ['socket_path', 'source_clock_id', 'world', 'image_topic', 'max_attitude_skew_s'],
+        'additional_properties': False,
+    },
+    'VideoSource.FIXED_CAMERA_CALIBRATION': {
+        'type': 'object',
+        'nullable': True,
+        'reload_tier': 'system_restart',
+        'description': (
+            'Optional measured fixed-camera calibration for the exact selected '
+            'decoder output before application orientation. Null remains '
+            'uncalibrated; this does not enable following or qualify timing.'
+        ),
+        'properties': {
+            'source_signature': {'type': 'string'},
+            'revision': {'type': 'string'},
+            'pixel_grid': {'type': 'string', 'options': ['decoder_pre_orientation']},
+            'image_size_px': {'type': 'array', 'item_type': 'integer', 'min_items': 2, 'max_items': 2},
+            'focal_length_px': {'type': 'array', 'item_type': 'number', 'min_items': 2, 'max_items': 2},
+            'principal_point_px': {'type': 'array', 'item_type': 'number', 'min_items': 2, 'max_items': 2},
+            'optical_to_body_frd_wxyz': {'type': 'array', 'item_type': 'number', 'min_items': 4, 'max_items': 4},
+            'distortion_model': {'type': 'string', 'options': ['none']},
+            'mount_kind': {'type': 'string', 'options': ['fixed']},
+        },
+        'required': [
+            'source_signature', 'revision', 'pixel_grid', 'image_size_px',
+            'focal_length_px', 'principal_point_px', 'optical_to_body_frd_wxyz',
+            'distortion_model', 'mount_kind',
+        ],
+        'additional_properties': False,
+    },
     'VitTrack_Tracker.artifact_id': {
         'options': load_tracker_artifact_options(tracker='VitTrack', role='model'),
         'description': 'Checksum-pinned model entry from configs/tracker_artifacts.json',
@@ -429,6 +497,8 @@ SCHEMA_OVERRIDES = {
              'description': 'Read frames from a Raspberry Pi or Jetson CSI camera'},
             {'value': 'CUSTOM_GSTREAMER', 'label': 'Custom GStreamer',
              'description': 'Use the advanced custom GStreamer input pipeline'},
+            {'value': 'GAZEBO_CAMERA', 'label': 'Gazebo training camera',
+             'description': 'Actual stamped images from the isolated simulator provider'},
         ],
         'description': 'Primary video input source type',
     },
@@ -628,10 +698,19 @@ SCHEMA_OVERRIDES = {
             },
         ],
     },
+    'Safety.ALLOW_SESSION_VELOCITY_OVERRIDE': {
+        'description': (
+            'Advanced: allow supported MC session controls to replace saved velocity caps. '
+            'Off for new installations. Missing legacy values retain compatibility until Config Sync applies this choice. '
+            'Altitude, rate and authority guards are unchanged; fixed-wing policy is configured separately.'
+        ),
+        'reload_tier': 'follower_restart',
+    },
     'Safety.GlobalLimits': {
         'description': (
-            'Complete non-bypassable safety envelope; every canonical field is '
-            'required and follower profiles may only tighten it'
+            'Complete saved safety envelope; every canonical field is required '
+            'and follower profiles may only tighten it. Explicitly permitted '
+            'session velocity overrides affect velocity caps only.'
         ),
         'required': [
             'MIN_ALTITUDE',
@@ -658,10 +737,12 @@ SCHEMA_OVERRIDES = {
         'description': 'Absolute minimum permitted altitude above the configured reference',
     },
     'Safety.GlobalLimits.MAX_ALTITUDE': {
+        'nullable': True,
+        'null_label': 'No mission ceiling',
         'min': 0.000001,
         'max': 500.0,
         'unit': 'm',
-        'description': 'Absolute maximum permitted altitude above the configured reference',
+        'description': 'Maximum permitted relative altitude; null means no mission ceiling, while omission inherits the default',
     },
     'Safety.GlobalLimits.ALTITUDE_WARNING_BUFFER': {
         'min': 0.0,
@@ -1083,7 +1164,10 @@ SCHEMA_OVERRIDES = {
         'description': 'Expert-only corrections to the provider and installation preset; AUTO uses the tested preset',
     },
     'GimbalTracker.GUIDANCE': {
-        'description': 'Advanced GM Velocity Vector geometry policy; values are recorded in the active session and are not a second mount transform',
+        'description': 'Advanced MC Vector direction policy and optional observed-ray restrictions; no mechanical qualification or second transform',
+        'required': ['POLICY', 'VERTICAL_ENTER_HORIZONTAL_NORM', 'VERTICAL_EXIT_HORIZONTAL_NORM',
+                     'REARWARD_ENTRY_BEARING_DEG', 'FORWARD_REENTRY_BEARING_DEG',
+                     'TRANSITION_DWELL_MS', 'REARWARD_GRACE_MS'],
     },
     'GimbalTracker.GUIDANCE.POLICY': {
         'options': [
@@ -1116,16 +1200,25 @@ SCHEMA_OVERRIDES = {
         'min': 0.0, 'max': 10000.0, 'step': 10.0, 'unit': 'ms',
         'description': 'Maximum bounded reverse grace before yaw-first guidance',
     },
-    'GimbalTracker.GUIDANCE.CAPABILITIES': {
-        'description': 'Optional explicit fallback for providers that cannot advertise normalized gimbal guidance capabilities',
+    'GimbalTracker.GUIDANCE.ALLOWED_MANOEUVRES': {
+        'type': 'array', 'nullable': True, 'item_type': 'string', 'max_items': 3,
+        'description': 'Optional subset of vertical, reverse_translation and yaw_recovery; null keeps implemented states, [] restricts all special states',
+        'reload_tier': 'follower_restart',
     },
-    'GimbalTracker.GUIDANCE.CAPABILITIES.AZIMUTH_LIMITS_DEG': {
-        'description': 'Inclusive provider azimuth limits used only when KNOWN is true and runtime metadata is absent',
-        'min_items': 2, 'max_items': 2,
+    'GimbalTracker.GUIDANCE.OBSERVATION_LIMITS': {
+        'description': 'Optional measured physical-FRD boresight windows, not vendor joint reachability or camera-aim authority',
+        'required': [],
+        'reload_tier': 'follower_restart',
     },
-    'GimbalTracker.GUIDANCE.CAPABILITIES.DEPRESSION_LIMITS_DEG': {
-        'description': 'Inclusive provider depression limits used only when KNOWN is true and runtime metadata is absent',
-        'min_items': 2, 'max_items': 2,
+    'GimbalTracker.GUIDANCE.OBSERVATION_LIMITS.AZIMUTH_LIMITS_DEG': {
+        'type': 'array', 'nullable': True, 'item_type': 'number', 'min_items': 2, 'max_items': 2,
+        'description': 'Inclusive physical-body azimuth acceptance window in [-180,180] deg; null adds no restriction',
+        'reload_tier': 'follower_restart',
+    },
+    'GimbalTracker.GUIDANCE.OBSERVATION_LIMITS.DEPRESSION_LIMITS_DEG': {
+        'type': 'array', 'nullable': True, 'item_type': 'number', 'min_items': 2, 'max_items': 2,
+        'description': 'Inclusive physical-body depression acceptance window in [-90,90] deg; null adds no restriction',
+        'reload_tier': 'follower_restart',
     },
     'GimbalTracker.GEOMETRY_OVERRIDE.AZIMUTH_ZERO_ADJUST_DEG': {
         'min': -180.0, 'max': 180.0, 'step': 0.5, 'unit': 'deg',
@@ -1318,16 +1411,17 @@ SCHEMA_OVERRIDES = {
         'options': [
             {'value': 'immediate_handoff', 'label': 'Immediate handoff'},
             {'value': 'bounded_decay', 'label': 'Bounded decay'},
+            {'value': 'bounded_flight', 'label': 'Bounded fixed-wing flight'},
         ],
         'description': (
             'Command-authority policy after confirmed target evidence is lost; '
-            'bounded decay supports multicopter body-velocity output but requires '
-            'separate aircraft qualification before field use'
+            'bounded decay supports MC velocity and bounded flight supports native FW '
+            'course/airspeed. Both require separate aircraft qualification before field use'
         ),
     },
     'TargetContinuity.MAX_COAST_TIME_S': {
         'min': 0.0, 'max': 10.0, 'step': 0.1, 'unit': 's',
-        'description': 'Hard elapsed-time budget for a qualified bounded-decay episode',
+        'description': 'Hard elapsed-time budget for a qualified target-recovery episode',
     },
     'TargetContinuity.MAX_COAST_DISTANCE_M': {
         'min': 0.0, 'max': 100.0, 'step': 0.1, 'unit': 'm',
@@ -1383,10 +1477,40 @@ SCHEMA_OVERRIDES = {
     'GM_VELOCITY_VECTOR.REQUESTED_SPEED': {'type': 'float', 'nullable': True, 'min': 0.0,
         'max': 30.0, 'step': 0.5, 'unit': 'm/s', 'reload_tier': 'follower_restart',
         'description': 'Requested 3D speed at session start; null uses the existing safety ceiling. Session adjustments are temporary.'},
+    'FixedWingGuidance.UPPER_SPEED_POLICY': {
+        'label': 'Fixed-wing speed policy', 'reload_tier': 'follower_restart',
+        'options': [
+            {'value': 'px4_configured_max', 'label': 'PX4 limits',
+             'description': 'Use the current native PX4 airspeed envelope.'},
+            {'value': 'no_upper_speed_bound', 'label': 'Flight-path priority (experimental)',
+             'description': 'Requires qualified native firmware; retain underspeed protection and prioritize the requested vertical path above the normal upper speed bound.'},
+        ],
+        'description': 'One shared policy for native FW guidance. Unsupported direct-rate followers do not inherit this capability.'},
+    'FixedWingGuidance.MIN_DIVE_THROTTLE': {
+        'type': 'float', 'nullable': True, 'min': 0.0, 'max': 1.0, 'step': 0.01,
+        'label': 'Minimum dive throttle', 'reload_tier': 'follower_restart',
+        'description': 'Optional normalized throttle floor during flight-path-priority descent; null retains native behavior. Applies within native actuator limits and does not disable underspeed protection.'},
+    'Follower.AIRFRAME_LAYOUT': {
+        'label': 'Aircraft layout', 'reload_tier': 'follower_restart',
+        'options': [
+            {'value': 'AUTO', 'label': 'Automatic (PX4)'},
+            {'value': 'MULTICOPTER', 'label': 'Multicopter'},
+            {'value': 'FIXED_WING', 'label': 'Fixed wing'},
+            {'value': 'VTOL', 'label': 'VTOL (standard / tilt)'},
+            {'value': 'VTOL_TAILSITTER', 'label': 'VTOL tailsitter'},
+        ],
+        'description': 'Verify the physical installation against fresh PX4 observations. This choice never forces the active phase or rotates the camera mount.'},
+    'Follower.AIRFRAME_PHASE_CONFIRMATION_S': {
+        'type': 'float', 'min': 0.0, 'max': 5.0, 'step': 0.1, 'unit': 's',
+        'label': 'Aircraft phase confirmation', 'reload_tier': 'follower_restart',
+        'description': 'Fresh settled phase observations required before native pursuit starts. A later transition or phase change ends following and requires a new Start.'},
     'GM_VELOCITY_VECTOR.ALTITUDE_CHECK_INTERVAL': {'min': 0.01, 'max': 60.0, 'step': 0.1, 'unit': 's',
         'description': 'How often to check altitude safety (seconds)'},
 
     # MC_VELOCITY_CHASE — velocity/acceleration params wrongly capped at 1.0
+    'MC_VELOCITY_CHASE.REQUESTED_SPEED': {'type': 'float', 'nullable': True, 'min': 0.0,
+        'max': 30.0, 'step': 0.5, 'unit': 'm/s', 'reload_tier': 'follower_restart',
+        'description': 'Requested 3D speed at session start; null or a missing saved value retains the previous forward target. Session adjustments are temporary.'},
     'MC_VELOCITY_CHASE.FORWARD_RAMP_RATE': {'min': 0.0, 'max': 20.0, 'step': 0.05, 'unit': 'm/s²',
         'description': 'Forward velocity ramp-up acceleration rate (m/s²)'},
     'MC_VELOCITY_CHASE.INITIAL_FORWARD_VELOCITY': {'min': 0.0, 'max': 30.0, 'step': 0.1, 'unit': 'm/s',
@@ -1423,6 +1547,22 @@ SCHEMA_OVERRIDES = {
     'FW_ATTITUDE_RATE.MAX_BANK_ANGLE': {'min': 0.0, 'max': 90.0, 'step': 1.0, 'unit': 'deg',
         'description': 'Maximum bank angle for coordinated turns (degrees)'},
 
+    'MC_ATTITUDE_RATE.TARGET_ALTITUDE_OFFSET': {
+        'min': 0.0, 'max': 100.0, 'step': 0.1, 'unit': 'm',
+    },
+    # Smaller fresh thrust gains must not invalidate explicit saved tuning.
+    'PID.PID_GAINS.mc_att_altitude.p': {
+        'min': 0.0, 'max': 100.0, 'step': 0.01,
+        'description': 'Normalized thrust correction per metre of relative-height error',
+    },
+    'PID.PID_GAINS.mc_att_altitude.i': {
+        'min': 0.0, 'max': 1.0, 'step': 0.001,
+        'description': 'Normalized thrust integral gain per metre-second of relative-height error',
+    },
+    'PID.PID_GAINS.mc_att_altitude.d': {
+        'min': 0.0, 'max': 1.0, 'step': 0.01,
+        'description': 'Normalized thrust damping per measured upward metre per second',
+    },
     # MC_ATTITUDE_RATE — same issue for pitch/bank/roll angle limits
     'MC_ATTITUDE_RATE.MAX_PITCH_ANGLE': {'min': 1.0, 'max': 89.0, 'step': 1.0, 'unit': 'deg',
         'description': 'Measured pitch envelope (degrees); must stay below the Euler singularity at 90 degrees'},
@@ -1477,6 +1617,7 @@ SECTION_RELOAD_TIERS = {
     'GM_VELOCITY_CHASE': 'follower_restart',
     'GM_VELOCITY_VECTOR': 'follower_restart',
     'FW_ATTITUDE_RATE': 'follower_restart',
+    'FW_NAVIGATION_CHASE': 'follower_restart',
 
     # tracker_restart — tracker/detection params, need tracker reinit
     'Tracking': 'tracker_restart',
@@ -1534,7 +1675,6 @@ RELOAD_TIER_OVERRIDES = {
     'GimbalTracker.GUIDANCE.FORWARD_REENTRY_BEARING_DEG': 'follower_restart',
     'GimbalTracker.GUIDANCE.TRANSITION_DWELL_MS': 'follower_restart',
     'GimbalTracker.GUIDANCE.REARWARD_GRACE_MS': 'follower_restart',
-    'GimbalTracker.GUIDANCE.CAPABILITIES': 'follower_restart',
     'Setpoint.SETPOINT_PUBLISH_RATE_S': 'follower_restart',
     'Setpoint.OFFBOARD_COMMAND_RATE_HZ': 'follower_restart',
     'Setpoint.OFFBOARD_COMMAND_TTL_S': 'follower_restart',
@@ -2150,7 +2290,7 @@ def apply_continuity_follower_override_contract(
         raise ValueError('TargetContinuity.FollowerOverrides contains invalid follower defaults')
     properties = {
         key: _make_sparse_override_schema(value)
-        for key, value in parameters.items() if key != 'FollowerOverrides'
+        for key, value in parameters.items() if key not in {'FollowerOverrides', 'PhaseOverrides'}
     }
     parameters['FollowerOverrides'] = {
         'type': 'object',
@@ -2170,6 +2310,22 @@ def apply_continuity_follower_override_contract(
         },
         'required': [],
         'additional_properties': False,
+    }
+    phases = config.get('TargetContinuity', {}).get('PhaseOverrides', {})
+    phase_names = ('multicopter', 'fixed_wing')
+    if not isinstance(phases, dict) or set(phases) - set(phase_names):
+        raise ValueError('TargetContinuity.PhaseOverrides contains invalid phase defaults')
+    parameters['PhaseOverrides'] = {
+        'type': 'object', 'default': copy.deepcopy(phases),
+        'description': 'Observed-phase overrides applied after global and follower values; transition keeps the existing loss deadline',
+        'reload_tier': 'follower_restart', 'reboot_required': False,
+        'properties': {
+            name: {'type': 'object', 'default': copy.deepcopy(phases.get(name, {})),
+                   'description': f'Target recovery policy for observed {name}',
+                   'properties': copy.deepcopy(properties), 'required': [], 'additional_properties': False}
+            for name in phase_names
+        },
+        'required': [], 'additional_properties': False,
     }
 
 
@@ -2203,6 +2359,11 @@ def apply_safety_follower_override_contract(
         for property_schema in override_properties.values():
             if isinstance(property_schema, dict):
                 property_schema.pop('default', None)
+        override_properties['MAX_ALTITUDE'].pop('nullable', None)
+        override_properties['MAX_ALTITUDE'].pop('null_label', None)
+        override_properties['MAX_ALTITUDE']['description'] = (
+            'Optional finite ceiling that tightens the global envelope; omission inherits'
+        )
         follower_properties[follower_name] = {
             'type': 'object',
             'default': copy.deepcopy(configured_overrides.get(follower_name, {})),

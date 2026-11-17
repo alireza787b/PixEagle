@@ -232,9 +232,9 @@ const SafetyConfigCard = ({ followerName }) => {
             <LimitRow
               icon={<Height fontSize="small" sx={{ color: 'text.disabled' }} />}
               label="Maximum"
-              value={altitude.max?.toFixed(0)}
-              unit="m"
-              tooltip="Maximum safe altitude"
+              value={altitude.max === null ? 'No mission ceiling' : altitude.max?.toFixed(0)}
+              unit={altitude.max === null ? '' : 'm'}
+              tooltip="Configured mission altitude ceiling"
               isOverridden={altitude.is_overridden}
             />
             <LimitRow

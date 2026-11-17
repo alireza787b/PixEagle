@@ -69,6 +69,19 @@ After camera/mount compensation, a target below the configured aim point
 produces positive body-down velocity. Altitude control remains disabled unless
 explicitly configured.
 
+### Native MC session
+
+The profile declares a native MC command adapter for VTOL installations. It
+reuses the calculated forward/right/down/yaw fields and the existing speed
+control through `PhaseGuidanceSession`; it creates no FW pursuit strategy.
+The existing native transport performs the heading-to-NED and yaw-unit conversion.
+Phase confirmation holds the original engagement altitude without advancing the
+Chase controller. With altitude guidance disabled, pursuit retains that same
+frozen reference. A transition, phase change or lost owner ends the session;
+returning to MC requires a new explicit Start. This source adapter does not grant
+VTOL live admission or establish flight qualification. Ordinary pure-MC sessions
+retain their existing MAVSDK path.
+
 ---
 
 ## Configuration

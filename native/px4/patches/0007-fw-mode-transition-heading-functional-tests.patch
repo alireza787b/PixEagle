@@ -1,0 +1,363 @@
+diff --git a/src/modules/fw_mode_manager/FixedWingModeManager.hpp b/src/modules/fw_mode_manager/FixedWingModeManager.hpp
+--- a/src/modules/fw_mode_manager/FixedWingModeManager.hpp
++++ b/src/modules/fw_mode_manager/FixedWingModeManager.hpp
+@@ -174,6 +174,8 @@
+ 	bool init();
+ 
+ private:
++	friend class FixedWingModeManagerTestPeer;
++
+ 	void Run() override;
+ 
+ 	uORB::SubscriptionCallbackWorkItem _local_pos_sub{this, ORB_ID(vehicle_local_position)};
+diff --git a/src/modules/fw_mode_manager/CMakeLists.txt b/src/modules/fw_mode_manager/CMakeLists.txt
+--- a/src/modules/fw_mode_manager/CMakeLists.txt
++++ b/src/modules/fw_mode_manager/CMakeLists.txt
+@@ -75,3 +75,8 @@
+ 
+ px4_add_unit_gtest(SRC FirstOrderHoldAltitudeTest.cpp EXTRA_SRCS FirstOrderHoldAltitude.cpp LINKLIBS geo mathlib)
+ px4_add_unit_gtest(SRC ParachuteReleaseTest.cpp EXTRA_SRCS ParachuteRelease.cpp LINKLIBS mathlib)
++
++px4_add_functional_gtest(
++	SRC FixedWingModeManagerTest.cpp
++	LINKLIBS modules__fw_mode_manager
++)
+diff --git a/src/modules/fw_mode_manager/FixedWingModeManagerTest.cpp b/src/modules/fw_mode_manager/FixedWingModeManagerTest.cpp
+new file mode 100644
+--- /dev/null
++++ b/src/modules/fw_mode_manager/FixedWingModeManagerTest.cpp
+@@ -0,0 +1,334 @@
++/****************************************************************************
++ *
++ *   Copyright (C) 2024 PX4 Development Team. All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ *
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in
++ *    the documentation and/or other materials provided with the
++ *    distribution.
++ * 3. Neither the name PX4 nor the names of its contributors may be
++ *    used to endorse or promote products derived from this software
++ *    without specific prior written permission.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
++ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
++ * FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
++ * COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
++ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
++ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS
++ * OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED
++ * AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
++ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
++ * ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
++ * POSSIBILITY OF SUCH DAMAGE.
++ *
++ ****************************************************************************/
++
++#include <gtest/gtest.h>
++#include <memory>
++
++#include <lib/parameters/param.h>
++#include <px4_platform_common/px4_work_queue/WorkQueueManager.hpp>
++
++#include "FixedWingModeManager.hpp"
++
++using matrix::Eulerf;
++using matrix::Quatf;
++using matrix::Vector2d;
++using matrix::Vector2f;
++
++class FixedWingModeManagerTestPeer
++{
++public:
++	static constexpr double kLatitude = 47.3977433;
++	static constexpr double kLongitude = 8.5455943;
++
++	static void configure(FixedWingModeManager &manager, bool tailsitter, float heading, bool qualified = true)
++	{
++		manager._vehicle_status.is_vtol = true;
++		manager._vehicle_status.is_vtol_tailsitter = tailsitter;
++		manager._vehicle_status.vehicle_type = vehicle_status_s::VEHICLE_TYPE_ROTARY_WING;
++		manager._vehicle_status.in_transition_mode = true;
++		manager._vehicle_status.in_transition_to_fw = true;
++		manager._vehicle_status.nav_state = vehicle_status_s::NAVIGATION_STATE_AUTO_LOITER;
++		manager._control_mode.flag_control_auto_enabled = true;
++		manager._control_mode.flag_control_position_enabled = true;
++		manager._control_mode.flag_control_altitude_enabled = true;
++		manager._local_pos.timestamp = hrt_absolute_time();
++		manager._local_pos.timestamp_sample = manager._local_pos.timestamp;
++		manager._local_pos.heading = heading;
++		manager._local_pos.heading_good_for_control = qualified;
++		manager._local_pos.x = 0.f;
++		manager._local_pos.y = 0.f;
++		manager._local_pos.vx = 5.f;
++		manager._local_pos.vy = 0.f;
++		manager._local_pos.z = -30.f;
++		manager._local_pos.ref_alt = 500.f;
++		manager._local_pos.xy_valid = true;
++		manager._local_pos.v_xy_valid = true;
++		manager._local_pos.z_valid = true;
++		manager._local_pos.v_z_valid = true;
++		manager._global_local_proj_ref.initReference(kLatitude, kLongitude, manager._local_pos.timestamp);
++		manager._current_latitude = kLatitude;
++		manager._current_longitude = kLongitude;
++		manager._current_altitude = 530.f;
++		manager._reference_altitude = 500.f;
++		manager._landed = false;
++		manager._wind_vel = Vector2f{};
++	}
++
++	static void publishAttitude(FixedWingModeManager &manager, const Quatf &quaternion)
++	{
++		vehicle_attitude_s attitude{};
++		attitude.timestamp = hrt_absolute_time();
++		attitude.timestamp_sample = attitude.timestamp;
++		quaternion.copyTo(attitude.q);
++		uORB::Publication<vehicle_attitude_s> publisher{ORB_ID(vehicle_attitude)};
++		ASSERT_TRUE(publisher.publish(attitude));
++		manager.vehicle_attitude_poll();
++	}
++
++	static position_setpoint_s loiter(float yaw = NAN)
++	{
++		position_setpoint_s current{};
++		current.valid = true;
++		current.type = position_setpoint_s::SETPOINT_TYPE_LOITER;
++		current.alt = 530.f;
++		current.yaw = yaw;
++		current.course = NAN;
++		current.vx = NAN;
++		current.vy = NAN;
++		current.vz = NAN;
++		current.cruising_speed = -1.f;
++		current.loiter_radius = 80.f;
++		waypoint_from_heading_and_distance(kLatitude, kLongitude, M_PI_2_F, 200.f, &current.lat, &current.lon);
++		return current;
++	}
++
++	static float controlAuto(FixedWingModeManager &manager, const position_setpoint_s &current)
++	{
++		uORB::Subscription lateral_sub{ORB_ID(fixed_wing_lateral_setpoint)};
++		fixed_wing_lateral_setpoint_s previous_lateral{};
++		lateral_sub.copy(&previous_lateral);
++		position_setpoint_s previous{}, next{};
++		manager._pos_sp_triplet.current = current;
++		manager.control_auto(0.02f, Vector2d{kLatitude, kLongitude}, Vector2f{5.f, 0.f}, previous, current, next);
++		fixed_wing_lateral_setpoint_s lateral{};
++		EXPECT_TRUE(lateral_sub.updated());
++		EXPECT_TRUE(lateral_sub.copy(&lateral));
++		EXPECT_GT(lateral.timestamp, 0u);
++		return lateral.course;
++	}
++
++	static Vector2d waypoint(const FixedWingModeManager &manager) { return manager._transition_waypoint; }
++	static Vector2f closestPoint(const FixedWingModeManager &manager) { return manager._closest_point_on_path; }
++	static float fixedWingYaw(const FixedWingModeManager &manager) { return manager._yaw; }
++
++	static void leaveTransition(FixedWingModeManager &manager)
++	{
++		manager._vehicle_status.in_transition_to_fw = false;
++		manager._vehicle_status.in_transition_mode = false;
++		manager._vehicle_status.vehicle_type = vehicle_status_s::VEHICLE_TYPE_FIXED_WING;
++	}
++};
++
++class FixedWingModeManagerWorkQueueKeeper final : public px4::WorkItem
++{
++public:
++	FixedWingModeManagerWorkQueueKeeper() : WorkItem("fw_mode_test_keeper", px4::wq_configurations::nav_and_controllers) {}
++
++private:
++	void Run() override {}
++};
++
++class FixedWingModeManagerTest : public ::testing::Test
++{
++protected:
++	static void SetUpTestSuite()
++	{
++		ASSERT_EQ(px4::WorkQueueManagerStart(), PX4_OK);
++		// The last WorkItem detaching destroys its queue; keep it alive between cases, as in the MC position fixture.
++		_work_queue_keeper = std::make_unique<FixedWingModeManagerWorkQueueKeeper>();
++	}
++
++	static void TearDownTestSuite()
++	{
++		_work_queue_keeper.reset();
++		EXPECT_EQ(px4::WorkQueueManagerStop(), PX4_OK);
++	}
++
++	void SetUp() override
++	{
++		param_control_autosave(false);
++		param_reset_all();
++		_manager = std::make_unique<FixedWingModeManager>();
++	}
++
++	void TearDown() override { _manager.reset(); }
++
++	void expectBearing(float expected)
++	{
++		const Vector2d waypoint = FixedWingModeManagerTestPeer::waypoint(*_manager);
++		ASSERT_TRUE(PX4_ISFINITE(waypoint(0)) && PX4_ISFINITE(waypoint(1)));
++		const float actual = get_bearing_to_next_waypoint(FixedWingModeManagerTestPeer::kLatitude,
++				     FixedWingModeManagerTestPeer::kLongitude, waypoint(0), waypoint(1));
++		EXPECT_NEAR(matrix::wrap_pi(actual - expected), 0.f, 1e-4f);
++		EXPECT_NEAR(get_distance_to_next_waypoint(FixedWingModeManagerTestPeer::kLatitude,
++				FixedWingModeManagerTestPeer::kLongitude, waypoint(0), waypoint(1)), HDG_HOLD_DIST_NEXT, 0.1f);
++	}
++
++	void expectOriginalGeometry(float heading, bool qualified)
++	{
++		using Peer = FixedWingModeManagerTestPeer;
++		const auto mission = Peer::loiter();
++		Peer::configure(*_manager, true, heading, qualified);
++		Peer::publishAttitude(*_manager, Quatf{Eulerf{0.01f, -0.002f, 0.4f}});
++		const float actual_course = Peer::controlAuto(*_manager, mission);
++		const Vector2d waypoint = Peer::waypoint(*_manager);
++		EXPECT_FALSE(PX4_ISFINITE(waypoint(0)));
++		EXPECT_FALSE(PX4_ISFINITE(waypoint(1)));
++
++		FixedWingModeManager reference;
++		Peer::configure(reference, true, heading, qualified);
++		Peer::publishAttitude(reference, Quatf{Eulerf{0.01f, -0.002f, 0.4f}});
++		Peer::leaveTransition(reference);
++		const float reference_course = Peer::controlAuto(reference, mission);
++		EXPECT_NEAR((Peer::closestPoint(*_manager) - Peer::closestPoint(reference)).norm(), 0.f, 1e-3f);
++		ASSERT_TRUE(PX4_ISFINITE(actual_course) && PX4_ISFINITE(reference_course));
++		EXPECT_NEAR(matrix::wrap_pi(actual_course - reference_course), 0.f, 1e-4f);
++	}
++
++	inline static std::unique_ptr<FixedWingModeManagerWorkQueueKeeper> _work_queue_keeper;
++	std::unique_ptr<FixedWingModeManager> _manager;
++};
++
++TEST_F(FixedWingModeManagerTest, ActualUprightTailSitterUsesNativeMCHeading)
++{
++	using Peer = FixedWingModeManagerTestPeer;
++	struct Entry { Quatf attitude; float heading; };
++	const Entry entries[] = {
++		{Quatf{0.999977171421051f, -0.00484780827537179f, -0.000754785491153598f, 0.00466038007289171f}, 0.00932453665882349f},
++		{Quatf{0.999864757061005f, -0.00717900600284338f, -0.00254946993663907f, -0.0145767014473677f}, -0.0291075892746449f},
++	};
++
++	for (const auto &entry : entries) {
++		Peer::configure(*_manager, true, entry.heading);
++		Peer::publishAttitude(*_manager, entry.attitude);
++		EXPECT_GT(fabsf(matrix::wrap_pi(Peer::fixedWingYaw(*_manager) - entry.heading)), 1.f);
++		Peer::controlAuto(*_manager, Peer::loiter());
++		expectBearing(entry.heading);
++		Peer::leaveTransition(*_manager);
++		Peer::controlAuto(*_manager, Peer::loiter());
++	}
++}
++
++TEST_F(FixedWingModeManagerTest, TiltPerturbationsAndArbitraryYawKeepStableBoundary)
++{
++	using Peer = FixedWingModeManagerTestPeer;
++
++	for (float yaw : {-2.4f, 0.7f, 2.8f}) {
++		for (float tilt : {-0.01f, -0.001f, 0.001f, 0.01f}) {
++			Peer::configure(*_manager, true, yaw);
++			Peer::publishAttitude(*_manager, Quatf{Eulerf{tilt, -0.5f * tilt, yaw}});
++			Peer::controlAuto(*_manager, Peer::loiter());
++			expectBearing(yaw);
++			Peer::leaveTransition(*_manager);
++			Peer::controlAuto(*_manager, Peer::loiter());
++		}
++	}
++}
++
++TEST_F(FixedWingModeManagerTest, ExplicitFiniteYawHasPriority)
++{
++	using Peer = FixedWingModeManagerTestPeer;
++	Peer::configure(*_manager, true, -1.2f);
++	Peer::publishAttitude(*_manager, Quatf{Eulerf{0.01f, -0.002f, -1.2f}});
++	Peer::controlAuto(*_manager, Peer::loiter(0.9f));
++	expectBearing(0.9f);
++}
++
++TEST_F(FixedWingModeManagerTest, StandardAirframeMatchesRawNativeHeading)
++{
++	using Peer = FixedWingModeManagerTestPeer;
++
++	for (float yaw : {-2.4f, 0.7f, 2.8f}) {
++		Peer::configure(*_manager, false, yaw);
++		Peer::publishAttitude(*_manager, Quatf{Eulerf{0.01f, -0.002f, yaw}});
++		Peer::controlAuto(*_manager, Peer::loiter());
++		expectBearing(yaw);
++		Peer::leaveTransition(*_manager);
++		Peer::controlAuto(*_manager, Peer::loiter());
++	}
++}
++
++TEST_F(FixedWingModeManagerTest, NonfiniteExplicitYawUsesQualifiedNativeHeading)
++{
++	using Peer = FixedWingModeManagerTestPeer;
++
++	for (float yaw : {NAN, INFINITY, -INFINITY}) {
++		Peer::configure(*_manager, true, 0.3f);
++		Peer::publishAttitude(*_manager, Quatf{Eulerf{0.01f, -0.002f, 0.3f}});
++		Peer::controlAuto(*_manager, Peer::loiter(yaw));
++		expectBearing(0.3f);
++		Peer::leaveTransition(*_manager);
++		Peer::controlAuto(*_manager, Peer::loiter());
++	}
++}
++
++TEST_F(FixedWingModeManagerTest, NonfiniteNativeHeadingKeepsNavigatorGeometry)
++{
++	for (float heading : {NAN, INFINITY, -INFINITY}) { expectOriginalGeometry(heading, true); }
++}
++
++TEST_F(FixedWingModeManagerTest, UnqualifiedNativeHeadingKeepsNavigatorGeometry)
++{
++	expectOriginalGeometry(0.4f, false);
++	using Peer = FixedWingModeManagerTestPeer;
++	Peer::configure(*_manager, true, 0.4f, true);
++	Peer::controlAuto(*_manager, Peer::loiter());
++	expectBearing(0.4f);
++}
++
++TEST_F(FixedWingModeManagerTest, ExplicitYawWorksWithoutQualifiedNativeHeading)
++{
++	using Peer = FixedWingModeManagerTestPeer;
++	Peer::configure(*_manager, true, NAN, false);
++	Peer::publishAttitude(*_manager, Quatf{Eulerf{0.01f, -0.002f, 0.3f}});
++	Peer::controlAuto(*_manager, Peer::loiter(1.1f));
++	expectBearing(1.1f);
++}
++
++TEST_F(FixedWingModeManagerTest, ExistingWaypointLatchSurvivesHeadingLoss)
++{
++	using Peer = FixedWingModeManagerTestPeer;
++	Peer::configure(*_manager, true, 0.4f);
++	Peer::publishAttitude(*_manager, Quatf{Eulerf{0.01f, -0.002f, 0.4f}});
++	Peer::controlAuto(*_manager, Peer::loiter(0.8f));
++	const Vector2d original = Peer::waypoint(*_manager);
++	Peer::configure(*_manager, true, NAN, false);
++	Peer::controlAuto(*_manager, Peer::loiter());
++	const Vector2d latched = Peer::waypoint(*_manager);
++	EXPECT_DOUBLE_EQ(latched(0), original(0));
++	EXPECT_DOUBLE_EQ(latched(1), original(1));
++	expectBearing(0.8f);
++}
++
++TEST_F(FixedWingModeManagerTest, ExitingTransitionResetsWaypoint)
++{
++	using Peer = FixedWingModeManagerTestPeer;
++	Peer::configure(*_manager, true, 0.4f);
++	Peer::publishAttitude(*_manager, Quatf{Eulerf{0.01f, -0.002f, 0.4f}});
++	Peer::controlAuto(*_manager, Peer::loiter(0.8f));
++	Peer::leaveTransition(*_manager);
++	Peer::controlAuto(*_manager, Peer::loiter());
++	const Vector2d waypoint = Peer::waypoint(*_manager);
++	EXPECT_FALSE(PX4_ISFINITE(waypoint(0)));
++	EXPECT_FALSE(PX4_ISFINITE(waypoint(1)));
++}

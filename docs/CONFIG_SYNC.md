@@ -5,7 +5,8 @@ defaults without treating custom extensions as obsolete.
 
 ## Classification
 
-- **New**: a defaults/schema key is missing locally.
+- **New**: a checked-in default leaf is missing locally. Schema-only sparse
+  overrides may be added with an explicit value; they have no invented default.
 - **Changed**: a checked-in default changed since the pre-update baseline.
 - **Retired**: an exact local path is listed in
   `configs/config_retirements.yaml` and is absent from active defaults/schema.
@@ -16,6 +17,11 @@ defaults without treating custom extensions as obsolete.
 Absence from defaults or schema is never enough to authorize removal. The
 versioned retirement registry is the only removal authority; wildcards and
 prefix matches are not supported.
+
+Reports compare exact mapping leaves. Arrays and empty mappings remain atomic;
+changing one nested setting does not replace its customized siblings. An absent
+override still inherits; explicit `null`, `false` and `0` remain present values.
+Nested secrets inherit their parent's redaction policy.
 
 ## Dashboard Flow
 
@@ -110,6 +116,20 @@ are registered retirements. Config Sync offers their exact-path removal;
 active payload allocation, cache size and `QUALITY_STEP_ADAPTIVE` values are
 preserved. The old values are not translated because their semantics differ.
 
+The unused GM Chase `REQUIRED_TRACKER_FIELDS`, `SAFETY_RETURN_SPEED` and
+`DEFAULT_THRUST` settings are also registered retirements. Required observations
+come from the command profile, protections from the shared safety envelope, and
+GM Chase publishes velocity rather than thrust. Cleanup removes only the selected
+exact keys; it does not change gains or apply a new flight policy.
+
+The MC behavior repair changes the fresh rate-profile altitude offset to zero.
+Saved offsets are preserved; the resolved shared altitude-guidance flag now
+controls whether they are applied. With it off, rate-mode altitude hold captures
+engagement altitude. Visual Centering and adaptive Chase also respect that flag;
+Ground descent requires it in addition to selecting the descent behavior.
+Ground's swapped forward/lateral PID lookup is corrected. Review unequal custom
+axis gains before a new acceptance test; factory gains remain numerically equal.
+
 The QGC 4b.4 closeout adds `TargetContinuity.FollowerOverrides` for both gimbal
 followers and changes the fresh Vector lateral-mode default to coordinated turn.
 An existing flat continuity policy and an explicit saved sideslip choice remain
@@ -117,6 +137,13 @@ unchanged. Review the new recovery values in Config Sync and apply them only
 while following is inactive; neither QGC nor runtime loading silently adopts
 them. Recovery permits bounded horizontal motion after target loss, so adoption
 is an operational configuration change, not just a UI update.
+
+The native FW/VTOL extension adds sparse `TargetContinuity.PhaseOverrides`.
+Its fresh FW policy retains feasible course/airspeed for up to eight seconds;
+the MC four-metre travel budget does not apply. Saved flat/follower policies
+remain unchanged until Config Sync adoption. This setting cannot enable an
+unqualified native publisher or firmware extension. See the
+[native development checkpoint](../native/README.md) before using FW/VTOL.
 
 - Existing runtime config and dashboard environment are preserved together by
   default. Guided setup offers one explicit reset choice only when local
@@ -153,6 +180,13 @@ is an operational configuration change, not just a UI update.
   local config while Config Sync is pending. This keeps newly added optional
   components usable without silently rewriting the operator's config; an
   explicit sync or reset is still required to persist the new values.
+
+This optional-default behavior does not relax required configuration contracts.
+An incomplete required object such as `Follower.General` fails strict loading
+before Config Sync preview is available. Do not remove required fields to request
+inheritance. Recover through a reviewed offline configuration repair or explicit
+backed-up reset; startup does not silently merge missing required values. Adding
+new required fields needs a separately tested pre-start migration path.
 
 ### Running Process After A Source Update
 
@@ -203,7 +237,17 @@ Plan/apply requests use the strict v2 shape:
 }
 ```
 
-Paths contain either one root key or one section and parameter. The old
+Paths contain one root key, a section and parameter, or declared nested mapping
+keys (up to 16 components), for example
+`["Follower", "General", "YAW_SMOOTHING", "SMOOTHING_ALPHA"]`.
+The canonical schema must permit every component; array indexing and descent
+through scalar/null values are rejected. A request cannot contain duplicate or
+overlapping parent/child paths. `ADD_NEW` without `value` adopts an actual
+checked-in default; explicit `value: null` requests null and must be allowed by
+the schema. A schema-only sparse path requires an explicit value;
+`ADOPT_DEFAULT` never substitutes an inherited or schema annotation value.
+Apply advances only selected baseline leaves, preserving unselected changes.
+The old
 `section`/`parameter` operation fields and obsolete archive/remove operation
 are rejected rather than guessed. Apply adds the opaque `plan_digest` token and
 `confirm: true`; preview tokens are invalid after a backend restart.
@@ -225,3 +269,58 @@ runtime that silently deletes required subsystems.
 These are legacy compatibility routes pending typed `/api/v1/config/*`
 promotion. Contract v2 is versioned even on this compatibility route. Admin
 `config:write` authorization remains required for plan/apply.
+
+`FixedWingGuidance`, `Follower.AIRFRAME_LAYOUT`,
+`Follower.AIRFRAME_PHASE_CONFIRMATION_S` are additive native-guidance
+settings. Missing saved values retain normal PX4 limits, native throttle and
+automatic layout detection; adoption uses preview/apply while following is
+inactive. Their follower-restart tier does not restart an active pursuit.
+An experimental configuration never overrides the runtime's firmware-capability
+check. See [FW guidance policy](followers/04-configuration/fixed-wing-guidance-policy.md).
+
+Schema 1.9 retires `Follower.VTOL_TRANSITION_TIMEOUT_S`: the first fresh transition
+or unexpected settled phase ends following and requires a new Start. Saved
+values remain inert and unchanged until the existing Config Sync preview/apply
+explicitly removes this exact leaf. There is no replacement setting or mapping
+to target-loss budgets. `AIRFRAME_PHASE_CONFIRMATION_S` still controls startup
+confirmation under the original acquisition identity. Live VTOL admission remains
+closed until transition-preserving release is qualified.
+
+Native FW/VTOL engagement requires an explicit `bounded_flight` FW continuity
+policy. A saved legacy policy is not silently upgraded during engagement; use
+the existing migration preview/apply to adopt the phase override first.
+
+## Optional mission altitude ceiling
+
+Schema 1.10 permits explicit `Safety.GlobalLimits.MAX_ALTITUDE: null` for no
+application ceiling. Numeric saved limits keep their meaning; missing values
+still inherit the 120 m factory default. No migration automatically removes a
+ceiling. Preview/apply preserves explicit null and the existing floor. Follower
+overrides remain finite or omitted; follower null cannot remove a global limit.
+See [altitude limit semantics](followers/06-safety/limits-configuration.md#optional-upper-mission-ceiling).
+Older backends reject this new value, so restore a numeric ceiling before rolling
+back to a schema older than 1.10. Native aircraft performance limits are separate.
+
+## Gimbal guidance migration
+
+Schema 1.8 retires `GimbalTracker.GUIDANCE.CAPABILITIES`. Runtime reads only
+`ALLOWED_MANOEUVRES` and `OBSERVATION_LIMITS`; the original object remains in
+saved config for review, including after unrelated saves. Known Topotek factory
+placeholders preserve accepted MC behaviour. Custom or ambiguous declarations
+keep API/startup available but refuse Vector Start until reviewed.
+
+Config Sync reports historical provider masking separately from an unverified
+fallback and previews the canonical effective result. For custom migration,
+provide explicit `ADD_NEW` values for `ALLOWED_MANOEUVRES` and the complete
+`OBSERVATION_LIMITS` object, then `REMOVE_RETIRED` on the exact legacy path in
+one preview/apply. Explicit null is different from omitting `value`. If the new
+fields already exist, edit them through the normal schema editor before
+previewing cleanup. Saved restrictions must be preserved or narrowed; widening
+is refused during retirement. The report supplies suggested intersected values.
+
+`ALLOWED_MANOEUVRES: null` retains implemented MC states; `[]` permits only
+forward. Each observation-window axis is either null (no added restriction) or
+an ordered numeric pair. Neither null nor historical provider full-sphere
+metadata establishes mechanical reach, camera aim authority, physical target
+identity or exposure timing. No physical FW qualification is added by migration.
+See [gimbal guidance](followers/04-configuration/gimbal-guidance.md) for examples.

@@ -22,8 +22,10 @@ from classes.followers.yaw_rate_smoother import YawRateSmoother  # noqa: F401
 
 from classes.tracker_output import TrackerOutput, TrackerDataType
 from classes.parameters import Parameters
+from classes.safety_types import AltitudeLimits
 from classes.follower_config_manager import get_follower_config_manager
 from classes.followers.custom_pid import CustomPID
+from classes.aircraft_state import Vector3, body_ray_to_heading_frame
 from classes.gimbal_geometry import (
     InvalidGimbalGeometry,
     body_line_of_sight,
@@ -59,19 +61,19 @@ except ImportError:
     CIRCUIT_BREAKER_AVAILABLE = False
 
 class GMVelocityChaseFollower(BaseFollower):
-    """Convert gimbal angles into bounded body-FRD pursuit intents."""
+    """Convert physical gimbal rays into bounded heading-frame pursuit intents."""
 
-    COMMAND_FRAME = "BODY_FRD"
+    COMMAND_FRAME = "MAV_FRAME_BODY_NED"
 
     SUPPORTED_FORWARD_VELOCITY_MODES = frozenset({"CONSTANT", "PITCH_BASED"})
 
-    def __init__(self, px4_controller, initial_target_coords: Tuple[float, float]):
+    def __init__(self, px4_controller, initial_target_coords: Optional[Tuple[float, float]]):
         """
         Initialize GMVelocityChaseFollower with new architecture.
 
         Args:
             px4_controller: PX4 interface for drone control
-            initial_target_coords: Initial target coordinates (required by factory interface)
+            initial_target_coords: Unused image aim; the factory supplies None for angle input.
         """
         self.setpoint_profile = "gm_velocity_chase"  # GMVelocityChaseFollower always uses gm_velocity_chase profile
         self.follower_name = "GMVelocityChaseFollower"
@@ -205,11 +207,25 @@ class GMVelocityChaseFollower(BaseFollower):
     def authorized_command_acceleration(self) -> float:
         return self.forward_acceleration
 
+    def prepare_authorized_command(self, fields: Dict[str, float], *, loss_decay: bool) -> Dict[str, float]:
+        return self.prepare_shaped_authorized_command(fields, loss_decay=loss_decay)
+
+    def on_command_submitted(self, fields: Dict[str, float]) -> None:
+        self.record_submitted_command(fields)
+
     def reset_control_session(self) -> None:
         super().reset_control_session()
+        self._reset_target_control_state()
+
+    def reset_target_state(self, reason: str) -> bool:
+        self._reset_target_control_state()
+        return True
+
+    def _reset_target_control_state(self) -> None:
         self.current_forward_velocity = 0.0
         self.last_ramp_update_time = None
         self.last_velocity_command = None
+        self.last_tracker_output = None
         self.yaw_smoother.reset()
         for controller in (self.pid_right, self.pid_yaw_speed, self.pid_down):
             if controller is not None:
@@ -297,35 +313,8 @@ class GMVelocityChaseFollower(BaseFollower):
             logger.error(f"PID gains not found for '{control_field}': {e}")
             raise KeyError(f"Invalid PID key '{control_field}'. Check Parameters.PID_GAINS configuration.")
 
-    # === MOUNT-AWARE COORDINATE TRANSFORMATION FUNCTIONS ===
-    #
-    # COORDINATE SYSTEM DOCUMENTATION:
-    #
-    # This implementation provides mount-aware coordinate transformations that handle
-    # the fundamental differences between VERTICAL and HORIZONTAL gimbal mounts.
-    #
-    # VERTICAL MOUNT (typical for inspection/surveillance drones):
-    # - Camera points down when gimbal is in neutral position
-    # - Level/neutral: pitch=90°, roll=0°, yaw=0°
-    # - Look up (ascend): pitch < 90° → negative vel_body_down
-    # - Look down (descend): pitch > 90° → positive vel_body_down
-    # - Look right: roll < 0° → lateral control (configurable direction)
-    #
-    # HORIZONTAL MOUNT (typical for racing/FPV drones):
-    # - Camera points forward when gimbal is in neutral position
-    # - Level/neutral: pitch=0°, roll=0°, yaw=0°
-    # - Pitch up (ascend): pitch > 0° → negative vel_body_down
-    # - Pitch down (descend): pitch < 0° → positive vel_body_down
-    # - Roll right: roll > 0° → positive lateral control
-    #
-    # OUTPUT COORDINATE FRAME (NED/Body Frame):
-    # - vel_body_fwd: Forward velocity (positive = forward)
-    # - vel_body_right: Right velocity (positive = right)
-    # - vel_body_down: Down velocity (positive = down, negative = up)
-    # - yawspeed_deg_s: Yaw rate (positive = clockwise)
-
     def _transform_gimbal_to_control_frame(self, yaw_deg: float, pitch_deg: float, roll_deg: float) -> Tuple[float, float]:
-        """Project the shared aircraft-body ray into signed guidance errors."""
+        """Validate physical LOS, then extract errors in MAVLink's heading frame."""
         forward, right, down = body_line_of_sight(
             (yaw_deg, pitch_deg, roll_deg), self.mount_type,
             getattr(self, 'angle_geometry', None),
@@ -335,6 +324,11 @@ class GMVelocityChaseFollower(BaseFollower):
         if self.max_roll_angle <= 0.0 or self.max_pitch_angle <= 0.0:
             raise InvalidGimbalGeometry("Gimbal guidance angle limits must be positive")
 
+        attitude, heading = self.px4_controller.get_guidance_attitude()
+        ray = body_ray_to_heading_frame(Vector3(forward, right, down), attitude, heading)
+        if ray.x <= 0.0:
+            raise InvalidGimbalGeometry("Target ray is outside the heading-frame forward hemisphere")
+        forward, right, down = ray.x, ray.y, ray.z
         lateral_error = math.degrees(math.atan2(right, forward)) / self.max_roll_angle
         vertical_error = math.degrees(math.atan2(down, math.hypot(forward, right))) / self.max_pitch_angle
         return (
@@ -653,12 +647,7 @@ class GMVelocityChaseFollower(BaseFollower):
                     forward_velocity, right_velocity, down_velocity, yaw_speed,
                 )
 
-                # Apply body-FRD velocity commands. This follower does not
-                # implement a local-NED conversion path.
-                # - Forward velocity: Body frame forward direction
-                # - Right velocity: Body frame right direction
-                # - Down velocity: Body frame down direction (NED convention)
-                # - Yaw speed: Angular rate in degrees per second
+                # These velocities use heading-only axes; down remains NED down.
                 if not self.set_command_fields(
                     {
                         "vel_body_fwd": forward_velocity,
@@ -1125,7 +1114,9 @@ class GMVelocityChaseFollower(BaseFollower):
 
         try:
             # Get current altitude using same pattern as other followers
-            current_altitude = getattr(self.px4_controller, 'current_altitude', 0.0)
+            current_altitude = getattr(self.px4_controller, 'current_altitude', None)
+            if not AltitudeLimits.is_valid_altitude(current_altitude):
+                return {'safe': False, 'violation_type': 'status_unavailable'}
 
             # Check altitude bounds
             if current_altitude < self.min_altitude_safety:
@@ -1135,7 +1126,7 @@ class GMVelocityChaseFollower(BaseFollower):
                     'current_altitude': current_altitude,
                     'threshold': self.min_altitude_safety
                 }
-            elif current_altitude > self.max_altitude_safety:
+            elif AltitudeLimits.above(current_altitude, self.max_altitude_safety):
                 return {
                     'safe': False,
                     'violation_type': 'too_high',

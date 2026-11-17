@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<sdf version="1.10">
+  <model name="rc_cessna_mono_cam">
+    <include merge="true"><uri>model://rc_cessna</uri></include>
+    <include merge="true">
+      <uri>model://mono_cam</uri>
+      <pose relative_to="base_link">0.4 0 0.16 0 0 0</pose>
+    </include>
+    <joint name="CameraJoint" type="fixed">
+      <parent>base_link</parent><child>camera_link</child>
+      <pose relative_to="base_link">0.4 0 0.16 0 0 0</pose>
+    </joint>
+  </model>
+</sdf>

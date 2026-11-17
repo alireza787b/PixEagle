@@ -1,0 +1,21 @@
+diff --git a/src/modules/fw_mode_manager/FixedWingModeManager.cpp b/src/modules/fw_mode_manager/FixedWingModeManager.cpp
+--- a/src/modules/fw_mode_manager/FixedWingModeManager.cpp
++++ b/src/modules/fw_mode_manager/FixedWingModeManager.cpp
+@@ -550,9 +550,14 @@
+ 			double lat_transition, lon_transition;
+ 
+ 			// Create a virtual waypoint HDG_HOLD_DIST_NEXT meters in front of the vehicle which the path navigation controller can track
+-			// during the transition. Use the current yaw setpoint to determine the transition heading, as that one in turn
+-			// is set to the transition heading by Navigator, or current yaw if setpoint is not valid.
+-			const float transition_heading = PX4_ISFINITE(current_sp.yaw) ? current_sp.yaw : _yaw;
++			// during the transition. The raw MC heading follows the front-transition rotation axis; a tailsitter's
++			// FW-forward azimuth is ill-conditioned while upright.
++			if (!PX4_ISFINITE(current_sp.yaw)
++			    && (!PX4_ISFINITE(_local_pos.heading) || !_local_pos.heading_good_for_control)) {
++				return; // Keep the existing Navigator geometry without a synthetic transition waypoint.
++			}
++
++			const float transition_heading = PX4_ISFINITE(current_sp.yaw) ? current_sp.yaw : _local_pos.heading;
+ 			waypoint_from_heading_and_distance(_current_latitude, _current_longitude, transition_heading, HDG_HOLD_DIST_NEXT,
+ 							   &lat_transition,
+ 							   &lon_transition);

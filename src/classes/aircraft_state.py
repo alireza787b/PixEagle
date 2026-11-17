@@ -1,0 +1,538 @@
+"""Connection-owned aircraft observations and explicit physical/navigation frames.
+
+These contracts contain observations, not flight commands. Source progress is
+required: polling or a new video frame cannot refresh an aircraft measurement.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, replace
+from enum import Enum
+import math
+import threading
+import time
+from typing import Callable
+
+
+class AirframePhase(str, Enum):
+    MULTICOPTER = "multicopter"
+    FIXED_WING = "fixed_wing"
+    VTOL_TRANSITION = "vtol_transition"
+    UNKNOWN = "unknown"
+
+
+class AircraftKind(str, Enum):
+    MULTICOPTER = "multicopter"
+    FIXED_WING = "fixed_wing"
+    VTOL = "vtol"
+    UNKNOWN = "unknown"
+
+
+class AircraftLayout(str, Enum):
+    AUTO = "AUTO"
+    MULTICOPTER = "MULTICOPTER"
+    FIXED_WING = "FIXED_WING"
+    VTOL = "VTOL"
+    VTOL_TAILSITTER = "VTOL_TAILSITTER"
+
+    def accepts_kind(self, kind: AircraftKind) -> bool:
+        if self is AircraftLayout.AUTO:
+            return True
+        expected = {AircraftLayout.MULTICOPTER: AircraftKind.MULTICOPTER,
+                    AircraftLayout.FIXED_WING: AircraftKind.FIXED_WING,
+                    AircraftLayout.VTOL: AircraftKind.VTOL,
+                    AircraftLayout.VTOL_TAILSITTER: AircraftKind.VTOL}[self]
+        return kind is expected
+
+    def matches(self, state: "AircraftState") -> bool:
+        """Verify an installation choice; configuration never declares phase."""
+        if self is AircraftLayout.AUTO:
+            return True
+        if self is AircraftLayout.VTOL_TAILSITTER:
+            return state.is_vtol and state.is_tailsitter
+        if self is AircraftLayout.VTOL:
+            return state.is_vtol and not state.is_tailsitter
+        expected = AirframePhase.MULTICOPTER if self is AircraftLayout.MULTICOPTER else AirframePhase.FIXED_WING
+        return not state.is_vtol and state.phase is expected
+
+
+# Standard MAV_TYPE wire identifiers, not follower configuration or flight
+# phases. VTOL's current phase needs its own fresh phase observation.
+_MAVLINK_AIRCRAFT_TYPES = (
+    (1, "FIXED_WING", AircraftKind.FIXED_WING),
+    (2, "QUADROTOR", AircraftKind.MULTICOPTER),
+    (3, "COAXIAL", AircraftKind.MULTICOPTER),
+    (4, "HELICOPTER", AircraftKind.MULTICOPTER),
+    (13, "HEXAROTOR", AircraftKind.MULTICOPTER),
+    (14, "OCTOROTOR", AircraftKind.MULTICOPTER),
+    (15, "TRICOPTER", AircraftKind.MULTICOPTER),
+    (19, "VTOL_TAILSITTER_DUOROTOR", AircraftKind.VTOL),
+    (20, "VTOL_TAILSITTER_QUADROTOR", AircraftKind.VTOL),
+    (21, "VTOL_TILTROTOR", AircraftKind.VTOL),
+    (22, "VTOL_FIXEDROTOR", AircraftKind.VTOL),
+    (23, "VTOL_TAILSITTER", AircraftKind.VTOL),
+    (24, "VTOL_TILTWING", AircraftKind.VTOL),
+    (29, "DODECAROTOR", AircraftKind.MULTICOPTER),
+    (35, "DECAROTOR", AircraftKind.MULTICOPTER),
+    (43, "GENERIC_MULTIROTOR", AircraftKind.MULTICOPTER),
+    (47, "VTOL_GYRODYNE", AircraftKind.VTOL),
+)
+
+
+def _mavlink_aircraft_type(value):
+    # MAVLink2REST's message.type names the message (HEARTBEAT); mavtype
+    # contains the aircraft enum. Raw MAVLink dictionaries use type for it.
+    if isinstance(value, dict):
+        value = value.get("mavtype", value.get("type"))
+        if isinstance(value, dict):
+            value = value.get("type")
+    if type(value) is int:
+        return next((item for item in _MAVLINK_AIRCRAFT_TYPES if item[0] == value), None)
+    if isinstance(value, str):
+        name = value.removeprefix("MAV_TYPE_")
+        aliases = {"VTOL_DUOROTOR": "VTOL_TAILSITTER_DUOROTOR", "VTOL_QUADROTOR": "VTOL_TAILSITTER_QUADROTOR"}
+        name = aliases.get(name, name)
+        return next((item for item in _MAVLINK_AIRCRAFT_TYPES if item[1] == name), None)
+    return None
+
+
+def aircraft_kind_from_mavlink(value) -> AircraftKind:
+    """Classify an observed HEARTBEAT type; unknown types stay unsupported."""
+    item = _mavlink_aircraft_type(value)
+    return AircraftKind.UNKNOWN if item is None else item[2]
+
+
+def aircraft_is_tailsitter_from_mavlink(value) -> bool:
+    """Use standard type declarations, never aircraft pitch or mount presets."""
+    item = _mavlink_aircraft_type(value)
+    return item is not None and item[1].startswith("VTOL_TAILSITTER")
+
+
+def airframe_phase_from_mavlink(kind: AircraftKind, vtol_state=None) -> AirframePhase:
+    """Decode standard EXTENDED_SYS_STATE; neither attitude nor config is phase."""
+    if kind is AircraftKind.MULTICOPTER:
+        return AirframePhase.MULTICOPTER
+    if kind is AircraftKind.FIXED_WING:
+        return AirframePhase.FIXED_WING
+    if kind is not AircraftKind.VTOL:
+        return AirframePhase.UNKNOWN
+    if isinstance(vtol_state, dict):
+        vtol_state = vtol_state.get("type")
+    phases = (
+        (1, "TRANSITION_TO_FW", AirframePhase.VTOL_TRANSITION),
+        (2, "TRANSITION_TO_MC", AirframePhase.VTOL_TRANSITION),
+        (3, "MC", AirframePhase.MULTICOPTER),
+        (4, "FW", AirframePhase.FIXED_WING),
+    )
+    if type(vtol_state) is int:
+        return next((phase for number, _, phase in phases if number == vtol_state), AirframePhase.UNKNOWN)
+    if isinstance(vtol_state, str):
+        label = vtol_state.removeprefix("MAV_VTOL_STATE_")
+        return next((phase for _, name, phase in phases if name == label), AirframePhase.UNKNOWN)
+    return AirframePhase.UNKNOWN
+
+
+def finite_number(value: float, name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        raise ValueError(f"{name}_invalid")
+    return float(value)
+
+
+@dataclass(frozen=True)
+class Vector3:
+    x: float
+    y: float
+    z: float
+
+    def __post_init__(self):
+        for name in ("x", "y", "z"):
+            finite_number(getattr(self, name), f"vector_{name}")
+
+    @property
+    def magnitude(self) -> float:
+        return math.hypot(self.x, self.y, self.z)
+
+    @property
+    def horizontal_magnitude(self) -> float:
+        return math.hypot(self.x, self.y)
+
+    def normalized(self) -> Vector3:
+        scale = max(abs(self.x), abs(self.y), abs(self.z))
+        if scale <= 1e-12:
+            raise ValueError("zero_direction")
+        x, y, z = self.x / scale, self.y / scale, self.z / scale
+        length = math.hypot(x, y, z)
+        return Vector3(x / length, y / length, z / length)
+
+
+@dataclass(frozen=True)
+class Quaternion:
+    """Hamilton w,x,y,z rotation from physical aircraft FRD to local NED."""
+
+    w: float
+    x: float
+    y: float
+    z: float
+
+    @classmethod
+    def from_euler(cls, roll_rad: float, pitch_rad: float, yaw_rad: float) -> "Quaternion":
+        roll = finite_number(roll_rad, "roll") / 2.
+        pitch = finite_number(pitch_rad, "pitch") / 2.
+        yaw = finite_number(yaw_rad, "yaw") / 2.
+        cr, sr, cp, sp, cy, sy = math.cos(roll), math.sin(roll), math.cos(pitch), math.sin(pitch), math.cos(yaw), math.sin(yaw)
+        return cls(cr * cp * cy + sr * sp * sy, sr * cp * cy - cr * sp * sy,
+                   cr * sp * cy + sr * cp * sy, cr * cp * sy - sr * sp * cy)
+
+    def __post_init__(self):
+        for name in ("w", "x", "y", "z"):
+            finite_number(getattr(self, name), f"quaternion_{name}")
+        norm = math.hypot(self.w, self.x, self.y, self.z)
+        if not math.isclose(norm, 1.0, abs_tol=1e-3):
+            raise ValueError("quaternion_not_unit")
+
+    def rotate(self, vector: Vector3) -> Vector3:
+        norm = math.hypot(self.w, self.x, self.y, self.z)
+        w, x, y, z = (item / norm for item in (self.w, self.x, self.y, self.z))
+        tx = 2 * (y * vector.z - z * vector.y)
+        ty = 2 * (z * vector.x - x * vector.z)
+        tz = 2 * (x * vector.y - y * vector.x)
+        return Vector3(vector.x + w * tx + y * tz - z * ty,
+                       vector.y + w * ty + z * tx - x * tz,
+                       vector.z + w * tz + x * ty - y * tx)
+
+    def compose(self, other: "Quaternion") -> "Quaternion":
+        """Compose rotations, applying ``other`` first and this rotation last."""
+        values = (
+            self.w * other.w - self.x * other.x - self.y * other.y - self.z * other.z,
+            self.w * other.x + self.x * other.w + self.y * other.z - self.z * other.y,
+            self.w * other.y - self.x * other.z + self.y * other.w + self.z * other.x,
+            self.w * other.z + self.x * other.y - self.y * other.x + self.z * other.w,
+        )
+        norm = math.hypot(*values)
+        return Quaternion(*(value / norm for value in values))
+
+    @property
+    def heading_rad(self) -> float:
+        forward = self.rotate(Vector3(1.0, 0.0, 0.0))
+        if forward.horizontal_magnitude <= 1e-9:
+            raise ValueError("physical_body_heading_undefined")
+        return math.atan2(forward.y, forward.x)
+
+
+def ned_to_heading_frame(vector: Vector3, heading_rad: float) -> Vector3:
+    """MAV_FRAME_BODY_NED rotates velocity by yaw only; down stays NED down."""
+    heading = finite_number(heading_rad, "heading")
+    c, s = math.cos(heading), math.sin(heading)
+    return Vector3(c * vector.x + s * vector.y, -s * vector.x + c * vector.y, vector.z)
+
+
+def heading_frame_to_ned(vector: Vector3, heading_rad: float) -> Vector3:
+    """Inverse of MAVLink's yaw-only velocity boundary, preserving NED down."""
+    heading = finite_number(heading_rad, "heading")
+    c, s = math.cos(heading), math.sin(heading)
+    return Vector3(c * vector.x - s * vector.y, s * vector.x + c * vector.y, vector.z)
+
+
+def body_ray_to_heading_frame(ray: Vector3, physical_attitude: Quaternion, heading_rad: float) -> Vector3:
+    """Physical FRD LOS → NED → MAVLink's yaw-only velocity coordinates."""
+    return ned_to_heading_frame(physical_attitude.rotate(ray), heading_rad)
+
+
+def fixed_wing_control_attitude(physical_attitude: Quaternion, *, is_tailsitter: bool) -> Quaternion:
+    """Match PX4's FW measurement frame; camera rays still use physical FRD.
+
+    This converts observations, not outgoing FW virtual attitude setpoints.
+    """
+    if not isinstance(physical_attitude, Quaternion) or type(is_tailsitter) is not bool:
+        raise ValueError("fixed_wing_attitude_frame_invalid")
+    return (physical_attitude.compose(Quaternion.from_euler(0., math.pi / 2., 0.))
+            if is_tailsitter else physical_attitude)
+
+
+@dataclass(frozen=True)
+class AircraftBinding:
+    aircraft_uid: str
+    connection_generation: str
+    telemetry_generation: int
+
+    def __post_init__(self):
+        if (not isinstance(self.aircraft_uid, str) or not self.aircraft_uid
+                or not isinstance(self.connection_generation, str) or not self.connection_generation):
+            raise ValueError("aircraft_binding_missing")
+        if type(self.telemetry_generation) is not int or self.telemetry_generation < 0:
+            raise ValueError("telemetry_generation_invalid")
+
+
+@dataclass(frozen=True)
+class GuidanceSessionIdentity:
+    follow_session_id: str
+    binding: AircraftBinding
+    guidance_generation: int
+
+    def __post_init__(self):
+        if not isinstance(self.follow_session_id, str) or not self.follow_session_id:
+            raise ValueError("follow_session_missing")
+        if not isinstance(self.binding, AircraftBinding):
+            raise ValueError("aircraft_binding_invalid")
+        if type(self.guidance_generation) is not int or self.guidance_generation < 0:
+            raise ValueError("guidance_generation_invalid")
+
+
+@dataclass(frozen=True)
+class AirspeedObservation:
+    """Qualified PX4 CAS/EAS observation; groundspeed is never an airspeed source."""
+
+    source: str
+    equivalent_m_s: float | None
+    true_m_s: float | None
+    observed_at_monotonic_s: float
+    valid: bool
+
+    def __post_init__(self):
+        if self.source not in {"sensor", "ground_minus_wind", "unavailable"}:
+            raise ValueError("airspeed_source_invalid")
+        finite_number(self.observed_at_monotonic_s, "airspeed_timestamp")
+        for name in ("equivalent_m_s", "true_m_s"):
+            value = getattr(self, name)
+            if value is not None and finite_number(value, name) < 0:
+                raise ValueError("airspeed_negative")
+        if type(self.valid) is not bool:
+            raise ValueError("airspeed_validity_invalid")
+        if self.valid and (self.source == "unavailable" or self.equivalent_m_s is None):
+            raise ValueError("airspeed_observation_missing")
+
+    def fresh(self, now: float, timeout_s: float) -> bool:
+        return self.valid and 0 <= now - self.observed_at_monotonic_s <= timeout_s
+
+
+@dataclass(frozen=True)
+class FixedWingEnvelope:
+    """Aircraft-owned effective values, including native load-dependent minimum."""
+
+    minimum_eas_m_s: float
+    trim_eas_m_s: float
+    maximum_eas_m_s: float
+    climb_rate_m_s: float
+    sink_rate_m_s: float
+    bank_limit_rad: float
+    source: str
+    revision: str
+    vertical_acceleration_limit_m_s2: float | None = None
+    altitude_response_time_s: float | None = None
+
+    def __post_init__(self):
+        for name in ("minimum_eas_m_s", "trim_eas_m_s", "maximum_eas_m_s",
+                     "climb_rate_m_s", "sink_rate_m_s", "bank_limit_rad"):
+            if finite_number(getattr(self, name), name) <= 0:
+                raise ValueError(f"{name}_not_positive")
+        # Bank-dependent minimum can exceed trim. It must not exceed maximum.
+        if not (self.minimum_eas_m_s <= self.maximum_eas_m_s
+                and self.trim_eas_m_s <= self.maximum_eas_m_s and self.bank_limit_rad < math.pi / 2):
+            raise ValueError("fixed_wing_envelope_inconsistent")
+        if not self.source or not self.revision:
+            raise ValueError("fixed_wing_envelope_provenance_missing")
+        for name in ("vertical_acceleration_limit_m_s2", "altitude_response_time_s"):
+            if getattr(self, name) is not None and finite_number(getattr(self, name), name) <= 0:
+                raise ValueError("fixed_wing_vertical_response_invalid")
+
+
+@dataclass(frozen=True)
+class AttitudeTiming:
+    """DDS-adjusted source times and independent same-host monotonic receipts."""
+
+    publication_timestamp_us: int
+    sample_timestamp_us: int
+    publication_received_at_monotonic_s: float
+    sample_received_at_monotonic_s: float
+    quat_reset_counter: int
+    time_basis: str
+
+    def __post_init__(self):
+        if (any(type(value) is not int or not 0 < value < 2**64
+                for value in (self.publication_timestamp_us, self.sample_timestamp_us))
+                or self.sample_timestamp_us > self.publication_timestamp_us):
+            raise ValueError("attitude_source_timestamps_invalid")
+        for name in ("publication_received_at_monotonic_s", "sample_received_at_monotonic_s"):
+            if finite_number(getattr(self, name), name) < 0:
+                raise ValueError("attitude_receipt_invalid")
+        if self.sample_received_at_monotonic_s > self.publication_received_at_monotonic_s:
+            raise ValueError("attitude_receipt_order_invalid")
+        if type(self.quat_reset_counter) is not int or not 0 <= self.quat_reset_counter <= 255:
+            raise ValueError("attitude_reset_counter_invalid")
+        if self.time_basis != "px4_uxrce_adjusted_us":
+            raise ValueError("attitude_time_basis_invalid")
+
+    def fresh(self, now: float, timeout_s: float) -> bool:
+        now = finite_number(now, "attitude_clock")
+        timeout = finite_number(timeout_s, "attitude_timeout")
+        if timeout <= 0:
+            raise ValueError("attitude_timeout_not_positive")
+        packet_age = now - self.publication_received_at_monotonic_s
+        sample_receipt_age = now - self.sample_received_at_monotonic_s
+        processing_age = (self.publication_timestamp_us - self.sample_timestamp_us) * 1e-6
+        return (0 <= packet_age and 0 <= sample_receipt_age <= timeout
+                and processing_age + packet_age <= timeout)
+
+
+def preserves_attitude_sample(before: AttitudeTiming, before_quaternion: Quaternion,
+                              current: AttitudeTiming, current_quaternion: Quaternion) -> bool:
+    """Republishing cannot rewrite an unchanged estimator sample.
+
+    A reported estimator reset remains observable to the session owner, which
+    must invalidate any old ray association. It is not ordinary sample reuse.
+    """
+    if current.sample_timestamp_us != before.sample_timestamp_us:
+        return True
+    return (current.sample_received_at_monotonic_s == before.sample_received_at_monotonic_s
+            and (current.quat_reset_counter != before.quat_reset_counter
+                 or current_quaternion == before_quaternion))
+
+
+@dataclass(frozen=True)
+class AircraftState:
+    binding: AircraftBinding
+    sequence: int
+    source: str
+    observed_at_monotonic_s: float
+    phase: AirframePhase
+    is_vtol: bool
+    is_tailsitter: bool
+    rescue_active: bool
+    attitude_body_to_ned: Quaternion
+    velocity_ned_m_s: Vector3
+    relative_altitude_m: float
+    altitude_amsl_m: float
+    navigation_heading_rad: float
+    airspeed: AirspeedObservation
+    fixed_wing_envelope: FixedWingEnvelope | None = None
+    altitude_reference_generation: int = 0
+    attitude_timing: AttitudeTiming | None = None
+
+    def __post_init__(self):
+        if type(self.sequence) is not int or self.sequence < 0 or not isinstance(self.source, str) or not self.source:
+            raise ValueError("aircraft_source_progress_missing")
+        for name, kind in (("binding", AircraftBinding), ("attitude_body_to_ned", Quaternion),
+                           ("velocity_ned_m_s", Vector3), ("airspeed", AirspeedObservation)):
+            if not isinstance(getattr(self, name), kind):
+                raise ValueError(f"aircraft_{name}_invalid")
+        if self.fixed_wing_envelope is not None and not isinstance(self.fixed_wing_envelope, FixedWingEnvelope):
+            raise ValueError("fixed_wing_envelope_invalid")
+        if self.attitude_timing is not None and not isinstance(self.attitude_timing, AttitudeTiming):
+            raise ValueError("attitude_timing_invalid")
+        if type(self.altitude_reference_generation) is not int or self.altitude_reference_generation < 0:
+            raise ValueError("altitude_reference_generation_invalid")
+        if not isinstance(self.phase, AirframePhase):
+            raise ValueError("aircraft_phase_invalid")
+        for name in ("is_vtol", "is_tailsitter", "rescue_active"):
+            if type(getattr(self, name)) is not bool:
+                raise ValueError(f"{name}_invalid")
+        if self.is_tailsitter and not self.is_vtol:
+            raise ValueError("tailsitter_requires_vtol")
+        if self.phase is AirframePhase.VTOL_TRANSITION and not self.is_vtol:
+            raise ValueError("transition_requires_vtol")
+        for name in ("observed_at_monotonic_s", "relative_altitude_m", "altitude_amsl_m", "navigation_heading_rad"):
+            finite_number(getattr(self, name), name)
+
+    def fresh(self, now: float, timeout_s: float) -> bool:
+        return 0 <= now - self.observed_at_monotonic_s <= timeout_s
+
+    @classmethod
+    def from_payload(cls, payload: dict) -> AircraftState:
+        """Decode the native observation contract without refreshing its clock."""
+        if isinstance(payload, dict) and "attitude_timing" not in payload:
+            payload = {**payload, "attitude_timing": None}
+
+        def fields(value, kind):
+            if not isinstance(value, dict) or set(value) != set(kind.__dataclass_fields__):
+                raise ValueError("aircraft_observation_contract_invalid")
+            return value
+
+        values = dict(fields(payload, cls))
+        values["binding"] = AircraftBinding(**fields(values["binding"], AircraftBinding))
+        values["attitude_body_to_ned"] = Quaternion(**fields(values["attitude_body_to_ned"], Quaternion))
+        values["velocity_ned_m_s"] = Vector3(**fields(values["velocity_ned_m_s"], Vector3))
+        values["airspeed"] = AirspeedObservation(**fields(values["airspeed"], AirspeedObservation))
+        if values["fixed_wing_envelope"] is not None:
+            values["fixed_wing_envelope"] = FixedWingEnvelope(**fields(values["fixed_wing_envelope"], FixedWingEnvelope))
+        if values["attitude_timing"] is not None:
+            values["attitude_timing"] = AttitudeTiming(**fields(values["attitude_timing"], AttitudeTiming))
+        values["phase"] = AirframePhase(values["phase"])
+        return cls(**values)
+
+
+class AircraftStateOwner:
+    """Connection-bound snapshots with independent progress and measurement age.
+
+    An aggregate can advance on phase status before its oldest pose component
+    advances. Its sequence changes; its measurement freshness does not.
+    """
+
+    def __init__(self, *, clock: Callable[[], float] = time.monotonic):
+        self._clock = clock
+        self._lock = threading.RLock()
+        self._binding: AircraftBinding | None = None
+        self._snapshot: AircraftState | None = None
+        self._attitude_packet: tuple[AttitudeTiming, Quaternion] | None = None
+
+    def bind(self, binding: AircraftBinding | None) -> None:
+        with self._lock:
+            if binding != self._binding:
+                self._binding = binding
+                self._snapshot = None
+                self._attitude_packet = None
+
+    def accepts(self, state: AircraftState) -> bool:
+        """Validate current/progressing evidence without renewing a receipt."""
+        with self._lock:
+            return isinstance(state, AircraftState) and (state == self._snapshot or self._accepts_locked(state))
+
+    def _accepts_locked(self, state: AircraftState) -> bool:
+        if (not isinstance(state, AircraftState) or state.binding != self._binding
+                or state.observed_at_monotonic_s > self._clock()):
+            return False
+        timing = state.attitude_timing
+        if timing is not None and timing.publication_received_at_monotonic_s > self._clock():
+            return False
+        previous = self._snapshot
+        if previous is not None and (state.sequence <= previous.sequence
+                or state.observed_at_monotonic_s < previous.observed_at_monotonic_s
+                or state.source != previous.source or state.is_vtol != previous.is_vtol
+                or state.is_tailsitter != previous.is_tailsitter):
+            return False
+        if self._attitude_packet is not None and timing is not None:
+            before, attitude = self._attitude_packet
+            if (timing.publication_timestamp_us < before.publication_timestamp_us
+                    or timing.sample_timestamp_us < before.sample_timestamp_us
+                    or timing.publication_received_at_monotonic_s < before.publication_received_at_monotonic_s
+                    or timing.sample_received_at_monotonic_s < before.sample_received_at_monotonic_s
+                    or (timing.publication_timestamp_us == before.publication_timestamp_us
+                        and timing.sample_timestamp_us == before.sample_timestamp_us
+                        and (timing != before or state.attitude_body_to_ned != attitude))
+                    or not preserves_attitude_sample(before, attitude, timing, state.attitude_body_to_ned)):
+                return False
+        return True
+
+    def commit(self, state: AircraftState) -> bool:
+        with self._lock:
+            if not self._accepts_locked(state):
+                return False
+            self._snapshot = state
+            timing = state.attitude_timing
+            if timing is not None:
+                self._attitude_packet = (timing, state.attitude_body_to_ned)
+            return True
+
+    def snapshot(self, *, timeout_s: float) -> AircraftState | None:
+        if finite_number(timeout_s, "aircraft_timeout") <= 0:
+            raise ValueError("aircraft_timeout_not_positive")
+        with self._lock:
+            state = self._snapshot
+            return state if state is not None and state.fresh(self._clock(), timeout_s) else None
+
+    def selected_airspeed(self, *, timeout_s: float) -> AirspeedObservation | None:
+        state = self.snapshot(timeout_s=timeout_s)
+        if state is None:
+            return None
+        return state.airspeed if state.airspeed.fresh(self._clock(), timeout_s) else replace(
+            state.airspeed, valid=False,
+        )

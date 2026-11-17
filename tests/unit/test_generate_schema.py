@@ -52,6 +52,26 @@ def test_extract_options_with_parenthetical_descriptions_and_prefix_text():
     ]
 
 
+def test_zero_mc_altitude_offset_default_preserves_existing_metres_range():
+    field = generate_parameter_schema(
+        'TARGET_ALTITUDE_OFFSET', 0.0, 'Offset from engagement altitude',
+        'MC_ATTITUDE_RATE.TARGET_ALTITUDE_OFFSET',
+    )
+    assert field['default'] == 0.0
+    assert field['min'] == 0.0
+    assert field['max'] == 100.0
+    assert field['unit'] == 'm'
+
+
+def test_fresh_mc_thrust_gains_preserve_explicit_saved_tuning_range():
+    schema = yaml.safe_load((CONFIGS_DIR / "config_schema.yaml").read_text())
+    gains = schema["sections"]["PID"]["parameters"]["PID_GAINS"]["properties"]["mc_att_altitude"]["properties"]
+    for key, default, previous in (("p", .03, 2.), ("i", .003, .3), ("d", .08, .5)):
+        assert gains[key]["default"] == default
+        assert gains[key]["min"] <= previous <= gains[key]["max"]
+    assert gains["i"]["step"] == .001
+
+
 def test_ground_speed_fallback_schema_is_false_boolean_in_existing_fw_group():
     schema = yaml.safe_load((CONFIGS_DIR / "config_schema.yaml").read_text())
     field = schema["sections"]["FW_ATTITUDE_RATE"]["parameters"]["ALLOW_GROUND_SPEED_FALLBACK"]
@@ -239,6 +259,7 @@ def test_video_source_type_override_directly_defines_dashboard_options():
         'HTTP_STREAM',
         'CSI_CAMERA',
         'CUSTOM_GSTREAMER',
+        'GAZEBO_CAMERA',
     ]
 
 
@@ -580,6 +601,7 @@ def test_video_source_type_options_in_schema():
         'HTTP_STREAM',
         'CSI_CAMERA',
         'CUSTOM_GSTREAMER',
+        'GAZEBO_CAMERA',
     ]
 
 
@@ -820,6 +842,7 @@ def test_normalize_safety_config_rejects_weakening_follower_override(
     from classes.config_validator import normalize_safety_config
 
     config = _valid_safety_config()
+    config['Safety']['GlobalLimits']['MAX_VELOCITY_FORWARD'] = 0.5
     config['Safety']['FollowerOverrides']['MC_VELOCITY_CHASE'] = {
         field_name: weakening_value,
     }

@@ -179,7 +179,7 @@ def test_async_capture_age_uses_reader_time_not_later_consumer_time(monkeypatch)
     handler._async_latest_frame_sequence = 1
     handler._async_latest_frame_time = time.time() - 2
     handler._async_latest_capture_monotonic = time.monotonic() - 2
-    frame = handler._get_async_udp_frame()
+    frame = handler._get_async_capture_frame()
     capture = handler.get_capture_stamp(frame)
     assert time.monotonic() - capture.captured_at >= 2
 
@@ -400,12 +400,12 @@ def test_capture_release_retires_async_pixels_and_publisher_immediately(monkeypa
     handler._async_latest_frame_sequence = 1
     handler._async_latest_frame_time = time.time()
     handler._async_latest_capture_monotonic = time.monotonic()
-    frame = handler._get_async_udp_frame()
+    frame = handler._get_async_capture_frame()
     publisher.publish(frame, None, capture=handler.get_capture_stamp(frame))
     assert publisher.get_latest() is not None
     handler.release()
     assert publisher.get_latest() is None
-    assert handler._get_async_udp_frame() is None
+    assert handler._get_async_capture_frame() is None
     assert handler.get_capture_stamp(frame).source_epoch is None
 
 

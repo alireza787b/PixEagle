@@ -40,6 +40,15 @@ Yaw-error gating can reduce pitch authority until horizontal alignment is
 within `YAW_ERROR_THRESHOLD`. Optional coordinated-turn logic derives roll rate
 from yaw rate and current ground speed.
 
+Direct image-error gains `mc_pitchspeed_deg_s` and `mc_att_yawspeed_deg_s`
+are degrees per second per normalized image error (with the corresponding I/D
+time factors). The controller converts these gains to internal radians once;
+publication converts the resulting rates back to degrees once. Roll uses an
+angular bank error, so its deg/deg gain ratio is unchanged. The November 9 repair
+removes an unintended 57.3-fold pitch/yaw gain amplification. Saved numbers are
+preserved, but installations tuned around the old unit defect require review;
+there is no silent numeric migration or change to other followers' yaw gains.
+
 Measured roll/pitch protection runs after smoothing and again on every Offboard
 publication, including heartbeats without a new image. It converts BODY rates
 to coupled Euler-angle derivatives and uniformly scales the three rates to stay
@@ -63,8 +72,27 @@ Attitude-rate control requires an explicit thrust command. `HOVER_THRUST` is
 the baseline. Optional altitude hold adds a bounded correction, and optional
 pitch compensation adjusts for reduced vertical thrust while tilted.
 
+Height hold uses a paired relative-height/vertical-speed observation owned by the
+connection's telemetry manager. On REST it uses `GLOBAL_POSITION_INT` and a
+validated home-altitude reference, rather than differentiating the 1 Hz
+`ALTITUDE` message at camera rate. PI advances only when the source sample
+advances; measured upward velocity supplies damping. Cached reads preserve the
+same sample and correction, and unavailable/stale feedback or a changed datum
+rejects guidance through the existing handoff. Yaw alignment gates pitch, while
+height stabilization remains active.
+
+With resolved `Follower` altitude guidance off, altitude hold captures the
+engagement altitude and ignores `TARGET_ALTITUDE_OFFSET`. It does not command an
+automatic climb. With guidance explicitly enabled, the configured offset is
+applied; the factory offset is zero. Image-directed pitch/rate steering remains
+the declared rate strategy, not a velocity or guaranteed flight-path controller.
+
 `HOVER_THRUST`, thrust limits, and altitude gains are vehicle-specific. The
 checked-in values are software defaults, not flight-accepted tuning.
+Fresh normalized-thrust gains are `p=0.03`, `i=0.003`, `d=0.08`; D multiplies
+measured upward m/s with a negative sign. Saved gains remain explicit and are
+not automatically rewritten. In particular, the older `2/0.3/0.5` values need
+review for this actuator-scale output, not blind adoption on a new vehicle.
 
 ## Configuration
 
@@ -83,7 +111,7 @@ MC_ATTITUDE_RATE:
   ENABLE_PITCH_THRUST_COMPENSATION: true
 
   ENABLE_ALTITUDE_HOLD: true
-  TARGET_ALTITUDE_OFFSET: 15.0
+  TARGET_ALTITUDE_OFFSET: 0.0
 
   ENABLE_YAW_ERROR_GATING: true
   YAW_ERROR_THRESHOLD: 0.3
@@ -103,6 +131,12 @@ and continuity handoff. Then validate against the exact PX4 firmware, vehicle,
 camera mounting, telemetry source, and thrust model in SITL/HIL before any
 controlled field acceptance. A valid visual target alone does not establish
 safe thrust or attitude authority.
+
+Live rate/thrust retargeting currently requires **Stop following**, select the
+new target, then a fresh Start. The shared continuity owner does not implement
+rate/thrust coasting. An attempted live retarget preserves the active target and
+command; it cannot insert velocity fields, reset the follower or change target
+generation first. Local command preview retains its no-aircraft defaults path.
 
 ## References
 

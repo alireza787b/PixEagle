@@ -11,7 +11,7 @@ configs/follower_commands.yaml
 ## Schema Structure
 
 ```yaml
-schema_version: "2.1.0"
+schema_version: "2.4.0"
 
 follower_profiles:
   # Profile definitions
@@ -50,9 +50,13 @@ follower_profiles:
     optional_tracker_data: [BBOX_CONFIDENCE, VELOCITY_AWARE]
 ```
 
-`required_fields` is the exact atomic command snapshot. Optional or partial
-command fields are not supported because omitted values could otherwise retain
-motion from an older command.
+For MAVSDK profiles, `required_fields` is the exact atomic command snapshot.
+Optional or partial command fields are not supported because omitted values
+could otherwise retain motion from an older command. A native-only FW profile
+uses `control_type: fixed_wing_external`, `airframe_phase: fixed_wing`, and
+`required_fields: []`; its complete command must match one of that control's
+named `field_variants`. The shipped eight profiles retain their existing
+MAVSDK fields and defaults; no native-only profile is shipped yet.
 
 ### Available Profiles
 
@@ -188,7 +192,7 @@ The body-velocity field set does not need a separate validation rule. Each
 profile's `control_type` and `required_fields` are the canonical routing and
 exact field contract.
 
-## MAVSDK Method Metadata
+## Transport and Command Metadata
 
 The PixEagle control type remains `velocity_body_offboard`, while the MAVSDK
 Python method is `set_velocity_body`:
@@ -196,10 +200,49 @@ Python method is `set_velocity_body`:
 ```yaml
 control_types:
   velocity_body_offboard:
+    transport: mavsdk
     mavsdk_method: set_velocity_body
+
+  attitude_rate:
+    transport: mavsdk
+    mavsdk_method: set_attitude_rate
+
+  fixed_wing_external:
+    transport: px4_native
+    description: "Native PX4 fixed-wing course, EAS and vertical objective"
+    ui_display: "Native Fixed-Wing Guidance"
+    field_variants:
+      height_rate: [course_rad, equivalent_airspeed_m_s, height_rate_m_s]
+      altitude: [course_rad, equivalent_airspeed_m_s, altitude_amsl_m]
 ```
 
 There is no MAVSDK Python method named `set_velocity_body_offboard`.
+The dormant native FW contract has no MAVSDK method, body-velocity fields,
+scalar defaults or fallback values. Course is in radians, EAS is a positive
+equivalent-airspeed reference in m/s, height rate is positive up in m/s, and
+altitude is AMSL in metres. Exactly one vertical field is required. Schema
+metadata is checked against `FixedWingCommand.field_variants()`; runtime native
+values are validated by `FixedWingCommand.from_intent()`.
+
+A native-only `SetpointHandler` starts with empty `get_fields()` and no intent.
+`get_allowed_field_variants()` exposes its contract separately from current
+values. `set_native_intent(CommandIntent)` requires the matching profile and
+control type, a typed `GuidanceSessionIdentity`, and a complete valid FW
+objective before replacing current fields atomically. A rejected native command
+invalidates the last intent without partially changing fields. Reset clears
+both fields and intent. Scalar `set_field()`/`set_fields()`, fallback APIs, and
+MAVSDK dispatch methods reject native profiles. Native publication still needs
+its existing session-bound transport and readiness gates; this declaration
+does not provide a new follower, publisher, or qualification.
+
+### Migration from 2.3.0
+
+The loader accepts only 2.4.0. Custom command schemas must set the new version
+and explicitly declare `transport: mavsdk` on existing MAVSDK control types.
+Keep their field lists and defaults unchanged. Native FW declarations use the
+exact variants above and must not add native fields to `command_fields`.
+Updating metadata does not enable native flight or change the existing Vector
+native transport path.
 
 ## Usage in Code
 
@@ -286,7 +329,7 @@ SetpointHandler validates the complete file before caching any profile:
 
 - supported schema version and required metadata
 - finite, strictly typed defaults and valid fixed limits
-- exact profile fields and declared control types
+- explicit transports, exact profile fields and canonical native field variants
 - required and optional tracker names against `TrackerDataType`
 - migration aliases against active replacement profiles
 - complete UI field/profile order and validation-rule references

@@ -112,7 +112,7 @@ class TestVideoHandlerInitialization:
         }
         mock_parameters.VIDEO_SOURCE_TYPE = "UDP_STREAM"
         mock_parameters.USE_GSTREAMER = True
-        with patch.object(handler, "_initialize_async_udp_capture", return_value=33,
+        with patch.object(handler, "_initialize_async_capture", return_value=33,
                           side_effect=ValueError("receiver unavailable") if open_fails else None):
             if open_fails:
                 with pytest.raises(ValueError, match="receiver unavailable"):
@@ -146,7 +146,7 @@ class TestVideoHandlerInitialization:
             app, APIGimbalControlRequest(operation="select", x=0.5, y=0.5),
         )
         assert not result["success"]
-        assert "requires this gimbal's RTSP video" in result["message"]
+        assert "requires video from this camera" in result["message"]
         control.execute.assert_not_called()
         app._advance_tracking_session_generation.assert_not_called()
 
@@ -1151,7 +1151,7 @@ class TestUSBFallbackAndDiagnostics:
         mock_parameters.VIDEO_SOURCE_TYPE = "UDP_STREAM"
         mock_parameters.USE_GSTREAMER = True
 
-        with patch.object(handler, "_start_async_udp_reader") as start_reader:
+        with patch.object(handler, "_start_async_capture_reader") as start_reader:
             with patch('classes.video_handler.cv2.VideoCapture') as video_capture:
                 delay = handler.init_video_source(max_retries=1, retry_delay=0)
 
@@ -1197,7 +1197,9 @@ class TestUSBFallbackAndDiagnostics:
         stale_frame = create_test_frame(640, 480)
         handler._async_latest_frame = stale_frame
         handler._async_latest_frame_sequence = 1
-        handler._async_consumed_frame_sequence = 1
+        handler._async_latest_frame_time = time.time()
+        handler._async_latest_capture_monotonic = time.monotonic()
+        assert handler.get_frame() is not None
         handler._async_latest_frame_time = time.time() - 1.0
 
         frame = handler.get_frame()

@@ -1,10 +1,12 @@
 import time
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from classes.command_intent import CommandIntent
+from classes.aircraft_state import AircraftBinding, GuidanceSessionIdentity
 from classes.app_controller import AppController
 from classes.target_continuity import (
     AirframePhase,
@@ -269,6 +271,20 @@ async def test_continuity_watchdog_dispatches_loss_only_when_updates_stop(monkey
     controller._dispatch_tracker_output_on_flight_loop.assert_not_awaited()
 
 
+def test_mc_recovery_and_provisional_blending_preserve_guidance_generation():
+    identity = GuidanceSessionIdentity("follow", AircraftBinding("123", "connection", 1), 2)
+    context = replace(_context(execution_mode="PX4"), guidance_identity=identity)
+    prior = replace(_intent(forward=.4, right=0., down=0., yaw=0.), guidance_identity=identity)
+    owner = _supervisor(_policy("bounded_decay", MAX_COAST_DISTANCE_M=4.))
+    owner.evaluate(_evidence(TargetEvidenceState.CONFIRMED), context, prior, now_monotonic_s=0.)
+    loss = owner.evaluate(_evidence(TargetEvidenceState.ABSENT), context, now_monotonic_s=.1)
+    assert loss.authorized_intent.guidance_identity == identity
+    assert owner.begin_target_transition(session_epoch=8, previous_intent=prior)
+    provisional = owner.evaluate(_evidence(TargetEvidenceState.UNCERTAIN, epoch=8), context,
+                                 provisional_intent=prior, now_monotonic_s=.2)
+    assert provisional.authorized_intent.guidance_identity == identity
+
+
 def test_retarget_blends_new_angle_guidance_and_preserves_original_budget():
     supervisor = _supervisor(_policy(
         "bounded_decay", MAX_COAST_TIME_S=8.0,
@@ -340,7 +356,10 @@ def test_retarget_restore_ramp_starts_at_last_provisional_command():
     assert ramp_mid.authorized_intent.fields["yawspeed_deg_s"] > 3.5
 
 
-def test_camera_provisional_angles_require_current_selection_and_no_manual_takeover():
+def test_camera_provisional_angles_require_current_selection_and_no_manual_takeover(monkeypatch):
+    from classes.camera_runtime import CameraRuntime
+    from classes.gimbal_types import GimbalAngleObservation
+    from classes.gimbal_provider import SipUdpGimbalProvider
     controller = object.__new__(AppController)
     now = time.time()
     controller._target_transition_started_wall_time = now - 0.1
@@ -351,38 +370,58 @@ def test_camera_provisional_angles_require_current_selection_and_no_manual_takeo
     concrete = SimpleNamespace(
         _perform_safety_checks=lambda: {"safe_to_proceed": True},
         calculate_control_commands=calculate,
+        get_control_type=lambda: "velocity_body_offboard",
     )
     controller.follower = SimpleNamespace(follower=concrete)
     intent = _intent()
     controller._get_current_command_intent = lambda: intent
-    provider = object()
-    controller.camera_runtime = SimpleNamespace(provider=provider, manual_snapshot=lambda: {
-        "state": "stopped", "gesture_id": None,
-    })
+    provider = SipUdpGimbalProvider()
+    controller._tracking_session_generation = 7
+    controller.camera_runtime = CameraRuntime(controller, {'ENABLED': True})
+    controller.camera_runtime.provider = provider
+    monkeypatch.setattr(provider, '_init_listening_socket', lambda: True)
+    worker = SimpleNamespace(start=MagicMock(), join=MagicMock(), is_alive=lambda: False)
+    monkeypatch.setattr('classes.gimbal_interface.threading.Thread', MagicMock(return_value=worker))
+    monkeypatch.setattr('classes.gimbal_interface.time.sleep', lambda _: None)
+    assert controller.camera_runtime.start()
+    sample_received = time.monotonic()
     output = TrackerOutput(
         data_type=TrackerDataType.GIMBAL_ANGLES,
         timestamp=now,
         tracking_active=False,
         angular=(0.0, 90.0, 10.0),
+        gimbal_observation=GimbalAngleObservation(controller.camera_runtime.angle_observation_context(),
+            7, 'fixture', 'geometry-1', (0., 90., 10.), 'gimbal_body', 1, sample_received,
+            'TARGET_SELECTION', sample_received),
         raw_data={"tracking_status": "TARGET_SELECTION", "coordinate_system": "gimbal_body",
-                  "angle_sample_timestamp": now, "angle_sample_monotonic": time.monotonic(),
-                  "angle_sample_sequence": 1, "camera_provider_instance": str(id(provider))},
+                  "angle_sample_timestamp": now, "angle_sample_monotonic": sample_received,
+                  "tracking_sample_monotonic": sample_received,
+                  "angle_sample_sequence": 1},
     )
     assert controller._camera_retarget_provisional_intent(output) is intent
     calculate.assert_called_once_with(output)
+    # FW recovery keeps its last feasible course; unconfirmed rays must not
+    # mutate its guidance/filter state through the MC provisional path.
+    for contract in ("fixed_wing_external", "vtol_transition_external"):
+        concrete.get_control_type = lambda: contract
+        assert controller._camera_retarget_provisional_intent(output) is None
+    calculate.assert_called_once_with(output)
+    concrete.get_control_type = lambda: "velocity_body_offboard"
 
     output.raw_data["angle_sample_timestamp"] = now - 1.0
     assert controller._camera_retarget_provisional_intent(output) is None
     output.raw_data["angle_sample_timestamp"] = now
     output.raw_data["angle_sample_monotonic"] = time.monotonic() - 1.0
     assert controller._camera_retarget_provisional_intent(output) is None
-    output.raw_data["angle_sample_monotonic"] = time.monotonic()
+    output.raw_data["angle_sample_monotonic"] = sample_received
     assert not controller._camera_angle_sample_current(output, require_tracking=True)
     output.raw_data["tracking_sample_timestamp"] = now
     assert controller._camera_angle_sample_current(output, require_tracking=True)
-    output.raw_data["camera_provider_instance"] = "old-provider"
+    observation = output.gimbal_observation
+    from classes.gimbal_types import CameraObservationSource
+    output.gimbal_observation = replace(observation, source=CameraObservationSource('old-provider', 0))
     assert not controller._camera_angle_sample_current(output)
-    output.raw_data["camera_provider_instance"] = str(id(provider))
+    output.gimbal_observation = observation
 
     controller._camera_selection_pending = True
     assert controller._camera_retarget_provisional_intent(output) is None

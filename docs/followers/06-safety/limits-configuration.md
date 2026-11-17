@@ -9,6 +9,17 @@ An explicit [session speed override](../04-configuration/session-speed.md) on a
 supported follower temporarily replaces velocity caps only. Restore removes
 that owned override; saved limits and non-velocity protections are unchanged.
 
+The public factory profile uses **MC Position**, target-altitude guidance off,
+a shared **5 m relative-altitude floor** and a 100 m upper limit.
+The existing 2 m warning buffer makes Start require at least **7 m**. These
+are evaluation defaults, not a terrain-clearance guarantee. Native FW airspeed
+remains constrained by PX4's minimum/trim/envelope; MC velocity caps are not FW
+airspeed settings. The circuit breaker remains enabled.
+
+Saved explicit values remain unchanged. Config Sync shows the new factory floor;
+only an explicit adoption replaces a saved floor. Private research overlays
+belong outside the repository and must explicitly supply their operating limits.
+
 ---
 
 ## Global Limits (Single Source of Truth)
@@ -30,8 +41,8 @@ Safety:
     MAX_ROLL_RATE: 45.0
 
     # Altitude Limits (meters)
-    MIN_ALTITUDE: 3.0             # Minimum safe altitude
-    MAX_ALTITUDE: 120.0           # Maximum altitude
+    MIN_ALTITUDE: 5.0             # Common relative-altitude floor
+    MAX_ALTITUDE: 100.0           # Maximum altitude
     ALTITUDE_WARNING_BUFFER: 2.0  # Warning zone size
     ALTITUDE_SAFETY_ENABLED: true
 
@@ -39,6 +50,32 @@ Safety:
     MC_VELOCITY_POSITION:
       MAX_YAW_RATE: 10.0
 ```
+
+---
+
+### Optional upper mission ceiling
+
+From schema 1.10, `Safety.GlobalLimits.MAX_ALTITUDE: null` explicitly removes the application
+mission ceiling. The checked-in default remains `120.0`; omitting the key from
+a sparse overlay or import inherits that default, while a complete validated
+`GlobalLimits` section must include the key. Existing numeric settings retain
+their meaning. Export, import, API summaries, and configuration editors preserve
+explicit `null`.
+
+`Safety.FollowerOverrides` may supply a finite `MAX_ALTITUDE` to tighten an
+unbounded global envelope. Omit the follower key to inherit; explicit follower
+`null` remains invalid and cannot remove a finite global ceiling. No existing
+saved configuration is automatically migrated to an unbounded setting.
+
+The lower bound and warning buffer remain active. With `MIN_ALTITUDE: 30.0` and
+`ALTITUDE_WARNING_BUFFER: 2.0`, the hard floor is 30 m and following starts at or
+above 32 m; native FW descent lookahead can intervene earlier. Fast MC descent
+needs its own measured braking qualification. These heights are relative
+to the estimator's home reference, not terrain clearance. Removing a mission
+ceiling changes no native climb/sink, acceleration, underspeed, attitude,
+actuator, or speed limits. Sensorless operation still depends on native
+estimation and its declared airspeedless capability; it does not establish a
+measured airspeed or a physical operating envelope.
 
 ---
 
@@ -55,11 +92,11 @@ Safety:
   FollowerOverrides:
     MC_VELOCITY_CHASE:
       MAX_VELOCITY_FORWARD: 0.25  # Lower than the global 0.5 m/s ceiling
-      MIN_ALTITUDE: 5.0           # Stricter minimum
+      MIN_ALTITUDE: 35.0          # Stricter than the 5 m global floor
 
     FW_ATTITUDE_RATE:
-      MIN_ALTITUDE: 30.0          # Higher floor for fixed-wing
-      MAX_ALTITUDE: 100.0         # Lower than the global 120 m ceiling
+      MIN_ALTITUDE: 40.0          # Stricter site-specific floor
+      MAX_ALTITUDE: 100.0         # Lower than the global 100 m ceiling
 ```
 
 **Important**:
@@ -90,7 +127,7 @@ Safety:
     MAX_VELOCITY_LATERAL: 0.5
     MAX_VELOCITY_VERTICAL: 0.5
     MAX_YAW_RATE: 45.0
-    MIN_ALTITUDE: 3.0
+    MIN_ALTITUDE: 30.0
     MAX_ALTITUDE: 120.0
 ```
 
@@ -128,7 +165,7 @@ or weakening profile definitions fail validation before publication.
 Example:
 ```python
 # For MC_VELOCITY_CHASE:
-# - MIN_ALTITUDE: 5.0 (from FollowerOverrides.MC_VELOCITY_CHASE)
+# - MIN_ALTITUDE: 35.0 (from FollowerOverrides.MC_VELOCITY_CHASE)
 # - MAX_VELOCITY: 15.0 (from GlobalLimits, no override)
 ```
 

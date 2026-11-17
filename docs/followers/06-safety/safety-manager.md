@@ -11,7 +11,7 @@
 SafetyManager is a singleton that provides:
 
 - Saved global velocity/rate/altitude limits with tightening follower overrides
-- Explicit, owned [session velocity override](../04-configuration/session-speed.md) on supported followers; reset restores saved caps
+- Explicitly permitted, owned [session velocity override](../04-configuration/session-speed.md) on supported followers; reset restores saved caps
 - Per-follower limits that may only tighten the global envelope
 - Dynamic limit access for BaseFollower
 - Configuration hot-reload support
@@ -57,10 +57,17 @@ class VelocityLimits(NamedTuple):
 class AltitudeLimits(NamedTuple):
     """Altitude limits in meters."""
     min_altitude: float        # MIN_ALTITUDE
-    max_altitude: float        # MAX_ALTITUDE
+    max_altitude: Optional[float]  # MAX_ALTITUDE; None means no mission ceiling
     warning_buffer: float      # ALTITUDE_WARNING_BUFFER
     safety_enabled: bool = True
 ```
+
+The value and source summary share the same resolver. An explicit global
+`MAX_ALTITUDE: null` remains `None`; an omitted setting resolves to the existing
+100 m fallback. A finite follower ceiling may tighten an unbounded global value.
+See [limits configuration](limits-configuration.md#optional-upper-mission-ceiling)
+for inheritance and migration rules. Altitude checks still require a finite
+height, and native physical limits are unchanged.
 
 ### RateLimits
 
@@ -270,7 +277,7 @@ def check_altitude_warning(self) -> bool:
     buffer = limits.warning_buffer
 
     near_min = current < (limits.min_altitude + buffer)
-    near_max = current > (limits.max_altitude - buffer)
+    near_max = limits.above_maximum(current, buffer=buffer)
 
     if near_min or near_max:
         logger.warning(f"Altitude {current}m near limits")

@@ -45,6 +45,7 @@ VERIFY_REQUIREMENTS = (
     PROJECT_ROOT / "scripts" / "setup" / "verify-installed-requirements.py"
 )
 PIP_CHECK_POLICY = PROJECT_ROOT / "scripts" / "setup" / "pip_check_policy.py"
+MAVSDK_CLIENT_POLICY = PROJECT_ROOT / "scripts" / "setup" / "mavsdk_client_policy.py"
 OPENCV_PROBE = PROJECT_ROOT / "scripts" / "setup" / "opencv_provider_probe.py"
 CONFIG_SYNC = PROJECT_ROOT / "scripts" / "setup" / "config-sync-status.py"
 BROWSER_PROFILE = (
@@ -337,6 +338,7 @@ def _venv_validators() -> list[tuple[str, list[str | Path]]]:
             ],
         ),
         ("dependency graph", [VENV_PYTHON, PIP_CHECK_POLICY]),
+        ("MAVSDK client", [VENV_PYTHON, MAVSDK_CLIENT_POLICY]),
         ("OpenCV provider", [VENV_PYTHON, OPENCV_PROBE]),
     ]
 
@@ -380,6 +382,7 @@ def _python_contract_fingerprint() -> str:
             REQUIREMENTS,
             VERIFY_REQUIREMENTS,
             PIP_CHECK_POLICY,
+            MAVSDK_CLIENT_POLICY,
             OPENCV_PROBE,
             PYTHON_POLICY,
         ],
@@ -429,6 +432,7 @@ def _ensure_python_dependencies(force: bool) -> None:
             REQUIREMENTS,
         ]
     )
+    _run([VENV_PYTHON, MAVSDK_CLIENT_POLICY, "--migrate"])
     if not _validate_venv(quiet=False):
         raise SetupError("Core Python dependency postconditions failed")
     _write_receipt(

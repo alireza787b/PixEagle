@@ -9,6 +9,7 @@ tuning, and PX4 Offboard prerequisites must be validated outside this module.
 from classes.followers.base_follower import BaseFollower
 from classes.followers.custom_pid import CustomPID
 from classes.parameters import Parameters
+from classes.safety_types import AltitudeLimits
 from classes.follower_config_manager import get_follower_config_manager
 from classes.tracker_output import TrackerOutput
 from classes.attitude_envelope import guard_body_rates
@@ -114,10 +115,12 @@ class MCAttitudeRateFollower(BaseFollower):
 
         # === ALTITUDE CONTROL ===
         self.enable_altitude_hold = config.get('ENABLE_ALTITUDE_HOLD', True)
-        self.target_altitude_offset = config.get('TARGET_ALTITUDE_OFFSET', 15.0)
+        self.target_altitude_offset = config.get('TARGET_ALTITUDE_OFFSET', 0.0)
         self.altitude_pid_min_output = config.get('ALTITUDE_PID_MIN_OUTPUT', -0.3)
         self.altitude_pid_max_output = config.get('ALTITUDE_PID_MAX_OUTPUT', 0.3)
         self.initial_altitude = None  # Set on first update
+        self._altitude_observation = None
+        self._altitude_correction = 0.0
 
         # === PROPORTIONAL NAVIGATION PARAMETERS ===
         self.pn_navigation_constant = config.get('PN_NAVIGATION_CONSTANT', 4.0)
@@ -134,6 +137,7 @@ class MCAttitudeRateFollower(BaseFollower):
 
         fcm = get_follower_config_manager()
         _fn = 'MC_ATTITUDE_RATE'
+        self.altitude_control_enabled = fcm.get_param('ENABLE_ALTITUDE_CONTROL', _fn)
 
         # === ALTITUDE SAFETY (limits from SafetyManager; per-follower flag via is_altitude_safety_enabled()) ===
         self.min_altitude_limit = self.altitude_limits.min_altitude
@@ -256,7 +260,7 @@ class MCAttitudeRateFollower(BaseFollower):
             self.pid_altitude = None
             if self.enable_altitude_hold:
                 self.pid_altitude = CustomPID(
-                    *self._get_pid_gains('mc_att_altitude'),
+                    *self._get_pid_gains('mc_att_altitude')[:2], 0.0,
                     setpoint=0.0,  # Set when initial altitude is captured
                     output_limits=(self.altitude_pid_min_output, self.altitude_pid_max_output)
                 )
@@ -276,14 +280,20 @@ class MCAttitudeRateFollower(BaseFollower):
             axis (str): Control axis name (mc_pitchspeed_deg_s, mc_att_yawspeed_deg_s, etc.)
 
         Returns:
-            Tuple[float, float, float]: (P, I, D) gains.
+            Tuple[float, float, float]: Internal-unit (P, I, D) gains.
 
         Raises:
             KeyError: If the specified axis is not configured.
         """
         try:
             gains = Parameters.PID_GAINS[axis]
-            return gains['p'], gains['i'], gains['d']
+            values = (gains['p'], gains['i'], gains['d'])
+            # These PIDs take normalized image errors, so their declared deg/s
+            # gains need conversion. Roll takes an angular error in radians:
+            # its deg/deg ratio already has the same numerical value in rad/rad.
+            if axis in ('mc_pitchspeed_deg_s', 'mc_att_yawspeed_deg_s'):
+                return tuple(math.radians(value) for value in values)
+            return values
         except KeyError as e:
             logger.error(f"PID gains not found for axis '{axis}': {e}")
             raise KeyError(f"Invalid PID axis '{axis}'. Check Parameters.PID_GAINS configuration.")
@@ -295,16 +305,55 @@ class MCAttitudeRateFollower(BaseFollower):
             self.pid_yaw_rate.tunings = self._get_pid_gains('mc_att_yawspeed_deg_s')
             self.pid_roll_rate.tunings = self._get_pid_gains('mc_rollspeed_deg_s')
             if self.pid_altitude:
-                self.pid_altitude.tunings = self._get_pid_gains('mc_att_altitude')
+                self.pid_altitude.tunings = (*self._get_pid_gains('mc_att_altitude')[:2], 0.0)
             logger.debug("PID gains updated for MCAttitudeRateFollower")
         except Exception as e:
             logger.error(f"Failed to update PID gains: {e}")
 
     # ==================== Thrust Management (Critical) ====================
 
-    def _calculate_thrust_command(self, current_altitude: float, current_pitch: float) -> float:
+    def _calculate_altitude_correction(self) -> float:
+        """Advance PI once per paired source sample; damp with measured vertical speed."""
+        observe = getattr(self.px4_controller, 'get_altitude_observation', None)
+        sample = observe() if callable(observe) else None
+        if sample is None:
+            raise CommandValidationError('altitude_sample_unavailable')
+        previous = self._altitude_observation
+        binding = lambda value: (value.connection_generation, value.telemetry_generation,
+                                 value.altitude_reference_generation, value.source, value.sample_time_basis)
+        if previous is not None and binding(sample) != binding(previous):
+            raise CommandValidationError('altitude_reference_changed')
+        if previous is not None and sample.sample_time_s < previous.sample_time_s:
+            raise CommandValidationError('altitude_source_time_reversed')
+        if previous is not None and sample.sample_time_s == previous.sample_time_s:
+            return self._altitude_correction
+        if previous is None:
+            self.initial_altitude = sample.height_relative_m
+            offset = self.target_altitude_offset if self.altitude_control_enabled else 0.0
+            self.pid_altitude.setpoint = sample.height_relative_m + offset
+            self.pid_altitude.reset()
+            dt = None
+        else:
+            dt = sample.sample_time_s - previous.sample_time_s
+        pi = self.pid_altitude(sample.height_relative_m, dt=dt)
+        derivative_gain = self._get_pid_gains('mc_att_altitude')[2]
+        correction = pi - derivative_gain * sample.vertical_speed_up_m_s
+        self._altitude_correction = float(np.clip(
+            correction, self.altitude_pid_min_output, self.altitude_pid_max_output,
+        ))
+        self._altitude_observation = sample
+        self.update_telemetry_metadata('altitude_feedback', {
+            'source': sample.source, 'sample_time_s': sample.sample_time_s,
+            'sample_time_basis': sample.sample_time_basis,
+            'height_relative_m': sample.height_relative_m,
+            'vertical_speed_up_m_s': sample.vertical_speed_up_m_s,
+            'correction': self._altitude_correction,
+        })
+        return self._altitude_correction
+
+    def _calculate_thrust_command(self, current_pitch: float, current_roll: float = 0.0) -> float:
         """
-        Calculates thrust command with altitude hold and pitch compensation.
+        Calculates thrust with source-timed height hold and measured tilt compensation.
 
         Unlike velocity control, attitude rate requires explicit thrust management:
         1. Hover thrust baseline
@@ -312,8 +361,8 @@ class MCAttitudeRateFollower(BaseFollower):
         3. Pitch angle compensation (vertical thrust = T * cos(pitch))
 
         Args:
-            current_altitude (float): Current altitude in meters.
             current_pitch (float): Current pitch angle in degrees.
+            current_roll (float): Current roll angle in degrees.
 
         Returns:
             float: Thrust command (0.0-1.0).
@@ -324,37 +373,23 @@ class MCAttitudeRateFollower(BaseFollower):
 
             # Apply altitude hold correction
             if self.enable_altitude_hold and self.pid_altitude:
-                # Set initial altitude on first call
-                if self.initial_altitude is None:
-                    self.initial_altitude = current_altitude
-                    target_altitude = current_altitude + self.target_altitude_offset
-                    self.pid_altitude.setpoint = target_altitude
-                    logger.info(f"Initial altitude captured: {current_altitude:.1f}m, "
-                               f"target: {target_altitude:.1f}m")
-
-                # Pass raw measurement; PID computes setpoint - current_altitude internally
-                altitude_correction = self.pid_altitude(current_altitude)
-                thrust += altitude_correction
-
-                logger.debug(f"Altitude control - Target: {self.pid_altitude.setpoint:.1f}m, "
-                            f"Current: {current_altitude:.1f}m, Error: {self.pid_altitude.setpoint - current_altitude:.3f}m, "
-                            f"Correction: {altitude_correction:.3f}")
+                thrust += self._calculate_altitude_correction()
 
             # Apply pitch angle compensation
             # As pitch increases, vertical thrust component decreases: Tv = T * cos(pitch)
             # To maintain altitude, we need to increase total thrust: T = T_hover / cos(pitch)
             if self.enable_pitch_thrust_compensation:
                 pitch_rad = np.deg2rad(abs(current_pitch))
-                cos_pitch = np.cos(pitch_rad)
+                vertical_fraction = np.cos(pitch_rad) * np.cos(np.deg2rad(current_roll))
 
                 # Avoid division by zero and limit compensation
-                if cos_pitch > 0.5:  # Only compensate up to ~60° pitch
-                    compensation_factor = (1.0 / cos_pitch) - 1.0
+                if vertical_fraction > 0.5:
+                    compensation_factor = (1.0 / vertical_fraction) - 1.0
                     thrust_adjustment = compensation_factor * self.pitch_compensation_gain * self.hover_thrust
                     thrust += thrust_adjustment
 
                     logger.debug(f"Pitch compensation - Pitch: {current_pitch:.1f}°, "
-                                f"cos: {cos_pitch:.3f}, adjustment: {thrust_adjustment:.3f}")
+                                f"vertical fraction: {vertical_fraction:.3f}, adjustment: {thrust_adjustment:.3f}")
 
             # Clamp to valid range
             thrust = np.clip(thrust, self.min_thrust, self.max_thrust)
@@ -362,9 +397,10 @@ class MCAttitudeRateFollower(BaseFollower):
             self.last_thrust_command = thrust
             return thrust
 
+        except CommandValidationError:
+            raise
         except Exception as e:
-            logger.error(f"Error calculating thrust: {e}")
-            return self.hover_thrust
+            raise CommandValidationError('altitude_feedback_invalid') from e
 
     # ==================== Rate Control ====================
 
@@ -591,7 +627,7 @@ class MCAttitudeRateFollower(BaseFollower):
         else:
             # Hold level until aligned
             logger.debug(f"Yaw error gating active - error: {abs(yaw_error):.3f} > {self.yaw_error_threshold}")
-            return 0.0, self.hover_thrust
+            return 0.0, thrust
 
     def _check_altitude_safety(self) -> bool:
         """Monitors altitude bounds and triggers RTL if violated."""
@@ -602,14 +638,17 @@ class MCAttitudeRateFollower(BaseFollower):
             return True
 
         try:
+            current_altitude = getattr(self.px4_controller, 'current_altitude', None)
+            if not AltitudeLimits.is_valid_altitude(current_altitude):
+                logger.warning("Aircraft altitude is unavailable")
+                return False
+
             current_time = time.time()
             if (current_time - self.last_altitude_check_time) < self.altitude_check_interval:
                 return True
             self.last_altitude_check_time = current_time
 
-            current_altitude = getattr(self.px4_controller, 'current_altitude', 0.0)
-
-            if current_altitude < self.min_altitude_limit or current_altitude > self.max_altitude_limit:
+            if current_altitude < self.min_altitude_limit or AltitudeLimits.above(current_altitude, self.max_altitude_limit):
                 self.altitude_violation_count += 1
                 logger.critical(f"ALTITUDE VIOLATION! {current_altitude:.1f}m, "
                               f"Limits: [{self.min_altitude_limit}-{self.max_altitude_limit}]m")
@@ -649,7 +688,6 @@ class MCAttitudeRateFollower(BaseFollower):
             self._update_pid_gains()
 
             # Get current flight state
-            current_altitude = getattr(self.px4_controller, 'current_altitude', 0.0)
             current_pitch = getattr(self.px4_controller, 'current_pitch', 0.0)
             current_roll = getattr(self.px4_controller, 'current_roll', 0.0)
             current_speed = getattr(self.px4_controller, 'current_ground_speed', 1.0)
@@ -660,7 +698,7 @@ class MCAttitudeRateFollower(BaseFollower):
             )
 
             # Calculate thrust with altitude hold and pitch compensation
-            thrust = self._calculate_thrust_command(current_altitude, current_pitch)
+            thrust = self._calculate_thrust_command(current_pitch, current_roll)
 
             # Apply yaw error gating
             yaw_pid = getattr(self, 'pid_yaw_rate', None)
@@ -830,6 +868,12 @@ class MCAttitudeRateFollower(BaseFollower):
                 'smoothed_los_rate': self.smoothed_los_rate,
                 'total_commands_issued': self.total_commands_issued,
                 'initial_altitude': self.initial_altitude,
+                'altitude_feedback': self._telemetry_metadata.get('altitude_feedback'),
+                'effective_rate_pid_gains': {
+                    'pitch_rad_s_per_image_error': self.pid_pitch_rate.tunings,
+                    'yaw_rad_s_per_image_error': self.pid_yaw_rate.tunings,
+                    'roll_rad_s_per_bank_error_rad': self.pid_roll_rate.tunings,
+                },
                 'config': {
                     'max_rates': [degrees(self.max_pitch_rate_rad),
                                   degrees(self.max_yaw_rate_rad),
@@ -879,6 +923,9 @@ class MCAttitudeRateFollower(BaseFollower):
         self.emergency_stop_active = False
         self.altitude_violation_count = 0
         logger.info("Emergency stop deactivated")
+
+    def reset_target_state(self, reason: str) -> bool:
+        return self.reset_follower_state() is not False
 
     def reset_follower_state(self) -> None:
         """Resets follower state to initial conditions."""

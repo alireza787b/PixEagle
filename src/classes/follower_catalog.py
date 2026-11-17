@@ -1,0 +1,204 @@
+"""Follower declarations and pure input/aircraft eligibility decisions.
+
+Requirements come from follower_commands.yaml; measurement semantics and field
+guarantees come from tracker_schemas.yaml. This module does not create followers,
+own sessions, grant authority or publish commands.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+import math
+from typing import Mapping
+
+
+NATIVE_PHASE_CONTRACTS = {
+    "multicopter": "velocity_body_offboard",
+    "fixed_wing": "fixed_wing_external",
+}
+PROFILE_FAMILIES = frozenset({"multicopter", "fixed_wing", "external", "vtol"})
+PROFILE_VISIBILITIES = frozenset({"basic", "advanced", "experimental"})
+OBSERVATION_REPRESENTATIONS = frozenset({"image_position", "angular_bearing", "provider_angles", "external"})
+
+
+@dataclass(frozen=True)
+class Eligibility:
+    eligible: bool
+    reason_code: str | None = None
+
+
+def validate_live_qualified_phases(value, *, declared_phases: Mapping[str, str]) -> tuple[str, ...]:
+    """Validate explicit admission independently of a command capability map."""
+    if (not isinstance(value, list)
+            or any(not isinstance(phase, str) or phase not in declared_phases for phase in value)
+            or len(value) != len(set(value))):
+        raise ValueError("live_qualified_phases must be a unique list of declared phases")
+    return tuple(value)
+
+
+@dataclass(frozen=True)
+class FollowerProfile:
+    mode: str
+    display_name: str
+    description: str
+    family: str
+    config_section: str
+    visibility: str
+    control_type: str
+    command_transport: str
+    airframe_phase: str
+    required_fields: tuple[str, ...]
+    required_tracker_data: tuple[str, ...]
+    native_phase_contracts: tuple[tuple[str, str], ...]
+    live_qualified_phases: tuple[str, ...]
+    implementation_available: bool
+
+    @classmethod
+    def from_info(cls, mode: str, info: Mapping) -> FollowerProfile:
+        from classes.setpoint_handler import SetpointHandler
+
+        family = info.get("family")
+        visibility = info.get("visibility")
+        if family not in PROFILE_FAMILIES or visibility not in PROFILE_VISIBILITIES:
+            raise ValueError("follower_catalog_metadata_invalid")
+        qualified = validate_live_qualified_phases(
+            info.get("live_qualified_phases"),
+            declared_phases={info["airframe_phase"]: info["control_type"],
+                             **info.get("native_phase_contracts", {})},
+        )
+        return cls(
+            mode=mode, display_name=info["display_name"], description=info["description"],
+            family=family, visibility=visibility, config_section=info["config_section"], control_type=info["control_type"],
+            command_transport=SetpointHandler.get_control_type_metadata(info["control_type"])["transport"],
+            airframe_phase=info["airframe_phase"], required_fields=tuple(info["required_fields"]),
+            required_tracker_data=tuple(info["required_tracker_data"]),
+            native_phase_contracts=tuple(info.get("native_phase_contracts", {}).items()),
+            live_qualified_phases=qualified,
+            implementation_available=info.get("implementation_available") is True,
+        )
+
+    @property
+    def phase_command_contracts(self) -> dict[str, str]:
+        return {self.airframe_phase: self.control_type, **dict(self.native_phase_contracts)}
+
+    @property
+    def live_eligibility(self) -> Eligibility:
+        """Catalog summary; Start separately checks the actual aircraft phase."""
+        if not self.implementation_available:
+            return Eligibility(False, "follower_implementation_unavailable")
+        if not self.live_qualified_phases:
+            return Eligibility(False, "profile_not_live_qualified")
+        return Eligibility(True)
+
+    def live_eligibility_for(self, phase: str) -> Eligibility:
+        summary = self.live_eligibility
+        if not summary.eligible:
+            return summary
+        if phase not in self.live_qualified_phases:
+            return Eligibility(False, "profile_not_live_qualified")
+        return Eligibility(True)
+
+    @property
+    def preview_eligibility(self) -> Eligibility:
+        """Local preview implements MAVSDK-shaped intent, not native mode ownership."""
+        if not self.implementation_available:
+            return Eligibility(False, "follower_implementation_unavailable")
+        if self.command_transport != "mavsdk":
+            return Eligibility(False, "command_preview_transport_unsupported")
+        return Eligibility(True)
+
+
+def get_follower_profile(mode: str) -> FollowerProfile:
+    from classes.follower import FollowerFactory
+
+    return FollowerProfile.from_info(mode, FollowerFactory.get_follower_info(mode))
+
+
+def get_follower_catalog() -> tuple[FollowerProfile, ...]:
+    from classes.setpoint_handler import SetpointHandler
+
+    return tuple(get_follower_profile(mode) for mode in SetpointHandler.get_available_profiles())
+
+
+def evaluate_input(profile: FollowerProfile, manager, schema_type: str, *,
+                   tracker_name: str | None = None,
+                   sample_fields: Mapping | None = None) -> Eligibility:
+    """Check representation before fields; optional fields are not guarantees.
+
+    A tracker may promise an additional selected-target field (SmartTracker).
+    Runtime calls validate actual fields instead; an advertised promise never
+    substitutes for the current observation.
+    """
+    if not profile.implementation_available:
+        return Eligibility(False, "follower_implementation_unavailable")
+    schema = manager.get_schema(schema_type)
+    if not isinstance(schema, dict) or not schema.get("representation"):
+        return Eligibility(False, "tracker_output_unknown")
+    guaranteed = set(schema.get("required_fields", []))
+    if tracker_name is not None:
+        tracker = manager.get_tracker_info(tracker_name)
+        if not isinstance(tracker, dict) or tracker.get("data_type") != schema_type:
+            return Eligibility(False, "tracker_output_unknown")
+        promised = tracker.get("following_required_fields", [])
+        declared = guaranteed | set(schema.get("optional_fields", []))
+        if not isinstance(promised, list) or any(field not in declared for field in promised):
+            return Eligibility(False, "tracker_output_unknown")
+        guaranteed.update(promised)
+    for required_type in profile.required_tracker_data:
+        required = manager.get_schema(required_type)
+        if (not isinstance(required, dict)
+                or required.get("representation") != schema["representation"]):
+            return Eligibility(False, "tracker_output_incompatible")
+        fields = required.get("required_fields", [])
+        if not fields:
+            return Eligibility(False, "tracker_output_unknown")
+        if sample_fields is None:
+            if not set(fields).issubset(guaranteed):
+                return Eligibility(False, "tracker_required_fields_not_guaranteed")
+        else:
+            for field in fields:
+                if field == "bbox_or_normalized_bbox":
+                    present = sample_fields.get("bbox") is not None or sample_fields.get("normalized_bbox") is not None
+                else:
+                    present = sample_fields.get(field) is not None
+                if not present:
+                    return Eligibility(False, "tracker_required_fields_missing")
+                value = sample_fields.get(field)
+                rules = required.get("validation", {}).get(field, {})
+                if rules.get("type") == "tuple":
+                    if not isinstance(value, (tuple, list)) or len(value) != rules.get("length", len(value)):
+                        return Eligibility(False, "tracker_required_fields_invalid")
+                    if rules.get("element_type") == "float" and any(
+                        isinstance(item, bool) or not isinstance(item, (int, float)) or not math.isfinite(item)
+                        for item in value
+                    ):
+                        return Eligibility(False, "tracker_required_fields_invalid")
+    return Eligibility(True)
+
+
+def evaluate_aircraft(profile: FollowerProfile, aircraft_kind: str, *,
+                      observed_phase: str | None = None, phase_owner_verified: bool = False) -> Eligibility:
+    """Selection is independent; starting needs a supported observed aircraft.
+
+    VTOL requires the observed settled phase and the verified native ownership
+    contract. Configuration labels and command declarations cannot grant it.
+    """
+    if aircraft_kind not in {"multicopter", "fixed_wing", "vtol"}:
+        return Eligibility(False, "aircraft_kind_unavailable")
+    if observed_phase == "vtol_transition":
+        return Eligibility(False, "following_transition_unavailable")
+    if aircraft_kind == "vtol":
+        if phase_owner_verified is not True:
+            return Eligibility(False, "vtol_transition_release_unqualified")
+        if observed_phase not in {"multicopter", "fixed_wing"}:
+            return Eligibility(False, "aircraft_phase_unavailable")
+        if observed_phase not in dict(profile.native_phase_contracts):
+            return Eligibility(False, "follower_aircraft_incompatible")
+        phase = observed_phase
+    else:
+        phase = aircraft_kind
+    if aircraft_kind != 'vtol' and observed_phase is not None and observed_phase != phase:
+        return Eligibility(False, "aircraft_phase_mismatch")
+    if phase not in profile.phase_command_contracts:
+        return Eligibility(False, "follower_aircraft_incompatible")
+    return profile.live_eligibility_for(phase)

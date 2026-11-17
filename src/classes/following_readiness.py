@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-import math
+import inspect
+import re
 from typing import Any, Dict, Mapping, Optional
 
 from classes.circuit_breaker import FollowerCircuitBreaker
@@ -12,6 +13,8 @@ from classes.command_preview import (
     normalize_follower_execution_mode,
 )
 from classes.parameters import Parameters
+from classes.phase_guidance_session import PhaseGuidanceSession
+from classes.safety_types import AltitudeLimits
 from classes.safety_manager import SafetyManager
 from classes.tracker_runtime_status import (
     evaluate_tracker_runtime_status,
@@ -23,6 +26,57 @@ def _mapping(value: Any) -> Dict[str, Any]:
     return dict(value) if isinstance(value, Mapping) else {}
 
 
+_TRACKER_OUTPUT_UNSET = object()
+
+
+def evaluate_follower_guidance_input(
+    app_controller: Any, tracker_output: Any = _TRACKER_OUTPUT_UNSET,
+) -> Dict[str, Any]:
+    """Read one follower's optional input requirement; acquire no authority."""
+    source_check = getattr(app_controller, "_guidance_source_readiness", None)
+    if callable(source_check):
+        if tracker_output is _TRACKER_OUTPUT_UNSET:
+            getter = getattr(app_controller, "get_tracker_output", None)
+            tracker_output = getter() if callable(getter) else None
+        try:
+            source = source_check(tracker_output)
+            if not source["ready"]:
+                return source
+        except Exception:
+            return {"ready": False, "reason_code": "following_observation_source_unavailable"}
+    concrete = getattr(getattr(app_controller, "follower", None), "follower", None)
+    hook = getattr(concrete, "require_guidance_input", None)
+    if hook is None:
+        return {"ready": True, "reason_code": None}
+    if not callable(hook):
+        return {"ready": False, "reason_code": "guidance_input_contract_invalid"}
+    try:
+        if tracker_output is _TRACKER_OUTPUT_UNSET:
+            getter = getattr(app_controller, "get_tracker_output", None)
+            tracker_output = getter() if callable(getter) else None
+        session = getattr(concrete, "_airframe_session", None)
+        if isinstance(session, PhaseGuidanceSession) and getattr(concrete, "_airframe_session_bound", False) is True:
+            # Validation and calculation share the command owner's snapshot.
+            # A status reader must not advance association beyond that owner.
+            state = session.require_state()
+        else:
+            state_getter = getattr(getattr(app_controller, "px4_interface", None), "get_aircraft_state", None)
+            state = state_getter() if callable(state_getter) else None
+        result = hook(tracker_output, state)
+        if result is not None:
+            if inspect.iscoroutine(result):
+                result.close()
+            return {"ready": False, "reason_code": "guidance_input_contract_invalid"}
+    except ValueError as exc:
+        code = str(exc)
+        if re.fullmatch(r"[a-z][a-z0-9_]{0,127}", code) is None:
+            code = "guidance_input_invalid"
+        return {"ready": False, "reason_code": code}
+    except Exception:
+        return {"ready": False, "reason_code": "guidance_input_readiness_failed"}
+    return {"ready": True, "reason_code": None}
+
+
 def evaluate_following_start_altitude(app_controller: Any, *, limits: Any = None) -> Dict[str, Any]:
     """Check the live relative altitude before handing control to Offboard."""
     if limits is None:
@@ -30,15 +84,15 @@ def evaluate_following_start_altitude(app_controller: Any, *, limits: Any = None
     if not limits.safety_enabled:
         return {"ready": True}
     value = getattr(getattr(app_controller, "px4_interface", None), "current_altitude", None)
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+    if not AltitudeLimits.is_valid_altitude(value):
         return {"ready": False, "code": "following_altitude_unavailable",
                 "message": "Fresh relative altitude is required before aircraft following."}
     lower = limits.min_altitude + limits.warning_buffer
-    upper = limits.max_altitude - limits.warning_buffer
     if value < lower:
         return {"ready": False, "code": "following_altitude_below_start_margin",
                 "message": f"Climb above {lower:.1f} m before aircraft following (currently {value:.1f} m)."}
-    if value > upper:
+    if AltitudeLimits.above(value, limits.max_altitude, buffer=limits.warning_buffer):
+        upper = limits.max_altitude - limits.warning_buffer
         return {"ready": False, "code": "following_altitude_above_start_margin",
                 "message": f"Descend below {upper:.1f} m before aircraft following (currently {value:.1f} m)."}
     return {"ready": True}
@@ -124,7 +178,9 @@ def evaluate_following_start_readiness(
     if frame_status_available:
         try:
             from classes.sih_replay import following_video_frame_status
-            frame_status = following_video_frame_status(app_controller, _mapping(frame_status_getter()))
+            qualified = getattr(app_controller, '_get_video_frame_status_for_following', None)
+            frame_status = (qualified() if callable(qualified)
+                            else following_video_frame_status(app_controller, _mapping(frame_status_getter())))
         except Exception:
             frame_status_available = False
 
@@ -137,9 +193,7 @@ def evaluate_following_start_readiness(
 
     if not runtime_status.get("usable_for_following", False):
         return readiness
-    if not tracker_requires_video:
-        return readiness
-    if not frame_status_available:
+    if tracker_requires_video and not frame_status_available:
         return {
             **readiness,
             "status": "not_usable",
@@ -147,7 +201,7 @@ def evaluate_following_start_readiness(
             "usable_for_following": False,
             "reason": "Video frame readiness is unavailable",
         }
-    if frame_status.get("replay_source") is True and not frame_status.get("sih_replay_authorized"):
+    if tracker_requires_video and frame_status.get("replay_source") is True and not frame_status.get("sih_replay_authorized"):
         return {
             **readiness,
             "status": "not_usable",
@@ -155,7 +209,8 @@ def evaluate_following_start_readiness(
             "usable_for_following": False,
             "reason": "Video-file replay is not authorized for autonomous following",
         }
-    if frame_status.get("usable_for_following") is not True:
+    if (tracker_requires_video and frame_status.get("usable_for_following") is not True
+            and frame_status.get('retained_measurement_usable') is not True):
         frame_reason = frame_status.get("reason")
         return {
             **readiness,
@@ -168,16 +223,29 @@ def evaluate_following_start_readiness(
                 else "Video frame is not fresh and usable for following"
             ),
         }
+    guidance_input = evaluate_follower_guidance_input(app_controller)
+    readiness["guidance_input_readiness"] = guidance_input
+    if not guidance_input["ready"]:
+        return {
+            **readiness,
+            "status": "not_usable",
+            "consumer_guidance": "not_usable",
+            "usable_for_following": False,
+            "reason": f"Follower guidance input is unavailable: {guidance_input['reason_code']}",
+        }
     return readiness
 
 
 def following_readiness_failure_code(readiness: Mapping[str, Any]) -> str:
     """Distinguish input authorization from a lost/prediction-only target."""
+    guidance_input = readiness.get("guidance_input_readiness") or {}
+    if guidance_input.get("ready") is False:
+        return guidance_input["reason_code"]
     frame = readiness.get("video_frame_status") or {}
     if readiness.get("tracker_requires_video"):
         if frame.get("replay_source") is True and not frame.get("sih_replay_authorized"):
             return "video_replay_not_authorized"
-        if frame.get("usable_for_following") is not True:
+        if frame.get("usable_for_following") is not True and frame.get('retained_measurement_usable') is not True:
             return "video_or_tracker_not_fresh"
     return "tracker_not_usable"
 
@@ -289,6 +357,24 @@ def evaluate_command_preview_start_readiness(
             "Command preview requires the circuit breaker to remain active."
         )
         return result
+    from classes.follower_catalog import get_follower_profile
+
+    try:
+        profile = get_follower_profile(str(Parameters.FOLLOWER_MODE))
+        preview = profile.preview_eligibility
+    except Exception:
+        result["reason_code"] = "command_preview_contract_unavailable"
+        result["reason"] = "The selected follower's command-preview contract is unavailable."
+        return result
+    if not preview.eligible:
+        result["reason_code"] = preview.reason_code
+        result["reason"] = (
+            "Local command preview is unavailable for this follower; native guidance "
+            "requires the separate qualified native simulation workflow."
+            if profile.command_transport == "px4_native"
+            else "The selected follower implementation is unavailable for local command preview."
+        )
+        return result
     if not base_runtime.get("usable_for_following", False):
         result["reason"] = str(
             base_runtime.get("reason")
@@ -309,6 +395,12 @@ def evaluate_command_preview_start_readiness(
         result["reason"] = "The configured video-file source is not open."
         return result
 
+    guidance_input = evaluate_follower_guidance_input(app_controller)
+    result["guidance_input_readiness"] = guidance_input
+    if not guidance_input["ready"]:
+        result["reason_code"] = guidance_input["reason_code"]
+        result["reason"] = f"Follower guidance input is unavailable: {guidance_input['reason_code']}"
+        return result
     result.update(
         {
             "ready": True,

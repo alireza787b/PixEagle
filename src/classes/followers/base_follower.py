@@ -21,12 +21,15 @@ Safety Integration (v5.0.0+):
 """
 
 from abc import ABC, abstractmethod
+from dataclasses import replace
 from typing import Tuple, Dict, Any, List, Optional
 from classes.command_intent import CommandIntent
+from classes.aircraft_state import AircraftState
 from classes.circuit_breaker import FollowerCircuitBreaker
 from classes.follower_logger import FollowerLogger
+from classes.follower_session_controls import SessionControl
 from classes.safety_manager import get_safety_manager
-from classes.safety_types import SafetyAction, SafetyStatus
+from classes.safety_types import AltitudeLimits, SafetyAction, SafetyStatus
 from classes.schema_manager import get_schema_manager
 from classes.setpoint_handler import SetpointHandler
 from classes.tracker_output import TrackerOutput, TrackerDataType
@@ -206,8 +209,7 @@ class BaseFollower(ABC):
 
         try:
             self.safety_manager = get_safety_manager()
-            # Derive follower config name from class (e.g., MCVelocityChaseFollower -> MC_VELOCITY_CHASE)
-            self._follower_config_name = self._derive_follower_config_name()
+            self._follower_config_name = self.setpoint_handler.profile_config["config_section"]
 
             # Warn if SafetyManager hasn't loaded config (using fallback values)
             if not self.safety_manager.is_initialized():
@@ -225,6 +227,17 @@ class BaseFollower(ABC):
                    f"(control type: {self.get_control_type()})")
     
     # ==================== Abstract Methods ====================
+
+    def require_guidance_input(
+        self, tracker_output: TrackerOutput | None, aircraft_state: AircraftState | None,
+    ) -> None:
+        """Validate additional observation requirements without changing any state.
+
+        Image PID/provider profiles retain their existing input contract. A
+        strategy requiring calibrated, time-associated input overrides this
+        hook and raises a reason-code ValueError when that input is unavailable.
+        Reading readiness must never stamp a measurement or publish a command.
+        """
     
     @abstractmethod
     def calculate_control_commands(self, tracker_data: TrackerOutput) -> None:
@@ -282,6 +295,9 @@ class BaseFollower(ABC):
             str: `velocity_body_offboard` or `attitude_rate`.
         """
         return self.setpoint_handler.get_control_type()
+
+    def get_airframe_phase(self) -> str:
+        return self.setpoint_handler.get_airframe_phase()
     
     def get_display_name(self) -> str:
         """
@@ -427,28 +443,12 @@ class BaseFollower(ABC):
         """
         prepared = self.reset_command_fields()
         if prepared:
-            # Retargeting keeps the active session controls (for example the
-            # requested Vector speed), but controller memory must not carry a
-            # previous target's integral, yaw, or rate state into the new one.
-            # Existing followers expose one of these established reset hooks;
-            # the base boundary keeps the lifecycle contract in one place.
-            for hook_name in (
-                "reset_chase_state",
-                "reset_follower_state",
-                "reset_pid_controllers",
-                "reset_state",
-            ):
-                hook = getattr(self, hook_name, None)
-                if not callable(hook):
-                    continue
-                try:
-                    result = hook()
-                except Exception:
-                    logger.exception("Follower target-transition reset failed: %s", hook_name)
+            try:
+                if self.reset_target_state(reason) is False:
                     return False
-                if result is False:
-                    return False
-                break
+            except Exception:
+                logger.exception("Follower target-transition reset failed")
+                return False
         if prepared and hasattr(self, '_telemetry_metadata'):
             self.update_telemetry_metadata(
                 'target_transition',
@@ -458,6 +458,26 @@ class BaseFollower(ABC):
                 },
             )
         return prepared
+
+    def reset_target_state(self, reason: str) -> bool:
+        """Reset target-specific controller memory while retaining session controls."""
+        return True
+
+    def prepare_authorized_command(self, fields: Dict[str, float], *, loss_decay: bool) -> Dict[str, float]:
+        """Apply session limits after continuity, before the sole publisher."""
+        return self.limit_session_control_command(dict(fields))
+
+    def prepare_shaped_authorized_command(self, fields: Dict[str, float], *, loss_decay: bool) -> Dict[str, float]:
+        """Preserve the gimbal guidance shaping order for authorized commands."""
+        fields = self.limit_session_control_command(dict(fields))
+        fields = self.guard_authorized_command(fields) if loss_decay else self.limit_authorized_command(fields)
+        if loss_decay:
+            fields["yawspeed_deg_s"] = 0.0
+            fields["vel_body_down"] = 0.0
+        return fields
+
+    def on_command_submitted(self, fields: Dict[str, float]) -> None:
+        """Only implementations with submitted-command history opt in."""
 
     # ==================== PID Utility Methods ====================
 
@@ -512,59 +532,6 @@ class BaseFollower(ABC):
             raise
 
     # ==================== Safety Management Methods ====================
-
-    def _derive_follower_config_name(self) -> str:
-        """
-        Derive the config section name from the class name.
-
-        Converts class names like 'MCVelocityChaseFollower' to 'MC_VELOCITY_CHASE'
-        for config lookup.
-
-        Returns:
-            str: The config section name (e.g., 'MC_VELOCITY_CHASE')
-        """
-        class_name = self.__class__.__name__
-
-        # Remove 'Follower' suffix if present
-        if class_name.endswith('Follower'):
-            class_name = class_name[:-8]
-
-        # Convert CamelCase to UPPER_SNAKE_CASE
-        # Handle special prefixes (MC, GM, FW)
-        result = []
-        i = 0
-        while i < len(class_name):
-            char = class_name[i]
-
-            # Handle uppercase sequences (like MC, GM, FW)
-            if char.isupper():
-                # Check if this is part of an acronym (consecutive uppercase)
-                acronym = char
-                j = i + 1
-                while j < len(class_name) and class_name[j].isupper():
-                    # If next char after this is lowercase, this uppercase belongs to next word
-                    if j + 1 < len(class_name) and class_name[j + 1].islower():
-                        break
-                    acronym += class_name[j]
-                    j += 1
-
-                if len(acronym) > 1:
-                    # This is an acronym
-                    if result:
-                        result.append('_')
-                    result.append(acronym)
-                    i = j
-                else:
-                    # Single uppercase - start of new word
-                    if result and result[-1] != '_':
-                        result.append('_')
-                    result.append(char)
-                    i += 1
-            else:
-                result.append(char.upper())
-                i += 1
-
-        return ''.join(result)
 
     # ==================== Dynamic Safety Limit Properties ====================
     # These properties read fresh from SafetyManager on each access, allowing
@@ -681,17 +648,17 @@ class BaseFollower(ABC):
         if not callable(ready) or not ready(require_fresh_telemetry=True):
             raise ValueError("Fresh aircraft altitude is unavailable")
         altitude = getattr(self.px4_controller, "current_altitude", None)
-        if altitude is None or not math.isfinite(float(altitude)):
+        if not AltitudeLimits.is_valid_altitude(altitude):
             raise ValueError("Aircraft altitude is unavailable")
         limits = self.altitude_limits
         if not getattr(limits, 'safety_enabled', True):
             return requested
-        if altitude < limits.min_altitude or altitude > limits.max_altitude:
+        if altitude < limits.min_altitude or AltitudeLimits.above(altitude, limits.max_altitude):
             raise ValueError("Aircraft altitude is outside the follower safety envelope")
         if requested > 0.0 and altitude <= limits.min_altitude + limits.warning_buffer:
             self._vertical_limit_status = "descent_limited"
             return 0.0
-        if requested < 0.0 and altitude >= limits.max_altitude - limits.warning_buffer:
+        if requested < 0.0 and AltitudeLimits.above(altitude, limits.max_altitude, buffer=limits.warning_buffer, inclusive=True):
             self._vertical_limit_status = "climb_limited"
             return 0.0
         return requested
@@ -777,31 +744,125 @@ class BaseFollower(ABC):
     def reset_control_session(self) -> None:
         """Discard timing and submitted-command history at a session boundary."""
         self.release_session_controls()
+        self.reset_command_history()
+        self._session_controls = self.create_session_controls()
+
+    def reset_command_history(self) -> None:
+        """Start a new command contract without changing session controls."""
         self._control_timestamp = None
         self._submitted_command_timestamp = None
         self._submitted_command_fields = None
-        self._session_controls = self.create_session_controls()
 
     def release_session_controls(self) -> None:
         """Release optional session-owned runtime resources."""
+        session = getattr(self, '_airframe_session', None)
+        if session is not None:
+            session.end('follow_session_ended')
+
+    def bind_airframe_session(self, session) -> None:
+        """Transfer the existing control declaration to one prepared native owner."""
+        from classes.phase_guidance_session import PhaseGuidanceSession
+        prepared = getattr(self, '_airframe_session', None)
+        if (not isinstance(session, PhaseGuidanceSession) or getattr(self, '_airframe_session_bound', False)
+                or prepared is not None and prepared is not session):
+            raise ValueError('airframe_session_binding_invalid')
+        session.require_state()
+        self._airframe_session = session
+        self._airframe_session_bound = True
+        self._session_controls = {}
 
     def create_session_controls(self) -> dict:
         """Opt-in implementations resolve declared controls against safety limits."""
         return {}
 
     def session_controls(self) -> list:
+        session = getattr(self, '_airframe_session', None)
+        if session is not None:
+            control = session.controls.snapshot(client_contract_version=2)
+            return [control] if control is not None else []
         return [control.snapshot() for control in getattr(self, '_session_controls', {}).values()]
 
     def update_session_control(self, control_id: str, value: float, revision: int) -> None:
         self.validate_session_control(control_id, value, revision)
+        session = getattr(self, '_airframe_session', None)
+        if session is not None:
+            session.controls.update(value, identity=session.identity, expected_revision=revision)
+            return
         controls = getattr(self, '_session_controls', {})
         self._session_controls = {**controls, control_id: controls[control_id].updated(value, revision)}
 
     def validate_session_control(self, control_id: str, value: float, revision: int) -> None:
+        session = getattr(self, '_airframe_session', None)
+        if session is not None:
+            if control_id != 'requested_speed':
+                raise ValueError('session_control_unsupported')
+            session.controls.validate_update(value, identity=session.identity, expected_revision=revision)
+            return
         controls = getattr(self, '_session_controls', {})
         if control_id not in controls:
             raise ValueError('session_control_unsupported')
         controls[control_id].updated(value, revision)
+
+    def _create_translation_speed_controls(self, ceiling: float, *, startup=None) -> dict:
+        declaration = self.setpoint_handler.profile_config.get('session_controls', {}).get('requested_speed')
+        if declaration is None:
+            return {}
+        value = ceiling if startup is None else startup
+        configured = SessionControl('requested_speed', declaration['label'], declaration['unit'],
+                                    0.0, ceiling, declaration['step'], float(value))
+        configured.updated(value, configured.revision)
+        if not self.safety_manager.allows_session_velocity_override():
+            return {configured.control_id: replace(configured, description=declaration.get('description'))}
+        control = SessionControl('requested_speed', declaration['label'], declaration['unit'],
+                                 0.0, None, declaration['step'], float(value), configured_maximum=ceiling,
+                                 description=declaration.get('description'))
+        return {control.control_id: control}
+
+    def _requested_speed_control(self):
+        session = getattr(self, '_airframe_session', None)
+        return session.controls.current_control if session is not None else getattr(self, '_session_controls', {}).get('requested_speed')
+
+    def _sync_translation_speed_override(self) -> None:
+        control = self._requested_speed_control()
+        if control is not None and control.override_active:
+            self.safety_manager.bind_session_velocity(self._follower_config_name, self, self._session_velocity_envelope)
+        else:
+            self._clear_session_velocity()
+
+    def _clear_session_velocity(self) -> None:
+        release = getattr(getattr(self, 'safety_manager', None), 'clear_session_velocity', None)
+        if callable(release):
+            release(self)
+
+    def _translation_speed_envelope(self, current_magnitude: float):
+        control = self._requested_speed_control()
+        if control is None or not control.override_active:
+            return None
+        previous = getattr(self, '_submitted_command_fields', None) or {}
+        speed = math.hypot(*(previous.get(name, 0) for name in ('vel_body_fwd', 'vel_body_right', 'vel_body_down')))
+        return max(control.value, current_magnitude, speed)
+
+    def _limit_translation_speed(self, fields: Dict[str, float], *, acceleration: float,
+                                 update_rate_hz: float, ramp_increase: bool = False) -> Dict[str, float]:
+        control = self._requested_speed_control()
+        if control is None:
+            return dict(fields)
+        names = ('vel_body_fwd', 'vel_body_right', 'vel_body_down')
+        previous = getattr(self, '_submitted_command_fields', None) or dict.fromkeys(names, 0.0)
+        rate = float(update_rate_hz)
+        now = time.monotonic()
+        timestamp = getattr(self, '_submitted_command_timestamp', None)
+        _, dt = self.bounded_control_delta(timestamp if timestamp is not None else now - 1 / rate,
+                                           rate, current_timestamp=now)
+        previous_speed = math.hypot(*(previous[name] for name in names))
+        requested = min(control.value, previous_speed + acceleration * dt) if ramp_increase else control.value
+        ceiling = max(requested, previous_speed - acceleration * dt)
+        result = dict(fields)
+        speed = math.hypot(*(result[name] for name in names))
+        if speed > ceiling:
+            for name in names:
+                result[name] *= ceiling / speed
+        return result
 
     def limit_session_control_command(self, fields: Dict[str, float]) -> Dict[str, float]:
         return dict(fields)
@@ -1122,102 +1183,34 @@ class BaseFollower(ABC):
         return [TrackerDataType[name] for name in optional_data_names]
     
     def validate_tracker_compatibility(self, tracker_data: TrackerOutput) -> bool:
-        """
-        Validates if the tracker data is compatible with this follower's requirements.
-        Uses the required tracker schema plus the profile's required data fields.
-        
-        Args:
-            tracker_data (TrackerOutput): Tracker data to validate
-            
-        Returns:
-            bool: True if compatible, False otherwise
-        """
+        """Require declared observation semantics and current required fields."""
         if not tracker_data or not tracker_data.tracking_active:
-            logger.debug("Tracker data is inactive or None")
             return False
-        
-        follower_class_name = self.__class__.__name__
-        data_type = tracker_data.data_type.value.upper()
+        from classes.follower_catalog import evaluate_input, get_follower_profile
+
         try:
-            compatibility = get_schema_manager().check_follower_compatibility(
-                follower_class_name,
-                data_type,
-            )
-        except Exception as e:
-            error_key = f"schema_error_{follower_class_name}_{data_type}"
-            error_msg = (
-                f"Tracker compatibility validation failed closed for "
-                f"{follower_class_name}/{data_type}: {e}"
-            )
-            self._rate_limiter.log_rate_limited(
-                logger,
-                'error',
-                error_key,
-                error_msg,
-            )
-            self._error_aggregator.record_error(error_key, logger)
-            return False
-
-        if compatibility not in {'required', 'preferred', 'compatible', 'optional'}:
-            error_key = f"incompatible_{follower_class_name}_{data_type}"
-            error_msg = (
-                f"Tracker data incompatible: {follower_class_name} cannot use "
-                f"{data_type}. Switch to a compatible tracker or follower."
-            )
-            self._rate_limiter.log_rate_limited(
-                logger,
-                'error',
-                error_key,
-                error_msg,
-            )
-            self._error_aggregator.record_error(error_key, logger)
-            return False
-
-        # Type-level compatibility is insufficient if the current sample omits
-        # data required by this follower profile.
-        required_types = self.get_required_tracker_data_types()
-        for required_type in required_types:
-            if not self._has_required_data(tracker_data, required_type):
-                error_key = f"missing_data_{self.__class__.__name__}_{required_type.value}"
-                error_msg = (
-                    f"Tracker missing required data: {self.__class__.__name__} requires "
-                    f"{required_type.value} but tracker does not provide it."
-                )
-                self._rate_limiter.log_rate_limited(logger, 'warning', error_key, error_msg)
-                self._error_aggregator.record_error(error_key, logger)
-                return False
-        
-        logger.debug(f"Tracker data is compatible with {self.get_display_name()}")
-        return True
-
-    def _has_required_data(self, tracker_data: TrackerOutput, data_type: TrackerDataType) -> bool:
-        """
-        Checks if tracker data contains the required data type.
-        
-        Args:
-            tracker_data (TrackerOutput): Tracker data to check
-            data_type (TrackerDataType): Required data type
-            
-        Returns:
-            bool: True if data is available
-        """
-        if data_type == TrackerDataType.POSITION_2D:
-            return tracker_data.position_2d is not None
-        elif data_type == TrackerDataType.POSITION_3D:
-            return tracker_data.position_3d is not None
-        elif data_type == TrackerDataType.ANGULAR:
-            return tracker_data.angular is not None
-        elif data_type == TrackerDataType.GIMBAL_ANGLES:
-            return tracker_data.angular is not None
-        elif data_type == TrackerDataType.BBOX_CONFIDENCE:
-            return (tracker_data.bbox is not None or 
-                   tracker_data.normalized_bbox is not None)
-        elif data_type == TrackerDataType.VELOCITY_AWARE:
-            return tracker_data.velocity is not None
-        elif data_type == TrackerDataType.MULTI_TARGET:
-            return tracker_data.targets is not None
-        elif data_type == TrackerDataType.EXTERNAL:
-            return tracker_data.raw_data is not None
+            manager = get_schema_manager()
+            profile = get_follower_profile(self.profile_name)
+            data_type = tracker_data.data_type.value.upper()
+            schema = manager.get_schema(data_type)
+            if not isinstance(schema, dict):
+                raise ValueError("tracker_output_unknown")
+            fields = set(schema.get("required_fields", [])) | set(schema.get("optional_fields", []))
+            fields.update({"bbox", "normalized_bbox"})
+            sample = {name: getattr(tracker_data, name, None) for name in fields}
+            decision = evaluate_input(profile, manager, data_type, sample_fields=sample)
+            if decision.eligible:
+                return True
+            reason = decision.reason_code
+        except Exception as error:
+            reason = str(error)
+        self._rate_limiter.log_rate_limited(
+            logger, 'warning', f"tracker_input_{type(self).__name__}",
+            f"Tracker input rejected for {type(self).__name__}: {reason}",
+        )
+        self._error_aggregator.record_error(
+            f"tracker_input_{type(self).__name__}", logger,
+        )
         return False
     
     def extract_target_coordinates(self, tracker_data: TrackerOutput) -> Optional[Tuple[float, float]]:

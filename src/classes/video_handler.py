@@ -21,6 +21,7 @@ import uuid
 from collections import deque
 from typing import Optional, Dict, Any, Tuple
 from classes.frame_publisher import CaptureStamp
+from classes.fixed_camera_calibration import FixedCameraCalibration, selected_source_signature
 from classes.video_geometry import fit_dimensions, resize_pixels
 from classes.parameters import Parameters
 from classes.logging_manager import logging_manager
@@ -80,6 +81,17 @@ class VideoHandler:
         self._source_initializing = False
         self._source_initialization_lock = threading.RLock()
         self._capture_read_lock = threading.Lock()
+        self._capture_identity_lock = threading.Lock()
+        self._capture_identities = {}
+        self.fixed_camera_calibration = None
+        self.calibration_configuration_error = None
+        saved_calibration = getattr(Parameters, 'FIXED_CAMERA_CALIBRATION', None)
+        if saved_calibration is not None:
+            try:
+                self.fixed_camera_calibration = FixedCameraCalibration.from_mapping(saved_calibration)
+            except ValueError as exc:
+                self.calibration_configuration_error = str(exc)
+                logger.error('Fixed-camera calibration is invalid; calibrated guidance is unavailable')
         self._gstreamer_usable_cache: Optional[bool] = None
         self._async_capture_thread: Optional[threading.Thread] = None
         self._async_capture_stop = threading.Event()
@@ -139,6 +151,10 @@ class VideoHandler:
         self._source_listener = None
         self._capture_monotonic = None
         self._last_capture_stamp = CaptureStamp()
+        self._last_capture_geometry = None
+        self._last_capture_frame = None
+        self._last_capture_cached_frame = None
+        self._last_capture_source_signature = None
         self._pending_replay_epoch = False
         self._last_frame_status = {
             "source": "none",
@@ -252,6 +268,10 @@ class VideoHandler:
             "type": source_type,
             "url": getattr(Parameters, "RTSP_URL", "") if source_type in ("RTSP_OPENCV", "RTSP_STREAM") else "",
         }
+        if source_type == 'GAZEBO_CAMERA':
+            from classes.gazebo_capture import GazeboCameraSettings
+            settings = GazeboCameraSettings.from_mapping(getattr(Parameters, 'GAZEBO_CAMERA', None))
+            self.selection_source.update(world=settings.world, source_clock_id=settings.source_clock_id)
         if self._is_video_file_source():
             self._prefetched_frame = None
             self._video_file_playback_state = "opening"
@@ -265,8 +285,8 @@ class VideoHandler:
             self._video_file_realtime_skip_credit = 0.0
             self._video_file_realtime_skipped_frames = 0
 
-        if self._should_use_async_udp_capture():
-            return self._initialize_async_udp_capture()
+        if self._should_use_async_capture():
+            return self._initialize_async_capture()
 
         for attempt in range(max_retries):
             logger.debug(f"Attempt {attempt + 1}/{max_retries} to open video source")
@@ -300,11 +320,11 @@ class VideoHandler:
                                     "Video file OpenCV fallback opened but failed initial frame probe on attempt %d",
                                     attempt + 1
                                 )
-                                self.cap.release()
+                                self._release_capture_object(self.cap)
                                 self.cap = None
                                 continue
                         else:
-                            self.cap.release()
+                            self._release_capture_object(self.cap)
                             self.cap = None
                             continue
 
@@ -529,14 +549,14 @@ class VideoHandler:
             return None
         return value if math.isfinite(value) else None
 
-    def _should_use_async_udp_capture(self) -> bool:
-        """Return True when UDP/GStreamer capture must not block the frame loop."""
-        return (
+    def _should_use_async_capture(self) -> bool:
+        """Keep live socket reads off the frame, API and flight-control loops."""
+        return str(getattr(Parameters, "VIDEO_SOURCE_TYPE", "")).upper() == "GAZEBO_CAMERA" or (
             str(getattr(Parameters, "VIDEO_SOURCE_TYPE", "") or "").upper() == "UDP_STREAM"
             and bool(getattr(Parameters, "USE_GSTREAMER", False))
         )
 
-    def _initialize_async_udp_capture(self) -> int:
+    def _initialize_async_capture(self) -> int:
         """
         Start UDP/GStreamer capture in a daemon reader.
 
@@ -551,20 +571,21 @@ class VideoHandler:
         )
         self.fps = Parameters.CAPTURE_FPS or Parameters.DEFAULT_FPS
         self._effective_fps = self.fps
-        self._capture_mode = "udp_gstreamer_async"
-        self._last_pipeline_strategy = "udp_gstreamer_async_reader"
+        label = "gazebo_transport" if Parameters.VIDEO_SOURCE_TYPE == "GAZEBO_CAMERA" else "udp_gstreamer"
+        self._capture_mode = label + "_async"
+        self._last_pipeline_strategy = label + "_async_reader"
         self._last_capture_error = None
-        self._start_async_udp_reader()
+        self._start_async_capture_reader()
         delay_frame = max(int(1000 / max(float(self.fps or 1), 1)), 1)
         logger.info(
-            "UDP/GStreamer video source initialized with asynchronous reader: %sx%s@%sfps",
+            "Video source initialized with asynchronous reader: %sx%s@%sfps",
             self.width,
             self.height,
             self.fps,
         )
         return delay_frame
 
-    def _start_async_udp_reader(self) -> None:
+    def _start_async_capture_reader(self) -> None:
         """Start the UDP reader thread, replacing stale stopped generations."""
         with self._async_capture_lock:
             if (
@@ -584,10 +605,11 @@ class VideoHandler:
             self._async_consumed_frame_sequence = 0
             self._async_latest_frame_time = None
             self._async_latest_capture_monotonic = None
+            self._async_latest_source_sample = None
             thread = threading.Thread(
-                target=self._async_udp_reader_loop,
+                target=self._async_capture_reader_loop,
                 args=(generation, stop_event),
-                name="pixeagle-udp-gstreamer-reader",
+                name="pixeagle-live-capture-reader",
                 daemon=True,
             )
             self._async_capture_thread = thread
@@ -598,7 +620,7 @@ class VideoHandler:
         """Return True when a reader generation still owns async state."""
         return generation == self._async_capture_generation
 
-    def _async_udp_reader_loop(
+    def _async_capture_reader_loop(
         self,
         generation: int,
         stop_event: threading.Event,
@@ -606,12 +628,14 @@ class VideoHandler:
         """Own blocking OpenCV/GStreamer UDP open/read calls."""
         cap = None
         try:
-            pipeline = self._build_gstreamer_udp_pipeline()
-            logger.debug("UDP GStreamer async pipeline: %s", pipeline)
+            gazebo_source = Parameters.VIDEO_SOURCE_TYPE == "GAZEBO_CAMERA"
+            pipeline = None if gazebo_source else self._build_gstreamer_udp_pipeline()
+            logger.debug("Asynchronous capture source: %s", Parameters.VIDEO_SOURCE_TYPE)
             with self._async_capture_lock:
                 if self._async_generation_is_active(generation):
                     self._async_capture_opening = True
-            cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
+            cap = (self._create_gazebo_capture(False) if gazebo_source
+                   else self._open_capture(pipeline, cv2.CAP_GSTREAMER, source_type='UDP_STREAM'))
             with self._async_capture_lock:
                 if self._async_generation_is_active(generation):
                     self._async_capture_opening = False
@@ -621,15 +645,26 @@ class VideoHandler:
                 return
 
             if not cap or not cap.isOpened():
-                self._last_capture_error = "UDP GStreamer async capture failed to open"
+                self._last_capture_error = "Asynchronous video capture failed to open"
                 logger.warning(self._last_capture_error)
                 return
 
             self._last_capture_error = None
-            logging_manager.log_connection_status(logger, "Video", True, "UDP GStreamer async reader")
+            logging_manager.log_connection_status(logger, "Video", True, "Asynchronous capture reader")
 
             while not stop_event.is_set() and self._async_generation_is_active(generation):
-                ret, frame = cap.read()
+                source_sample = None
+                captured_at = None
+                if gazebo_source:
+                    sample = cap.read_sample()
+                    if sample is None:
+                        if not cap.isOpened():
+                            break
+                        continue
+                    ret, frame = True, sample.frame
+                    captured_at, source_sample = sample.received_at_monotonic_s, sample.source_sample
+                else:
+                    ret, frame = cap.read()
                 if stop_event.is_set() or not self._async_generation_is_active(generation):
                     break
                 if ret and frame is not None:
@@ -639,7 +674,8 @@ class VideoHandler:
                             self._async_latest_frame = frame.copy()
                             self._async_latest_frame_sequence += 1
                             self._async_latest_frame_time = time.time()
-                            self._async_latest_capture_monotonic = time.monotonic()
+                            self._async_latest_capture_monotonic = time.monotonic() if captured_at is None else captured_at
+                            self._async_latest_source_sample = source_sample
                 else:
                     self._last_capture_error = "UDP GStreamer async frame read returned no data"
                     time.sleep(0.02)
@@ -647,14 +683,14 @@ class VideoHandler:
             with self._async_capture_lock:
                 if self._async_generation_is_active(generation):
                     self._async_capture_opening = False
-                    self._last_capture_error = f"UDP GStreamer async reader exception: {e}"
-            logger.warning("UDP GStreamer async reader exception: %s", e)
+                    self._last_capture_error = f"Asynchronous capture reader exception: {e}"
+            logger.warning("Asynchronous capture reader exception: %s", e)
         finally:
             with self._async_capture_lock:
                 if self._async_generation_is_active(generation):
                     self._async_capture_opening = False
             if cap:
-                cap.release()
+                self._release_capture_object(cap)
             with self._async_capture_lock:
                 if self.cap is cap and self._async_generation_is_active(generation):
                     self.cap = None
@@ -664,44 +700,53 @@ class VideoHandler:
                 ):
                     self._async_capture_thread = None
 
-    def _get_async_udp_frame(self) -> Optional[Any]:
-        """Return the latest UDP frame without blocking on OpenCV."""
+    def _get_async_capture_frame(self) -> Optional[Any]:
+        """Return the latest live frame without waiting for capture I/O."""
         with self._async_capture_lock:
             frame = None if self._async_latest_frame is None else self._async_latest_frame.copy()
             sequence = self._async_latest_frame_sequence
             generation = self._async_capture_generation
             frame_time = self._async_latest_frame_time
             capture_monotonic = self._async_latest_capture_monotonic
+            source_sample = getattr(self, '_async_latest_source_sample', None)
             connection_open = bool(self.cap and self.cap.isOpened())
             opening = self._async_capture_opening
 
         with self._source_initialization_lock:
             if generation != self._async_capture_generation:
                 return self._get_cached_frame(reason="async_capture_replaced")
+            if (generation > 0 and not self._async_capture_stop.is_set()
+                    and self._async_capture_thread is None and time.time() >= self._next_recovery_time):
+                return self._attempt_recovery()
             if frame is not None and sequence > self._async_consumed_frame_sequence:
                 self._async_consumed_frame_sequence = sequence
                 self.current_raw_frame = frame
                 self.frame_history.append(frame.copy())
-                self._reset_failure_counters(captured_at=capture_monotonic)
+                self._reset_failure_counters(captured_at=capture_monotonic, source_sample=source_sample)
                 if frame_time is not None:
                     self._last_successful_frame_time = frame_time
                     self._last_frame_status["last_successful_frame_time"] = frame_time
                 return frame
 
-            self._consecutive_failures += 1
             current_time = time.time()
+            prefix = "gazebo_async" if Parameters.VIDEO_SOURCE_TYPE == "GAZEBO_CAMERA" else "udp_async"
             if frame_time is None:
-                reason = "udp_async_waiting_for_first_frame"
+                reason = prefix + "_waiting_for_first_frame"
             elif current_time - frame_time >= self._connection_timeout:
-                reason = "udp_async_frame_stale"
+                reason = prefix + "_frame_stale"
             else:
-                reason = "udp_async_awaiting_new_frame"
+                reason = prefix + "_awaiting_new_frame"
 
-            if frame is not None:
-                self._frame_cache.append(frame.copy())
-
+            waiting = bool(frame is not None and connection_open and not opening
+                and sequence == self._async_consumed_frame_sequence
+                and self._async_capture_thread is not None and self._async_capture_thread.is_alive()
+                and not self._async_capture_stop.is_set()
+                and frame_time is not None and current_time - frame_time < self._connection_timeout)
+            if not waiting:
+                self._consecutive_failures += 1
             cached_frame = self._get_cached_frame()
             self._last_frame_status.update({
+                "awaiting_new_capture": waiting,
                 "reason": reason,
                 "connection_open": connection_open,
                 "async_capture_opening": opening,
@@ -710,6 +755,50 @@ class VideoHandler:
             })
             return cached_frame
     
+    def _open_capture(self, locator, *opencv_arguments, source_type: str):
+        """Open normally and retain only the actual selected path's opaque identity."""
+        capture = cv2.VideoCapture(locator, *opencv_arguments)
+        try:
+            backend_name = capture.getBackendName()
+            if not isinstance(backend_name, str) or not backend_name:
+                return capture
+            options = {'opencv_backend': backend_name, 'locator_type': type(locator).__name__}
+            for index, argument in enumerate(opencv_arguments):
+                if isinstance(argument, (tuple, list)):
+                    for offset, value in enumerate(argument):
+                        options[f'open_{index}_{offset}'] = value
+                else:
+                    options[f'open_{index}'] = argument
+            if source_type == 'USB_CAMERA':
+                options.update(width=Parameters.CAPTURE_WIDTH, height=Parameters.CAPTURE_HEIGHT,
+                               fps=Parameters.CAPTURE_FPS, fourcc=Parameters.OPENCV_FOURCC)
+            signature = selected_source_signature(
+                source_type=source_type, backend='gstreamer' if backend_name.upper() == 'GSTREAMER' else 'opencv',
+                locator=str(locator), options=options,
+            )
+            with self._capture_identity_lock:
+                self._capture_identities[id(capture)] = (capture, signature)
+        except Exception:
+            # Unknown capture identity cannot authorize calibrated guidance.
+            logger.debug('Capture path identity is unavailable')
+        return capture
+
+    def _capture_source_signature(self, capture):
+        with self._capture_identity_lock:
+            entry = self._capture_identities.get(id(capture))
+            return entry[1] if entry is not None and entry[0] is capture else None
+
+    def _create_gazebo_capture(self, _use_gstreamer):
+        from classes.gazebo_capture import GazeboCameraSettings, GazeboCapture
+
+        settings = GazeboCameraSettings.from_mapping(getattr(Parameters, 'GAZEBO_CAMERA', None))
+        capture = GazeboCapture(settings)
+        signature = selected_source_signature(source_type='GAZEBO_CAMERA', backend='gazebo_transport',
+            locator=settings.image_topic, options={'world': settings.world, 'pixel_format': 'RGB_INT8'})
+        with self._capture_identity_lock:
+            self._capture_identities[id(capture)] = (capture, signature)
+        return capture
+
     def _create_capture_object(self) -> cv2.VideoCapture:
         """
         Create VideoCapture object based on source type and settings.
@@ -736,7 +825,8 @@ class VideoHandler:
             "UDP_STREAM": self._create_udp_capture,
             "HTTP_STREAM": self._create_http_capture,
             "CSI_CAMERA": self._create_csi_capture,
-            "CUSTOM_GSTREAMER": self._create_custom_gstreamer_capture
+            "CUSTOM_GSTREAMER": self._create_custom_gstreamer_capture,
+            "GAZEBO_CAMERA": self._create_gazebo_capture,
         }
         
         if source_type not in handlers:
@@ -798,7 +888,7 @@ class VideoHandler:
             "VIDEO_FILE GStreamer capture opened but delivered no frames; retrying with OpenCV backend"
         )
         if self.cap:
-            self.cap.release()
+            self._release_capture_object(self.cap)
 
         self.cap = self._open_video_file_opencv_capture(
             strategy_name="video_file_opencv_fallback_probe"
@@ -818,13 +908,13 @@ class VideoHandler:
 
             pipeline = self._build_gstreamer_file_pipeline()
             self._last_pipeline_strategy = "video_file_gstreamer_primary"
-            cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
+            cap = self._open_capture(pipeline, cv2.CAP_GSTREAMER, source_type='VIDEO_FILE')
             if cap.isOpened():
                 self._capture_mode = "video_file_gstreamer"
                 self._last_capture_error = None
                 return cap
 
-            cap.release()
+            self._release_capture_object(cap)
             self._last_capture_error = "Video file GStreamer pipeline failed to open"
             logger.warning("VIDEO_FILE GStreamer open failed, falling back to OpenCV backend")
             return self._open_video_file_opencv_capture(strategy_name="video_file_opencv_fallback")
@@ -833,7 +923,7 @@ class VideoHandler:
 
     def _open_video_file_opencv_capture(self, strategy_name: str) -> cv2.VideoCapture:
         """Create VIDEO_FILE capture via OpenCV backend."""
-        cap = cv2.VideoCapture(Parameters.VIDEO_FILE_PATH)
+        cap = self._open_capture(Parameters.VIDEO_FILE_PATH, source_type='VIDEO_FILE')
         self._capture_mode = strategy_name
         self._last_pipeline_strategy = strategy_name
         return cap
@@ -872,7 +962,7 @@ class VideoHandler:
             )
             logger.info("Trying USB camera strategy: %s", strategy_name)
             logger.debug("USB GStreamer pipeline (%s): %s", strategy_name, pipeline)
-            cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
+            cap = self._open_capture(pipeline, cv2.CAP_GSTREAMER, source_type='USB_CAMERA')
             if cap.isOpened():
                 self._capture_mode = strategy_name
                 self._last_pipeline_strategy = strategy_name
@@ -883,7 +973,7 @@ class VideoHandler:
                         Parameters.CAPTURE_FPS
                     )
                 return cap
-            cap.release()
+            self._release_capture_object(cap)
             self._last_capture_error = f"USB strategy failed: {strategy_name}"
             logger.warning("USB capture strategy failed: %s", strategy_name)
 
@@ -894,11 +984,11 @@ class VideoHandler:
     def _open_usb_camera_opencv_capture(self, strategy_name: str) -> cv2.VideoCapture:
         """Create USB capture via OpenCV backend."""
         if self.platform == "Linux" and Parameters.USE_V4L2_BACKEND:
-            cap = cv2.VideoCapture(Parameters.CAMERA_INDEX, cv2.CAP_V4L2)
+            cap = self._open_capture(Parameters.CAMERA_INDEX, cv2.CAP_V4L2, source_type='USB_CAMERA')
         elif self.platform == "Windows":
-            cap = cv2.VideoCapture(Parameters.CAMERA_INDEX, cv2.CAP_DSHOW)
+            cap = self._open_capture(Parameters.CAMERA_INDEX, cv2.CAP_DSHOW, source_type='USB_CAMERA')
         else:
-            cap = cv2.VideoCapture(Parameters.CAMERA_INDEX)
+            cap = self._open_capture(Parameters.CAMERA_INDEX, source_type='USB_CAMERA')
 
         self._optimize_opencv_capture(cap)
         self._capture_mode = strategy_name
@@ -929,14 +1019,14 @@ class VideoHandler:
         logger.info("Attempting primary RTSP GStreamer pipeline...")
         self._last_pipeline_strategy = "rtsp_gstreamer_primary"
         
-        cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
+        cap = self._open_capture(pipeline, cv2.CAP_GSTREAMER, source_type='RTSP_STREAM')
         if cap.isOpened():
             self._capture_mode = "rtsp_gstreamer_primary"
             logging_manager.log_connection_status(logger, "Video", True, "Primary GStreamer RTSP pipeline")
             self._log_rtsp_stream_info(cap)
             return cap
         
-        cap.release()
+        self._release_capture_object(cap)
         self._last_capture_error = "RTSP primary GStreamer pipeline failed"
         logger.warning("Primary pipeline failed, trying fallback pipelines...")
         
@@ -948,14 +1038,14 @@ class VideoHandler:
             logger.debug(f"Fallback pipeline: {fallback_pipeline}")
             self._last_pipeline_strategy = f"rtsp_gstreamer_fallback_{i}"
             
-            cap = cv2.VideoCapture(fallback_pipeline, cv2.CAP_GSTREAMER)
+            cap = self._open_capture(fallback_pipeline, cv2.CAP_GSTREAMER, source_type='RTSP_STREAM')
             if cap.isOpened():
                 self._capture_mode = f"rtsp_gstreamer_fallback_{i}"
                 logging_manager.log_connection_status(logger, "Video", True, f"Fallback pipeline {i}")
                 self._log_rtsp_stream_info(cap)
                 return cap
             
-            cap.release()
+            self._release_capture_object(cap)
             logger.warning(f"Fallback pipeline {i} failed")
             self._last_capture_error = f"RTSP fallback pipeline {i} failed"
         
@@ -971,13 +1061,13 @@ class VideoHandler:
         
         # Try FFMPEG backend first (usually best for RTSP)
         self._last_pipeline_strategy = "rtsp_opencv_ffmpeg"
-        cap = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
+        cap = self._open_capture(rtsp_url, cv2.CAP_FFMPEG, source_type='RTSP_OPENCV')
         
         if not cap.isOpened():
             logger.warning("FFMPEG backend failed, trying default backend...")
             self._last_capture_error = "OpenCV RTSP FFMPEG backend failed"
             self._last_pipeline_strategy = "rtsp_opencv_default"
-            cap = cv2.VideoCapture(rtsp_url)
+            cap = self._open_capture(rtsp_url, source_type='RTSP_OPENCV')
         
         if cap.isOpened():
             # Real-time optimizations
@@ -1000,11 +1090,11 @@ class VideoHandler:
             pipeline = self._build_gstreamer_udp_pipeline()
             self._capture_mode = "udp_gstreamer"
             self._last_pipeline_strategy = "udp_gstreamer_primary"
-            return cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
+            return self._open_capture(pipeline, cv2.CAP_GSTREAMER, source_type='UDP_STREAM')
         else:
             self._capture_mode = "udp_opencv_ffmpeg"
             self._last_pipeline_strategy = "udp_opencv_ffmpeg_primary"
-            return cv2.VideoCapture(Parameters.UDP_URL, cv2.CAP_FFMPEG)
+            return self._open_capture(Parameters.UDP_URL, cv2.CAP_FFMPEG, source_type='UDP_STREAM')
     
     def _create_http_capture(self, use_gstreamer: bool) -> cv2.VideoCapture:
         """Create capture for HTTP stream."""
@@ -1012,11 +1102,11 @@ class VideoHandler:
             pipeline = self._build_gstreamer_http_pipeline()
             self._capture_mode = "http_gstreamer"
             self._last_pipeline_strategy = "http_gstreamer_primary"
-            return cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
+            return self._open_capture(pipeline, cv2.CAP_GSTREAMER, source_type='HTTP_STREAM')
         else:
             self._capture_mode = "http_opencv"
             self._last_pipeline_strategy = "http_opencv_primary"
-            return cv2.VideoCapture(Parameters.HTTP_URL)
+            return self._open_capture(Parameters.HTTP_URL, source_type='HTTP_STREAM')
     
     def _create_csi_capture(self, use_gstreamer: bool) -> cv2.VideoCapture:
         """Create capture for CSI camera (always uses GStreamer)."""
@@ -1025,7 +1115,7 @@ class VideoHandler:
         logger.debug(f"CSI GStreamer pipeline: {pipeline}")
         self._capture_mode = "csi_gstreamer"
         self._last_pipeline_strategy = "csi_gstreamer_primary"
-        return cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
+        return self._open_capture(pipeline, cv2.CAP_GSTREAMER, source_type='CSI_CAMERA')
 
     def _uses_auto_rpi_csi(self) -> bool:
         return (
@@ -1051,7 +1141,7 @@ class VideoHandler:
             self._last_pipeline_strategy = strategy
             try:
                 pipeline = self._build_auto_rpi_csi_pipeline(pixel_format)
-                cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER, options)
+                cap = self._open_capture(pipeline, cv2.CAP_GSTREAMER, options, source_type='CSI_CAMERA')
                 if not cap.isOpened():
                     raise RuntimeError("capture did not open")
                 ok, frame = self._probe_initial_frame(cap, attempts=1)
@@ -1139,7 +1229,7 @@ class VideoHandler:
         logger.debug(f"Custom GStreamer pipeline: {pipeline}")
         self._capture_mode = "custom_gstreamer"
         self._last_pipeline_strategy = "custom_gstreamer_primary"
-        return cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
+        return self._open_capture(pipeline, cv2.CAP_GSTREAMER, source_type='CUSTOM_GSTREAMER')
     
     def _build_gstreamer_file_pipeline(self) -> str:
         """Build a bounded file pipeline matching the configured timing mode."""
@@ -1543,8 +1633,8 @@ class VideoHandler:
         Returns:
             Frame as numpy array, cached frame if available, or None
         """
-        if self._should_use_async_udp_capture():
-            return self._get_async_udp_frame()
+        if self._should_use_async_capture():
+            return self._get_async_capture_frame()
 
         return self._get_synchronous_frame()
 
@@ -1563,7 +1653,8 @@ class VideoHandler:
             )
             return self._get_cached_frame(reason="source_initializing")
 
-        capture = self.cap
+        with self._source_initialization_lock:
+            capture, source_epoch = self.cap, self._source_epoch
         if capture is None:
             # Log error only once, then use debug level to avoid spam
             if not hasattr(self, '_capture_error_logged'):
@@ -1583,35 +1674,33 @@ class VideoHandler:
             # checks discard any late frame from a retired capture generation.
             with self._capture_read_lock:
                 with self._source_initialization_lock:
-                    if capture is not self.cap:
+                    if capture is not self.cap or source_epoch != self._source_epoch:
                         return self._get_cached_frame(
                             reason="capture_replaced_before_read",
                         )
                 ret, frame = self._read_next_capture_frame(capture)
 
-            with self._source_initialization_lock:
-                if capture is not self.cap:
-                    return self._get_cached_frame(
-                        reason="capture_replaced_during_read",
-                    )
+                with self._source_initialization_lock:
+                    if capture is not self.cap or source_epoch != self._source_epoch:
+                        return self._get_cached_frame(
+                            reason="capture_replaced_during_read",
+                        )
 
-                if ret and frame is not None:
-                    # Successful frame capture
-                    frame = self._apply_frame_orientation(frame)
-                    self.current_raw_frame = frame
-                    self.frame_history.append(frame.copy())  # Copy: downstream drawing modifies in-place
-                    self._reset_failure_counters(captured_at=self._last_read_capture_monotonic)
-                    return frame
+                    if ret and frame is not None:
+                        frame = self._apply_frame_orientation(frame)
+                        self.current_raw_frame = frame
+                        self.frame_history.append(frame.copy())
+                        self._reset_failure_counters(captured_at=self._last_read_capture_monotonic)
+                        return frame
 
-                # Frame read failed - handle gracefully
-                if self._is_video_file_source():
-                    return self._handle_video_file_read_failure()
-                return self._handle_frame_failure()
+                    if self._is_video_file_source():
+                        return self._handle_video_file_read_failure()
+                    return self._handle_frame_failure()
                 
         except Exception as e:
             logger.warning(f"Exception during frame capture: {e}")
             with self._source_initialization_lock:
-                if capture is not self.cap:
+                if capture is not self.cap or source_epoch != self._source_epoch:
                     return self._get_cached_frame(
                         reason="capture_replaced_during_read",
                     )
@@ -1772,13 +1861,13 @@ class VideoHandler:
                 previous = self.cap
                 self.cap = replacement
                 if previous and previous is not replacement:
-                    previous.release()
+                    self._release_capture_object(previous)
                 return True
         except Exception as exc:
             logger.debug("VIDEO_FILE controlled reopen failed: %s", exc)
 
         if replacement:
-            replacement.release()
+            self._release_capture_object(replacement)
         return False
 
     def _get_video_file_boundary_frame(self, reason: str) -> Optional[Any]:
@@ -1791,7 +1880,7 @@ class VideoHandler:
         )
         return cached_frame
     
-    def _reset_failure_counters(self, *, captured_at=None) -> None:
+    def _reset_failure_counters(self, *, captured_at=None, source_sample=None) -> None:
         """Reset failure counters after successful frame capture."""
         if self._pending_replay_epoch:
             self._advance_source_epoch(clear_frames=False)
@@ -1806,14 +1895,22 @@ class VideoHandler:
         self._next_recovery_time = 0.0
         self._init_failed = False
         
-        # Cache the good frame
-        if self.current_raw_frame is not None:
-            self._frame_cache.append(self.current_raw_frame.copy())
-
-        self._frame_sequence += 1
-        self._last_capture_stamp = CaptureStamp(
-            self._source_epoch, str(self._frame_sequence), self._capture_monotonic, "fresh",
-        )
+        with self._source_initialization_lock:
+            frame = self.current_raw_frame
+            cached = frame.copy() if frame is not None else None
+            if cached is not None:
+                self._frame_cache.append(cached)
+            self._frame_sequence += 1
+            self._last_capture_stamp = CaptureStamp(
+                self._source_epoch, str(self._frame_sequence), self._capture_monotonic, "fresh", source_sample,
+            )
+            self._last_capture_frame = frame
+            self._last_capture_cached_frame = cached
+            self._last_capture_source_signature = self._capture_source_signature(self.cap)
+            self._last_capture_geometry = (
+                (int(frame.shape[1]), int(frame.shape[0]), self._frame_rotation_deg, self._frame_flip_mode)
+                if frame is not None else None
+            )
         replay_source = self._is_video_file_source()
         if replay_source:
             self._video_file_playback_state = "playing"
@@ -1901,6 +1998,11 @@ class VideoHandler:
             )
         
         try:
+            if self._should_use_async_capture():
+                # The single reader owns socket/decoder I/O. Reopen only after
+                # it has exited; never grab/retrieve from the frame loop too.
+                self.reconnect()
+                return self._get_cached_frame(reason="async_capture_reopening")
             # Quick connection test first
             if self.cap and self.cap.isOpened():
                 if self._prefetched_frame is not None:
@@ -1992,6 +2094,7 @@ class VideoHandler:
             status = "unavailable"
 
         self._last_frame_status = {
+            "awaiting_new_capture": False,
             "source": source,
             "status": status,
             "usable_for_following": bool(usable_for_following),
@@ -2017,6 +2120,10 @@ class VideoHandler:
         self._source_epoch = str(uuid.uuid4())
         self._capture_monotonic = None
         self._last_capture_stamp = CaptureStamp()
+        self._last_capture_geometry = None
+        self._last_capture_frame = None
+        self._last_capture_cached_frame = None
+        self._last_capture_source_signature = None
         self._pending_replay_epoch = False
         if clear_frames:
             self._frame_cache.clear()
@@ -2024,6 +2131,14 @@ class VideoHandler:
             self.current_resized_raw_frame = self.current_resized_osd_frame = None
         if self._source_listener is not None:
             self._source_listener(self._source_epoch)
+
+    def get_capture_context(self, frame=None):
+        """Return one atomic pixel receipt, geometry and actual capture-path identity."""
+        with self._source_initialization_lock:
+            stamp = self.get_capture_stamp(frame)
+            geometry = getattr(self, '_last_capture_geometry', None) if stamp.capture_id is not None else None
+            signature = self._last_capture_source_signature if stamp.capture_id is not None else None
+            return stamp, geometry, signature
 
     def get_capture_stamp(self, frame=None) -> CaptureStamp:
         """Snapshot backend receipt provenance for the exact returned pixels.
@@ -2033,8 +2148,8 @@ class VideoHandler:
         """
         with self._source_initialization_lock:
             if frame is not None and not (
-                frame is self.current_raw_frame
-                or (self._frame_cache and frame is self._frame_cache[-1])
+                frame is self._last_capture_frame
+                or frame is self._last_capture_cached_frame
             ):
                 return CaptureStamp()
             captured = self._last_capture_stamp
@@ -2044,6 +2159,7 @@ class VideoHandler:
             return CaptureStamp(
                 captured.source_epoch, captured.capture_id, captured.captured_at,
                 state if state in ("fresh", "cached", "unavailable") else "unknown",
+                captured.source_sample,
             )
 
     def get_frame_status(self) -> Dict[str, Any]:
@@ -2068,38 +2184,49 @@ class VideoHandler:
         Returns:
             Latest frame or cached frame if connection issues
         """
-        if not self.cap:
-            return self._get_cached_frame()
-        
+        with self._source_initialization_lock:
+            capture, source_epoch = self.cap, self._source_epoch
+            if capture is None:
+                return self._get_cached_frame()
         try:
-            # For GStreamer RTSP streams, grab is more efficient
-            if Parameters.USE_GSTREAMER and Parameters.VIDEO_SOURCE_TYPE == "RTSP_STREAM":
-                # GStreamer with single buffer should be current already
+            if self._should_use_async_capture() or (
+                Parameters.USE_GSTREAMER and Parameters.VIDEO_SOURCE_TYPE == "RTSP_STREAM"
+            ):
+                # Async UDP keeps its sole reader; RTSP already has a bounded queue.
                 return self.get_frame()
-            else:
-                # For other sources, clear buffer aggressively
-                buffer_clear_attempts = min(Parameters.OPENCV_BUFFER_SIZE, 3)
-                
+            buffer_clear_attempts = max(1, min(int(Parameters.OPENCV_BUFFER_SIZE), 3))
+            grab_failed = False
+            with self._capture_read_lock:
+                with self._source_initialization_lock:
+                    if capture is not self.cap or source_epoch != self._source_epoch:
+                        return self._get_cached_frame(reason="capture_replaced_before_fast_read")
                 for _ in range(buffer_clear_attempts):
-                    if not self.cap.grab():
-                        # Grab failed, use regular get_frame for error handling
-                        return self.get_frame()
-                
-                # Get the latest frame after clearing buffer
-                ret, frame = self.cap.retrieve()
-                self._last_read_capture_monotonic = time.monotonic()
-                if ret and frame is not None:
-                    frame = self._apply_frame_orientation(frame)
-                    self.current_raw_frame = frame
-                    self.frame_history.append(frame.copy())
-                    self._reset_failure_counters(captured_at=self._last_read_capture_monotonic)
-                    return frame
-                else:
-                    return self._handle_frame_failure()
+                    if not capture.grab():
+                        grab_failed = True
+                        break
+                if not grab_failed:
+                    ret, frame = capture.retrieve()
+                    captured_at = time.monotonic()
+                    with self._source_initialization_lock:
+                        if capture is not self.cap or source_epoch != self._source_epoch:
+                            return self._get_cached_frame(reason="capture_replaced_during_fast_read")
+                        self._last_read_capture_monotonic = captured_at
+                        if ret and frame is not None:
+                            frame = self._apply_frame_orientation(frame)
+                            self.current_raw_frame = frame
+                            self.frame_history.append(frame.copy())
+                            self._reset_failure_counters(captured_at=captured_at)
+                            return frame
+                        return self._handle_frame_failure()
+            if grab_failed:
+                return self.get_frame()
                     
         except Exception as e:
             logger.warning(f"Exception in get_frame_fast: {e}")
-            return self._handle_frame_failure()
+            with self._source_initialization_lock:
+                if capture is not self.cap or source_epoch != self._source_epoch:
+                    return self._get_cached_frame(reason="capture_replaced_during_fast_read")
+                return self._handle_frame_failure()
     
     def get_last_frames(self) -> list:
         """
@@ -2205,25 +2332,33 @@ class VideoHandler:
         Returns:
             True if successful
         """
-        if not self.cap:
+        if self._should_use_async_capture():
+            logger.warning("UDP/GStreamer size changes require source reconfiguration and reopen")
             return False
-        
         try:
-            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-            
-            # Verify change
-            actual_width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            actual_height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            
-            if actual_width == width and actual_height == height:
-                self.width = width
-                self.height = height
-                logger.info(f"Frame size changed to {width}x{height}")
-                return True
-            else:
-                logger.warning(f"Frame size change failed. Got {actual_width}x{actual_height}")
-                return False
+            with self._capture_read_lock:
+                with self._source_initialization_lock:
+                    capture = self.cap
+                    if capture is None:
+                        return False
+                    # Even a failed/partial mutation invalidates old calibration.
+                    with self._capture_identity_lock:
+                        self._capture_identities.pop(id(capture), None)
+                    self._advance_source_epoch(clear_frames=True)
+                    self._record_frame_status(source="none", usable_for_following=False, reason="capture_mode_changed")
+                capture.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+                capture.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+                actual_width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
+                actual_height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                with self._source_initialization_lock:
+                    if capture is not self.cap:
+                        return False
+                    if actual_width == width and actual_height == height:
+                        self.width, self.height = width, height
+                        logger.info(f"Frame size changed to {width}x{height}")
+                        return True
+                    logger.warning(f"Frame size change failed. Got {actual_width}x{actual_height}")
+                    return False
                 
         except Exception as e:
             logger.error(f"Error changing frame size: {e}")
@@ -2242,6 +2377,7 @@ class VideoHandler:
         active_backend = self._resolve_active_backend()
         return {
             "source_type": Parameters.VIDEO_SOURCE_TYPE,
+            "capture_source_signature": self._capture_source_signature(self.cap),
             "width": self.width,
             "height": self.height,
             "source_width": self.source_width,
@@ -2266,11 +2402,12 @@ class VideoHandler:
         with self._source_initialization_lock:
             self._release_capture_locked()
 
-    @staticmethod
-    def _release_capture_object(capture: Any) -> None:
+    def _release_capture_object(self, capture: Any) -> None:
         """Release one backend handle without masking the degraded state."""
         if capture is None:
             return
+        with self._capture_identity_lock:
+            self._capture_identities.pop(id(capture), None)
         try:
             capture.release()
         except Exception as exc:

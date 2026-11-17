@@ -157,6 +157,8 @@ export const normalizePropertySchema = (
   if (propertySchema.min !== undefined) metadata.min = propertySchema.min;
   if (propertySchema.max !== undefined) metadata.max = propertySchema.max;
   if (propertySchema.step !== undefined) metadata.step = propertySchema.step;
+  if (propertySchema.nullable === true) metadata.nullable = true;
+  if (propertySchema.null_label !== undefined) metadata.nullLabel = propertySchema.null_label;
   if (options.length > 0) metadata.options = options;
 
   return metadata;

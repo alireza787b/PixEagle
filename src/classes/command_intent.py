@@ -5,6 +5,21 @@ from datetime import datetime
 import time
 from typing import Dict, Optional
 
+from classes.aircraft_state import GuidanceSessionIdentity, finite_number
+
+
+@dataclass(frozen=True)
+class AltitudeHoldReference:
+    """An owner-bound AMSL target in one native altitude-reference generation."""
+
+    altitude_amsl_m: float
+    reference_generation: int
+
+    def __post_init__(self):
+        finite_number(self.altitude_amsl_m, "altitude_hold")
+        if type(self.reference_generation) is not int or not 0 <= self.reference_generation < 2 ** 64:
+            raise ValueError("altitude_reference_generation_invalid")
+
 
 @dataclass(frozen=True)
 class CommandIntent:
@@ -23,3 +38,5 @@ class CommandIntent:
     reason: Optional[str] = None
     created_at_monotonic_s: float = field(default_factory=time.monotonic)
     created_at_utc: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    guidance_identity: Optional[GuidanceSessionIdentity] = None
+    altitude_hold: Optional[AltitudeHoldReference] = None

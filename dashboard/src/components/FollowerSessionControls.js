@@ -13,8 +13,13 @@ export const validSessionControls = (controls) => Array.isArray(controls) && con
   && controls.every((control) => control.control_id && control.label && control.unit
     && ['minimum', 'step', 'value', 'revision'].every((field) => Number.isFinite(control[field]))
     && (control.maximum === null || Number.isFinite(control.maximum))
-    && control.minimum >= 0 && control.step > 0 && control.value >= control.minimum
-    && (control.maximum === null || control.value <= control.maximum) && Number.isInteger(control.revision) && control.revision >= 0
+    && [undefined, 'translation_3d', 'equivalent_airspeed'].includes(control.speed_basis)
+    && (control.description === undefined || control.description === null || typeof control.description === 'string')
+    && (control.speed_basis !== 'equivalent_airspeed' || (control.aircraft_phase === 'fixed_wing'
+      && Number.isInteger(control.guidance_generation) && control.guidance_generation >= 0 && control.minimum > 0 && control.value > 0))
+    && control.minimum >= 0 && control.step > 0 && control.value >= 0
+    && (control.speed_basis === 'equivalent_airspeed' || (control.value >= control.minimum
+      && (control.maximum === null || control.value <= control.maximum))) && Number.isInteger(control.revision) && control.revision >= 0
     && typeof control.available === 'boolean' && typeof control.increase_allowed === 'boolean');
 
 const limitText = (reason) => ({
@@ -23,18 +28,30 @@ const limitText = (reason) => ({
   target_recovery: 'Reacquiring: speed increases paused',
   slowing_down: 'Slowing toward the requested speed',
   guidance_limited: 'Guidance, ramp or limits reduce the command',
+  native_minimum_speed: 'Native minimum airspeed limits the command',
+  native_maximum_speed: 'Native maximum airspeed limits the command',
 }[reason] || (reason ? 'Speed adjustment unavailable' : ''));
 
 const controlContext = (snapshot, id) => {
   const control = snapshot?.session_controls?.find((item) => item.control_id === id);
   if (!control?.available || !snapshot.following_active) return null;
   return JSON.stringify([snapshot.instance_id, snapshot.runtime_id, snapshot.follow_session_id,
-    snapshot.follow_aircraft_uid, snapshot.follow_connection_generation, id, control.revision]);
+    snapshot.follow_aircraft_uid, snapshot.follow_connection_generation, id, control.revision,
+    control.guidance_generation ?? null, control.speed_basis ?? 'translation_3d']);
 };
 
-export const speedText = (value) => Number(value.toFixed(6)).toLocaleString('en', {
-  minimumFractionDigits: 1, maximumFractionDigits: 6,
-});
+const speedBasisText = (control) => control.speed_basis === 'equivalent_airspeed' ? 'Requested airspeed' : 'Requested 3D speed';
+
+export const speedText = (value, step) => {
+  if (!Number.isFinite(value)) return 'Unavailable';
+  const [coefficient, exponent = '0'] = String(step).toLowerCase().split('e');
+  const decimalPlaces = (coefficient.split('.')[1]?.length || 0) - Number(exponent);
+  const precision = Math.min(6, Math.max(0, decimalPlaces));
+  return value.toLocaleString('en', {
+    useGrouping: false,
+    minimumFractionDigits: Math.min(1, precision), maximumFractionDigits: precision,
+  });
+};
 
 export default function FollowerSessionControls({ active, showStop = false }) {
   const { hasScope } = useAuthSession();
@@ -43,6 +60,7 @@ export default function FollowerSessionControls({ active, showStop = false }) {
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState('');
   const [expanded, setExpanded] = useState('');
+  const [detailsExpanded, setDetailsExpanded] = useState(false);
   const [editValue, setEditValue] = useState('');
   const editContext = useRef(null);
   const operation = useRef(null);
@@ -85,7 +103,9 @@ export default function FollowerSessionControls({ active, showStop = false }) {
       reading = controller;
       const capturedRevision = revision;
       try {
-        const { data } = await axios.get(endpoints.nativeFollowing, { signal: controller.signal, timeout: 3000 });
+        const { data } = await axios.get(endpoints.nativeFollowing, {
+          signal: controller.signal, timeout: 3000, params: { control_contract_version: 2 },
+        });
         if (!disposed && capturedRevision === revision) {
           if (data?.source !== 'native_following_status' || !validSessionControls(data.session_controls ?? [])) {
             throw new Error('Invalid following controls');
@@ -130,6 +150,7 @@ export default function FollowerSessionControls({ active, showStop = false }) {
           aircraft_uid: snapshot.follow_aircraft_uid,
           connection_generation: snapshot.follow_connection_generation,
           control_id: controlId, value, expected_revision: control.revision,
+          ...(Number.isInteger(control.guidance_generation) ? { guidance_generation: control.guidance_generation } : {}),
         }, { signal: mutation.signal, timeout: 5000 });
         if (data?.action_type !== 'following_control_set' || data.executed !== true || data.status !== 'success') {
           throw new Error('Adjustment was not acknowledged');
@@ -248,15 +269,16 @@ export default function FollowerSessionControls({ active, showStop = false }) {
           <Button variant="outlined" sx={{ minWidth: 44, width: 44, minHeight: 44, flexShrink: 0, p: 0, fontSize: '1.4rem' }} disabled={disabled || control.value <= control.minimum}
             aria-label={`Decrease requested speed by ${control.step} ${control.unit}`}
             {...adjustmentHandlers(control.control_id, -1)}>−</Button>
-          <Button sx={{ minWidth: 80, minHeight: 44, flex: 1, px: 0.5, fontSize: '1rem', whiteSpace: 'nowrap', textTransform: 'none' }} aria-label={`Requested 3D speed ${speedText(control.value)} ${control.unit}, this session. Show details`}
+          <Button sx={{ minWidth: 80, minHeight: 44, flex: 1, px: 0.5, fontSize: '1rem', whiteSpace: 'nowrap', textTransform: 'none' }} aria-label={`${speedBasisText(control)} ${speedText(control.value, control.step)} ${control.unit}, this session. Show details`}
             title="Requested speed · tap to enter a value"
             aria-expanded={expanded === control.control_id}
             onClick={() => {
               setExpanded(expanded === control.control_id ? '' : control.control_id);
-              setEditValue(String(control.value));
+              setEditValue(speedText(control.value, control.step));
+              setDetailsExpanded(false);
               editContext.current = controlContext(currentStatus.current, control.control_id);
             }}>
-            {speedText(control.value)} {control.unit}
+            {speedText(control.value, control.step)} {control.unit}
           </Button>
           <Button variant="outlined" sx={{ minWidth: 44, width: 44, minHeight: 44, flexShrink: 0, p: 0, fontSize: '1.4rem' }}
             disabled={disabled || !control.increase_allowed || (control.maximum !== null && control.value >= control.maximum)}
@@ -283,13 +305,30 @@ export default function FollowerSessionControls({ active, showStop = false }) {
             <Button sx={{ minWidth: 60, minHeight: 44 }} onClick={() => setExpanded('')}>Cancel</Button>
           </Stack>
           {!editorCurrent && <Typography variant="caption" role="status">Speed or session changed. Close and reopen the editor.</Typography>}
-          <Typography variant="caption" component="p" sx={{ whiteSpace: 'pre-line' }}>Requested 3D speed · this following session.
-            {control.reset_supported ? `\n${control.override_active ? 'Saved speed limits are overridden. Restore reapplies them and keeps or lowers this request.' : 'Saved speed limits apply.'}\nSaved ceiling: ${control.configured_maximum} ${control.unit}.`
-              : control.maximum === null ? ' No configured velocity ceiling.' : ` Maximum ${control.maximum} ${control.unit}.`}
-            {'\n'}Altitude and rate settings are unchanged. Zero stops translation; Stop ends following.
-            {Number.isFinite(control.effective_command_magnitude)
-              ? `\nCommand: ${control.effective_command_magnitude.toFixed(1)} ${control.unit}.` : ''}
+          <Typography variant="caption" component="p">
+            {control.maximum === null ? `From ${speedText(control.minimum, control.step)} ${control.unit}`
+              : `${speedText(control.minimum, control.step)}–${speedText(control.maximum, control.step)} ${control.unit}`} · this session
           </Typography>
+          <Button sx={{ minHeight: 44 }} aria-expanded={detailsExpanded}
+            onClick={() => setDetailsExpanded(!detailsExpanded)}>{detailsExpanded ? 'Hide details' : 'Details'}</Button>
+          <Collapse in={detailsExpanded}>
+          <Typography variant="caption" component="p" sx={{ whiteSpace: 'pre-line' }}>{speedBasisText(control)} · this following session.
+            {control.description ? `\n${control.description}` : ''}
+            {control.reset_supported ? `\n${control.override_active ? 'Saved speed limits are overridden. Restore reapplies them and keeps or lowers this request.' : 'Saved speed limits apply.'}\nSaved ceiling: ${speedText(control.configured_maximum, control.step)} ${control.unit}.`
+              : control.maximum === null ? ' No configured velocity ceiling.' : ` Maximum ${speedText(control.maximum, control.step)} ${control.unit}.`}
+            {'\n'}{control.speed_basis === 'equivalent_airspeed'
+              ? `Minimum ${speedText(control.minimum, control.step)} ${control.unit}. Requested airspeed reference; achieved speed depends on flight conditions. Stop ends following.`
+              : 'Altitude and rate settings are unchanged. Zero stops translation; Stop ends following.'}
+            {control.observed_speed_source === 'ground_speed_proxy'
+              ? `\nGround-speed proxy: ${speedText(control.observed_speed_m_s, control.step)} ${control.unit}. Actual airspeed and stall margin are unavailable.`
+              : control.observed_speed_source === 'native_airspeedless'
+              ? '\nSensorless: actual airspeed and stall margin are unavailable.'
+              : Number.isFinite(control.observed_speed_m_s)
+                ? `\nObserved: ${speedText(control.observed_speed_m_s, control.step)} ${control.unit}${control.observed_speed_source === 'ground_minus_wind' ? ' · wind estimate' : ''}.` : ''}
+            {Number.isFinite(control.effective_command_magnitude)
+              ? `\nCommand: ${speedText(control.effective_command_magnitude, control.step)} ${control.unit}.` : ''}
+          </Typography>
+          </Collapse>
         </Collapse>
         <Typography variant="caption" role="status">{pending ? 'Updating…' : !fresh ? 'Refreshing…'
           : limitText(control.limiting_reason || control.reason_code)}</Typography>

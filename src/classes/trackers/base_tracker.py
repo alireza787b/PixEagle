@@ -26,6 +26,7 @@ To create a new tracker:
 """
 
 from abc import ABC, abstractmethod
+from classes.guidance_observation import image_measurement_for_output
 from collections import deque
 import dataclasses
 import time
@@ -82,6 +83,8 @@ class BaseTracker(ABC):
         self.predicted_bbox: Optional[Tuple[int, int, int, int]] = None
         self.predicted_center: Optional[Tuple[float, float]] = None
         self.last_measurement_timestamp: Optional[float] = None
+        self.image_measurement = None
+        self._last_image_capture = None
         self.center_history = deque(maxlen=Parameters.CENTER_HISTORY_LENGTH)
         self.tracking_started: bool = False
 
@@ -164,6 +167,7 @@ class BaseTracker(ABC):
     # =========================================================================
 
     def stop_tracking(self) -> None:
+        self.image_measurement = None
         self.tracking_started = False
         self.bbox = None
         self.prev_bbox = None
@@ -188,6 +192,7 @@ class BaseTracker(ABC):
         logger.debug(f"{self.tracker_name} tracking stopped and state reset")
 
     def reset(self):
+        self.image_measurement = None
         self.bbox = None
         self.center = None
         self.prev_center = None
@@ -798,9 +803,9 @@ class BaseTracker(ABC):
             self.normalized_center = (normalized_x, normalized_y)
 
     def print_normalized_center(self) -> None:
-        if self.normalized_center:
-            logger.debug(f"Normalized center: ({self.normalized_center[0]:.3f}, "
-                         f"{self.normalized_center[1]:.3f})")
+        center = self.normalized_center
+        if center:
+            logger.debug(f"Normalized center: ({center[0]:.3f}, {center[1]:.3f})")
         else:
             logger.warning("Normalized center not available.")
 
@@ -1062,25 +1067,33 @@ class BaseTracker(ABC):
             (self.video_handler.height, self.video_handler.width), frame.shape)
 
     def draw_tracking(self, frame: np.ndarray, tracking_successful: bool = True) -> np.ndarray:
-        if self.bbox and self.center and self.video_handler:
+        bbox, center = self.bbox, self.center
+        if bbox and center and self.video_handler:
+            scale = self._display_scale(frame)
             if Parameters.TRACKED_BBOX_STYLE == 'fancy':
-                self.draw_fancy_bbox(frame, tracking_successful)
+                self.draw_fancy_bbox(frame, tracking_successful, bbox=bbox, center=center, scale=scale)
             else:
-                self.draw_normal_bbox(frame, tracking_successful)
-            cv2.circle(frame, self._display_scale(frame).point(*self.center), 5, (0, 255, 0), -1)
+                self.draw_normal_bbox(frame, tracking_successful, bbox=bbox, scale=scale)
+            cv2.circle(frame, scale.point(*center), 5, (0, 255, 0), -1)
             if Parameters.DISPLAY_DEVIATIONS:
                 self.print_normalized_center()
         return frame
 
-    def draw_normal_bbox(self, frame: np.ndarray, tracking_successful: bool = True) -> None:
-        scale = self._display_scale(frame)
-        p1 = scale.point(self.bbox[0], self.bbox[1])
-        p2 = scale.point(self.bbox[0] + self.bbox[2], self.bbox[1] + self.bbox[3])
+    def draw_normal_bbox(self, frame: np.ndarray, tracking_successful: bool = True,
+                         *, bbox=None, scale=None) -> None:
+        bbox = self.bbox if bbox is None else bbox
+        if bbox is None or self.video_handler is None:
+            return
+        scale = self._display_scale(frame) if scale is None else scale
+        p1 = scale.point(bbox[0], bbox[1])
+        p2 = scale.point(bbox[0] + bbox[2], bbox[1] + bbox[3])
         color = (255, 0, 0) if tracking_successful else (0, 0, 255)
         cv2.rectangle(frame, p1, p2, color, 2)
 
-    def draw_fancy_bbox(self, frame, tracking_successful: bool = True):
-        if self.bbox is None or self.center is None:
+    def draw_fancy_bbox(self, frame, tracking_successful: bool = True, *, bbox=None, center=None, scale=None):
+        bbox = self.bbox if bbox is None else bbox
+        center = self.center if center is None else center
+        if bbox is None or center is None or self.video_handler is None:
             return frame
         if tracking_successful:
             color = (Parameters.FOLLOWER_ACTIVE_COLOR
@@ -1088,10 +1101,10 @@ class BaseTracker(ABC):
                      else Parameters.FOLLOWER_INACTIVE_COLOR)
         else:
             color = Parameters.ESTIMATION_ONLY_COLOR
-        scale = self._display_scale(frame)
-        p1 = scale.point(self.bbox[0], self.bbox[1])
-        p2 = scale.point(self.bbox[0] + self.bbox[2], self.bbox[1] + self.bbox[3])
-        center_x, center_y = scale.point(*self.center)
+        scale = self._display_scale(frame) if scale is None else scale
+        p1 = scale.point(bbox[0], bbox[1])
+        p2 = scale.point(bbox[0] + bbox[2], bbox[1] + bbox[3])
+        center_x, center_y = scale.point(*center)
         cv2.line(frame, (center_x - Parameters.CROSSHAIR_ARM_LENGTH, center_y),
                  (center_x + Parameters.CROSSHAIR_ARM_LENGTH, center_y),
                  color, Parameters.BBOX_LINE_THICKNESS)
@@ -1308,6 +1321,11 @@ class BaseTracker(ABC):
             quality_metrics=quality_metrics,
             raw_data=raw_data,
             metadata=metadata,
+            image_measurement=image_measurement_for_output(
+                getattr(self, 'image_measurement', None), measured=usable_for_following,
+                source_epoch=getattr(getattr(self, 'video_handler', None), '_source_epoch', None),
+                target_generation=getattr(getattr(self, 'app_controller', None), '_tracking_session_generation', None),
+            ),
         )
 
     def get_output(self) -> TrackerOutput:

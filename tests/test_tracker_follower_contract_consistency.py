@@ -82,10 +82,12 @@ def test_unimplemented_particle_filter_and_prediction_control_are_retired():
 
 
 def test_distance_follower_catalog_does_not_claim_range_control():
-    compatibility = _load_yaml("configs/tracker_schemas.yaml")["compatibility"]
-    distance = compatibility["followers"]["MCVelocityDistanceFollower"]
+    from classes.follower_catalog import get_follower_profile
 
-    assert "preferred_schemas" not in distance
+    distance = get_follower_profile("mc_velocity_distance")
+    assert distance.required_tracker_data == ("POSITION_2D",)
+    assert "no range hold" in distance.description
+    assert "compatibility" not in _load_yaml("configs/tracker_schemas.yaml")
 
 
 def test_chase_cadence_and_gimbal_forward_modes_match_runtime():

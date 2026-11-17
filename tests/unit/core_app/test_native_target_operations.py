@@ -201,6 +201,40 @@ async def test_changes_reject_without_any_tracker_or_aircraft_mutation(owner, ch
     owner.app_controller.px4_interface.connect.assert_not_called()
 
 
+def test_heartbeat_recovery_preserves_identity_guard_but_reconnect_retires_it(owner):
+    from classes.aircraft_identity import TelemetryAircraftIdentity
+    from classes.api_v1_native_targets import _validate_guard, NativeTargetError
+
+    identity = TelemetryAircraftIdentity(1, 1, 2)
+    messages = {'HEARTBEAT': {'message': {'autopilot': {'type': 'MAV_AUTOPILOT_PX4'}},
+                              'status': {'time': {'counter': 10}}},
+                'AUTOPILOT_VERSION': {'message': {'uid': 42}}}
+    payload = {'vehicles': {'1': {'components': {'1': {'messages': messages}}}}}
+    identity.observe(payload, now=10)
+    messages['HEARTBEAT']['status']['time']['counter'] = 11
+    identity.observe(payload, now=11)
+    owner.telemetry_test.update(identity.snapshot(connected=True, now=11))
+    queued = start_request(owner)
+    messages['HEARTBEAT']['status']['time']['counter'] = 12
+    identity.observe(payload, now=13.01)
+    owner.telemetry_test.update(identity.snapshot(connected=True, now=13.01))
+    assert owner.telemetry_test['fresh']
+    assert _validate_guard(owner, queued, owner.principal_test, 'tracking_start')['guard'] == context(owner)['guard']
+    identity.invalidate('telemetry_disconnected')
+    identity.observe(payload, now=14.)
+    messages['HEARTBEAT']['status']['time']['counter'] = 13
+    identity.observe(payload, now=14.1)
+    owner.telemetry_test.update(identity.snapshot(connected=True, now=14.1))
+    assert owner.telemetry_test['fresh']
+    with pytest.raises(NativeTargetError, match='context changed') as refused:
+        _validate_guard(owner, queued, owner.principal_test, 'tracking_start')
+    assert refused.value.code == 'native_context_stale'
+    fresh = start_request(owner)
+    assert _validate_guard(owner, fresh, owner.principal_test, 'tracking_start')['guard'] == context(owner)['guard']
+    assert not owner.app_controller.selected_frames
+    owner.app_controller.px4_interface.connect.assert_not_called()
+
+
 async def test_classic_retarget_is_admitted_during_following_without_restarting_it(owner):
     owner.app_controller.following_active = True
     state = target_state(owner, owner.principal_test)
@@ -672,3 +706,50 @@ async def test_smart_exhaustion_remains_lost_until_explicit_transition(owner, mo
     assert tracker.last_loss_reason is None
     assert "target_lost_detector_failure" not in after["reason_codes"]
     assert not app.following_active
+
+
+@pytest.mark.parametrize('change_context', [False, True])
+async def test_read_only_camera_resolution_awaits_without_model_lock_then_revalidates(owner, monkeypatch, change_context):
+    app = owner.app_controller
+    app.tracker.is_external_tracker = True
+    app.current_tracker_type = 'Gimbal'
+    app.following_active = True
+    reserved = Mock(return_value=nullcontext())
+    control = SimpleNamespace(selection_mode='classic')
+    prepared = SimpleNamespace(control=control, mode='classic')
+    app.camera_runtime = SimpleNamespace(provider=SimpleNamespace(manual_control=control),
+        lifecycle_reservation=reserved, guard=lambda: {}, validate_guard=lambda guard: None)
+    monkeypatch.setattr('classes.api_v1_native_targets.external_selection_availability',
+                        lambda _: {'available': True, 'reason': None})
+    monkeypatch.setattr('classes.api_v1_native_targets.get_gimbal_control_status',
+                        lambda _: {'available': True, 'enabled': True, 'connected': True,
+                            'tracking_state': 'tracking_active', 'selection_mode': 'classic',
+                            'selection_modes': [], 'capabilities': ['select']})
+    async def resolve(selection):
+        assert selection is prepared
+        assert not app._tracker_model_state_lock._is_owned()
+        assert not app._follower_state_lock.locked()
+        assert app._tracking_session_generation == 0
+        reserved.assert_not_called()
+        await asyncio.sleep(0)
+        if change_context:
+            app._tracking_session_generation += 1
+        return prepared
+    control.resolve_selection = resolve
+    monkeypatch.setattr('classes.gimbal_control.prepare_gimbal_selection', lambda *_, **__: prepared)
+    committed = Mock()
+    async def commit(_, __, *, prepared_selection, **kwargs):
+        assert prepared_selection is prepared
+        committed()
+        return {'success': True}
+    monkeypatch.setattr('classes.gimbal_control.execute_gimbal_control', commit)
+    request = APIGimbalControlRequest(operation='select', x=.5, y=.5, confirm=True,
+        idempotency_key='frame-resolve', native_context=context(owner))
+    result, _ = await execute(owner, request, 'gimbal_control')
+    if change_context:
+        assert result.status_code == 409
+        committed.assert_not_called()
+        reserved.assert_not_called()
+    else:
+        assert result['status'] == 'success'
+        committed.assert_called_once()

@@ -1,0 +1,33 @@
+diff --git a/src/modules/flight_mode_manager/tasks/FlightTask/CMakeLists.txt b/src/modules/flight_mode_manager/tasks/FlightTask/CMakeLists.txt
+--- a/src/modules/flight_mode_manager/tasks/FlightTask/CMakeLists.txt
++++ b/src/modules/flight_mode_manager/tasks/FlightTask/CMakeLists.txt
+@@ -35,4 +35,5 @@
+ 	FlightTask.cpp
+ )
+ 
++target_link_libraries(FlightTask PUBLIC geo)
+ target_include_directories(FlightTask PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+diff --git a/src/modules/flight_mode_manager/tasks/Utility/CMakeLists.txt b/src/modules/flight_mode_manager/tasks/Utility/CMakeLists.txt
+--- a/src/modules/flight_mode_manager/tasks/Utility/CMakeLists.txt
++++ b/src/modules/flight_mode_manager/tasks/Utility/CMakeLists.txt
+@@ -37,7 +37,7 @@
+ 	Gimbal.cpp
+ )
+ 
+-target_link_libraries(FlightTaskUtility PUBLIC FlightTask hysteresis SlewRate Sticks motion_planning mathlib)
++target_link_libraries(FlightTaskUtility PUBLIC FlightTask hysteresis SlewRate Sticks motion_planning mathlib CollisionPrevention)
+ target_include_directories(FlightTaskUtility PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+ 
+ px4_add_functional_gtest(SRC StickTiltXYTest.cpp LINKLIBS FlightTaskUtility)
+diff --git a/src/lib/collision_prevention/CMakeLists.txt b/src/lib/collision_prevention/CMakeLists.txt
+--- a/src/lib/collision_prevention/CMakeLists.txt
++++ b/src/lib/collision_prevention/CMakeLists.txt
+@@ -38,7 +38,7 @@
+ set_property(GLOBAL APPEND PROPERTY PX4_MODULE_CONFIG_FILES ${CMAKE_CURRENT_SOURCE_DIR}/collisionprevention_params.yaml)
+ target_compile_options(CollisionPrevention PRIVATE -Wno-cast-align) # TODO: fix and enable
+ target_include_directories(CollisionPrevention PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+-target_link_libraries(CollisionPrevention PRIVATE mathlib)
++target_link_libraries(CollisionPrevention PRIVATE mathlib systemlib events)
+ 
+ px4_add_functional_gtest(SRC CollisionPreventionTest.cpp LINKLIBS CollisionPrevention)
+ px4_add_unit_gtest(SRC ObstacleMathTest.cpp LINKLIBS CollisionPrevention)

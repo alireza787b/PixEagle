@@ -2,6 +2,95 @@
 
 ## Unreleased
 
+- Separate telemetry freshness from aircraft identity: late advancing heartbeat
+  observations no longer manufacture connection changes that reject Follow
+  Start. Keep stale-data, real reconnect/reboot, target and authority guards.
+- Recenter the rendered gimbal's rest/Home view after fresh settled MC/FW phase
+  changes, reusing canonical tailsitter geometry without changing SIP axes.
+- Match explicitly sensorless Gazebo variants to PX4's no-pitot configuration
+  before opening operator controls, with disarm and parameter-readback checks.
+  Preserve normal sensor-equipped profiles and all unrelated arming checks.
+- Share one enriched, locally pinned coastal showcase across all five Gazebo
+  training profiles. Keep aircraft/camera contracts independent of world props;
+  configure the spectator view through native Gazebo camera tracking only.
+- Make public MC Chase startup request configurable at 0.5 m/s, with a saved
+  4 m/s total/forward ceiling. Preserve missing/null legacy startup behavior,
+  conservative lateral/vertical caps and explicit Config Sync adoption.
+- Preserve structured Start preconditions and sanitized changed-field diagnostics
+  when a staged context check refuses acquisition. Matching QGC reports a
+  confirmed failure across same-backend context refreshes instead of an unknown
+  outcome; no automatic flight-action retry is introduced.
+
+## Version 7.6.0-rc.4 (2026-11-17) - Stock MAVLink application candidate
+
+- Integrate stock MAVLink flight sessions with application Start/Stop, phase-bound
+  speed controls and bounded target recovery. Reuse one commander and one
+  telemetry owner; ordinary MC/FW/VTOL operation needs no firmware patch or DDS.
+- Fix the reproduced readiness/command-snapshot race while retaining original
+  input freshness. Stop/transition/takeover cannot replay an older mode command.
+- Set new-install public defaults to MC Position, altitude guidance off,
+  relative altitude 5–100 m and circuit breaker on. Public session speed remains
+  bounded; explicit expert permission enables the existing velocity override.
+  Saved legacy configuration requires Config Sync preview/apply for adoption.
+- Renew unmodified official PX4 simulation and private QGC proxy-speed labels.
+  Read-only reports distinguish requested, submitted and PX4-observed motion.
+- Extend the shared verified builder to stock Gazebo. Stock training no longer
+  requires a native-adapter bundle; the example launcher uses that stock path.
+  Earlier native experiments and their evidence remain explicitly separate.
+- Discover missing telemetry-route identity through a bounded, read-only
+  AUTOPILOT_VERSION request, independent of MAVSDK's link and an open GCS.
+  Keep existing received-identity guards and skip discovery during following.
+  Log FW sensor/proxy feedback changes once per source transition.
+- Prerelease pending matched package and hardware acceptance. Stock FW
+  attitude/thrust projection is not TECS; ground-speed proxy cannot prove stall
+  margin. Private expert profiles and aircraft firmware remain separate.
+
+## Version 7.6.0-rc.3 (2026-11-16) - Unattended helper renewal
+
+- Respect unattended setup when replacing outdated pinned helper binaries or
+  moving a verified legacy helper. Downloads still publish only after checksum
+  verification; failed downloads retain the previous binary.
+- Keep interactive confirmation and refuse replacement on closed input.
+  Add offline executable regressions for both helpers, including checksum
+  failure and preservation of the installed file.
+- Supersede the unpublished rc.2 handoff after its ARM64 bench update exposed
+  the downloader prompt. Guidance, saved profiles and public limits are unchanged.
+
+## Version 7.6.0-rc.2 (2026-11-16) - Runtime and dependency renewal
+
+- Migrate to the maintained `mavsdk-grpc` client, with reviewed MAVSDK Server
+  v4.2.0 and MAVLink2REST 1.1.1 pins and shared managed-setup migration.
+  Existing OpenCV/GStreamer providers and saved configuration are preserved.
+- Keep healthy aircraft identity through unavailable individual telemetry
+  messages; missing measurements remain unavailable. Protect live log writers
+  across wall-clock corrections and separate component lifetimes.
+- Repair X11 software rendering in isolated desktop training containers.
+  Backend and aircraft-network isolation remain unchanged.
+- Renew backend, setup, Dashboard and matched private QGC software checks.
+  The operator confirmed simulator interface/video and exercised MC/FW sessions;
+  this is not physical camera, aircraft or unrestricted-envelope qualification.
+- Public safety defaults remain unchanged. Private aircraft overlays remain
+  outside the repository. Native hardware admission and the separately planned
+  steep-descent envelope remain explicit qualification gates.
+
+## Version 7.6.0-rc.1 (2026-11-15) - Training and follower consolidation candidate
+
+- Add the repeatable Ubuntu/Gazebo training launcher, production-path camera
+  projection and source-timed external-gimbal simulation, with saved observed
+  PX4 evidence and explicit model/qualification limits.
+- Share MC/FW/VTOL profile readiness, command ownership, session speed and Stop
+  reconciliation. Transition ends following; a new Start is required afterward.
+- Preserve public MC Position, VIDEO_FILE/CSRT, altitude-guidance-off and circuit
+  breaker defaults. The one shared relative-altitude floor is 30 m, with the
+  existing 2 m warning band. Saved installation values require explicit Config
+  Sync acceptance; private owner overlays remain outside git.
+- Retain current native PX4 envelope and capability gates. The experimental
+  firmware remains pinned to its tested baseline; it is not a stock-PX4
+  replacement or a qualified arbitrary-angle dive implementation.
+- Prerelease pending renewed platform packages and hardware acceptance. Custom
+  QGC stays private and unreleased. Existing simulation acceptance does not
+  qualify a different aircraft, camera, link or unrestricted flight envelope.
+
 ## Version 7.5.3 (2026-10-27) - Release identity alignment
 
 - Align backend, Dashboard package metadata and installer version with the
