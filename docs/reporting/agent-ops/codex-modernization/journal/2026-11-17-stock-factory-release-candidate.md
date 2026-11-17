@@ -88,3 +88,16 @@ stricter than the factory cruise ceiling instead of being raised to satisfy a
 test. All 137 affected schema/safety/policy cases pass. Fresh altitude-enabled
 operator session: `public-mc-altitude-final-20261117-r1/`; its 20 read-only
 observations retained one telemetry generation, all fresh and associated.
+
+Final public operator review was accepted. Logs record two successful Start/Stop
+pairs, three speed adjustments, 1,222 successful publications and no context-change
+refusal. Follow-up coverage CI at `523f0ed87` passed 10,573 tests but found one
+remaining configuration-service fixture coupled to the previous speed ceiling.
+The fixture now derives a violating override from its actual saved envelope,
+so future default changes cannot silently make its invalid case valid.
+
+Hardware deployment is paused at storage preflight: active ext4 bitmap and inode
+checksum errors were observed before any update. Readable private configuration
+and health evidence were retained outside Git. PixEagle was stopped and the Pi
+cleanly shut down for offline storage repair. No aircraft parameter, camera
+command or firmware change was sent.

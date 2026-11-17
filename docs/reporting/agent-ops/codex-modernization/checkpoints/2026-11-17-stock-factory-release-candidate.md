@@ -18,7 +18,8 @@ policy cannot partially replace a published configuration.
 
 Factory configuration: VIDEO_FILE/CSRT, MC Position, target altitude guidance off,
 zero horizontal/vertical velocity intent with yaw centering, circuit breaker on, relative altitude 5–100 m, 2 m
-warning buffer, total speed 1 m/s and forward/right/down caps 0.5 m/s. The normal
+warning buffer, total/forward ceiling 4 m/s and right/down caps 0.5 m/s. MC Chase
+starts at the configured 0.5 m/s request and uses the existing acceleration ramp. The normal
 FW envelope remains `px4_configured_max`. A floor is estimator/home referenced,
 not terrain clearance or a guarantee of pull-out distance. Private owner files
 remain outside the repository and require separate installation/acceptance.
@@ -71,6 +72,41 @@ These gates overlap and must not be added together. The full backend unit run
 precedes final version metadata and read-only report changes, whose focused
 regressions were then renewed. Runtime policy did not change after that full run.
 Exact-head cloud CI and publication are recorded in the release, not assumed here.
+
+## Final operator review and deployment boundary
+
+The public MC Position/Chase review with an explicit test-only altitude exception
+was accepted by the operator. Its retained run,
+`reports/sitl/public-mc-altitude-final-20261117-r1/`, records 1,222 successful
+publications, no failed publication, two successful Start/Stop pairs and three
+successful speed adjustments. There are no Start context-change refusals in
+this final run. A later classic-tracker recovery timeout occurred after following
+was already inactive. Factory target-altitude guidance remains off.
+
+The earlier refusal was `telemetry_generation` changing during acquisition.
+The shared identity owner now separates heartbeat freshness from identity.
+Recorded-packet replay reproduces 19 false connection generations before the
+repair and one afterward, with the same freshness counts. Disconnect/reboot,
+UID/kind changes, stale input and authority checks remain effective. Selected
+identity/lifecycle gates pass 520 cases; API/configuration gates pass 163, and
+the revised factory policy/schema/safety selection passes 137. No action replay
+or follower-specific retry is introduced.
+
+The operator also accepted private vertical-gimbal tailsitter guidance. The
+rendered rest/Home view subsequently gained phase-based horizon recentering,
+qualified by 872 source/phase/joint/camera/launcher checks. This simulator-only
+repair does not redefine SIP axes or establish physical camera mechanics.
+Private QGC `abbac794e` passes all three platform builds in run `44007353863`;
+its 270-case client suite preserves confirmed action failures across ordinary
+same-runtime status refreshes. It contains upstream `19e4246b2`.
+
+Deployment preflight found active ext4 allocation/inode-checksum errors on the
+Pi SD card. A readable private configuration was saved, PixEagle stopped and
+the Pi shut down. No new software/configuration was applied to the damaged
+filesystem. Offline repair or replacement storage and read-back verification
+are required before a hardware handover. Current temperature/throttle readings
+do not explain or repair pre-existing filesystem damage. Physical camera-axis,
+bench acceptance and flight qualification remain separate.
 
 ## Remaining checkpoint
 
