@@ -201,7 +201,7 @@ async def test_changes_reject_without_any_tracker_or_aircraft_mutation(owner, ch
     owner.app_controller.px4_interface.connect.assert_not_called()
 
 
-def test_heartbeat_expiry_rejects_queued_guard_even_when_new_epoch_is_fresh(owner):
+def test_heartbeat_recovery_preserves_identity_guard_but_reconnect_retires_it(owner):
     from classes.aircraft_identity import TelemetryAircraftIdentity
     from classes.api_v1_native_targets import _validate_guard, NativeTargetError
 
@@ -218,6 +218,13 @@ def test_heartbeat_expiry_rejects_queued_guard_even_when_new_epoch_is_fresh(owne
     messages['HEARTBEAT']['status']['time']['counter'] = 12
     identity.observe(payload, now=13.01)
     owner.telemetry_test.update(identity.snapshot(connected=True, now=13.01))
+    assert owner.telemetry_test['fresh']
+    assert _validate_guard(owner, queued, owner.principal_test, 'tracking_start')['guard'] == context(owner)['guard']
+    identity.invalidate('telemetry_disconnected')
+    identity.observe(payload, now=14.)
+    messages['HEARTBEAT']['status']['time']['counter'] = 13
+    identity.observe(payload, now=14.1)
+    owner.telemetry_test.update(identity.snapshot(connected=True, now=14.1))
     assert owner.telemetry_test['fresh']
     with pytest.raises(NativeTargetError, match='context changed') as refused:
         _validate_guard(owner, queued, owner.principal_test, 'tracking_start')

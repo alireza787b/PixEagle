@@ -61,3 +61,21 @@ following. Home shares the same forward-horizon calculation and canonical FW
 tailsitter transform. SIP angles still come from measured attached-camera pose.
 Unknown/stale phase cannot reframe the view. A fresh public MC/2D operator review
 is the next acceptance checkpoint; no Pi or real camera was contacted.
+
+Public final run r2 recorded `telemetry_generation` changing at `before_offboard`.
+The shared identity owner incorrectly treated heartbeat freshness expiry as
+connection replacement, even when new packets continued the same UID, kind,
+counter and boot clock. Replay of 899 captured simulator samples at a one-second
+poll schedule produced 19 identity generations before the repair and one after,
+with the same 89/90 fresh samples. The original poll's exact expiry interval was
+not logged, so this replay demonstrates the defect rather than reconstructing
+an unrecorded timing measurement.
+
+Freshness now expires independently at the unchanged two-second deadline;
+advancing same-aircraft evidence can restore it without rotating identity.
+Explicit disconnect, UID/kind change, reboot/counter rollback and ambiguity still
+retire bindings. No client retries or flight-command replay were added. The
+520-case identity/API/phase/Start/session/commander selection passes, including
+stale Start rejection and true reconnect fencing. The requested next MC review
+enables altitude only in a disposable test profile, leaving factory altitude
+guidance off. Retained evidence: `public-mc-final-20261117-r2/identity-freshness-replay.json`.

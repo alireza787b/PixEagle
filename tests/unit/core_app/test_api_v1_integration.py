@@ -57,7 +57,7 @@ def test_heartbeat_progress_required_and_frozen_http_payload_expires():
     assert not identity.snapshot(connected=True, now=15)["fresh"]
 
 
-def test_expiry_with_new_heartbeat_retires_old_epoch_and_confirms_current_progress():
+def test_expiry_with_new_heartbeat_restores_freshness_without_replacing_same_aircraft():
     identity = TelemetryAircraftIdentity(7, 1, 2)
     identity.observe(mavlink_payload(10), now=10)
     identity.observe(mavlink_payload(11), now=11)
@@ -66,9 +66,37 @@ def test_expiry_with_new_heartbeat_retires_old_epoch_and_confirms_current_progre
     assert not identity.snapshot(connected=True, now=13.001)['fresh']
     identity.observe(mavlink_payload(12), now=13.01)
     renewed = identity.snapshot(connected=True, now=13.01)
-    assert renewed['connection_generation'] != before['connection_generation']
+    assert renewed['connection_generation'] == before['connection_generation']
     assert renewed['fresh']
     assert not identity.snapshot(connected=True, now=15.011)['fresh']
+
+
+@pytest.mark.parametrize('kind', [1, 2, 20, 22])
+def test_delayed_aggregate_polls_do_not_manufacture_aircraft_replacements(kind):
+    identity = TelemetryAircraftIdentity(7, 1, 2.)
+    def packet(counter):
+        value = mavlink_payload(counter)
+        messages = value['vehicles']['7']['components']['1']['messages']
+        messages['HEARTBEAT']['message']['mavtype'] = kind
+        messages['ATTITUDE'] = {'message': {'time_boot_ms': counter * 1000}}
+        return value
+    identity.observe(packet(10), now=10.)
+    identity.observe(packet(11), now=11.)
+    generation = identity.generation
+    for index in range(12, 25):
+        received = 11. + (index - 11) * 2.01
+        assert not identity.snapshot(connected=True, now=received)['fresh']
+        identity.observe(packet(index), now=received)
+        assert identity.snapshot(connected=True, now=received)['fresh']
+        assert identity.generation == generation
+    # Successful reads of a cached packet never refresh the heartbeat.
+    identity.observe(packet(24), now=received + 2.01)
+    assert not identity.snapshot(connected=True, now=received + 2.01)['fresh']
+    assert identity.generation == generation
+    identity.invalidate('telemetry_disconnected')
+    identity.observe(packet(25), now=received + 2.02)
+    assert identity.generation != generation
+    assert not identity.snapshot(connected=True, now=received + 2.02)['fresh']
 
 
 @pytest.mark.parametrize('change', ['uid', 'counter', 'boot', 'kind', 'invalid', 'frozen'])

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from copy import deepcopy
 from classes.aircraft_state import (
@@ -152,12 +153,17 @@ class TelemetryAircraftIdentity:
                 and heartbeat["message"] != self._heartbeat_message):
             self.invalidate("telemetry_heartbeat_rewritten")
             return
-        renewed_progress = (expired and progressed and kind is self.aircraft_kind
-                            and not (changed or reset or rebooted))
-        if changed or reset or expired or rebooted:
+        if changed or reset or rebooted:
+            if self.uid is not None:
+                logging.getLogger(__name__).info(
+                    'Telemetry identity changed: identity=%s heartbeat_reset=%s boot_reset=%s',
+                    changed, reset, rebooted)
             self.generation += 1
-            self._last_advance = now if renewed_progress else None
+            self._last_advance = None
         elif progressed:
+            if expired:
+                logging.getLogger(__name__).debug(
+                    'Telemetry heartbeat resumed with unchanged identity after %.3fs', now - self._last_advance)
             self._last_advance = now
         self.uid = uid
         self._counter = counter

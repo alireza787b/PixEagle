@@ -106,17 +106,20 @@ actually contain an observed PX4/ArduPilot heartbeat and a nonzero
 between local observations before `telemetry.fresh` becomes true. Freshness
 expires after `MAVLINK_STALE_TIMEOUT_S` measured with the monotonic clock;
 successful HTTP reads of an unchanged cached payload do not extend it.
-Heartbeat counter reset, observed boot-time rollback, UID replacement, loss,
-and stale recovery invalidate the telemetry generation. A duplicate observed
-UID under another vehicle/component is ambiguous and fails closed.
+Heartbeat counter reset, observed boot-time rollback, UID/aircraft-kind
+replacement and an actual transport disconnect invalidate the telemetry
+generation. A duplicate observed UID under another vehicle/component is
+ambiguous and fails closed.
 
-Expiry still retires the old generation when the next poll contains a newer
-heartbeat. If that poll proves strictly advancing heartbeat evidence for the
-same UID and aircraft kind, with no counter or boot-clock rollback, it can
-confirm freshness in the new generation immediately. It does not preserve an
-old client binding or queued action. Frozen payloads, cold discovery, changed
-identity and reboot evidence retain their progression requirements; HTTP
-success alone never extends freshness or the configured expiry interval.
+Freshness and connection identity are independent. A late poll with a strictly
+advancing heartbeat, unchanged UID/kind and no counter/boot rollback restores
+freshness without fabricating a replacement connection. Repeated reads of a
+frozen packet remain stale, including after the deadline; no timeout is extended.
+Start still requires fresh telemetry at every acquisition stage, and active
+command owners retain their existing freshness, authority and publication guards.
+Fresh telemetry cannot restart a stopped session or replay an action. Cold
+discovery, actual reconnects and reboot evidence require new progression proof.
+Displayed-frame expiry and target/profile/runtime guards remain independent.
 
 Association additionally requires the command link to be connected and its
 nonzero observed UID to equal telemetry's UID. The native client must then

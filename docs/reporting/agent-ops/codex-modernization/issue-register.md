@@ -526,3 +526,12 @@ remain open. Integration work is unpublished.
   startup reproduced an independent telemetry UID discovery gap; bounded metadata
   requests repair it without granting authority or reconfiguring active following.
   Disarmed video/association checks pass; operator flight and hardware remain pending.
+
+- **2026-11-17 — Follow Start identity/freshness repair:** a public operator run
+  refused Start after `telemetry_generation` changed. Recorded-packet replay
+  reproduces false identity replacement from late heartbeat polls. The shared
+  owner now separates freshness from identity; stale data still blocks Start,
+  while actual disconnect/reboot/identity changes retire queued bindings. All
+  520 selected identity/lifecycle checks and 163 API/configuration gates pass.
+  Fresh operator acceptance remains pending; see the
+  [candidate journal](journal/2026-11-17-stock-factory-release-candidate.md).

@@ -476,6 +476,34 @@ def start_body(snapshot):
     )
 
 
+def test_start_guard_distinguishes_late_same_aircraft_from_stale_data_and_reconnect(owner, monkeypatch):
+    from classes.aircraft_identity import TelemetryAircraftIdentity
+    from classes.api_v1_native_following import _check_start
+    from classes.api_v1_native_targets import NativeTargetError
+    from tests.unit.core_app.test_api_v1_integration import mavlink_payload
+
+    ready_owner(owner, monkeypatch)
+    identity = TelemetryAircraftIdentity(7, 1, 2.)
+    identity.observe(mavlink_payload(10, uid='42'), now=10.)
+    identity.observe(mavlink_payload(11, uid='42'), now=11.)
+    owner.telemetry_test.update(identity.snapshot(connected=True, now=11.))
+    body = start_body(following_snapshot(owner, owner.principal_test))
+    _check_start(owner, body, owner.principal_test, 'before_start')
+    owner.telemetry_test.update(identity.snapshot(connected=True, now=13.01))
+    with pytest.raises(NativeTargetError):
+        _check_start(owner, body, owner.principal_test, 'before_offboard')
+    identity.observe(mavlink_payload(12, uid='42'), now=13.01)
+    owner.telemetry_test.update(identity.snapshot(connected=True, now=13.01))
+    _check_start(owner, body, owner.principal_test, 'before_offboard')
+    identity.invalidate('telemetry_disconnected')
+    identity.observe(mavlink_payload(13, uid='42'), now=14.)
+    identity.observe(mavlink_payload(14, uid='42'), now=14.1)
+    owner.telemetry_test.update(identity.snapshot(connected=True, now=14.1))
+    with pytest.raises(NativeTargetError, match='changed'):
+        _check_start(owner, body, owner.principal_test, 'before_offboard')
+    owner.app_controller.px4_interface.connect.assert_not_called()
+
+
 async def test_native_start_rechecks_context_on_flight_owner_before_commands(owner, monkeypatch, caplog):
     snapshot = ready_owner(owner, monkeypatch)
     calls = []

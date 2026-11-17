@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Separate telemetry freshness from aircraft identity: late advancing heartbeat
+  observations no longer manufacture connection changes that reject Follow
+  Start. Keep stale-data, real reconnect/reboot, target and authority guards.
 - Recenter the rendered gimbal's rest/Home view after fresh settled MC/FW phase
   changes, reusing canonical tailsitter geometry without changing SIP axes.
 - Match explicitly sensorless Gazebo variants to PX4's no-pitot configuration
