@@ -40,6 +40,17 @@ MC profile starts in public MC Position: yaw centering without target-directed
 translation or a cruise-speed dial. For a pursuit test, choose MC Chase while
 following is inactive; saved public velocity limits remain conservative.
 
+An explicitly verified no-pitot Gazebo build configures its affected aircraft
+with `SYS_HAS_NUM_ASPD=0` and `ASPD_FALLBACK=1` before opening the operator UI.
+The launcher checks disarm and parameter readback and records the change in
+`run.json`. Stock sensor-equipped builds and unrelated aircraft are unchanged.
+This permits PX4's qualified groundspeed-minus-wind fallback; it does not invent
+an airspeed measurement or guarantee that an estimate is valid at rest. Normal
+feedback selection and other arming checks remain active. Real-aircraft setup
+follows [PX4's sensorless VTOL guide](https://docs.px4.io/main/en/config_vtol/vtol_without_airspeed_sensor)
+and requires that aircraft's transition/throttle tuning; the launcher never
+changes hardware parameters.
+
 1. Sign into QGC with the disposable lab account `admin/admin`.
 2. Flight commands start blocked. In this isolated simulator, permit following
    through Options when ready, then take off manually. With the public 5 m

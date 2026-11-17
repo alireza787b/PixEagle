@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Match explicitly sensorless Gazebo variants to PX4's no-pitot configuration
+  before opening operator controls, with disarm and parameter-readback checks.
+  Preserve normal sensor-equipped profiles and all unrelated arming checks.
 - Share one enriched, locally pinned coastal showcase across all five Gazebo
   training profiles. Keep aircraft/camera contracts independent of world props;
   configure the spectator view through native Gazebo camera tracking only.

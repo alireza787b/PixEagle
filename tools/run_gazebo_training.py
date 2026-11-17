@@ -224,6 +224,38 @@ def native_training_assets(args, simulator, scenario, *, firmware_policy="experi
     return assets
 
 
+def prepare_sensorless_simulator(primary, token, baseline, scenario, process):
+    """Match a verified sensor-removal variant to PX4's normal sensorless policy."""
+    variant = baseline['build'].get('resource_variant') or {}
+    if (variant.get('resource') != 'models/airspeed/model.sdf'
+            or 'airspeed' not in scenario['descriptor']['models']):
+        return dict(applied=False)
+    host.owned_container_info(primary, token)
+    directory = Path(process['args'][0]).parent
+    prefix = ('docker', 'exec', '--user', str(os.getuid()), primary)
+    status = host.command(*prefix, str(directory / 'px4-commander'), '--instance', '0', 'status')
+    if not re.search(r'(?m)^INFO\s+\[commander\] Disarmed$', status):
+        raise ValueError('Sensorless simulator preparation requires a disarmed aircraft')
+    parameter = (*prefix, str(directory / 'px4-param'), '--instance', '0')
+
+    def read(name):
+        result = host.command(*parameter, 'show', name)
+        values = re.findall(r'(?m)^\s*[x+*l ]*' + name + r'(?:\s+\[[^]\n]+\])?\s*:\s*(\S+)\s*$', result)
+        if len(values) != 1 or not math.isfinite(float(values[0])):
+            raise ValueError('Sensorless simulator parameter is unavailable: ' + name)
+        return float(values[0])
+
+    policy = dict(SYS_HAS_NUM_ASPD=0, ASPD_FALLBACK=1)
+    before = {name: read(name) for name in policy}
+    for name, value in policy.items():
+        host.command(*parameter, 'set', name, str(value))
+    after = {name: read(name) for name in policy}
+    if after != policy:
+        raise ValueError('Sensorless simulator parameter acknowledgement differs from the requested policy')
+    return dict(applied=True, resource_variant=variant['name'], before=before, after=after,
+                scope='owned simulation only; no fabricated airspeed or general arming bypass')
+
+
 def camera_training_source(args, scenario, token):
     """Bind original image time to the verified simulator, never to an RTP receipt."""
     from classes.aircraft_state import AircraftKind, aircraft_kind_from_mavlink
@@ -592,6 +624,8 @@ def run(args):
                 time.sleep(1)
         else:
             raise TimeoutError('Gazebo startup: ' + str(last))
+        receipt['sensorless_preparation'] = prepare_sensorless_simulator(primary, token, baseline, scenario, process)
+        write(runtime / 'run.json', receipt)
         native_mounts = []
         if assets is not None:
             adapter = TrainingAdapter(args, runtime, token, primary, network_id, baseline, assets, containers,

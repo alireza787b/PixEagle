@@ -13,6 +13,50 @@ import pytest
 from tools import run_gazebo_training as training
 
 
+@pytest.mark.parametrize('variant,models', [(None, ['airspeed']), ({'resource': 'models/airspeed/model.sdf'}, ['x500'])])
+def test_sensorless_setup_does_not_change_stock_sensor_or_unrelated_aircraft(monkeypatch, variant, models):
+    command = Mock()
+    monkeypatch.setattr(training.host, 'command', command)
+    assert training.prepare_sensorless_simulator('sim', 'owner', {'build': {'resource_variant': variant}},
+        {'descriptor': {'models': models}}, {'args': ['/opt/px4/bin/px4']}) == {'applied': False}
+    command.assert_not_called()
+
+
+@pytest.mark.parametrize('fault', [None, 'armed', 'unacknowledged'])
+def test_declared_no_pitot_variant_requires_disarm_and_parameter_acknowledgement(monkeypatch, fault):
+    values = {'SYS_HAS_NUM_ASPD': 1, 'ASPD_FALLBACK': 0}
+    calls = []
+
+    def command(*args):
+        calls.append(args)
+        if args[-1] == 'status':
+            return 'INFO  [commander] ' + ('Armed' if fault == 'armed' else 'Disarmed')
+        operation, name = args[-2:] if args[-2] == 'show' else args[-3:-1]
+        if operation == 'set':
+            if fault != 'unacknowledged':
+                values[name] = int(args[-1])
+            return ''
+        return f'x + {name} [1,2] : {values[name]}\n'
+
+    monkeypatch.setattr(training.host, 'command', command)
+    owned = Mock()
+    monkeypatch.setattr(training.host, 'owned_container_info', owned)
+    args = ('sim', 'owner', {'build': {'resource_variant': {'name': 'verified-no-pitot',
+        'resource': 'models/airspeed/model.sdf'}}}, {'descriptor': {'models': ['airspeed']}},
+        {'args': ['/opt/px4/bin/px4']})
+    if fault:
+        with pytest.raises(ValueError, match='disarmed|acknowledgement'):
+            training.prepare_sensorless_simulator(*args)
+        if fault == 'armed':
+            assert len(calls) == 1
+    else:
+        result = training.prepare_sensorless_simulator(*args)
+        assert result['applied'] and result['before']['SYS_HAS_NUM_ASPD'] == 1
+        assert result['after'] == {'SYS_HAS_NUM_ASPD': 0, 'ASPD_FALLBACK': 1}
+        assert not any('arm' in call or 'ASPD_PRIMARY' in call or 'FW_USE_AIRSPD' in call for call in calls)
+    owned.assert_called_once_with('sim', 'owner')
+
+
 def test_spectator_camera_uses_only_owned_gui_topics_and_confirms_actual_target(monkeypatch):
     owned = Mock()
     command = Mock(side_effect=['', 'track_mode: FOLLOW\nfollow_target { name: "x500_0" }'])

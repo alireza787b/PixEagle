@@ -40,3 +40,13 @@ telemetry connection-generation changes during healthy HTTP polling. Their cause
 is not established: the short raw-input replay did not reproduce them. The new
 stage/field diagnostics support a fresh reproduction; freshness/authority guards
 were not relaxed. Private tailsitter acceptance and exact-head CI remain separate.
+
+Private operator startup exposed a simulator-only mismatch: the reviewed no-pitot
+resource variant removed the sensor, but the airframe still required one through
+`SYS_HAS_NUM_ASPD=1`. Setting the declared sensor count to zero while disarmed
+produced PX4's `Preflight check: OK`; the operator then took off and engaged
+Offboard. Future launcher runs derive no-pitot preparation from the verified
+resource variant and affected model, with `ASPD_FALLBACK=1` for qualified
+groundspeed-minus-wind estimation. Disarm and parameter acknowledgement are
+required; normal sensor-equipped scenarios and hardware are untouched. The
+current operator run was not restarted or retuned after it became armed.
