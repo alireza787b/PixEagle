@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from fastapi import status
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 from classes.runtime_logging import RUNTIME_LOG_CLAIM_BOUNDARY
 from classes.tracker_output import TrackerDataType
@@ -898,6 +898,41 @@ class APIActionRequest(BaseModel):
         extra = "forbid"
 
 
+class APIConfigEditorPendingChange(BaseModel):
+    path: str
+    reload_tier: Literal["immediate", "follower_restart", "tracker_restart", "system_restart"]
+
+
+class APIConfigEditorSnapshot(BaseModel):
+    revision: str
+    config: dict[str, Any]
+    writable: bool
+    pending_changes: list[APIConfigEditorPendingChange]
+
+
+class APIConfigEdit(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    path: list[str] = Field(min_length=1, max_length=16)
+    value: JsonValue = None
+    unset: bool = False
+
+
+class APIConfigSaveRequest(APIActionRequest):
+    revision: str = Field(pattern=r"^[a-f0-9]{64}$")
+    edits: list[APIConfigEdit] = Field(default_factory=list, max_length=1500)
+    backup_id: str | None = Field(default=None, max_length=128)
+    preview_token: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+
+    @model_validator(mode="after")
+    def validate_input(self):
+        if bool(self.edits) == bool(self.backup_id):
+            raise ValueError("Supply edits or a backup to restore")
+        if not self.dry_run and not (self.confirm and self.preview_token and self.idempotency_key):
+            raise ValueError("Review changes before confirming a save")
+        return self
+
+
 class APINativeRestartContext(BaseModel):
     model_config = {"extra": "forbid", "strict": True}
 
@@ -1288,6 +1323,7 @@ class APIActionResponse(BaseModel):
         "model_select",
         "osd_set",
         "config_apply",
+        "config_save",
         "gimbal_control",
         "circuit_breaker_set",
         "offboard_start",
@@ -1321,6 +1357,25 @@ class APIActionResponse(BaseModel):
     claim_boundary: str
     audit_event: APIActionAuditEvent
     timestamp: float
+
+
+class APIConfigReviewChange(BaseModel):
+    path: list[str]
+    old_value: Any = None
+    new_value: Any = None
+    kind: Literal["added", "removed", "changed"]
+    reload_tier: Literal["immediate", "follower_restart", "tracker_restart", "system_restart"]
+
+
+class APIConfigSaveResult(BaseModel):
+    revision: str
+    preview_token: str | None = None
+    backup_id: str | None = None
+    changes: list[APIConfigReviewChange]
+
+
+class APIConfigSaveResponse(APIActionResponse):
+    result: APIConfigSaveResult
 
 
 class APITelemetryTransportHealth(BaseModel):

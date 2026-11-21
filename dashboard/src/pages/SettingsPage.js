@@ -1,849 +1,402 @@
-// dashboard/src/pages/SettingsPage.js
-import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useBlocker, useBeforeUnload } from 'react-router-dom';
 import {
-  Box, Container, Typography, CircularProgress, Alert, Paper, Divider,
-  List, ListItemButton, ListItemIcon, ListItemText,
-  Collapse, TextField, InputAdornment, Chip, Tooltip,
-  Snackbar, Drawer, Switch, FormControlLabel, Button, IconButton
+  Alert, Box, Button, Container, Dialog, DialogActions, DialogContent, DialogTitle,
+  Divider, List, ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Paper,
+  Stack, TextField, Typography,
 } from '@mui/material';
 import {
-  Settings, Search, ExpandLess, ExpandMore, Videocam, Router,
-  GpsFixed, Navigation, Shield, Tune, AutoFixHigh, Tv,
-  Menu as MenuIcon, FlightTakeoff, Save, Close
+  ArrowForward, Checklist, FileDownload, GpsFixed, History, MoreHoriz, Navigation,
+  Router, Settings, Shield, Tune, Undo, Videocam,
 } from '@mui/icons-material';
-
-import {
-  useConfigDiff,
-  useConfigSchema,
-  useConfigSearch,
-  useConfigSections,
-  useCurrentFollowerMode,
-  useRelevantSections,
-} from '../hooks/useConfig';
-import { useResponsive } from '../hooks/useResponsive';
-import { ConfigGlobalStateProvider, useConfigGlobalState } from '../hooks/useConfigGlobalState';
+import SectionEditor, { settingLabel, touchControls } from '../components/config/SectionEditor';
+import ExportDialog from '../components/config/ExportDialog';
+import SyncWithDefaultsDialog from '../components/config/SyncWithDefaultsDialog';
+import { useConfigSchema } from '../hooks/useConfig';
 import { useDefaultsSync } from '../hooks/useDefaultsSync';
 import { usePendingRestart } from '../context/PendingRestartContext';
-import SectionEditor from '../components/config/SectionEditor';
-import TrackingEngineSetting from '../components/config/TrackingEngineSetting';
-import ImportExportToolbar from '../components/config/ImportExportToolbar';
-import ConfigStatusBanner from '../components/config/ConfigStatusBanner';
-import ChangesDrawer from '../components/config/ChangesDrawer';
-import SyncWithDefaultsDialog from '../components/config/SyncWithDefaultsDialog';
+import { apiFetchJson } from '../services/apiClient';
+import { buildActionRequest } from '../services/actionRequests';
 import { endpoints } from '../services/apiEndpoints';
-import { apiFetch } from '../services/apiClient';
+import { isPlainObject } from '../utils/configEditorSchemaUtils';
 
-// Icon mapping for categories
 const categoryIcons = {
-  video: <Videocam />,
-  network: <Router />,
-  tracking: <GpsFixed />,
-  detection: <Search />,
-  follower: <Navigation />,
-  safety: <Shield />,
-  control: <Tune />,
-  processing: <AutoFixHigh />,
-  display: <Tv />,
-  other: <Settings />
+  video: Videocam, tracking: GpsFixed, network: Router, follower: Navigation,
+  safety: Shield, control: Tune,
+};
+const commonSections = ['VideoSource', 'Streaming', 'Tracking', 'Follower', 'Safety'];
+const errorText = (error) => error?.data?.message || error?.message || 'The request failed.';
+const pathKey = (path) => JSON.stringify(path);
+const atPath = (value, path) => path.reduce((current, key) => current &&
+  Object.hasOwn(current, key) ? current[key] : undefined, value);
+
+function leafEdits(previous, value, path) {
+  if (isPlainObject(value) && (isPlainObject(previous) || previous === undefined)) {
+    const before = previous || {};
+    return [...new Set([...Object.keys(before), ...Object.keys(value)])].flatMap((key) =>
+      leafEdits(before[key], value[key], [...path, key]));
+  }
+  if (JSON.stringify(previous) === JSON.stringify(value)) return [];
+  return value === undefined ? [{ path, unset: true }] : [{ path, value }];
+}
+
+function restoreLeaf(object, path, original) {
+  if (!path.length) return original;
+  const [key, ...rest] = path;
+  const next = { ...object };
+  const value = restoreLeaf(next[key], rest, original);
+  if (value === undefined) delete next[key];
+  else next[key] = value;
+  return next;
+}
+
+function changeMetadata(schema, path) {
+  const [section, ...keys] = path;
+  const root = schema?.sections?.[section];
+  const field = keys.reduce((node, key, index) => (
+    (index === 0 ? node?.parameters?.[key] : node?.properties?.[key]) || node?.additional_properties
+  ), root);
+  return {
+    label: settingLabel(path.at(-1), field),
+    group: [settingLabel(section, root), ...keys.slice(0, -1).map((key) => settingLabel(key))].join(' / '),
+    unit: field?.unit,
+  };
+}
+
+function displayValue(value, unit, absent) {
+  if (absent) return 'Not set';
+  if (value === null) return 'Automatic';
+  if (typeof value === 'boolean') return value ? 'On' : 'Off';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return unit && typeof value === 'number' ? `${value} ${unit}` : String(value);
+}
+
+const reloadMessage = {
+  follower_restart: 'Restart the follower to apply.',
+  tracker_restart: 'Apply the saved tracker settings.',
+  system_restart: 'Restart PixEagle to apply.',
 };
 
-// Category order for display
-const categoryOrder = ['video', 'network', 'tracking', 'detection', 'follower', 'safety', 'control', 'processing', 'display', 'other'];
-
-const hiddenParametersBySection = {
-  Tracking: ['DEFAULT_TRACKING_ALGORITHM'],
-  GM_VELOCITY_CHASE: [
-    'MOUNT_TYPE', 'ROLL_RIGHT_SIGN', 'NEUTRAL_PITCH_ANGLE',
-    'INVERT_LATERAL_CONTROL', 'INVERT_VERTICAL_CONTROL'
-  ],
-  GM_VELOCITY_VECTOR: [
-    'MOUNT_TYPE', 'MOUNT_ROLL_OFFSET_DEG', 'MOUNT_PITCH_OFFSET_DEG', 'MOUNT_YAW_OFFSET_DEG',
-    'INVERT_GIMBAL_ROLL', 'INVERT_GIMBAL_PITCH', 'INVERT_GIMBAL_YAW'
-  ]
-};
-
-export const isSystemRestartTier = (reloadTier) => reloadTier === 'system_restart';
-
-// Inner component that uses global state
-const SettingsPageContent = () => {
-  const { sections, categories, groupedSections, loading: sectionsLoading, error: sectionsError, refetch } = useConfigSections();
-  const {
-    schema: fullConfigSchema,
-    loading: configSchemaLoading,
-    error: configSchemaError,
-    refetch: refetchConfigSchema,
-  } = useConfigSchema();
-  const { results: searchResults, loading: searchLoading, search, clearResults } = useConfigSearch();
-  const { diff, refetch: refetchDiff } = useConfigDiff();
-  const { isMobile, isTablet, isDesktop } = useResponsive();
-  const isCompactSettings = isMobile || isTablet;
-  // Global state available for ConfigStatusBanner
-  useConfigGlobalState();
-  const {
-    runtimeStatus: configRuntimeStatus,
-    pendingRestart: systemRestartPending,
-    requestRestartConfirmation,
-  } = usePendingRestart();
-
-  // Mode-aware filtering (v5.0.0+)
-  const { mode: currentMode, modeUpper, isActive: followerActive } = useCurrentFollowerMode();
-  const { activeSections, modeSpecificSections } = useRelevantSections(currentMode);
-
-  const [selectedSection, setSelectedSection] = useState(null);
-  const [expandedCategories, setExpandedCategories] = useState({});
-  const [searchQuery, setSearchQuery] = useState('');
-  const [pendingRestartParams, setPendingRestartParams] = useState([]);
-  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info', persistent: false });
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [changesDrawerOpen, setChangesDrawerOpen] = useState(false);
-  const [syncDialogOpen, setSyncDialogOpen] = useState(false);
-  const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
-  const [videoHealth, setVideoHealth] = useState(null);
-  const [reconnectingVideo, setReconnectingVideo] = useState(false);
-  const [highlightParam, setHighlightParam] = useState(null);
-  const [searchActiveIndex, setSearchActiveIndex] = useState(-1);
-  const searchResultsRef = useRef(null);
-  const searchInputRef = useRef(null);
-
-  // Sync with defaults tracking (v5.4.1+)
+export default function SettingsPage() {
+  const { schema, loading: schemaLoading, error: schemaError } = useConfigSchema();
   const defaultsSync = useDefaultsSync();
-  const { counts: syncCounts } = defaultsSync;
-  const globalMutationsAllowed = Boolean(
-    fullConfigSchema && !configSchemaLoading && !configSchemaError
-  );
-  const globalMutationBlockReason = configSchemaLoading
-    ? 'Loading the configuration schema.'
-    : configSchemaError
-      ? `Configuration changes are read-only: ${configSchemaError}`
-      : 'Configuration changes are read-only because the schema is unavailable.';
+  const { refreshRuntimeStatus, requestRestartConfirmation } = usePendingRestart();
+  const [saved, setSaved] = useState(null);
+  const [draft, setDraft] = useState({});
+  const [section, setSection] = useState(() => window.location.hash.slice(1) || 'VideoSource');
+  const [query, setQuery] = useState('');
+  const [advanced, setAdvanced] = useState(() => Boolean(window.location.hash));
+  const [review, setReview] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const operation = useRef(false);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [backup, setBackup] = useState(null);
+  const [more, setMore] = useState(null);
+  const [dialog, setDialog] = useState(null);
+  const [history, setHistory] = useState([]);
+  const [applyStatus, setApplyStatus] = useState(null);
 
-  // Ref for hash navigation processed flag
-  const hashProcessedRef = useRef(false);
+  const reload = useCallback(async () => {
+    const data = await apiFetchJson(endpoints.configEditor);
+    setSaved(data);
+    return data;
+  }, []);
 
-  // Hash navigation support - handle URL hash to select section (e.g., /settings#Safety)
   useEffect(() => {
-    // Only process once when sections are loaded
-    if (hashProcessedRef.current || !sections || sections.length === 0) return;
+    reload().catch((err) => setError(errorText(err)));
+  }, [reload]);
 
-    const hash = window.location.hash.slice(1); // Remove #
-    if (!hash) return;
+  const pending = useMemo(() => Object.values(draft).flatMap(({ path, value, error: invalid }) => (
+    invalid ? [] : leafEdits(atPath(saved?.config, path), value, path)
+  )), [draft, saved]);
+  const invalidCount = Object.values(draft).filter((entry) => entry.error).length;
+  const count = pending.length + invalidCount;
+  const hasUnsaved = Boolean(count || review || busy);
+  const blocker = useBlocker(({ currentLocation, nextLocation }) => (
+    hasUnsaved && currentLocation.pathname !== nextLocation.pathname
+  ));
+  useBeforeUnload(useCallback((event) => {
+    if (!hasUnsaved) return;
+    event.preventDefault();
+    event.returnValue = '';
+  }, [hasUnsaved]));
 
-    // Find section by name (case-insensitive)
-    const sectionName = sections.find(
-      s => s.name.toLowerCase() === hash.toLowerCase()
-    )?.name;
-
-    if (sectionName) {
-      hashProcessedRef.current = true;
-
-      // Select the section
-      setSelectedSection(sectionName);
-
-      // Expand the category containing this section
-      const sectionMeta = sections.find(s => s.name === sectionName);
-      if (sectionMeta?.category) {
-        setExpandedCategories(prev => ({ ...prev, [sectionMeta.category]: true }));
-      }
-
-      // Clear the hash after navigation to keep URL clean
-      if (window.history.replaceState) {
-        window.history.replaceState(null, '', window.location.pathname);
-      }
-    }
-  }, [sections]);
-
-  // Close search dropdown on outside click
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (
-        searchResultsRef.current && !searchResultsRef.current.contains(e.target) &&
-        searchInputRef.current && !searchInputRef.current.contains(e.target)
-      ) {
-        clearResults();
-        setSearchActiveIndex(-1);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [clearResults]);
-
-  // Sort mode-relevant sections to top within each category
-  const sortedGroupedSections = useMemo(() => {
-    const sorted = {};
-    for (const [category, catSections] of Object.entries(groupedSections)) {
-      sorted[category] = [...catSections].sort((a, b) => {
-        const aRelevant = activeSections.includes(a.name) ? 0 : 1;
-        const bRelevant = activeSections.includes(b.name) ? 0 : 1;
-        return aRelevant - bRelevant;
-      });
-    }
-    return sorted;
-  }, [groupedSections, activeSections]);
-
-  // Sort categories by order
-  const sortedCategories = useMemo(() => {
-    return categoryOrder.filter(cat => sortedGroupedSections[cat]?.length > 0);
-  }, [sortedGroupedSections]);
-
-  // Compute which sections get the green "Active" chip:
-  // Only per-follower sections (MC_*/GM_*/FW_*) + SmartTracker when follower is active
-  const activeChipSections = useMemo(() => {
-    const perFollower = modeSpecificSections.filter(s => /^(MC_|GM_|FW_)/.test(s));
-    if (followerActive) perFollower.push('SmartTracker');
-    return perFollower;
-  }, [modeSpecificSections, followerActive]);
-
-  const toggleCategory = (category) => {
-    setExpandedCategories(prev => ({
-      ...prev,
-      [category]: !prev[category]
-    }));
+  const edit = (path, value, input) => {
+    setDraft((old) => ({ ...old, [pathKey(path)]: { path, value, ...input } }));
+    setNotice('');
   };
 
-  const handleDrawerToggle = () => {
-    setDrawerOpen(!drawerOpen);
-  };
-
-  const handleSectionSelect = (section) => {
-    setSelectedSection(section);
-    setHighlightParam(null);
-    clearResults();
-    setSearchQuery('');
-    // Close drawer on mobile after selection
-    if (isCompactSettings) {
-      setDrawerOpen(false);
-    }
-  };
-
-  const handleSearch = (e) => {
-    const query = e.target.value;
-    setSearchQuery(query);
-    setSearchActiveIndex(-1);
-    if (query.length >= 2) {
-      search(query);
-    } else {
-      clearResults();
-    }
-  };
-
-  const handleSearchClear = useCallback(() => {
-    setSearchQuery('');
-    setSearchActiveIndex(-1);
-    clearResults();
-  }, [clearResults]);
-
-  const handleSearchResultClick = useCallback((result) => {
-    // 1. Select the section
-    setSelectedSection(result.section);
-
-    // 2. Expand the parent category so the section appears in the sidebar
-    const sectionMeta = sections.find(s => s.name === result.section);
-    if (sectionMeta?.category) {
-      setExpandedCategories(prev => ({ ...prev, [sectionMeta.category]: true }));
-    }
-
-    // 3. Set the parameter to highlight in SectionEditor
-    setHighlightParam(result.parameter);
-
-    // 4. Clear search state
-    clearResults();
-    setSearchQuery('');
-    setSearchActiveIndex(-1);
-
-    // 5. Close drawer on mobile after selection
-    if (isCompactSettings) {
-      setDrawerOpen(false);
-    }
-
-    // 6. Scroll sidebar to the selected section item after render
-    setTimeout(() => {
-      const sidebarItem = document.querySelector(
-        `[data-section="${result.section}"]`
-      );
-      if (sidebarItem) {
-        sidebarItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      }
-    }, 150);
-  }, [sections, clearResults, isCompactSettings]);
-
-  const handleSearchKeyDown = useCallback((e) => {
-    const visibleResults = searchResults.slice(0, 10);
-    if (visibleResults.length === 0) return;
-
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setSearchActiveIndex(prev =>
-        prev < visibleResults.length - 1 ? prev + 1 : 0
-      );
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setSearchActiveIndex(prev =>
-        prev > 0 ? prev - 1 : visibleResults.length - 1
-      );
-    } else if (e.key === 'Enter' && searchActiveIndex >= 0) {
-      e.preventDefault();
-      handleSearchResultClick(visibleResults[searchActiveIndex]);
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      handleSearchClear();
-    }
-  }, [searchResults, searchActiveIndex, handleSearchResultClick, handleSearchClear]);
-
-  const handleRebootRequired = useCallback((section, param, reloadTier) => {
-    setPendingRestartParams(prev => {
-      const existingIndex = prev.findIndex(
-        p => p.section === section && p.param === param
-      );
-      if (existingIndex < 0) {
-        return [...prev, { section, param, reloadTier }];
-      }
-      return prev.map((entry, index) => (
-        index === existingIndex ? { ...entry, reloadTier } : entry
-      ));
+  const undo = (path) => {
+    setDraft((old) => {
+      const next = { ...old };
+      delete next[pathKey(path)];
+      return next;
     });
-
-    if (isSystemRestartTier(reloadTier)) {
-      requestRestartConfirmation();
-    }
-  }, [requestRestartConfirmation]);
-
-  useEffect(() => {
-    if (configRuntimeStatus && !systemRestartPending) {
-      setPendingRestartParams(prev => (
-        prev.filter(entry => !isSystemRestartTier(entry.reloadTier))
-      ));
-    }
-  }, [configRuntimeStatus, systemRestartPending]);
-
-  // Enhanced snackbar handler with persistent option for safety params
-  const handleSnackbar = useCallback((message, severity = 'info', options = {}) => {
-    const { persistent = false } = options;
-    setSnackbar({ open: true, message, severity, persistent });
-  }, []);
-
-  const handleRefreshAll = () => {
-    refetch();
-    refetchConfigSchema();
-    refetchDiff();
   };
 
-  useEffect(() => {
-    let mounted = true;
+  const discard = () => {
+    setDraft({});
+    setReview(null);
+    setError('');
+  };
 
-    const loadVideoHealth = async () => {
-      try {
-        const response = await apiFetch(endpoints.videoHealth);
-        const data = await response.json();
-        if (mounted && data?.video) {
-          setVideoHealth(data.video);
-        }
-      } catch (error) {
-        if (mounted) {
-          setVideoHealth({ status: 'unavailable' });
-        }
-      }
-    };
-
-    loadVideoHealth();
-    const interval = setInterval(loadVideoHealth, 5000);
-    return () => {
-      mounted = false;
-      clearInterval(interval);
-    };
-  }, []);
-
-  const handleReconnectVideo = useCallback(async () => {
-    setReconnectingVideo(true);
+  const perform = async (task) => {
+    if (operation.current) return;
+    operation.current = true;
+    setBusy(true);
+    setError('');
     try {
-      const response = await apiFetch(endpoints.videoReconnect, { method: 'POST' });
-      const data = await response.json();
-      if (data?.video) {
-        setVideoHealth(data.video);
+      await task();
+    } catch (err) {
+      if (['config_revision_stale', 'config_preview_stale'].includes(err.data?.code)) {
+        setReview(null);
+        await reload().catch(() => {});
       }
-      handleSnackbar(data?.message || 'Reconnect request completed', response.ok ? 'success' : 'warning');
-    } catch (error) {
-      handleSnackbar(`Reconnect failed: ${error.message}`, 'error');
+      setError(errorText(err));
     } finally {
-      setReconnectingVideo(false);
+      operation.current = false;
+      setBusy(false);
     }
-  }, [handleSnackbar]);
-
-  const handleConfigImported = () => {
-    // Refresh diff after import
-    refetchDiff();
-    // If a section is selected, it will auto-refresh
   };
 
-  if (sectionsLoading) {
-    return (
-      <Container maxWidth="xl" sx={{ py: 4 }}>
-        <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh">
-          <CircularProgress />
-        </Box>
-      </Container>
-    );
-  }
+  const send = async (body) => {
+    const answer = await apiFetchJson(endpoints.configSaveAction, {
+      method: 'POST', body: JSON.stringify(body),
+    });
+    if (!answer.accepted || !answer.result || (!body.dry_run && !answer.executed)) throw new Error(answer.error || 'PixEagle did not accept the change.');
+    return answer.result;
+  };
 
-  if (sectionsError) {
-    return (
-      <Container maxWidth="xl" sx={{ py: 4 }}>
-        <Alert severity="error">
-          Error loading configuration: {sectionsError}
-        </Alert>
-      </Container>
-    );
-  }
+  const preview = async (input) => {
+    const body = { revision: saved.revision, ...input };
+    const result = await send({ ...body, dry_run: true });
+    setReview({
+      body, ...result,
+      action: buildActionRequest('save_settings', { ui: 'settings' }),
+    });
+  };
 
-  return (
-    <Container
-      maxWidth="xl"
-      sx={{
-        py: { xs: 1, md: 2 },
-        px: { xs: 1, sm: 2, md: 3 },
-        pb: { xs: 10, sm: 4 },
-      }}
-    >
-      {/* Save Status Banner (v5.4.0+) */}
-      <Box sx={{ mb: { xs: 1, md: 2 } }}>
-        <ConfigStatusBanner
-          compact={isCompactSettings}
-          onViewChanges={() => setChangesDrawerOpen(true)}
-        />
-      </Box>
+  const undoReviewed = (path) => perform(async () => {
+    const parent = Object.values(draft).find((entry) => entry.path.every((key, index) => key === path[index]));
+    if (!parent) return;
+    const remaining = pending.filter((entry) => pathKey(entry.path) !== pathKey(path));
+    const original = atPath(saved.config, path);
+    edit(parent.path, restoreLeaf(parent.value, path.slice(parent.path.length), original));
+    if (remaining.length) await preview({ edits: remaining });
+    else setReview(null);
+  });
 
-      {videoHealth && videoHealth.status !== 'healthy' && (
-        <Alert
-          severity={videoHealth.status === 'recovering' ? 'info' : 'warning'}
-          sx={{ mb: 2 }}
-          action={(
-            <Button
-              color="inherit"
-              size="small"
-              onClick={handleReconnectVideo}
-              disabled={reconnectingVideo}
-            >
-              {reconnectingVideo ? 'Reconnecting...' : 'Reconnect Camera'}
-            </Button>
-          )}
-        >
-          Camera is currently {videoHealth.status}. Settings remain available; fix source config and reconnect.
-        </Alert>
-      )}
+  const verify = async (revision) => {
+    const active = await reload();
+    if (active.revision !== revision) {
+      setNotice('Saved. Settings changed again during verification. The latest saved values are shown.');
+      setApplyStatus(null);
+      return;
+    }
+    const [runtime, native] = await Promise.allSettled([
+      refreshRuntimeStatus(), apiFetchJson(endpoints.nativeConfigStatus),
+    ]);
+    if (runtime.status === 'rejected') {
+      setNotice('Saved and read back. Running status is temporarily unavailable.');
+      return;
+    }
+    const status = runtime.value;
+    const tiers = new Set([...(active.pending_changes || []), ...(native.value?.pending_changes || [])]
+      .map((change) => change.reload_tier));
+    setNotice(status?.restart_required ? 'Saved. Restart PixEagle to apply.'
+      : tiers.has('tracker_restart') ? 'Saved. Apply the saved tracker settings.'
+        : tiers.has('follower_restart') ? 'Saved. Restart the follower to use the new settings.'
+          : 'Saved and verified.');
+    setApplyStatus(native.status === 'fulfilled' ? native.value : null);
+  };
 
-      {/* Header */}
-      <Box sx={{ mb: { xs: 1.5, md: 3 } }}>
-        <Box sx={{
-          display: 'flex',
-          flexDirection: { xs: 'column', sm: 'row' },
-          justifyContent: 'space-between',
-          alignItems: { xs: 'stretch', sm: 'flex-start' },
-          gap: 2
-        }}>
-          <Box>
-            <Typography
-              variant={isCompactSettings ? 'h6' : 'h4'}
-              component="h1"
-              gutterBottom
-              sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: { xs: 0.5, md: 1 } }}
-            >
-              <Settings /> Configuration Manager
-            </Typography>
-          </Box>
-          <ImportExportToolbar
-            changesCount={diff?.length || 0}
-            syncAvailableCount={syncCounts?.actionable || 0}
-            onRefresh={handleRefreshAll}
-            onMessage={handleSnackbar}
-            onConfigImported={handleConfigImported}
-            onViewChanges={() => setChangesDrawerOpen(true)}
-            onSyncDefaults={() => setSyncDialogOpen(true)}
-            mutationsAllowed={globalMutationsAllowed}
-            mutationBlockReason={globalMutationBlockReason}
-          />
-        </Box>
+  const save = () => perform(async () => {
+    const result = await send({
+      ...review.body, ...review.action, preview_token: review.preview_token, dry_run: false,
+    });
+    setDraft({});
+    setReview(null);
+    setBackup(result.backup_id ? { id: result.backup_id, revision: result.revision } : null);
+    setNotice('Saved. Checking running settings…');
+    try {
+      await verify(result.revision);
+    } catch {
+      setNotice('Saved. Reload Settings to verify the current values.');
+    }
+  });
 
-        {/* Mode Indicator and Section Filter Toggle (v5.0.0+) */}
-        <Box sx={{
-          display: 'flex',
-          flexDirection: { xs: 'column', sm: 'row' },
-          alignItems: { xs: 'stretch', sm: 'center' },
-          gap: 2,
-          mt: 2,
-          p: 1.5,
-          bgcolor: 'background.paper',
-          borderRadius: 1,
-          border: 1,
-          borderColor: 'divider'
-        }}>
-          {isCompactSettings && (
-            <Button
-              variant="outlined"
-              startIcon={<MenuIcon />}
-              onClick={handleDrawerToggle}
-              sx={{ justifyContent: 'flex-start', minHeight: 40 }}
-            >
-              Sections
-            </Button>
-          )}
+  const applyTracker = () => perform(async () => {
+    const result = await apiFetchJson(endpoints.configApplyAction, {
+      method: 'POST', body: JSON.stringify({
+        ...buildActionRequest('apply_tracker_settings', { ui: 'settings' }),
+        instance_id: applyStatus.instance_id, runtime_id: applyStatus.runtime_id,
+        config_generation: applyStatus.config_generation, reload_tier: applyStatus.apply.reload_tier,
+      }),
+    });
+    if (!result.executed) throw new Error(result.error || 'Tracker settings could not be applied.');
+    await verify(saved.revision);
+  });
 
-          {/* Current Mode Indicator */}
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexGrow: 1 }}>
-            <FlightTakeoff color={followerActive ? 'success' : 'action'} />
-            <Box>
-              <Typography variant="body2" color="text.secondary">
-                Active Mode
-              </Typography>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <Typography variant="subtitle2" fontWeight="bold">
-                  {modeUpper || 'Loading...'}
-                </Typography>
-                {followerActive && (
-                  <Chip size="small" label="Active" color="success" sx={{ height: 20, fontSize: '0.7rem' }} />
-                )}
-              </Box>
-            </Box>
-          </Box>
+  const reviewBackup = (id) => perform(async () => {
+    setDialog(null);
+    await preview({ backup_id: id });
+  });
 
-          {/* Auto-Save Toggle (v5.4.1+) */}
-          <Tooltip title={autoSaveEnabled ? 'Changes save automatically on blur/enter' : 'Manual save mode - click Save to persist changes'}>
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={autoSaveEnabled}
-                  onChange={(e) => setAutoSaveEnabled(e.target.checked)}
-                  size="small"
-                  color="success"
-                />
-              }
-              label={
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                  <Save fontSize="small" color={autoSaveEnabled ? 'success' : 'action'} />
-                  <Typography variant="body2">
-                    {autoSaveEnabled ? 'Auto-Save' : 'Manual'}
-                  </Typography>
-                </Box>
-              }
-              sx={{ m: 0 }}
-            />
-          </Tooltip>
+  const openMore = (action) => {
+    setMore(null);
+    if (action === 'history') {
+      perform(async () => {
+        const result = await apiFetchJson(endpoints.configHistory);
+        setHistory(result.backups || []);
+        setDialog(action);
+      });
+    } else {
+      setDialog(action);
+    }
+  };
 
-        </Box>
-      </Box>
-
-      {/* Main Layout */}
-      <Box sx={{ display: 'flex', gap: { xs: 0, md: 3 }, position: 'relative' }}>
-        {/* Sidebar Content (Shared between Drawer and Paper) */}
-        {(() => {
-          const sidebarContent = (
-            <Box
-              sx={{
-                width: { xs: 'min(92vw, 340px)', sm: 300 },
-                height: '100%',
-                minHeight: 0,
-                display: 'flex',
-                flexDirection: 'column',
-              }}
-            >
-              {/* Search */}
-              <Box sx={{ p: 2, flexShrink: 0, bgcolor: 'background.paper', zIndex: 2, position: 'relative' }}>
-                <TextField
-                  inputRef={searchInputRef}
-                  fullWidth
-                  size="small"
-                  placeholder="Search parameters..."
-                  value={searchQuery}
-                  onChange={handleSearch}
-                  onKeyDown={handleSearchKeyDown}
-                  role="combobox"
-                  aria-expanded={searchResults.length > 0 || searchLoading}
-                  aria-controls="search-results-listbox"
-                  aria-activedescendant={
-                    searchActiveIndex >= 0 ? `search-result-${searchActiveIndex}` : undefined
-                  }
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        {searchLoading ? (
-                          <CircularProgress size={20} />
-                        ) : (
-                          <Search />
-                        )}
-                      </InputAdornment>
-                    ),
-                    endAdornment: searchQuery ? (
-                      <InputAdornment position="end">
-                        <IconButton
-                          size="small"
-                          onClick={handleSearchClear}
-                          aria-label="Clear search"
-                          edge="end"
-                        >
-                          <Close fontSize="small" />
-                        </IconButton>
-                      </InputAdornment>
-                    ) : null
-                  }}
-                />
-
-                {/* Search Results Dropdown */}
-                {(searchResults.length > 0 || (searchQuery.length >= 2 && !searchLoading)) && (
-                  <Paper
-                    elevation={8}
-                    ref={searchResultsRef}
-                    sx={{
-                      mt: 1,
-                      maxHeight: { xs: '45vh', sm: 300 },
-                      overflow: 'auto',
-                      position: 'absolute',
-                      left: 16,
-                      right: 16,
-                      zIndex: 1300
-                    }}
-                  >
-                    {searchResults.length > 0 ? (
-                      <List
-                        dense
-                        id="search-results-listbox"
-                        role="listbox"
-                        aria-label="Search results"
-                      >
-                        {searchResults.slice(0, 10).map((result, idx) => (
-                          <ListItemButton
-                            key={`${result.section}-${result.parameter}`}
-                            id={`search-result-${idx}`}
-                            role="option"
-                            aria-selected={idx === searchActiveIndex}
-                            selected={idx === searchActiveIndex}
-                            onClick={() => handleSearchResultClick(result)}
-                          >
-                            <ListItemText
-                              primary={
-                                <Typography
-                                  variant="body2"
-                                  sx={{ fontFamily: 'monospace', fontWeight: 500 }}
-                                >
-                                  {result.parameter}
-                                </Typography>
-                              }
-                              secondary={
-                                <Typography variant="caption" color="text.secondary" noWrap>
-                                  {result.section}
-                                  {result.description ? ` \u2014 ${result.description.slice(0, 50)}` : ''}
-                                </Typography>
-                              }
-                            />
-                          </ListItemButton>
-                        ))}
-                      </List>
-                    ) : (
-                      <Box sx={{ p: 2, textAlign: 'center' }}>
-                        <Typography variant="body2" color="text.secondary">
-                          No parameters found for &ldquo;{searchQuery}&rdquo;
-                        </Typography>
-                      </Box>
-                    )}
-                  </Paper>
-                )}
-              </Box>
-
-              <Divider />
-
-              {/* Section List */}
-              <List dense sx={{ flex: 1, minHeight: 0, overflowY: 'auto', pb: 2 }}>
-                {sortedCategories.map((category) => {
-                  const catSections = sortedGroupedSections[category] || [];
-                  const catInfo = categories[category] || { display_name: category };
-                  const isExpanded = expandedCategories[category] === true; // Default collapsed
-
-                  return (
-                    <React.Fragment key={category}>
-                      <ListItemButton onClick={() => toggleCategory(category)}>
-                        <ListItemIcon>
-                          {categoryIcons[category] || <Settings />}
-                        </ListItemIcon>
-                        <ListItemText
-                          primary={catInfo.display_name || category}
-                          secondary={`${catSections.length} sections`}
-                        />
-                        {isExpanded ? <ExpandLess /> : <ExpandMore />}
-                      </ListItemButton>
-
-                      <Collapse in={isExpanded} timeout="auto" unmountOnExit>
-                        <List component="div" disablePadding dense>
-                          {catSections.map((section) => {
-                            const isModeSpecific = activeChipSections.includes(section.name);
-                            return (
-                              <ListItemButton
-                                key={section.name}
-                                data-section={section.name}
-                                sx={{ pl: 4 }}
-                                selected={selectedSection === section.name}
-                                onClick={() => handleSectionSelect(section.name)}
-                              >
-                                <ListItemText
-                                  primary={
-                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                      {section.display_name}
-                                      {isModeSpecific && (
-                                        <Chip
-                                          size="small"
-                                          label="Active"
-                                          color="success"
-                                          variant="outlined"
-                                          sx={{ height: 16, fontSize: '0.6rem', ml: 0.5 }}
-                                        />
-                                      )}
-                                    </Box>
-                                  }
-                                  secondary={`${section.parameter_count} params`}
-                                />
-                              </ListItemButton>
-                            );
-                          })}
-                        </List>
-                      </Collapse>
-                    </React.Fragment>
-                  );
-                })}
-              </List>
-            </Box>
-          );
-
-          return (
-            <>
-              {/* Mobile: Temporary Drawer */}
-              {isCompactSettings && (
-                <Drawer
-                  variant="temporary"
-                  open={drawerOpen}
-                  onClose={handleDrawerToggle}
-                  ModalProps={{ keepMounted: true }}
-                  sx={{
-                    '& .MuiDrawer-paper': {
-                      boxSizing: 'border-box',
-                      width: 'min(92vw, 340px)'
-                    }
-                  }}
-                >
-                  {sidebarContent}
-                </Drawer>
-              )}
-
-              {/* Desktop: Fixed Paper Sidebar */}
-              {isDesktop && (
-                <Paper
-                  sx={{
-                    width: 300,
-                    flexShrink: 0,
-                    height: 'calc(100vh - 200px)',
-                    overflow: 'hidden',
-                    position: 'sticky',
-                    top: 80
-                  }}
-                >
-                  {sidebarContent}
-                </Paper>
-              )}
-            </>
-          );
-        })()}
-
-        {/* Content Area */}
-        <Box sx={{ flexGrow: 1, minWidth: 0, width: '100%' }}>
-          {selectedSection ? (
-            <>
-            {selectedSection === 'Tracking' && <TrackingEngineSetting />}
-            <SectionEditor
-              sectionName={selectedSection}
-              hiddenParameters={hiddenParametersBySection[selectedSection]}
-              highlightParam={highlightParam}
-              onHighlightComplete={() => setHighlightParam(null)}
-              onRebootRequired={handleRebootRequired}
-              onMessage={handleSnackbar}
-              autoSaveEnabled={autoSaveEnabled}
-            />
-            </>
-          ) : (
-            <Paper sx={{ p: { xs: 2, md: 4 }, textAlign: 'center' }}>
-              <Settings sx={{ fontSize: { xs: 60, md: 80 }, color: 'text.disabled', mb: 2 }} />
-              <Typography variant="h6" color="text.secondary">
-                Select a section to edit
-              </Typography>
-              <Typography variant="body2" color="text.disabled">
-                {isCompactSettings
-                  ? 'Tap Sections to browse configuration groups.'
-                  : 'Use the sidebar to navigate through configuration sections, or search for specific parameters.'
-                }
-              </Typography>
-            </Paper>
-          )}
-        </Box>
-      </Box>
-
-      {/* Changes Drawer (v5.4.1+) */}
-      <ChangesDrawer
-        open={changesDrawerOpen}
-        onClose={() => setChangesDrawerOpen(false)}
-        pendingRestartParams={pendingRestartParams}
-        onMessage={handleSnackbar}
-      />
-
-      {/* Sync With Defaults Dialog (v5.4.1+) */}
-      <SyncWithDefaultsDialog
-        open={syncDialogOpen}
-        onClose={() => {
-          setSyncDialogOpen(false);
-          refetchDiff();
-        }}
-        onMessage={handleSnackbar}
-        onRebootRequired={handleRebootRequired}
-        defaultsSync={defaultsSync}
-        mutationsAllowed={globalMutationsAllowed}
-        mutationBlockReason={globalMutationBlockReason}
-      />
-
-      {/* Snackbar - Enhanced with 6s duration, persistent for safety params */}
-      <Snackbar
-        open={snackbar.open}
-        autoHideDuration={snackbar.persistent ? null : 6000}
-        onClose={(event, reason) => {
-          // Don't close on clickaway for persistent toasts
-          if (snackbar.persistent && reason === 'clickaway') return;
-          setSnackbar(prev => ({ ...prev, open: false }));
-        }}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-      >
-        <Alert
-          severity={snackbar.severity}
-          onClose={() => setSnackbar(prev => ({ ...prev, open: false }))}
-          sx={{
-            width: '100%',
-            ...(snackbar.persistent && {
-              border: 2,
-              borderColor: snackbar.severity === 'success' ? 'success.main' : 'warning.main',
-            }),
-          }}
-          variant={snackbar.persistent ? 'filled' : 'standard'}
-        >
-          {snackbar.message}
-          {snackbar.persistent && (
-            <Typography variant="caption" display="block" sx={{ mt: 0.5, opacity: 0.9 }}>
-              Click X to dismiss
-            </Typography>
-          )}
-        </Alert>
-      </Snackbar>
-    </Container>
+  const sections = Object.entries(schema?.sections || {});
+  const search = query.trim().toLowerCase();
+  const visible = sections.filter(([name, definition]) => search
+    ? [name, settingLabel(name, definition), ...Object.entries(definition.parameters || {}).flatMap(
+      ([key, field]) => [key, settingLabel(key, field), field.description]
+    )].some((value) => value?.toLowerCase().includes(search))
+    : advanced || commonSections.includes(name)
   );
-};
+  const activeSection = visible.some(([name]) => name === section) ? section : visible[0]?.[0];
+  const writable = Boolean(!schemaLoading && schema && saved?.writable);
+  const configReady = Boolean(saved && schema);
+  const displayError = schemaError || error;
 
-// Main component with provider wrapper
-const SettingsPage = () => {
-  return (
-    <ConfigGlobalStateProvider>
-      <SettingsPageContent />
-    </ConfigGlobalStateProvider>
-  );
-};
+  return <Container maxWidth="lg" sx={{ py: { xs: 1.5, md: 3 }, ...touchControls }}>
+    <Paper variant="outlined" sx={{
+      position: 'sticky', top: 0, zIndex: 2, mb: 2, p: { xs: 1.5, md: 2 },
+      bgcolor: 'background.paper',
+    }}>
+      <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+        <Settings color="primary" />
+        <Typography component="h1" variant="h5" sx={{ flexGrow: 1 }}>Settings</Typography>
+        <Button startIcon={<MoreHoriz />} onClick={(event) => setMore(event.currentTarget)}>More</Button>
+        <Button variant="contained" startIcon={<Checklist />}
+          disabled={!writable || !count || busy || Boolean(invalidCount)}
+          onClick={() => perform(() => preview({ edits: pending }))}>
+          Review changes{count ? ` (${count})` : ''}
+        </Button>
+      </Stack>
+      {Boolean(invalidCount) && <Typography color="error" variant="body2">Correct the highlighted values before reviewing.</Typography>}
+    </Paper>
 
-export default SettingsPage;
+    {displayError && !review && <Alert severity="error" sx={{ mb: 2 }}>{displayError}
+      {!saved && <Button onClick={() => perform(reload)}>Retry</Button>}
+    </Alert>}
+    {notice && <Alert severity="success" role="status" sx={{ mb: 2 }} action={
+      backup?.revision === saved?.revision && !count
+        ? <Button color="inherit" disabled={busy || !writable} onClick={() => reviewBackup(backup.id)}>Undo last save</Button>
+        : undefined
+    }>{notice}</Alert>}
+    {applyStatus?.system_restart?.available && !count && <Button onClick={requestRestartConfirmation}>Restart PixEagle</Button>}
+    {applyStatus?.apply?.available && !count && <Button disabled={busy} onClick={applyTracker}>Apply saved settings</Button>}
+    {!configReady && !displayError && <Typography role="status">Loading settings…</Typography>}
+    {configReady && <Box sx={{
+      display: 'grid', gridTemplateColumns: { xs: '1fr', md: '235px minmax(0, 1fr)' }, gap: 2, alignItems: 'start',
+    }}>
+      <Paper variant="outlined" sx={{ p: 1 }}>
+        <TextField fullWidth size="small" label="Search settings" value={query} onChange={(event) => setQuery(event.target.value)} />
+        <TextField select fullWidth size="small" label="Section" value={activeSection || ''}
+          onChange={(event) => setSection(event.target.value)} sx={{ display: { md: 'none' }, mt: 1 }}>
+          {visible.map(([name, definition]) => <MenuItem value={name} key={name}>{settingLabel(name, definition)}</MenuItem>)}
+        </TextField>
+        <List disablePadding sx={{ display: { xs: 'none', md: 'block' }, maxHeight: '60vh', overflow: 'auto' }}>
+          {visible.map(([name, definition]) => {
+            const Icon = categoryIcons[definition.category] || Settings;
+            return <ListItemButton key={name} selected={name === activeSection} onClick={() => setSection(name)} sx={{ minHeight: 44 }}>
+              <ListItemIcon sx={{ minWidth: 34 }}><Icon fontSize="small" /></ListItemIcon>
+              <ListItemText primary={settingLabel(name, definition)} />
+            </ListItemButton>;
+          })}
+        </List>
+        <Button onClick={() => setAdvanced(!advanced)}>{advanced ? 'Common settings' : 'All settings'}</Button>
+      </Paper>
+      {activeSection ? <SectionEditor
+        key={activeSection} section={activeSection} schema={schema.sections[activeSection]}
+        saved={saved.config[activeSection]} draft={draft} onEdit={edit} onUndo={undo}
+        disabled={!writable || busy} query={search} showDefaults={advanced}
+      /> : <Typography>No matching settings.</Typography>}
+    </Box>}
+
+    <Menu anchorEl={more} open={Boolean(more)} onClose={() => setMore(null)}>
+      <MenuItem onClick={() => openMore('export')} disabled={!configReady}><FileDownload sx={{ mr: 1 }} />Export saved YAML</MenuItem>
+      <MenuItem onClick={() => openMore('history')} disabled={!configReady || !!count}><History sx={{ mr: 1 }} />Backup history</MenuItem>
+      <MenuItem onClick={() => openMore('sync')} disabled={!writable || !!count}>Sync with defaults</MenuItem>
+      <MenuItem onClick={() => openMore('discard')} disabled={!count || busy}>Discard all edits</MenuItem>
+    </Menu>
+    {dialog === 'export' && <ExportDialog open onClose={() => setDialog(null)} />}
+    {dialog === 'sync' && <SyncWithDefaultsDialog open defaultsSync={defaultsSync}
+      mutationsAllowed={writable} onMessage={setNotice} onRebootRequired={refreshRuntimeStatus}
+      onClose={() => { setDialog(null); perform(reload); }} />}
+    <Dialog open={dialog === 'history'} onClose={() => setDialog(null)} fullWidth maxWidth="sm" PaperProps={{ sx: touchControls }}>
+      <DialogTitle>Backup history</DialogTitle>
+      <DialogContent>
+        {!history.length && <Typography>No backups available.</Typography>}
+        {history.map((row) => <Stack key={row.id} direction="row" gap={1} alignItems="center" justifyContent="space-between" sx={{ my: 1 }}>
+          <Typography>{new Date(row.timestamp * 1000).toLocaleString()}</Typography>
+          <Button disabled={!writable || busy} onClick={() => reviewBackup(row.id)}>Review restore</Button>
+        </Stack>)}
+      </DialogContent>
+      <DialogActions><Button onClick={() => setDialog(null)}>Close</Button></DialogActions>
+    </Dialog>
+    <Dialog open={dialog === 'discard' || blocker.state === 'blocked'} onClose={() => {
+      setDialog(null);
+      if (blocker.state === 'blocked') blocker.reset();
+    }} PaperProps={{ sx: touchControls }}>
+      <DialogTitle>Discard unsaved changes?</DialogTitle>
+      <DialogActions>
+        <Button onClick={() => {
+          setDialog(null);
+          if (blocker.state === 'blocked') blocker.reset();
+        }}>Keep editing</Button>
+        <Button color="error" disabled={busy} onClick={() => {
+          discard();
+          setDialog(null);
+          if (blocker.state === 'blocked') blocker.proceed();
+        }}>Discard changes</Button>
+      </DialogActions>
+    </Dialog>
+
+    <Dialog open={Boolean(review)} fullWidth maxWidth="sm" PaperProps={{ sx: touchControls }}
+      onClose={busy ? undefined : () => setReview(null)}>
+      <DialogTitle>{review?.body.backup_id ? 'Review backup restore' : 'Review changes'}</DialogTitle>
+      <DialogContent dividers>
+        {error && <Alert severity="error" sx={{ mb: 1 }}>{error}</Alert>}
+        {!review?.changes.length && <Typography>No changes to save.</Typography>}
+        <Stack divider={<Divider />} spacing={1.5}>
+          {review?.changes.map((change) => {
+            const meta = changeMetadata(schema, change.path);
+            return <Stack key={pathKey(change.path)} gap={0.5}>
+              <Typography variant="caption" color="text.secondary">{meta.group}</Typography>
+              <Typography fontWeight={600}>{meta.label}</Typography>
+              <Stack direction="row" alignItems="center" gap={1} flexWrap="wrap" sx={{ overflowWrap: 'anywhere' }}>
+                <Typography color="text.secondary">{displayValue(change.old_value, meta.unit, change.kind === 'added')}</Typography>
+                <ArrowForward fontSize="small" aria-label="changed to" />
+                <Typography fontWeight={600}>{displayValue(change.new_value, meta.unit, change.kind === 'removed')}</Typography>
+                {!review.body.backup_id && <Button size="small" disabled={busy} startIcon={<Undo />}
+                  aria-label={`Undo ${meta.label}`} onClick={() => undoReviewed(change.path)} sx={{ ml: 'auto' }}>Undo</Button>}
+              </Stack>
+              {reloadMessage[change.reload_tier] && <Typography variant="caption" color="text.secondary">
+                {reloadMessage[change.reload_tier]}
+              </Typography>}
+            </Stack>;
+          })}
+        </Stack>
+      </DialogContent>
+      <DialogActions sx={{ flexWrap: 'wrap' }}>
+        <Button disabled={busy} onClick={() => setReview(null)}>{review?.body.backup_id ? 'Cancel' : 'Keep editing'}</Button>
+        {!review?.body.backup_id && <Button disabled={busy} onClick={() => { setReview(null); setDialog('discard'); }}>Discard all</Button>}
+        <Button variant="contained" disabled={busy || !review?.changes.length} onClick={save}>
+          {busy ? 'Working…' : 'Save changes'}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  </Container>;
+}

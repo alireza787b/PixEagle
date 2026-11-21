@@ -286,6 +286,9 @@ from classes.api_v1_contracts import (
     APINativeFollowerSelectRequest,
     APIFollowingControlRequest,
     APINativeConfigSnapshot,
+    APIConfigEditorSnapshot,
+    APIConfigSaveRequest,
+    APIConfigSaveResponse,
     APINativeSafetySnapshot,
     APINativeConfigApplyRequest,
     APINativeOSDSetRequest,
@@ -2047,6 +2050,14 @@ class FastAPIHandler:
                                        response: Response, http_request: Request):
         from classes.api_v1_following_controls import set_following_control
         return await set_following_control(self, request, response, http_request)
+
+    async def get_config_editor(self, http_request: Request):
+        from classes.api_v1_config_editor import get_config_editor
+        return await get_config_editor(self, http_request)
+
+    async def config_save_action(self, request: APIConfigSaveRequest, http_request: Request):
+        from classes.api_v1_config_editor import config_save_action
+        return await config_save_action(self, request, http_request)
 
     async def get_native_config(self, http_request: Request):
         from classes.api_v1_native_config import get_config

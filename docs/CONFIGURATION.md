@@ -24,6 +24,17 @@ under `TrackerSafety`; detector appearance validation is owned once by
 runtime only when their exact paths are registered for retirement, then remain
 visible in Config Sync until the operator removes them.
 
+## Edit settings in the Dashboard
+
+Open **Settings**, choose a section, and edit the fields you need. The
+**Review changes** button counts unsaved changes across all sections. Open it
+to compare saved and proposed values, undo individual edits, or save the
+batch. Edits stay in the browser tab until you save or discard them.
+
+After saving, check the confirmation for any apply or restart step.
+**Undo last save** opens a preview using the backup created before the
+save. Older backups are available under **More → Backup history**.
+
 ## Main Configuration (config.yaml)
 
 ### Video Input

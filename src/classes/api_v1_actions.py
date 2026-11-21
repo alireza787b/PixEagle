@@ -66,6 +66,7 @@ ActionType = Literal[
     "model_select",
     "osd_set",
     "config_apply",
+    "config_save",
     "gimbal_control",
     "circuit_breaker_set",
     "offboard_start",

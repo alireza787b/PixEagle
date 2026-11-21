@@ -3761,6 +3761,11 @@ class ConfigService:
 
             return copy.deepcopy(self._config)
 
+    def stage_reviewed_config(self, raw: Dict[str, Any], effective: Dict[str, Any]) -> None:
+        """Stage one validated, locked editor candidate for atomic persistence."""
+        self._config = effective
+        self._config_raw = raw
+
     def import_config(
         self,
         data: Dict,

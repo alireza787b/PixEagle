@@ -1,5 +1,5 @@
 import React, { useContext, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { createBrowserRouter, RouterProvider, Navigate } from 'react-router-dom';
 import { CssBaseline, ThemeProvider as MuiThemeProvider, createTheme } from '@mui/material';
 import Layout from './components/Layout';
 import AuthGate from './components/AuthGate';
@@ -24,6 +24,25 @@ const detectBasePath = () => {
   return match ? match[1] : '';
 };
 
+const router = createBrowserRouter([
+  {
+    path: '/',
+    element: <Layout />,
+    children: [
+      { index: true, element: <Navigate to="/dashboard" /> },
+      { path: 'dashboard', element: <DashboardPage /> },
+      { path: 'tracker', element: <TrackerPage /> },
+      { path: 'follower', element: <FollowerPage /> },
+      { path: 'live-feed', element: <LiveFeedPage /> },
+      { path: 'recordings', element: <RecordingsPage /> },
+      { path: 'models', element: <ModelsPage /> },
+      { path: 'logs', element: <LogsPage /> },
+      { path: 'validation', element: <ValidationPage /> },
+      { path: 'settings', element: <SettingsPage /> },
+    ],
+  },
+], { basename: detectBasePath(), future: { v7_relativeSplatPath: true } });
+
 const AppContent = () => {
   const { theme } = useContext(ThemeContext);
 
@@ -38,29 +57,11 @@ const AppContent = () => {
   return (
     <MuiThemeProvider theme={muiTheme}>
       <CssBaseline />
-      <Router
-        basename={detectBasePath()}
-        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-      >
-        <AuthGate>
-          <PendingRestartProvider>
-            <Routes>
-              <Route path="/" element={<Layout />}>
-                <Route index element={<Navigate to="/dashboard" />} />
-                <Route path="dashboard" element={<DashboardPage />} />
-                <Route path="tracker" element={<TrackerPage />} />
-                <Route path="follower" element={<FollowerPage />} />
-                <Route path="live-feed" element={<LiveFeedPage />} />
-                <Route path="recordings" element={<RecordingsPage />} />
-                <Route path="models" element={<ModelsPage />} />
-                <Route path="logs" element={<LogsPage />} />
-                <Route path="validation" element={<ValidationPage />} />
-                <Route path="settings" element={<SettingsPage />} />
-              </Route>
-            </Routes>
-          </PendingRestartProvider>
-        </AuthGate>
-      </Router>
+      <AuthGate>
+        <PendingRestartProvider>
+          <RouterProvider router={router} future={{ v7_startTransition: true }} />
+        </PendingRestartProvider>
+      </AuthGate>
     </MuiThemeProvider>
   );
 };
