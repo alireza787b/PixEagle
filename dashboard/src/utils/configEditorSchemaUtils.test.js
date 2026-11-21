@@ -65,6 +65,13 @@ test('requires every section before enabling global configuration mutations', ()
   });
 });
 
+test('accepts generated scalar root settings alongside parameter sections', () => {
+  expect(validateFullConfigSchema({ sections: {
+    Streaming: { parameters: { STREAM_FPS: { type: 'integer' } } },
+    FOLLOWER_CIRCUIT_BREAKER: { type: 'boolean', default: true },
+  } }).valid).toBe(true);
+});
+
 test('keeps closed enums closed unless custom values are explicitly allowed', () => {
   const closed = normalizePropertySchema('MODE', {
     type: 'string',

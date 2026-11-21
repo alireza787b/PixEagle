@@ -26,7 +26,9 @@ visible in Config Sync until the operator removes them.
 
 ## Edit settings in the Dashboard
 
-Open **Settings**, choose a section, and edit the fields you need. The
+Open **Settings** and browse the category tree or search for a setting. On
+smaller screens the **Section** picker groups the same categories.
+Choose a section and edit the fields you need. The
 **Review changes** button counts unsaved changes across all sections. Open it
 to compare saved and proposed values, undo individual edits, or save the
 batch. Edits stay in the browser tab until you save or discard them.
@@ -34,6 +36,29 @@ batch. Edits stay in the browser tab until you save or discard them.
 After saving, check the confirmation for any apply or restart step.
 **Undo last save** opens a preview using the backup created before the
 save. Older backups are available under **More → Backup history**.
+
+### Import a YAML profile
+
+Select **Import**, choose a `.yaml` or `.yml` file, and review the proposed
+changes. Import merges the file into saved settings and keeps values the
+file omits. Use **Omit** to skip an individual change, then **Save changes**.
+A masked value in an exported file leaves the corresponding value on this
+device intact. If another client saves while you review, recheck the refreshed
+comparison before saving.
+
+### Example screens
+
+[Browse categories on desktop](assets/settings/browse-desktop.png) ·
+[Review changes on desktop](assets/settings/review-desktop.png) ·
+[Review changes on tablet](assets/settings/review-tablet.png) ·
+[Import preview on desktop](assets/settings/import-desktop.png)
+
+![PixEagle Settings import preview on a tablet with saved and proposed stream values](assets/settings/import-tablet.png)
+
+The Dashboard uses `GET /api/v1/config/editor` to read saved settings and
+`POST /api/v1/actions/config-save` to preview and save. A confirmed save
+must match the preview and configuration revision. Each saved batch records
+an audit entry and backs up the prior settings file when it exists.
 
 ## Main Configuration (config.yaml)
 

@@ -921,13 +921,18 @@ class APIConfigEdit(BaseModel):
 class APIConfigSaveRequest(APIActionRequest):
     revision: str = Field(pattern=r"^[a-f0-9]{64}$")
     edits: list[APIConfigEdit] = Field(default_factory=list, max_length=1500)
-    backup_id: str | None = Field(default=None, max_length=128)
+    backup_id: str | None = Field(default=None, min_length=1, max_length=128)
+    import_values: dict[str, JsonValue] | None = None
+    excluded_paths: list[list[str]] = Field(default_factory=list, max_length=1500)
     preview_token: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
 
     @model_validator(mode="after")
     def validate_input(self):
-        if bool(self.edits) == bool(self.backup_id):
-            raise ValueError("Supply edits or a backup to restore")
+        sources = (bool(self.edits), self.backup_id is not None, self.import_values is not None)
+        if sum(sources) != 1:
+            raise ValueError("Supply edits, a YAML mapping, or a backup to restore")
+        if self.excluded_paths and self.import_values is None:
+            raise ValueError("Only imports support excluded paths")
         if not self.dry_run and not (self.confirm and self.preview_token and self.idempotency_key):
             raise ValueError("Review changes before confirming a save")
         return self

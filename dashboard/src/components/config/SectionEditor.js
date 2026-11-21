@@ -18,7 +18,16 @@ export const touchControls = {
 };
 
 export function settingLabel(name, schema) {
-  return schema?.label || schema?.display_name || humanizeSchemaKey(name.replace(/([a-z])([A-Z])/g, '$1_$2'));
+  return schema?.label || schema?.display_name || humanizeSchemaKey(name.replace(/([a-z])([A-Z])/g, '$1_$2'))
+    .replace(/\b(Fps|Osd|Rtsp|Usb|Udp|Tcp|Http|Url)\b/g, (word) => word.toUpperCase());
+}
+
+export function matchesSetting(name, definition, query) {
+  return [name, settingLabel(name, definition), definition?.description].some(
+    (value) => typeof value === 'string' && value.toLowerCase().includes(query)
+  ) || Object.entries(definition?.parameters || definition?.properties || {}).some(
+    ([key, child]) => matchesSetting(key, child, query)
+  );
 }
 
 function SettingsField({ label, section, name, definition, definitions, value, values, entry, disabled, onEdit }) {
@@ -73,7 +82,7 @@ function SettingsField({ label, section, name, definition, definitions, value, v
     placeholder={definition.allow_custom_values ? options.map((option) => option.label).join(', ') : undefined} />;
 }
 
-export default function SectionEditor({ section, schema, saved, draft, onEdit, onUndo, disabled, query, showDefaults }) {
+export default function SectionEditor({ section, schema, saved, draft, onEdit, onUndo, disabled, query, showDefaults, fieldIssue }) {
   const scalar = !schema.parameters;
   const definitions = schema.parameters || { [section]: schema };
   const persisted = scalar ? { [section]: saved } : (saved || {});
@@ -83,9 +92,7 @@ export default function SectionEditor({ section, schema, saved, draft, onEdit, o
     if (entry && !entry.error) values[name] = entry.value;
   });
   const rows = Object.entries(definitions).filter(([name, definition]) => !query ||
-    [name, settingLabel(name, definition), definition.description].some(
-      (value) => value?.toLowerCase().includes(query)
-    ));
+    settingLabel(section, schema).toLowerCase().includes(query) || matchesSetting(name, definition, query));
   return <Stack spacing={1.5} sx={touchControls}>
     <Typography component="h2" variant="h5">{settingLabel(section, schema)}</Typography>
     {rows.map(([name, definition]) => {
@@ -105,6 +112,9 @@ export default function SectionEditor({ section, schema, saved, draft, onEdit, o
           <SettingsField {...{ label, section, name, definitions, definition, value, values, entry, disabled }}
             onEdit={(next, input) => onEdit(path, next, input)} />
         </Box>
+        {fieldIssue && path.every((key, index) => key === fieldIssue.path[index]) && (
+          <Typography variant="body2" color="error">{fieldIssue.message}</Typography>
+        )}
         <Stack direction="row" flexWrap="wrap" gap={1}>
           {entry && <Button size="small" startIcon={<Undo />} disabled={disabled} onClick={() => onUndo(path)}>Undo edit</Button>}
           {showDefaults && Object.hasOwn(definition, 'default') && JSON.stringify(value) !== JSON.stringify(definition.default)

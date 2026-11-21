@@ -80,7 +80,10 @@ export const validateFullConfigSchema = (schema) => {
     return { valid: false, error: 'Configuration schema must contain sections' };
   }
   for (const [sectionName, sectionSchema] of Object.entries(schema.sections)) {
-    const validation = validateSectionSchema(sectionSchema);
+    // The generated schema also declares scalar root settings.
+    const validation = sectionSchema?.type && !sectionSchema.parameters
+      ? { valid: isEditableSchemaContract({ ...sectionSchema, read_only: false }), error: 'Invalid root setting schema' }
+      : validateSectionSchema(sectionSchema);
     if (!validation.valid) {
       return {
         valid: false,

@@ -76,6 +76,10 @@ def test_review_and_save_one_batch_and_review_backup_restore(settings_owner):
     assert saved(service, edits[1]["path"]) == 24
     restore = editor._preview(owner, request(result.revision, backup_id=result.backup_id, dry_run=True), "scope")
     assert [row["new_value"] for row in restore["result"]["changes"]] == [20, 30]
+    editor._save(owner, request(result.revision, backup_id=result.backup_id, confirm=True,
+                                idempotency_key="restore", preview_token=restore["result"]["preview_token"]), "scope")
+    assert saved(service, edits[0]["path"]) == 20
+    assert saved(service, edits[1]["path"]) == 30
 
 
 def test_bad_and_stale_review_cannot_write(settings_owner):
@@ -130,3 +134,42 @@ async def test_same_confirmed_request_replays_existing_result(settings_owner):
     assert first["action_id"] == replay["action_id"]
     assert replay["idempotent_replay"] is True
     assert len(service.get_backup_history()) == 1
+
+
+def test_yaml_merge_preserves_omitted_and_masked_values_and_supports_omitting_rows(settings_owner):
+    owner, service, path = settings_owner
+    before = path.read_bytes()
+    revision = editor._snapshot(owner, APIPrincipal.local_compat())["revision"]
+    imported = {
+        "Streaming": {"STREAM_FPS": 12, "STREAM_QUALITY": 78},
+        "VideoSource": {"CAPTURE_FPS": 24, "VIDEO_SOURCE": "[REDACTED]"},
+        "Notes": {"LIST_WITH_MASK": [{"credential": "[REDACTED]", "enabled": True}]},
+    }
+    excluded_paths = [["Streaming", "STREAM_QUALITY"]]
+    args = dict(import_values=imported, excluded_paths=excluded_paths)
+    review = editor._preview(owner, request(revision, dry_run=True, **args), "scope")["result"]
+    assert [change["path"] for change in review["changes"]] == [
+        ["Streaming", "STREAM_FPS"], ["VideoSource", "CAPTURE_FPS"],
+    ]
+    assert all(change["kind"] == "changed" for change in review["changes"])
+    assert path.read_bytes() == before
+    request_to_save = request(revision, confirm=True, idempotency_key="import",
+                              preview_token=review["preview_token"], **args)
+    editor._save(owner, request_to_save, "scope")
+    assert saved(service, ["VideoSource", "CAPTURE_FPS"]) == 24
+    assert saved(service, ["Streaming", "STREAM_QUALITY"]) == 70
+    assert saved(service, ["Notes"]) is None
+    assert "[REDACTED]" not in path.read_text()
+
+
+def test_unchanged_import_does_not_create_backup(settings_owner):
+    owner, service, path = settings_owner
+    before = path.read_bytes()
+    revision = editor._snapshot(owner, APIPrincipal.local_compat())["revision"]
+    args = dict(import_values={"Streaming": {"STREAM_FPS": 20}})
+    review = editor._preview(owner, request(revision, dry_run=True, **args), "scope")["result"]
+    assert review["changes"] == []
+    editor._save(owner, request(revision, confirm=True, idempotency_key="noop",
+                               preview_token=review["preview_token"], **args), "scope")
+    assert not service.get_backup_history()
+    assert path.read_bytes() == before

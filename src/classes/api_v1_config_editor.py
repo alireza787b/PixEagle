@@ -33,6 +33,12 @@ _MISSING = object()
 _ACTION = "config_save"
 
 
+class ConfigSettingError(NativeTargetError):
+    def __init__(self, path, message):
+        super().__init__("config_invalid_value", message, 422)
+        self.setting_path = path
+
+
 def _principal(http_request, *, write=False):
     principal = getattr(http_request.state, "api_principal", None)
     scopes = {"config:read", "config:write"} if write else {"config:read"}
@@ -96,7 +102,7 @@ def _changes(service, before, after, path=()):
     if after is _MISSING and isinstance(before, dict) and before:
         yield from _changes(service, before, {}, path)
         return
-    if before == after:
+    if before == after and isinstance(before, bool) == isinstance(after, bool):
         return
     yield dict(
         path=list(path),
@@ -120,6 +126,48 @@ def _validate_value(value):
             _validate_value(item)
 
 
+def _import_mapping(service, raw, request):
+    excluded = {tuple(path) for path in request.excluded_paths}
+    if any(not path or len(path) > 16 for path in excluded):
+        raise NativeTargetError("config_path_invalid", "A setting has an invalid path.", 422)
+
+    count = 0
+
+    def keep(value, path=()):
+        nonlocal count
+        count += 1
+        if count > 20000 or len(path) > 16:
+            raise NativeTargetError("config_import_too_large", "This configuration is too large to review.", 422)
+        if value == "[REDACTED]" or path in excluded:
+            return _MISSING
+        if isinstance(value, dict):
+            result = {}
+            for key, item in value.items():
+                if not key or len(key) > 160 or key.strip() != key:
+                    raise NativeTargetError("config_path_invalid", "A YAML key has an invalid name.", 422)
+                child = keep(item, (*path, key))
+                if child is not _MISSING:
+                    result[key] = child
+            return result if result or not value else _MISSING
+        if isinstance(value, list):
+            # Arrays are atomic. A redacted item means the destination array stays intact.
+            result = [keep(item, (*path, str(index))) for index, item in enumerate(value)]
+            return _MISSING if result != value else value
+        _validate_value(value)
+        return value
+
+    filtered = keep(request.import_values)
+    if filtered is _MISSING:
+        return raw
+    for retirement in service._get_retirement_registry_locked()["retirements"]:
+        path = retirement["path"]
+        existing = service._get_mapping_path(raw, path, _MISSING)
+        supplied = service._get_mapping_path(filtered, path, _MISSING)
+        if supplied is not _MISSING and supplied != existing:
+            raise NativeTargetError("config_retired_setting", f"Review {'.'.join(path)} in Sync with defaults.", 422)
+    return service._deep_merge_mapping(raw, filtered)
+
+
 def _candidate(service, raw, request):
     if request.backup_id:
         backup = next((p for p in service._get_managed_backup_files() if p.stem == request.backup_id), None)
@@ -130,6 +178,9 @@ def _candidate(service, raw, request):
         if not isinstance(candidate, dict):
             raise NativeTargetError("config_invalid_backup", "This backup cannot be restored.", 422)
         return candidate
+
+    if request.import_values is not None:
+        return _import_mapping(service, raw, request)
 
     # The source is a newly read object, so modifying a copy keeps the preview
     # baseline intact for the exact per-setting comparison.
@@ -152,7 +203,7 @@ def _candidate(service, raw, request):
         else:
             _validate_value(edit.value)
             if not service.validate_path(path, edit.value).valid:
-                raise NativeTargetError("config_invalid_value", f"Check the value for {'.'.join(path)}.", 422)
+                raise ConfigSettingError(path, f"Check the value for {'.'.join(path)}.")
             service._set_mapping_path(candidate, path, edit.value)
     return candidate
 
@@ -163,6 +214,15 @@ def _review(service, request, scope):
         raise NativeTargetError("config_revision_stale", "Settings changed on PixEagle. Refresh and review again.")
     candidate = _candidate(service, raw, request)
     try:
+        if request.import_values is not None:
+            for change in _changes(service, raw, candidate):
+                path = change["path"]
+                definition = service.get_path_schema(path)
+                if definition.get("read_only"):
+                    raise NativeTargetError("config_path_read_only", f"{'.'.join(path)} is read-only.", 422)
+                value = service._get_mapping_path(candidate, path, _MISSING)
+                if definition and value is not _MISSING and not service.validate_path(path, value).valid:
+                    raise ConfigSettingError(path, f"Check the value for {'.'.join(path)}.")
         normalized = service._normalize_effective_config_locked(candidate)
         validation = service.validate_config_mapping(normalized, require_safety=True)
     except ValueError:
@@ -206,7 +266,8 @@ def _save(owner, request, scope):
             service.stage_reviewed_config(candidate, normalized)
             _persist_config(service, transaction, backup=False)
             _assert_audit_source_unchanged(service, transaction)
-            _log_config_audit(service, transaction, action="restore" if request.backup_id else "update",
+            audit_action = "restore" if request.backup_id else "import" if request.import_values is not None else "update"
+            _log_config_audit(service, transaction, action=audit_action,
                               section="*", old_value=None, new_value=None, source=_ACTION)
             _publish_runtime_config(service)
         _, revision = _current_locked(service)
@@ -240,5 +301,10 @@ async def config_save_action(owner, request, http_request):
                 return record
 
         return await app._run_on_flight_event_loop(execute)
+    except ConfigSettingError as exc:
+        return owner._api_v1_error_response(
+            status_code=exc.status_code, code=exc.code, path=API_V1_ACTION_CONFIG_SAVE_PATH,
+            detail={"message": str(exc), "setting_path": exc.setting_path},
+        )
     except Exception as exc:
         return _error(owner, exc, API_V1_ACTION_CONFIG_SAVE_PATH)

@@ -1,16 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useBlocker, useBeforeUnload } from 'react-router-dom';
 import {
-  Alert, Box, Button, Container, Dialog, DialogActions, DialogContent, DialogTitle,
-  Divider, List, ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Paper,
+  Alert, Box, Button, Collapse, Container, Dialog, DialogActions, DialogContent, DialogTitle,
+  Divider, List, ListItemButton, ListItemIcon, ListItemText, ListSubheader, Menu, MenuItem, Paper,
   Stack, TextField, Typography,
 } from '@mui/material';
 import {
-  ArrowForward, Checklist, FileDownload, GpsFixed, History, MoreHoriz, Navigation,
+  ArrowForward, Checklist, ExpandLess, ExpandMore, FileDownload, FileUpload, GpsFixed, History, MoreHoriz, Navigation,
   Router, Settings, Shield, Tune, Undo, Videocam,
 } from '@mui/icons-material';
-import SectionEditor, { settingLabel, touchControls } from '../components/config/SectionEditor';
+import SectionEditor, { matchesSetting, settingLabel, touchControls } from '../components/config/SectionEditor';
 import ExportDialog from '../components/config/ExportDialog';
+import AuditLogDialog from '../components/config/AuditLogDialog';
 import SyncWithDefaultsDialog from '../components/config/SyncWithDefaultsDialog';
 import { useConfigSchema } from '../hooks/useConfig';
 import { useDefaultsSync } from '../hooks/useDefaultsSync';
@@ -19,12 +20,12 @@ import { apiFetchJson } from '../services/apiClient';
 import { buildActionRequest } from '../services/actionRequests';
 import { endpoints } from '../services/apiEndpoints';
 import { isPlainObject } from '../utils/configEditorSchemaUtils';
+import { readConfigYaml } from '../utils/configImport';
 
 const categoryIcons = {
   video: Videocam, tracking: GpsFixed, network: Router, follower: Navigation,
   safety: Shield, control: Tune,
 };
-const commonSections = ['VideoSource', 'Streaming', 'Tracking', 'Follower', 'Safety'];
 const errorText = (error) => error?.data?.message || error?.message || 'The request failed.';
 const pathKey = (path) => JSON.stringify(path);
 const atPath = (value, path) => path.reduce((current, key) => current &&
@@ -82,16 +83,21 @@ export default function SettingsPage() {
   const defaultsSync = useDefaultsSync();
   const { refreshRuntimeStatus, requestRestartConfirmation } = usePendingRestart();
   const [saved, setSaved] = useState(null);
+  const savedRef = useRef(null);
   const [draft, setDraft] = useState({});
   const [section, setSection] = useState(() => window.location.hash.slice(1) || 'VideoSource');
   const [query, setQuery] = useState('');
-  const [advanced, setAdvanced] = useState(() => Boolean(window.location.hash));
+  const [expanded, setExpanded] = useState({});
+  const [showDefaults, setShowDefaults] = useState(false);
   const [review, setReview] = useState(null);
   const [busy, setBusy] = useState(false);
   const operation = useRef(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [fieldIssue, setFieldIssue] = useState(null);
   const [backup, setBackup] = useState(null);
+  const [imported, setImported] = useState(null);
+  const fileInput = useRef(null);
   const [more, setMore] = useState(null);
   const [dialog, setDialog] = useState(null);
   const [history, setHistory] = useState([]);
@@ -99,6 +105,19 @@ export default function SettingsPage() {
 
   const reload = useCallback(async () => {
     const data = await apiFetchJson(endpoints.configEditor);
+    const previous = savedRef.current;
+    if (previous && previous.revision !== data.revision) {
+      // Preserve only the edited leaves when another client updates a sibling.
+      setDraft((old) => Object.fromEntries(Object.entries(old).map(([key, entry]) => {
+        if (entry.error) return [key, entry];
+        const edits = leafEdits(atPath(previous.config, entry.path), entry.value, entry.path);
+        const value = edits.reduce((latest, change) => restoreLeaf(
+          latest, change.path.slice(entry.path.length), change.unset ? undefined : change.value
+        ), atPath(data.config, entry.path));
+        return [key, { ...entry, value }];
+      })));
+    }
+    savedRef.current = data;
     setSaved(data);
     return data;
   }, []);
@@ -111,8 +130,8 @@ export default function SettingsPage() {
     invalid ? [] : leafEdits(atPath(saved?.config, path), value, path)
   )), [draft, saved]);
   const invalidCount = Object.values(draft).filter((entry) => entry.error).length;
-  const count = pending.length + invalidCount;
-  const hasUnsaved = Boolean(count || review || busy);
+  const count = imported ? imported.count : pending.length + invalidCount;
+  const hasUnsaved = Boolean(count || review || busy || imported);
   const blocker = useBlocker(({ currentLocation, nextLocation }) => (
     hasUnsaved && currentLocation.pathname !== nextLocation.pathname
   ));
@@ -123,6 +142,7 @@ export default function SettingsPage() {
   }, [hasUnsaved]));
 
   const edit = (path, value, input) => {
+    setFieldIssue(null);
     setDraft((old) => ({ ...old, [pathKey(path)]: { path, value, ...input } }));
     setNotice('');
   };
@@ -137,7 +157,9 @@ export default function SettingsPage() {
 
   const discard = () => {
     setDraft({});
+    setImported(null);
     setReview(null);
+    setFieldIssue(null);
     setError('');
   };
 
@@ -152,6 +174,12 @@ export default function SettingsPage() {
       if (['config_revision_stale', 'config_preview_stale'].includes(err.data?.code)) {
         setReview(null);
         await reload().catch(() => {});
+      }
+      const path = err.data?.detail?.setting_path;
+      if (Array.isArray(path) && path.length) {
+        setFieldIssue({ path, message: errorText(err) });
+        setSection(path[0]);
+        setQuery('');
       }
       setError(errorText(err));
     } finally {
@@ -168,16 +196,27 @@ export default function SettingsPage() {
     return answer.result;
   };
 
-  const preview = async (input) => {
+  const preview = async (input, importName = imported?.name) => {
     const body = { revision: saved.revision, ...input };
-    const result = await send({ ...body, dry_run: true });
-    setReview({
-      body, ...result,
-      action: buildActionRequest('save_settings', { ui: 'settings' }),
-    });
+    let result;
+    try {
+      result = await send({ ...body, dry_run: true });
+    } catch (err) {
+      if (importName && err.data?.code === 'config_revision_stale') {
+        setImported({ input, name: importName, count: imported?.count || 1 });
+      }
+      throw err;
+    }
+    if (importName) setImported({ input, name: importName, count: result.changes.length });
+    setReview({ body, ...result, action: buildActionRequest('save_settings', { ui: 'settings' }) });
   };
 
   const undoReviewed = (path) => perform(async () => {
+    if (imported) {
+      const input = { ...imported.input, excluded_paths: [...(imported.input.excluded_paths || []), path] };
+      await preview(input);
+      return;
+    }
     const parent = Object.values(draft).find((entry) => entry.path.every((key, index) => key === path[index]));
     if (!parent) return;
     const remaining = pending.filter((entry) => pathKey(entry.path) !== pathKey(path));
@@ -186,6 +225,22 @@ export default function SettingsPage() {
     if (remaining.length) await preview({ edits: remaining });
     else setReview(null);
   });
+
+  const chooseImport = () => {
+    if (hasUnsaved) setDialog('importPending');
+    else fileInput.current?.click();
+  };
+
+  const readImport = (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    perform(async () => {
+      await preview({ import_values: await readConfigYaml(file) }, file.name);
+    });
+  };
+
+  const reviewDraft = () => perform(() => preview(imported ? imported.input : { edits: pending }));
 
   const verify = async (revision) => {
     const active = await reload();
@@ -204,10 +259,10 @@ export default function SettingsPage() {
     const status = runtime.value;
     const tiers = new Set([...(active.pending_changes || []), ...(native.value?.pending_changes || [])]
       .map((change) => change.reload_tier));
-    setNotice(status?.restart_required ? 'Saved. Restart PixEagle to apply.'
+    setNotice(status?.restart_required || tiers.has('system_restart') ? 'Saved. Restart PixEagle to apply.'
       : tiers.has('tracker_restart') ? 'Saved. Apply the saved tracker settings.'
         : tiers.has('follower_restart') ? 'Saved. Restart the follower to use the new settings.'
-          : 'Saved and verified.');
+          : tiers.size ? 'Saved. Apply the saved settings.' : 'Saved and verified.');
     setApplyStatus(native.status === 'fulfilled' ? native.value : null);
   };
 
@@ -216,6 +271,7 @@ export default function SettingsPage() {
       ...review.body, ...review.action, preview_token: review.preview_token, dry_run: false,
     });
     setDraft({});
+    setImported(null);
     setReview(null);
     setBackup(result.backup_id ? { id: result.backup_id, revision: result.revision } : null);
     setNotice('Saved. Checking running settings…');
@@ -251,6 +307,11 @@ export default function SettingsPage() {
         setHistory(result.backups || []);
         setDialog(action);
       });
+    } else if (action === 'reconnect') {
+      perform(async () => {
+        const result = await apiFetchJson(endpoints.videoReconnect, { method: 'POST' });
+        setNotice(result.message || 'Video reconnection requested.');
+      });
     } else {
       setDialog(action);
     }
@@ -258,16 +319,24 @@ export default function SettingsPage() {
 
   const sections = Object.entries(schema?.sections || {});
   const search = query.trim().toLowerCase();
-  const visible = sections.filter(([name, definition]) => search
-    ? [name, settingLabel(name, definition), ...Object.entries(definition.parameters || {}).flatMap(
-      ([key, field]) => [key, settingLabel(key, field), field.description]
-    )].some((value) => value?.toLowerCase().includes(search))
-    : advanced || commonSections.includes(name)
-  );
+  const categories = schema?.categories || {};
+  const categoryLabel = (category) => settingLabel(category, categories[category]);
+  const visible = sections.filter(([name, definition]) => !search || matchesSetting(name, definition, search)
+    || categoryLabel(definition.category || 'other').toLowerCase().includes(search));
+  const grouped = new Map();
+  visible.forEach((row) => {
+    const category = row[1].category || 'other';
+    if (!grouped.has(category)) grouped.set(category, []);
+    grouped.get(category).push(row);
+  });
+  const groups = [...grouped].sort(([first], [second]) =>
+    (categories[first]?.order ?? Infinity) - (categories[second]?.order ?? Infinity)
+    || categoryLabel(first).localeCompare(categoryLabel(second)));
   const activeSection = visible.some(([name]) => name === section) ? section : visible[0]?.[0];
   const writable = Boolean(!schemaLoading && schema && saved?.writable);
   const configReady = Boolean(saved && schema);
   const displayError = schemaError || error;
+  const reviewTiers = [...new Set(review?.changes.map((change) => change.reload_tier) || [])];
 
   return <Container maxWidth="lg" sx={{ py: { xs: 1.5, md: 3 }, ...touchControls }}>
     <Paper variant="outlined" sx={{
@@ -277,14 +346,18 @@ export default function SettingsPage() {
       <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
         <Settings color="primary" />
         <Typography component="h1" variant="h5" sx={{ flexGrow: 1 }}>Settings</Typography>
+        <input ref={fileInput} type="file" accept=".yaml,.yml" aria-label="Choose settings YAML"
+          hidden onChange={readImport} />
+        <Button startIcon={<FileUpload />} disabled={!writable || busy} onClick={chooseImport}>Import</Button>
         <Button startIcon={<MoreHoriz />} onClick={(event) => setMore(event.currentTarget)}>More</Button>
         <Button variant="contained" startIcon={<Checklist />}
           disabled={!writable || !count || busy || Boolean(invalidCount)}
-          onClick={() => perform(() => preview({ edits: pending }))}>
+          onClick={reviewDraft}>
           Review changes{count ? ` (${count})` : ''}
         </Button>
       </Stack>
       {Boolean(invalidCount) && <Typography color="error" variant="body2">Correct the highlighted values before reviewing.</Typography>}
+      {busy && !review && <Typography role="status" variant="body2">Checking settings…</Typography>}
     </Paper>
 
     {displayError && !review && <Alert severity="error" sx={{ mb: 2 }}>{displayError}
@@ -302,35 +375,83 @@ export default function SettingsPage() {
       display: 'grid', gridTemplateColumns: { xs: '1fr', md: '235px minmax(0, 1fr)' }, gap: 2, alignItems: 'start',
     }}>
       <Paper variant="outlined" sx={{ p: 1 }}>
-        <TextField fullWidth size="small" label="Search settings" value={query} onChange={(event) => setQuery(event.target.value)} />
+        <TextField fullWidth size="small" label="Search settings" value={query} onChange={(event) => {
+          setQuery(event.target.value);
+          setExpanded({});
+        }} />
         <TextField select fullWidth size="small" label="Section" value={activeSection || ''}
           onChange={(event) => setSection(event.target.value)} sx={{ display: { md: 'none' }, mt: 1 }}>
-          {visible.map(([name, definition]) => <MenuItem value={name} key={name}>{settingLabel(name, definition)}</MenuItem>)}
+          {groups.flatMap(([category, rows]) => [
+            <ListSubheader key={category}>{categoryLabel(category)}</ListSubheader>,
+            ...rows.map(([name, definition]) => <MenuItem value={name} key={name} sx={{ minHeight: 44 }}>
+              {settingLabel(name, definition)}
+            </MenuItem>),
+          ])}
         </TextField>
-        <List disablePadding sx={{ display: { xs: 'none', md: 'block' }, maxHeight: '60vh', overflow: 'auto' }}>
-          {visible.map(([name, definition]) => {
-            const Icon = categoryIcons[definition.category] || Settings;
-            return <ListItemButton key={name} selected={name === activeSection} onClick={() => setSection(name)} sx={{ minHeight: 44 }}>
-              <ListItemIcon sx={{ minWidth: 34 }}><Icon fontSize="small" /></ListItemIcon>
-              <ListItemText primary={settingLabel(name, definition)} />
-            </ListItemButton>;
+        <List aria-label="Settings categories" disablePadding
+          sx={{ display: { xs: 'none', md: 'block' }, maxHeight: '60vh', overflow: 'auto' }}>
+          {groups.map(([category, rows]) => {
+            const Icon = categoryIcons[category] || Settings;
+            const open = expanded[category] ?? (Boolean(search) || rows.some(([name]) => name === activeSection));
+            const id = `settings-category-${category}`;
+            return <Box component="li" key={category}>
+              <ListItemButton aria-expanded={open} aria-controls={id} sx={{ minHeight: 44 }}
+                onClick={() => setExpanded((old) => ({ ...old, [category]: !open }))}>
+                <ListItemIcon sx={{ minWidth: 34 }}><Icon fontSize="small" /></ListItemIcon>
+                <ListItemText primary={categoryLabel(category)} />
+                {open ? <ExpandLess fontSize="small" /> : <ExpandMore fontSize="small" />}
+              </ListItemButton>
+              <Collapse in={open} id={id}>
+                <List disablePadding>
+                  {rows.map(([name, definition]) => <ListItemButton key={name} selected={name === activeSection}
+                    onClick={() => setSection(name)} sx={{ minHeight: 44, pl: 4 }}>
+                    <ListItemText primary={settingLabel(name, definition)} />
+                  </ListItemButton>)}
+                </List>
+              </Collapse>
+            </Box>;
           })}
         </List>
-        <Button onClick={() => setAdvanced(!advanced)}>{advanced ? 'Common settings' : 'All settings'}</Button>
       </Paper>
       {activeSection ? <SectionEditor
         key={activeSection} section={activeSection} schema={schema.sections[activeSection]}
         saved={saved.config[activeSection]} draft={draft} onEdit={edit} onUndo={undo}
-        disabled={!writable || busy} query={search} showDefaults={advanced}
+        disabled={!writable || busy || Boolean(imported)}
+        query={schema.sections[activeSection].category &&
+          categoryLabel(schema.sections[activeSection].category).toLowerCase().includes(search) ? '' : search}
+        showDefaults={showDefaults} fieldIssue={fieldIssue}
       /> : <Typography>No matching settings.</Typography>}
     </Box>}
 
+    {imported && !review && <Alert severity="info" sx={{ my: 2 }}
+      action={<Button disabled={busy} onClick={discard}>Discard import</Button>}>
+      {imported.name} is waiting for review.
+    </Alert>}
+    <Dialog open={dialog === 'importPending'} onClose={() => setDialog(null)} PaperProps={{ sx: touchControls }}>
+      <DialogTitle>You have unsaved settings</DialogTitle>
+      <DialogActions sx={{ flexWrap: 'wrap' }}>
+        <Button onClick={() => { setDialog(null); if (!invalidCount) reviewDraft(); }}>
+          {invalidCount ? 'Keep editing' : 'Review existing edits'}
+        </Button>
+        <Button color="error" onClick={() => {
+          discard();
+          setDialog(null);
+          fileInput.current?.click();
+        }}>Discard edits and import</Button>
+      </DialogActions>
+    </Dialog>
     <Menu anchorEl={more} open={Boolean(more)} onClose={() => setMore(null)}>
       <MenuItem onClick={() => openMore('export')} disabled={!configReady}><FileDownload sx={{ mr: 1 }} />Export saved YAML</MenuItem>
       <MenuItem onClick={() => openMore('history')} disabled={!configReady || !!count}><History sx={{ mr: 1 }} />Backup history</MenuItem>
+      <MenuItem onClick={() => openMore('audit')} disabled={!configReady}>Audit log</MenuItem>
       <MenuItem onClick={() => openMore('sync')} disabled={!writable || !!count}>Sync with defaults</MenuItem>
+      <MenuItem onClick={() => { setMore(null); setShowDefaults(!showDefaults); }}>
+        {showDefaults ? 'Hide default actions' : 'Show default actions'}
+      </MenuItem>
+      <MenuItem onClick={() => openMore('reconnect')} disabled={busy}>Reconnect video</MenuItem>
       <MenuItem onClick={() => openMore('discard')} disabled={!count || busy}>Discard all edits</MenuItem>
     </Menu>
+    {dialog === 'audit' && <AuditLogDialog open onClose={() => setDialog(null)} />}
     {dialog === 'export' && <ExportDialog open onClose={() => setDialog(null)} />}
     {dialog === 'sync' && <SyncWithDefaultsDialog open defaultsSync={defaultsSync}
       mutationsAllowed={writable} onMessage={setNotice} onRebootRequired={refreshRuntimeStatus}
@@ -365,11 +486,25 @@ export default function SettingsPage() {
     </Dialog>
 
     <Dialog open={Boolean(review)} fullWidth maxWidth="sm" PaperProps={{ sx: touchControls }}
-      onClose={busy ? undefined : () => setReview(null)}>
-      <DialogTitle>{review?.body.backup_id ? 'Review backup restore' : 'Review changes'}</DialogTitle>
+      onClose={busy ? undefined : imported ? discard : () => setReview(null)}>
+      <DialogTitle>{review?.body.backup_id ? 'Review backup restore' : imported ? 'Review import' : 'Review changes'}</DialogTitle>
       <DialogContent dividers>
+        {imported && <Typography color="text.secondary" variant="body2" sx={{ mb: 2 }}>
+          {imported.name} · Merge · Settings omitted from the file are kept.
+        </Typography>}
+        {Boolean(imported?.input.excluded_paths?.length) && <Button disabled={busy} onClick={() =>
+          perform(() => preview({ ...imported.input, excluded_paths: [] }))
+        }>Include omitted changes</Button>}
         {error && <Alert severity="error" sx={{ mb: 1 }}>{error}</Alert>}
         {!review?.changes.length && <Typography>No changes to save.</Typography>}
+        {Boolean(review?.changes.length) && <Stack gap={0.25} sx={{ mb: 2 }}>
+          <Typography color="text.secondary" variant="body2">Saved → New</Typography>
+          {reviewTiers.includes('system_restart')
+            ? <Typography variant="caption">{reloadMessage.system_restart}</Typography>
+            : reviewTiers.filter((tier) => reloadMessage[tier]).map((tier) => (
+              <Typography key={tier} variant="caption">{reloadMessage[tier]}</Typography>
+            ))}
+        </Stack>}
         <Stack divider={<Divider />} spacing={1.5}>
           {review?.changes.map((change) => {
             const meta = changeMetadata(schema, change.path);
@@ -381,18 +516,18 @@ export default function SettingsPage() {
                 <ArrowForward fontSize="small" aria-label="changed to" />
                 <Typography fontWeight={600}>{displayValue(change.new_value, meta.unit, change.kind === 'removed')}</Typography>
                 {!review.body.backup_id && <Button size="small" disabled={busy} startIcon={<Undo />}
-                  aria-label={`Undo ${meta.label}`} onClick={() => undoReviewed(change.path)} sx={{ ml: 'auto' }}>Undo</Button>}
+                  aria-label={`${imported ? 'Omit' : 'Undo'} ${meta.label}`}
+                  onClick={() => undoReviewed(change.path)} sx={{ ml: 'auto' }}>{imported ? 'Omit' : 'Undo'}</Button>}
               </Stack>
-              {reloadMessage[change.reload_tier] && <Typography variant="caption" color="text.secondary">
-                {reloadMessage[change.reload_tier]}
-              </Typography>}
             </Stack>;
           })}
         </Stack>
       </DialogContent>
       <DialogActions sx={{ flexWrap: 'wrap' }}>
-        <Button disabled={busy} onClick={() => setReview(null)}>{review?.body.backup_id ? 'Cancel' : 'Keep editing'}</Button>
-        {!review?.body.backup_id && <Button disabled={busy} onClick={() => { setReview(null); setDialog('discard'); }}>Discard all</Button>}
+        <Button disabled={busy} onClick={imported ? discard : () => setReview(null)}>
+          {review?.body.backup_id || imported ? 'Cancel' : 'Keep editing'}
+        </Button>
+        {!review?.body.backup_id && !imported && <Button disabled={busy} onClick={() => { setReview(null); setDialog('discard'); }}>Discard all</Button>}
         <Button variant="contained" disabled={busy || !review?.changes.length} onClick={save}>
           {busy ? 'Working…' : 'Save changes'}
         </Button>
