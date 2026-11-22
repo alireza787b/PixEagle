@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## Version 7.5.4 (2026-11-22) - Flight replay diagnostics
+
+- Prefer recorded submitted command fields in read-only SIH replays and label
+  their provenance.
+- Show the speed request, optional PX4 velocity setpoint, and observed motion
+  separately. Missing or stale measurements stay blank in the HTML and exports.
+- Align version metadata across the backend, Dashboard and installer. This
+  patch changes evidence reporting only.
+
 ## Version 7.5.3 (2026-10-27) - Release identity alignment
 
 - Align backend, Dashboard package metadata and installer version with the

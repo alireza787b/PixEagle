@@ -39,6 +39,31 @@ recorded vehicle attitude is available; otherwise the report labels it as
 body-FRD-only instead of inventing a transform. Missing or stale pose and
 command records produce visible gaps and `unknown_or_stale_evidence` flags.
 
+### Reading speed and altitude evidence
+
+Compare the session request, submitted command, PX4 setpoint, and observed
+motion at the same point in the replay. These measurements use different
+frames and may describe different quantities. A 3D speed request, horizontal
+ground speed, and fixed-wing equivalent airspeed are distinct measurements.
+
+- **Command source** identifies the submitted fields from a successful
+  publication. For older traces, it identifies published intent or an
+  unpublished follower proposal. Publication alone does not confirm receipt
+  by PX4.
+- **PX4 setpoint** appears when an independently recorded
+  `px4/velocity_setpoint_trace.jsonl` is supplied. Each row uses
+  `record_type: px4_velocity_setpoint`, `timestamp` in seconds, and a finite
+  three-element `velocity_ned` in m/s. Use the same clock as the pose trace.
+- **Observed velocity** appears when the PX4 pose row includes `velocity_ned`.
+  Down is positive in both records. Local altitude is the negative of the
+  local NED down position, relative to the estimator origin.
+
+Blank measurements indicate missing or stale data. To investigate a speed
+plateau, check where it first appears in that chain. A flight log with a PX4
+setpoint or observed speed alone leaves the companion-side stages unknown.
+Keep preset altitude checks separate from optical tracking checks so both
+results have clear inputs and endpoints.
+
 ## Live read-only observation
 
 The live mode polls an authenticated, read-only MAVLink2REST snapshot and saves

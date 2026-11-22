@@ -209,6 +209,9 @@ class VisualizationSample:
     target_ned: Optional[tuple[float, float, float]] = None
     vehicle_ned: Optional[tuple[float, float, float]] = None
     vehicle_quaternion: Optional[tuple[float, float, float, float]] = None
+    vehicle_velocity_ned: Optional[tuple[float, float, float]] = None
+    px4_velocity_setpoint_ned: Optional[tuple[float, float, float]] = None
+    command_source: Optional[str] = None
     command: dict[str, float] = field(default_factory=dict)
     published: bool = False
     tracker_state: Optional[str] = None
@@ -227,6 +230,9 @@ class VisualizationSample:
             "target_ned": self.target_ned,
             "vehicle_ned": self.vehicle_ned,
             "vehicle_quaternion": self.vehicle_quaternion,
+            "vehicle_velocity_ned": self.vehicle_velocity_ned,
+            "px4_velocity_setpoint_ned": self.px4_velocity_setpoint_ned,
+            "command_source": self.command_source,
             "command": self.command,
             "published": self.published,
             "tracker_state": self.tracker_state,
@@ -368,6 +374,9 @@ def load_evidence(root: Path) -> dict[str, list[dict[str, Any]]]:
         "pose": read_jsonl(first_existing(
             "px4/pose_trace.jsonl", "px4/vehicle_pose.jsonl", "px4/pose.jsonl",
         )),
+        "px4_velocity_setpoint": read_jsonl(
+            root / "px4" / "velocity_setpoint_trace.jsonl", expected_record_type="px4_velocity_setpoint",
+        ),
         "target": read_jsonl(first_existing(
             "trace/target_truth.jsonl", "scenarios/target_truth.jsonl",
         )),
@@ -383,9 +392,7 @@ def load_evidence(root: Path) -> dict[str, list[dict[str, Any]]]:
     }
 
 
-def _command_fields(record: Mapping[str, Any]) -> dict[str, float]:
-    intent = record.get("command_intent") or {}
-    fields = intent.get("fields") if isinstance(intent, Mapping) else None
+def _command_fields(fields: Any) -> dict[str, float]:
     if not isinstance(fields, Mapping):
         return {}
     result: dict[str, float] = {}
@@ -408,6 +415,19 @@ def _command_fields(record: Mapping[str, Any]) -> dict[str, float]:
     return result
 
 
+def _read_command(tracker, publication):
+    if publication.get("publish_success") is True:
+        if isinstance(publication.get("submitted_fields"), Mapping):
+            return _command_fields(publication["submitted_fields"]), "submitted", publication
+        intent = publication.get("command_intent")
+        if isinstance(intent, Mapping) and isinstance(intent.get("fields"), Mapping):
+            return _command_fields(intent["fields"]), "published_intent", publication
+    proposal = tracker or publication
+    intent = proposal.get("command_intent")
+    fields = _command_fields(intent.get("fields")) if isinstance(intent, Mapping) else {}
+    return fields, "proposal" if fields else None, proposal
+
+
 def _command_speed(command: Mapping[str, float]) -> Optional[float]:
     names = ("vel_body_fwd", "vel_body_right", "vel_body_down")
     if not all(name in command for name in names):
@@ -425,10 +445,11 @@ def build_timeline(
     tracker = evidence.get("tracker", [])
     published = evidence.get("published", [])
     pose = evidence.get("pose", [])
+    px4_setpoints = evidence.get("px4_velocity_setpoint", [])
     state = evidence.get("state", [])
     timestamps = sorted({
         _record_timestamp(record)
-        for records in (tracker, published, pose, state, evidence.get("target", []))
+        for records in (tracker, published, pose, px4_setpoints, state, evidence.get("target", []))
         for record in records
     })
     result: list[VisualizationSample] = []
@@ -437,9 +458,10 @@ def build_timeline(
         publish_record = _nearest_fresh(published, timestamp, max_command_age_s)
         pose_record = _nearest_fresh(pose, timestamp, max_pose_age_s)
         state_record = _nearest_fresh(state, timestamp, max_command_age_s)
-        command = _command_fields(tracker_record or publish_record or {})
+        px4_setpoint = _nearest_fresh(px4_setpoints, timestamp, max_command_age_s)
+        command, command_source, command_record = _read_command(tracker_record or {}, publish_record or {})
         tracker_output = (tracker_record or {}).get("tracker_output") or {}
-        command_intent = (tracker_record or {}).get("command_intent") or {}
+        command_intent = command_record.get("command_intent") or {}
         metadata = tracker_output.get("metadata") if isinstance(tracker_output, Mapping) else {}
         if not isinstance(metadata, Mapping):
             metadata = {}
@@ -489,6 +511,9 @@ def build_timeline(
             target_ned=target,
             vehicle_ned=vehicle,
             vehicle_quaternion=quaternion,
+            vehicle_velocity_ned=_vector((pose_record or {}).get("velocity_ned")),
+            px4_velocity_setpoint_ned=_vector((px4_setpoint or {}).get("velocity_ned")),
+            command_source=command_source,
             command=command,
             published=bool(publish_record and publish_record.get("publish_success") is True),
             tracker_state=(
@@ -497,7 +522,7 @@ def build_timeline(
                 or tracker_output.get("tracking_state")
             ),
             continuity_state=state_record.get("state") if state_record else None,
-            limiting_reason=metadata.get("limiting_reason") or reason,
+            limiting_reason=(state_record or {}).get("limiting_reason") or metadata.get("limiting_reason"),
             requested_speed=requested_speed,
             effective_speed=speed,
             speed_source=speed_source,
@@ -680,6 +705,8 @@ def _counts(values: Iterable[Optional[str]]) -> dict[str, int]:
 def write_csv(path: Path, samples: Iterable[VisualizationSample]) -> None:
     fields = [
         "timestamp", "target_n", "target_e", "target_d", "vehicle_n", "vehicle_e", "vehicle_d",
+        "command_source", "observed_velocity_n", "observed_velocity_e", "observed_velocity_d",
+        "px4_velocity_setpoint_n", "px4_velocity_setpoint_e", "px4_velocity_setpoint_d",
         "vel_body_fwd", "vel_body_right", "vel_body_down", "rollspeed_deg_s", "pitchspeed_deg_s",
         "yawspeed_deg_s", "thrust", "published", "tracker_state", "continuity_state",
         "limiting_reason", "requested_speed", "effective_speed", "speed_source",
@@ -695,6 +722,13 @@ def write_csv(path: Path, samples: Iterable[VisualizationSample]) -> None:
                 row.update(dict(zip(("target_n", "target_e", "target_d"), sample.target_ned)))
             if sample.vehicle_ned:
                 row.update(dict(zip(("vehicle_n", "vehicle_e", "vehicle_d"), sample.vehicle_ned)))
+            if sample.vehicle_velocity_ned is not None:
+                row.update(zip(("observed_velocity_n", "observed_velocity_e", "observed_velocity_d"),
+                               sample.vehicle_velocity_ned))
+            if sample.px4_velocity_setpoint_ned is not None:
+                row.update(zip(("px4_velocity_setpoint_n", "px4_velocity_setpoint_e", "px4_velocity_setpoint_d"),
+                               sample.px4_velocity_setpoint_ned))
+            row["command_source"] = sample.command_source
             row.update(sample.command)
             row.update({
                 "published": sample.published,
