@@ -605,3 +605,18 @@ async def test_continuous_preparation_checks_cancel_before_any_write(camera):
     with pytest.raises(RuntimeError, match="Gesture ended"):
         await provider.manual_control.prepare_manual(ended)
     assert sent == []
+
+
+@pytest.mark.parametrize('source,waiting,connected,age,accepted', [
+    ('fresh', False, True, .05, True), ('cached', True, True, .05, True),
+    ('cached', False, True, .05, False), ('cached', True, False, .05, False),
+    ('cached', True, True, 2.1, False), ('none', False, False, .05, False)])
+def test_camera_selection_liveness_uses_capture_age_not_consumer_poll_gap(source, waiting, connected, age, accepted):
+    from classes.gimbal_control import is_camera_video_live
+    status = dict(source=source, awaiting_new_capture=waiting, connection_open=connected,
+        last_successful_frame_time=time.time() - age)
+    video = SimpleNamespace(get_frame_status=lambda: dict(status),
+        get_capture_stamp=lambda: SimpleNamespace(captured_at=time.monotonic() - age))
+    assert is_camera_video_live(video) is accepted
+    # Camera admission never relabels cached frames as fresh tracker evidence.
+    assert video.get_frame_status() == status

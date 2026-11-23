@@ -89,7 +89,7 @@ fields = setpoint_handler.get_fields()
 ### MAVSDK Mapping
 
 ```python
-from mavsdk.offboard import VelocityBodyYawspeed
+from mavsdk_grpc.offboard import VelocityBodyYawspeed
 
 velocity_cmd = VelocityBodyYawspeed(
     forward_m_s=fields['vel_body_fwd'],
@@ -154,7 +154,7 @@ if descending:
 ### MAVSDK Mapping
 
 ```python
-from mavsdk.offboard import AttitudeRate
+from mavsdk_grpc.offboard import AttitudeRate
 
 attitude_cmd = AttitudeRate(
     roll_deg_s=fields['rollspeed_deg_s'],

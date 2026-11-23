@@ -17,6 +17,10 @@ bounding boxes.
 
 Evidence and animation: [follower evidence gallery](follower-visual-guide.md).
 
+For the stock-firmware direction and two-stage operator sequence, see
+[stock PX4 gimbal/VTOL integration](../07-integration/stock-px4-gimbal-vtol.md).
+The installed VTOL path is not yet qualified for that stock workflow.
+
 FW/VTOL support is an [active native-adapter development checkpoint](../../../native/README.md).
 Its native course/airspeed contract is separate from the MC velocity
 path. Qualification is bounded by the [evidence inventory](../05-development/follower-sih-validation-matrix.md),

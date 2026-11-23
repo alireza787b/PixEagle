@@ -61,11 +61,11 @@ def verified_simulation_build(path: Path, *, repository: Path | None = None) -> 
     return simulator, verified, manifest
 
 
-def _simulation_model(simulator: str, manifest: dict | None, requested: str | None) -> str:
+def _simulation_model(simulator: str, manifest: dict | None, requested: str | None, *, scenario=None) -> str:
     if simulator == "gazebo":
         if not isinstance(manifest, dict) or not isinstance(manifest.get("build"), dict):
             raise ValueError("Gazebo requires a verified Gazebo build manifest")
-        expected = "gz_" + manifest["build"]["model"]
+        expected = "gz_" + (scenario["descriptor"] if scenario else manifest["build"])["model"]
         if requested is not None and requested != expected:
             raise ValueError("Requested simulator model differs from the verified Gazebo manifest")
         return expected
@@ -77,13 +77,24 @@ def _simulation_model(simulator: str, manifest: dict | None, requested: str | No
 
 def simulation_launch_args(simulator: str, baseline: dict, manifest: dict | None, *,
                            runtime: Path, token: str, name: str, model: str | None = None,
-                           startup_parameters: dict[str, str] | None = None) -> list[str]:
+                           startup_parameters: dict[str, str] | None = None,
+                           gazebo_scenario: str | None = None, desktop_network_id: str | None = None,
+                           bind_gazebo_template: bool = False) -> list[str]:
     """Stage a private rootfs and plan the owned primary; never launch it.
 
     Callers own the fixture parameter allowlist and native bounds. Values here
     are literal finite numbers consumed by the pinned rcS before Navigator.
     """
-    model = _simulation_model(simulator, manifest, model)
+    network = "none"
+    if desktop_network_id is not None:
+        network = owned_internal_network_info(desktop_network_id, token)["Id"]
+    scenario = None
+    if gazebo_scenario is not None:
+        from tools.gazebo_scenario import verified_scenario
+        if simulator != "gazebo" or manifest is None:
+            raise ValueError("A runtime scenario requires a verified Gazebo build")
+        scenario = verified_scenario(gazebo_scenario, baseline, manifest, bind_to_build=bind_gazebo_template)
+    model = _simulation_model(simulator, manifest, model, scenario=scenario)
     options = []
     source_build = baseline.get("kind") in {"verified_source_build", "verified_gazebo_source_build"}
     if startup_parameters and not source_build:
@@ -98,15 +109,25 @@ def simulation_launch_args(simulator: str, baseline: dict, manifest: dict | None
             raise ValueError("Gazebo requires a verified Gazebo build manifest")
         spec = manifest["build"]
         image = baseline["image_id"]
+        world = scenario["descriptor"]["world"] if scenario else spec["world"]
         for key, value in {"GZ_IP": "127.0.0.1", "GZ_PARTITION": token,
-                           "GZ_DISTRO": spec["distribution"], "PX4_GZ_WORLD": spec["world"],
+                           "GZ_DISTRO": spec["distribution"], "PX4_GZ_WORLD": world,
                            "PX4_GZ_NO_FOLLOW": "1", "HEADLESS": "1"}.items():
             options.extend(["-e", f"{key}={value}"])
+        if scenario:
+            from tools.gazebo_scenario import scenario_environment
+            if set(startup_parameters or {}) & scenario["expected_parameters"].keys():
+                raise ValueError("Startup parameters cannot override Gazebo scenario identity")
+            for key, value in scenario_environment(scenario).items():
+                options.extend(["-e", f"{key}={value}"])
     elif simulator == "sih" and model.startswith("sihsim_"):
         image = baseline.get("image_id", baseline.get("reference"))
     else:
         raise ValueError("Unsupported simulator launch plan")
     if source_build:
+        if scenario:
+            from tools.gazebo_scenario import stage_scenario_resources
+            options.extend(stage_scenario_resources(scenario, runtime))
         work = runtime.resolve() / "simulator"
         for directory in ("home", "rootfs"):
             (work / directory).mkdir(parents=True, mode=0o700, exist_ok=True)
@@ -117,8 +138,37 @@ def simulation_launch_args(simulator: str, baseline: dict, manifest: dict | None
     for key, value in sorted((startup_parameters or {}).items()):
         options.extend(["--env", f"PX4_PARAM_{key}={value}"])
     return ["docker", "run", "-d", "-i", "--name", name, "--label", f"{LABEL}={token}",
-            "--network", "none", "-e", f"PX4_SIM_MODEL={model}", *options, image,
+            "--network", network, "-e", f"PX4_SIM_MODEL={model}", *options, image,
             *(["-i", "0", "-w", "/work/rootfs", "/opt/px4/etc"] if source_build else [])]
+
+
+def owned_internal_network_info(network_id: str, token: str) -> dict:
+    """Desktop access uses an owner-bound internal bridge; never the host LAN."""
+    if not token or not isinstance(network_id, str) or re.fullmatch(r"[0-9a-f]{64}", network_id) is None:
+        raise ValueError("Desktop network requires its original full ID and ownership token")
+    records = json.loads(command("docker", "network", "inspect", network_id))
+    if len(records) != 1:
+        raise RuntimeError("Desktop network identity is ambiguous")
+    info = records[0]
+    if (info.get("Id") != network_id or (info.get("Labels") or {}).get(LABEL) != token
+            or info.get("Driver") != "bridge" or info.get("Internal") is not True
+            or info.get("EnableIPv6") is True):
+        raise RuntimeError("Desktop network isolation or ownership changed")
+    return info
+
+
+def create_owned_internal_network(name: str, token: str) -> str:
+    network_id = command("docker", "network", "create", "--driver", "bridge", "--internal",
+                         "--label", f"{LABEL}={token}", name)
+    owned_internal_network_info(network_id, token)
+    return network_id
+
+
+def remove_owned_internal_network(network_id: str, token: str) -> None:
+    info = owned_internal_network_info(network_id, token)
+    if info.get("Containers"):
+        raise RuntimeError("Desktop network still has attached containers")
+    command("docker", "network", "rm", network_id)
 
 
 def _require_owned_container(info: dict, token: str, container_id: str | None = None) -> dict:

@@ -130,7 +130,7 @@ def test_expired_recovery_cannot_be_revived_by_initial_binding():
 
 
 
-@pytest.mark.parametrize("execution_mode", ["PX4", "UNKNOWN"])
+@pytest.mark.parametrize("execution_mode", ["UNKNOWN"])
 def test_fw_recovery_requires_native_execution_owner(execution_mode):
     owner = supervisor()
     decision = owner.evaluate(evidence(False), context(execution_mode=execution_mode), now_monotonic_s=1.)

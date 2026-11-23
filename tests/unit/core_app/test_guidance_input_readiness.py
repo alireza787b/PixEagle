@@ -73,6 +73,24 @@ def test_canonical_readiness_calls_hook_with_exact_current_values():
     hook.assert_called_once_with(sample, state)
 
 
+async def test_active_phase_readiness_cannot_advance_camera_association_ahead_of_command_owner():
+    from tests.unit.drone_interface.test_mavlink_command_transport import Bench
+
+    bench = Bench()
+    await bench.engage()
+    hook = Mock(return_value=None)
+    ctrl, sample, _ = input_controller(hook)
+    ctrl.follower.follower._airframe_session = bench.guidance
+    ctrl.follower.follower._airframe_session_bound = True
+    state = bench.guidance.require_state()
+    assert evaluate_follower_guidance_input(ctrl, sample)["ready"]
+    hook.assert_called_once_with(sample, state)
+    ctrl.px4_interface.get_aircraft_state.assert_not_called()
+    await bench.sleep(.6)
+    assert evaluate_follower_guidance_input(ctrl, sample) == {"ready": False, "reason_code": "aircraft_state_stale"}
+    assert hook.call_count == 1
+
+
 @pytest.mark.parametrize("error,code", [
     (ValueError("image_attitude_alignment_stale"), "image_attitude_alignment_stale"),
     (ValueError("bad value with private source details"), "guidance_input_invalid"),
@@ -141,15 +159,15 @@ def test_source_and_evidence_readers_do_not_refresh_an_old_measurement():
 
 
 async def test_native_discovery_cannot_engage_after_target_becomes_unusable(app):
-    original = app.ctrl._prepare_native_follow_binding.side_effect
+    original = app.ctrl._prepare_airframe_follow_binding.side_effect
 
-    async def prepare():
-        binding = await original()
+    async def prepare(start_context):
+        binding = await original(start_context)
         await asyncio.sleep(0)
         app.ctrl._get_follow_start_readiness.return_value = {"usable_for_following": False, "reason": "target_lost"}
         return binding
 
-    app.ctrl._prepare_native_follow_binding.side_effect = prepare
+    app.ctrl._prepare_airframe_follow_binding.side_effect = prepare
     result = await app.ctrl._connect_px4_on_flight_loop()
     assert result["precondition"]["stage"] == "after_native_discovery"
     app.f.client.engage.assert_not_called()
@@ -167,10 +185,10 @@ async def test_new_target_or_source_during_native_discovery_requires_fresh_start
     ctrl.tracking_input_context = context()
     ctrl.frame_publisher = SimpleNamespace(stream_id="stream-a", control_source_epoch="source-a")
     ctrl.get_tracker_output().image_measurement = ctrl.tracking_input_context.at_pixel((319.5, 239.5))
-    original = ctrl._prepare_native_follow_binding.side_effect
+    original = ctrl._prepare_airframe_follow_binding.side_effect
 
-    async def prepare():
-        binding = await original()
+    async def prepare(start_context):
+        binding = await original(start_context)
         await asyncio.sleep(0)
         if change == "target":
             ctrl._tracking_session_generation += 1
@@ -183,7 +201,7 @@ async def test_new_target_or_source_during_native_discovery_requires_fresh_start
             ctrl.tracking_input_context = ImageFrameContext(provenance, (640, 480))
         return binding
 
-    ctrl._prepare_native_follow_binding.side_effect = prepare
+    ctrl._prepare_airframe_follow_binding.side_effect = prepare
     result = await ctrl._connect_px4_on_flight_loop()
     assert result["precondition"]["code"] == "following_input_context_changed"
     assert result["precondition"]["stage"] == "after_native_discovery"
@@ -191,7 +209,7 @@ async def test_new_target_or_source_during_native_discovery_requires_fresh_start
     app.f.client.handoff.assert_not_called()
     app.f.client.observe_after_release.assert_not_called()
     app.commander_factory.assert_not_called()
-    assert ctrl._native_follow_binding is None
+    assert ctrl._airframe_follow_binding is None
     assert ctrl._following_offboard_cleanup_required is False
     assert not ctrl.following_active
 
@@ -201,14 +219,14 @@ async def test_new_frame_in_same_geometry_during_discovery_does_not_change_start
     ctrl.tracking_input_context = context()
     ctrl.frame_publisher = SimpleNamespace(stream_id="stream-a", control_source_epoch="source-a")
     ctrl.get_tracker_output().image_measurement = ctrl.tracking_input_context.at_pixel((319.5, 239.5))
-    original = ctrl._prepare_native_follow_binding.side_effect
+    original = ctrl._prepare_airframe_follow_binding.side_effect
 
-    async def prepare():
-        binding = await original()
+    async def prepare(start_context):
+        binding = await original(start_context)
         ctrl.tracking_input_context = context(capture_id="2")
         return binding
 
-    ctrl._prepare_native_follow_binding.side_effect = prepare
+    ctrl._prepare_airframe_follow_binding.side_effect = prepare
     result = await ctrl._connect_px4_on_flight_loop()
     assert not result["errors"]
     assert ctrl.following_active
@@ -223,14 +241,14 @@ async def test_video_only_epoch_changes_do_not_invalidate_non_video_target_ident
     ctrl.get_tracker_output = Mock(return_value=external)
     ctrl.frame_publisher = SimpleNamespace(stream_id="stream-a", control_source_epoch="source-a")
     ctrl.get_tracker_output().image_measurement = ctrl.tracking_input_context.at_pixel((319.5, 239.5))
-    original = ctrl._prepare_native_follow_binding.side_effect
+    original = ctrl._prepare_airframe_follow_binding.side_effect
 
-    async def prepare():
-        binding = await original()
+    async def prepare(start_context):
+        binding = await original(start_context)
         ctrl.frame_publisher.control_source_epoch = "source-b"
         return binding
 
-    ctrl._prepare_native_follow_binding.side_effect = prepare
+    ctrl._prepare_airframe_follow_binding.side_effect = prepare
     assert not (await ctrl._connect_px4_on_flight_loop())["errors"]
     app.f.client.engage.assert_awaited_once()
 
@@ -267,10 +285,10 @@ async def test_identity_change_during_acquisition_or_publisher_start_never_activ
         app.commander.stop.assert_awaited_once()
 
 
-async def test_read_only_discovery_precedes_specialized_input_validation(app):
+async def test_read_only_discovery_preserves_captured_context_before_specialized_input_validation(app):
     ctrl = app.ctrl
-    current_state = [None]
-    original = ctrl._prepare_native_follow_binding.side_effect
+    current_state = [app.f.state]
+    original = ctrl._prepare_airframe_follow_binding.side_effect
     sample = _active_position_output()
     bind_image_source(ctrl, sample)
 
@@ -285,20 +303,19 @@ async def test_read_only_discovery_precedes_specialized_input_validation(app):
     ctrl._get_follow_start_readiness = lambda: readiness(ctrl)
 
     async def discover(_socket_path):
-        assert current_state[0] is None
-        current_state[0] = app.f.state
+        assert current_state[0] is app.f.state
         return app.f.guidance.phase_owner.capabilities
 
-    async def prepare():
+    async def prepare(start_context):
         assert current_state[0] is app.f.state
-        return await original()
+        return await original(start_context)
 
     ctrl.px4_interface.prepare_native_guidance.side_effect = discover
-    ctrl._prepare_native_follow_binding.side_effect = prepare
+    ctrl._prepare_airframe_follow_binding.side_effect = prepare
     assert not (await ctrl._connect_px4_on_flight_loop())["errors"]
     assert ctrl.following_active
     ctrl.px4_interface.prepare_native_guidance.assert_awaited_once()
-    ctrl._prepare_native_follow_binding.assert_awaited_once()
+    ctrl._prepare_airframe_follow_binding.assert_awaited_once()
 
 
 @pytest.mark.parametrize("failure_stage", ["discovery", "engage", "publisher"])
@@ -318,7 +335,7 @@ async def test_additional_input_readiness_is_checked_across_awaited_startup(app,
     ctrl.px4_interface.get_aircraft_state = Mock(return_value=app.f.state)
     ctrl.video_handler = SimpleNamespace(get_frame_status=lambda: {"usable_for_following": True})
     ctrl._get_follow_start_readiness = lambda: readiness(ctrl)
-    target = {"discovery": ctrl._prepare_native_follow_binding,
+    target = {"discovery": ctrl._prepare_airframe_follow_binding,
               "engage": app.f.client.engage, "publisher": app.commander.start}[failure_stage]
     original = target.side_effect
 

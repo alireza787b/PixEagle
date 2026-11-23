@@ -6,8 +6,11 @@
 using namespace pixeagle;
 
 static OwnershipContext context() {
-    return {Identity{"follow-a", "aircraft-a", "1", 1, 1}, {0, 1}, {0, 2}, 7, 1000000, 2000000,
+    auto result = OwnershipContext{Identity{"follow-a", "aircraft-a", "1", 1, 1}, {0, 1}, {0, 2}, 7, 1000000, 2000000,
             1500000, 4, 23, 99};
+    result.start_context = NativeStartContext{"test-adapter", {{"aircraft_uid", "aircraft-a"},
+        {"connection_generation", "1"}, {"telemetry_generation", 1u}}, {0, 2}, 23, 4, 99, 7, 1000000, 0, 0, Phase::FixedWing};
+    return result;
 }
 
 TEST(OwnedModeContract, GoldenAcquisitionAndReceiptUseTheOriginalIdentity) {
@@ -16,6 +19,7 @@ TEST(OwnedModeContract, GoldenAcquisitionAndReceiptUseTheOriginalIdentity) {
     const auto fixture = Json::parse(file);
     EXPECT_EQ(fixture.at("protocol_version"), kProtocolVersion);
     EXPECT_EQ(fixture.at("capabilities").at("external_mode_api_version"), 2);
+    EXPECT_EQ(fixture.at("capabilities").at("multicopter_altitude_hold_supported"), true);
     EXPECT_EQ(context().wire("test-adapter"), fixture.at("acquisition"));
     EXPECT_EQ(fixture.at("release_receipt").at("acquisition"), fixture.at("acquisition"));
     auto source = context();
@@ -32,6 +36,16 @@ TEST(OwnedModeContract, TokensAreFiniteExact128BitValuesWithoutWeakFallback) {
             Json("00000000000000000000000000000000"), Json("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF")}) {
         EXPECT_THROW(decodeOwnershipToken(invalid), std::invalid_argument);
     }
+}
+
+TEST(OwnedModeContract, ZeroHistoryDoesNotInferWhetherMulticopterIsVtol) {
+    auto source = *context().start_context;
+    source.phase = Phase::Multicopter;
+    EXPECT_EQ(decodeStartContext(source.wire()).wire(), source.wire());
+    source.phase_instance = 7;
+    EXPECT_THROW(decodeStartContext(source.wire()), std::invalid_argument);
+    source.phase_revision = 1;
+    EXPECT_EQ(decodeStartContext(source.wire()).wire(), source.wire());
 }
 
 TEST(OwnedModeContract, SourceClockDeadlineUsesOnlyTheRemainingRequestBudget) {

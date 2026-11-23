@@ -31,7 +31,7 @@ evidence status, and interactive replay links, see the
 
 | Follower | Profile | Use Case | Key Feature |
 |----------|---------|----------|-------------|
-| [fw_navigation_chase](fw-navigation-chase.md) | `fw_navigation_chase` | Calibrated image pursuit | Native course/EAS/vertical objective; experimental and not live-qualified |
+| [fw_navigation_chase](fw-navigation-chase.md) | `fw_navigation_chase` | Calibrated image pursuit | Native course/EAS/vertical objective; experimental with bounded Gazebo application evidence |
 | [fw_attitude_rate](fw-attitude-rate.md) | `fw_attitude_rate` | Research visual guidance | Direct rates/thrust; currently gated for live following |
 
 ### Gimbal (GM)
@@ -40,6 +40,13 @@ evidence status, and interactive replay links, see the
 |----------|---------|----------|-------------|
 | [gm_velocity_chase](gm-velocity-chase.md) | `gm_velocity_chase` | Gimbal-based | Velocity chase control |
 | [gm_velocity_vector](gm-velocity-vector.md) | `gm_velocity_vector` | Vector pursuit | Direct gimbal angles |
+
+The [standard VTOL application checkpoint](../../reporting/agent-ops/codex-modernization/checkpoints/2026-11-13-vtol-training-app.md)
+records actual rendered-camera MC/FW Start, speed, Stop and transition-release
+checks. Physical-camera timing and sensorless hardware remain unqualified.
+The current image workflow selects the MC or FW profile while inactive and
+requires a fresh Start after transition. A configured phase-binding recipe is
+proposed, not available.
 
 ---
 
@@ -134,7 +141,7 @@ vel_fwd, vel_right, vel_down = self.clamp_velocity(15.0, 8.0, 5.0)
 |---------|---------------------|--------|
 | Multicopter beginner | `mc_velocity_position` | Factory default stationary visual tracking |
 | Multicopter pursuit | `mc_velocity_chase` | Velocity-ramped pursuit |
-| Fixed-wing | Qualified native Vector path under development | Direct-rate profile remains live-gated |
+| Fixed-wing image pursuit | `fw_navigation_chase` when source/runtime readiness passes | Native navigation; bounded Gazebo evidence, physical-camera timing unqualified |
 | MC using gimbal observations | `gm_velocity_chase` or `gm_velocity_vector` | Aircraft pursuit from provider observations; camera actuation is separate |
 
 ### By Use Case
@@ -146,7 +153,7 @@ vel_fwd, vel_right, vel_down = self.clamp_velocity(15.0, 8.0, 5.0)
 | Stationary tracking | `mc_velocity_position` | Zero horizontal velocity and visual yaw |
 | Ground targets | `mc_velocity_ground` | 3-axis + altitude |
 | Direct MC attitude authority | `mc_attitude_rate` | Direct rate and thrust control |
-| Fixed-wing evaluation | `fw_attitude_rate` | L1/TECS-inspired visual control |
+| Fixed-wing image evaluation | `fw_navigation_chase` | Native course/EAS/vertical control; source and timing readiness required |
 
 ### By Tracker Type
 
@@ -169,6 +176,7 @@ Each follower reads from a specific config section:
 | mc_velocity_distance | `MC_VELOCITY_DISTANCE` |
 | mc_velocity_position | `MC_VELOCITY_POSITION` |
 | mc_attitude_rate | `MC_ATTITUDE_RATE` |
+| fw_navigation_chase | `FW_NAVIGATION_CHASE` |
 | fw_attitude_rate | `FW_ATTITUDE_RATE` |
 | gm_velocity_chase | `GM_VELOCITY_CHASE` |
 | gm_velocity_vector | `GM_VELOCITY_VECTOR` |

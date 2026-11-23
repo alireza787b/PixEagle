@@ -16,6 +16,7 @@ class SessionControl:
     revision: int = 0
     configured_maximum: float | None = None
     override_active: bool = False
+    description: str | None = None
 
     def updated(self, value: float, revision: int) -> "SessionControl":
         if type(revision) is not int or revision != self.revision:
@@ -37,4 +38,4 @@ class SessionControl:
                     minimum=self.minimum, maximum=self.maximum, step=self.step,
                     value=self.value, revision=self.revision,
                     configured_maximum=self.configured_maximum, override_active=self.override_active,
-                    reset_supported=self.configured_maximum is not None)
+                    reset_supported=self.configured_maximum is not None, description=self.description)

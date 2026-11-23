@@ -1,7 +1,8 @@
 """Camera-only observation of a verified PX4 tailsitter transition."""
 
 from dataclasses import dataclass
-from classes.aircraft_state import AirframePhase, is_tailsitter_heartbeat
+from classes.aircraft_state import (AircraftKind, AirframePhase,
+                                    aircraft_is_tailsitter_from_mavlink, airframe_phase_from_mavlink)
 
 
 def transition_home_enabled(settings):
@@ -28,14 +29,14 @@ class CameraPhaseSample:
             heartbeat = messages["HEARTBEAT"]["message"]
             if _enum(heartbeat.get("autopilot"), "MAV_AUTOPILOT_") not in (12, "PX4"):
                 return None
-            if not is_tailsitter_heartbeat(heartbeat):
+            if not aircraft_is_tailsitter_from_mavlink(heartbeat):
                 return None
             extended = messages["EXTENDED_SYS_STATE"]
             counter = extended["status"]["time"]["counter"]
             if type(counter) is not int or counter < 0:
                 return None
             state = extended["message"]
-            phase = _phase(_enum(state.get("vtol_state"), "MAV_VTOL_STATE_"))
+            phase = airframe_phase_from_mavlink(AircraftKind.VTOL, state.get("vtol_state"))
             base_mode = heartbeat.get("base_mode")
             if isinstance(base_mode, dict):
                 base_mode = base_mode.get("bits")
@@ -54,16 +55,6 @@ def _enum(value, prefix):
     if isinstance(value, str):
         return value.removeprefix(prefix)
     return value if type(value) is int else None
-
-
-def _phase(value):
-    if value in (1, 2, "TRANSITION_TO_FW", "TRANSITION_TO_MC"):
-        return AirframePhase.VTOL_TRANSITION
-    if value in (3, "MC"):
-        return AirframePhase.MULTICOPTER
-    if value in (4, "FW"):
-        return AirframePhase.FIXED_WING
-    return AirframePhase.UNKNOWN
 
 
 class CameraPhaseObserver:

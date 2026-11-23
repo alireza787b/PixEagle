@@ -1,15 +1,44 @@
 # Follower consolidation and aircraft qualification plan
 
-Date: 2026-11-09; updated 2026-11-13. S0–S3 and the S4–S6 MC/native-FW
-component/software checkpoints are complete; S7 ownership/transition work is in progress. Application, optical,
+Date: 2026-11-09; updated 2026-11-17. S0–S3 and the S4–S6 MC/native-FW
+component/software checkpoints are complete. Stock application ownership and
+transition termination now have retained SIH evidence; optical,
 installation and release qualification remain separate. Follow the [checkpoint](../../reporting/agent-ops/codex-modernization/checkpoints/2026-11-09-follower-consolidation.md)
 for actual verification; later slices and qualification remain pending.
+
+Current operator/application results are maintained in the
+[training workflow matrix](ubuntu-training-platform.md#what-is-actually-qualified).
+They do not close the separate release and hardware gates in this plan.
 
 This is the single plan for consolidating follower definitions, configuration,
 clients and MC/FW/VTOL composition. It extends the
 [modernization blueprint](../../architecture/pixeagle-modernization-blueprint.md)
 and [native airframe checkpoint](../../reporting/agent-ops/codex-modernization/checkpoints/2026-11-06-gimbal-vector-airframes.md).
 It does not change running software, grant aircraft authority or qualify a mode.
+
+## Stock-firmware direction — 2026-11-16
+
+The owner selected ordinary, unmodified PX4 for the normal workflow. The
+private ownership/observation extension remains experimental evidence, not a
+mandatory product dependency. The shared stock-MAVLink application owner now
+passes SIH Start, recovery, controls, Stop, takeover and transition termination.
+Hardware and operator acceptance remain separate; configuration cannot invent
+missing aircraft phase or authority.
+
+Reuse standard MAVLink type/phase observations and the existing MC publisher
+for native MC. Settled FW/VTOL now use the qualified one-shot MAVLink
+projection and existing command owner. Its attitude/thrust contract does not
+retain native TECS energy/underspeed control. The DDS external-mode experiment
+remains explicitly selectable. Publication-loss evidence confirms the native
+PX4 failsafe instead of indefinitely replaying an obsolete pursuit. No phase changes transport inside an active session:
+Stop/transition ends it and a new Start selects a qualified settled strategy.
+Clients remain capability-driven, without board/follower-name branches.
+
+See the [stock integration workflow](../07-integration/stock-px4-gimbal-vtol.md)
+for installation geometry, configuration and the acceptance sequence. This
+supersedes a mandatory custom-firmware interpretation of the native sections
+below. Historical native-only gates are superseded by the stock application
+checkpoint; remaining hardware gates are not.
 
 ## 1. Scope and confirmed decisions
 
@@ -274,9 +303,13 @@ Valid low airspeed is not bypassed by a groundspeed proxy. Missing sensors canno
 establish real stall margin. Reconcile the older rate profile's proxy semantics
 explicitly before sharing policy; do not silently reinterpret legacy values.
 
-Altitude guidance off means no target-directed climb/descent. MC velocity
-profiles suppress the vertical component without horizontal redistribution;
-native FW holds engagement altitude. Direct-rate profiles need their own proved
+Altitude guidance off means no target-directed climb/descent. The operator
+selected explicit engagement-altitude hold on 2026-11-13. Native MC combines
+horizontal velocity/yaw rate with a frozen vertical position target; native FW
+holds engagement altitude. Both require actual response qualification. Ordinary
+MAVSDK MC still suppresses vertical velocity without horizontal redistribution
+until a compatible position/velocity transport is separately qualified; this
+legacy behavior is not an altitude-hold claim. Direct-rate profiles need their own proved
 altitude behavior; disabling target guidance is not a guarantee of altitude hold.
 Altitude safety remains separate and uses the declared estimator/home-relative
 reference, not terrain clearance. FW boundary tests must include finite vertical

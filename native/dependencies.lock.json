@@ -139,6 +139,28 @@
           "PitchOnlyCommonCoefficientInvariant"
         ],
         "characterization_env": null
+      },
+      "owned-mode-start-context": {
+        "target": "functional-OwnedModeStartContext",
+        "test_source": "src/modules/commander/OwnedModeStartContextTest.cpp",
+        "test_suite": "OwnedModeStartContext",
+        "negative_patch": "patches/0011-original-phase-context-acquisition-fence.patch",
+        "original_files": [
+          "src/modules/commander/OwnedModeGuard.hpp"
+        ],
+        "expected_tests": 14,
+        "expected_negative_failures": [
+          "UnseenRoundTripRejectsOriginalAcquire",
+          "AcceptedIntentBeforeStateFlipIsNotSettled",
+          "AbortedTransitionCannotReviveOriginalAcquire",
+          "SourceModuleRestartInvalidatesContext",
+          "ChangedHistoryDuringPendingWithdrawsOriginalIntention",
+          "ChangedHistoryAtOwnEntryWithdrawsOnlyTaggedIntention",
+          "WrongPhysicalPhaseCannotAcquire",
+          "UnknownVtolHistoryCannotAcquire",
+          "ExhaustedHistoryCannotAcquireOrResume"
+        ],
+        "characterization_env": null
       }
     }
   },
@@ -170,5 +192,25 @@
       "tag": "v2.0.1"
     },
     "qualification": "build_only_recipe; compilation, runtime and aircraft response pending"
+  },
+  "reference_px4_version": {
+    "describe": "v1.18.0-beta1-1442-g155f415168",
+    "tag": "v1.18.0-beta1",
+    "tag_object": "d90ac5b79200c44895c03ee7c284b20b80ecf75d",
+    "tag_commit": "fd132028513748238be1762e57893bbca9fcf179"
+  },
+  "stock_px4": {
+    "commit": "722ebc963555189314a8ce77b426ed074ffa6dae",
+    "version": {
+      "describe": "v1.18.0-beta1-1589-g722ebc96",
+      "tag": "v1.18.0-beta1",
+      "tag_object": "d90ac5b79200c44895c03ee7c284b20b80ecf75d",
+      "tag_commit": "fd132028513748238be1762e57893bbca9fcf179"
+    },
+    "additional_submodules": [
+      "src/lib/cdrstream/cyclonedds",
+      "src/lib/cdrstream/rosidl",
+      "src/modules/zenoh/zenoh-pico"
+    ]
   }
 }

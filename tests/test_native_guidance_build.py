@@ -157,7 +157,7 @@ def test_owned_mode_overlay_preserves_standard_command_and_status_definitions(tm
         (messages / name).write_bytes(content)
     overlay = Path(__file__).resolve().parents[1] / "native/px4/messages"
     assert {path.name for path in overlay.glob("*.msg")} == {
-        "FixedWingGuidanceStatus.msg", "OwnedModeRequest.msg", "OwnedModeStatus.msg",
+        "FixedWingGuidanceStatus.msg", "OwnedModeRequest.msg", "OwnedModeStatus.msg", "VtolVehicleStatus.msg",
     }
     apply_message_overlay(tmp_path / "dependencies", {
         "sources": [{"repository": "PX4/px4_msgs", "commit": "pinned"}],

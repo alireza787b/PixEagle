@@ -141,10 +141,10 @@ PID:
 ```yaml
 Safety:
   GlobalLimits:
-    MIN_ALTITUDE: 3.0
-    MAX_ALTITUDE: 120.0
+    MIN_ALTITUDE: 5.0
+    MAX_ALTITUDE: 100.0
     ALTITUDE_SAFETY_ENABLED: true
-    MAX_VELOCITY: 1.0
+    MAX_VELOCITY: 4.0
 ```
 
 ### Operator Interface

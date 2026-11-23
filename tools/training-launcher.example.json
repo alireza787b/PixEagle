@@ -1,0 +1,79 @@
+{
+  "version": 1,
+  "python": "/absolute/path/to/PixEagle/.venv/bin/python",
+  "runtime_root": "/absolute/path/to/PixEagle/reports/sitl/training",
+  "environment": {},
+  "arguments": [
+    "--build-manifest",
+    "/absolute/path/to/verified/stock/gazebo-build-manifest.json",
+    "--python",
+    "/absolute/path/to/PixEagle/.venv/bin/python",
+    "--bin-dir",
+    "/absolute/path/to/PixEagle/bin",
+    "--router",
+    "/absolute/path/to/mavlink-routerd",
+    "--qgc",
+    "/absolute/path/to/PixEagle-QGroundControl",
+    "--qt",
+    "/absolute/path/to/Qt/gcc_64",
+    "--gstreamer-lib",
+    "/absolute/path/to/gstreamer/lib",
+    "--tcp-relay",
+    "/absolute/path/to/socat"
+  ],
+  "profiles": {
+    "mc-camera": {
+      "label": "Multicopter \u00b7 2D camera tracking",
+      "arguments": [
+        "--scenario",
+        "x500-mono-camera-training-coast-v2",
+        "--follower-mode",
+        "mc_velocity_position",
+        "--altitude-control",
+        "off"
+      ]
+    },
+    "fw-camera": {
+      "label": "Fixed-wing \u00b7 2D camera tracking",
+      "arguments": [
+        "--scenario",
+        "rc-cessna-mono-camera-training-coast-v2",
+        "--follower-mode",
+        "fw_navigation_chase",
+        "--altitude-control",
+        "off"
+      ]
+    },
+    "quadplane-camera": {
+      "label": "Quadplane \u00b7 2D camera tracking",
+      "arguments": [
+        "--scenario",
+        "standard-vtol-mono-camera-training-coast-v2",
+        "--follower-mode",
+        "mc_velocity_chase",
+        "--altitude-control",
+        "off"
+      ]
+    },
+    "tailsitter-gimbal": {
+      "label": "Tailsitter \u00b7 external gimbal (ideal mechanics)",
+      "arguments": [
+        "--scenario",
+        "quadtailsitter-gimbal-training-coast-v2",
+        "--follower-mode",
+        "gm_velocity_vector",
+        "--mount-type",
+        "VERTICAL",
+        "--continuity-mode",
+        "bounded_decay",
+        "--frame-rotation-deg",
+        "270",
+        "--max-attitude-skew-s",
+        "0.1",
+        "--altitude-control",
+        "on"
+      ],
+      "audience": "advanced"
+    }
+  }
+}

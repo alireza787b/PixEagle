@@ -344,7 +344,7 @@ class ContinuityStrategyRegistry:
         name="fixed_wing_course_recovery",
         airframe_phase=AirframePhase.FIXED_WING,
         control_type="fixed_wing_external",
-        execution_modes=frozenset({"COMMAND_PREVIEW", "PX4_NATIVE"}),
+        execution_modes=frozenset({"COMMAND_PREVIEW", "PX4_NATIVE", "PX4"}),
     )
 
     @classmethod
@@ -848,6 +848,7 @@ class TargetContinuitySupervisor:
         if (provisional.profile_name != baseline.profile_name
                 or provisional.control_type != baseline.control_type
                 or provisional.guidance_identity != baseline.guidance_identity
+                or provisional.altitude_hold != baseline.altitude_hold
                 or set(provisional.fields) != set(baseline.fields)):
             raise ValueError("Provisional intent does not match the active follower")
         if any(not math.isfinite(float(value)) for value in provisional.fields.values()):
@@ -866,6 +867,7 @@ class TargetContinuitySupervisor:
             },
             source="target_continuity", reason="provisional_camera_angles",
             guidance_identity=provisional.guidance_identity,
+            altitude_hold=provisional.altitude_hold,
         )
         blended = self._blend_intents(
             baseline, limited, self.policy.retarget_angle_blend_fraction,
@@ -990,6 +992,7 @@ class TargetContinuitySupervisor:
                 reason="bounded_horizontal_decay",
                 created_at_monotonic_s=now,
                 guidance_identity=self._loss_entry_intent.guidance_identity,
+                altitude_hold=self._loss_entry_intent.altitude_hold,
             ),
             authority,
         )
@@ -1004,6 +1007,7 @@ class TargetContinuitySupervisor:
             baseline.profile_name != nominal.profile_name
             or baseline.control_type != nominal.control_type
             or baseline.guidance_identity != nominal.guidance_identity
+            or baseline.altitude_hold != nominal.altitude_hold
             or set(baseline.fields) != set(nominal.fields)
         ):
             raise ValueError("Cannot restore authority across incompatible command intents")

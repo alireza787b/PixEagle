@@ -9,6 +9,7 @@ import pytest
 from classes.aircraft_state import AircraftStateOwner, AirframePhase
 from classes.airframe_session_controls import AirframeSessionControls
 from classes.command_dispatch_guard import DispatchRefusalKind, DispatchRefused
+from classes.command_intent import AltitudeHoldReference
 from classes.gimbal_guidance import GimbalGuidancePolicy
 from classes.guidance_phase_session import PhaseSessionState
 from classes.native_follow_binding import NativeFollowBinding
@@ -21,7 +22,7 @@ from classes.target_continuity import (
     TargetContinuitySupervisor,
 )
 from classes.vector_guidance_session import VectorGuidanceSession
-from tests.fixtures.native_ownership import release_receipt
+from tests.fixtures.native_ownership import release_receipt, start_context
 from tests.unit.core_app.test_fixed_wing_continuity import evidence
 from tests.unit.core_app.test_native_connection_loss_reconciliation import (
     native_application as _native_application_fixture,
@@ -69,7 +70,7 @@ async def component(native_server):
     binding = NativeFollowBinding(guidance, connection, client, continuity,
         profile_name="gm_velocity_vector", continuity_config=CONFIG, target_evidence=evidence,
         context=lambda: base, circuit_breaker=lambda: False, clock=lambda: now[0])
-    intent = await binding.engage()
+    intent = await binding.engage(start_context=start_context(original))
     assert guidance.phase_owner.state is PhaseSessionState.PURSUIT
     observed, failed = [], []
     original_observer = binding.on_observation
@@ -180,7 +181,9 @@ async def test_original_transport_does_not_abort_replacement_acquisition(compone
         ownership_token=original.token, mode_id=original.mode_id, acquisition=original)
     await c.client.connect()
     await c.client.bind(c.original.binding)
-    await c.client.engage(c.original, circuit_breaker_active=False, ownership_token="e" * 32)
+    reference = AltitudeHoldReference(c.initial.altitude_amsl_m, c.initial.altitude_reference_generation)
+    await c.client.engage(c.original, circuit_breaker_active=False, ownership_token="e" * 32,
+                         altitude_reference=reference, start_context=start_context(c.original))
     replacement = c.client.acquisition_context
     c.behavior["release_receipt"] = None
     c.behavior["owner_confirmed"] = True
@@ -204,14 +207,14 @@ async def test_original_transport_does_not_abort_replacement_acquisition(compone
 async def test_one_actual_commander_attempt_runs_existing_app_terminal_cleanup(native_application, monkeypatch):
     native = native_application
     ctrl = native.ctrl
-    prepare = ctrl._prepare_native_follow_binding.side_effect
+    prepare = ctrl._prepare_airframe_follow_binding.side_effect
 
-    async def immediate_confirmation():
-        binding = await prepare()
+    async def immediate_confirmation(start_context):
+        binding = await prepare(start_context)
         binding.guidance.phase_owner.confirmation_s = 0.
         return binding
 
-    ctrl._prepare_native_follow_binding.side_effect = immediate_confirmation
+    ctrl._prepare_airframe_follow_binding.side_effect = immediate_confirmation
     binding = await start(native)
     monkeypatch.setattr("classes.offboard_commander.time", SimpleNamespace(monotonic=lambda: 100.))
     assert binding.guidance.phase_owner.state is PhaseSessionState.PURSUIT
@@ -238,7 +241,7 @@ async def test_one_actual_commander_attempt_runs_existing_app_terminal_cleanup(n
     assert await commander.publish_once() is False
     assert len(callbacks) == 1 and callbacks[0]["terminal_failure"]
     assert not ctrl.following_active
-    assert ctrl._native_follow_binding is None
+    assert ctrl._airframe_follow_binding is None
     assert not ctrl._following_offboard_cleanup_required
     assert binding.terminal_reason == "control_owner_lost"
     assert binding.connection.get_aircraft_state().phase is AirframePhase.FIXED_WING
@@ -326,7 +329,9 @@ async def test_replacement_between_reply_and_binding_callback_preserves_new_clie
             ownership_token=original.token, mode_id=original.mode_id, acquisition=original)
         await c.client.connect()
         await c.client.bind(c.original.binding)
-        await c.client.engage(c.original, circuit_breaker_active=False, ownership_token="e" * 32)
+        reference = AltitudeHoldReference(c.initial.altitude_amsl_m, c.initial.altitude_reference_generation)
+        await c.client.engage(c.original, circuit_breaker_active=False, ownership_token="e" * 32,
+                             altitude_reference=reference, start_context=start_context(c.original))
         c.behavior["release_receipt"] = None
         return await original_observer(*args)
 

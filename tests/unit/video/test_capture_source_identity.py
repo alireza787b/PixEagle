@@ -10,6 +10,7 @@ import yaml
 
 from classes.parameters import Parameters
 from classes.video_handler import VideoHandler
+from classes.capture_timing import SourceSampleStamp
 
 
 @pytest.fixture
@@ -57,6 +58,38 @@ def test_identity_is_opaque_and_only_the_accepted_frame_receives_it(handler, mon
     assert cached_stamp.capture_id == stamp.capture_id
     assert cached_stamp.captured_at == 100.
     assert cached_stamp.state == 'cached' and cached_signature == signature
+
+
+def test_cached_source_time_retains_original_sample_without_renewing_it(handler, monkeypatch):
+    handler.cap = opened(handler, monkeypatch)
+    frame = np.zeros((2, 2, 3), np.uint8)
+    sample = SourceSampleStamp('world-clock', 'provider', 1, 1_000_000, 'gazebo_sim_us')
+    handler.current_raw_frame = frame
+    handler._reset_failure_counters(captured_at=100., source_sample=sample)
+    current = handler.get_capture_stamp(frame)
+    cached_frame = handler._get_cached_frame(reason='awaiting_new_capture')
+    cached = handler.get_capture_stamp(cached_frame)
+    assert cached.source_sample == current.source_sample == sample
+    assert cached.captured_at == current.captured_at == 100.
+    assert cached.state == 'cached'
+
+
+def test_exited_async_reader_uses_shared_backoff_and_explicit_release_stays_stopped(handler, monkeypatch):
+    monkeypatch.setattr(Parameters, 'VIDEO_SOURCE_TYPE', 'GAZEBO_CAMERA')
+    reconnect = Mock(return_value=True)
+    monkeypatch.setattr(handler, 'reconnect', reconnect)
+    handler._async_capture_generation = 1
+    handler._async_capture_thread = None
+    handler._async_capture_stop.clear()
+    handler._get_async_capture_frame()
+    assert reconnect.call_count == 1
+    assert handler._next_recovery_time > 0
+    handler._get_async_capture_frame()
+    assert reconnect.call_count == 1
+    handler.release()
+    handler._next_recovery_time = 0.
+    handler._get_async_capture_frame()
+    assert reconnect.call_count == 1
 
 
 def test_capture_path_changes_and_release_do_not_reuse_another_handle_identity(handler, monkeypatch):

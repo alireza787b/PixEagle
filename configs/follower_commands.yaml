@@ -151,7 +151,15 @@ follower_profiles:
     description: "Pursuit profile: forward ramp with yaw or sideslip and optional vertical control"
     control_type: "velocity_body_offboard"
     live_qualified_phases: [multicopter]
+    session_controls:
+      requested_speed:
+        label: Requested speed
+        description: "Total 3D translation ceiling for image-guided chase; commands may be smaller. Uses the configured startup request, or the saved forward target when unset. Zero ramps translation down; yaw guidance may continue."
+        unit: m/s
+        step: 0.5
     airframe_phase: "multicopter"
+    native_phase_contracts:
+      multicopter: velocity_body_offboard
     required_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s"]
     ui_category: "velocity"
     # Schema-driven tracker data requirements
@@ -180,7 +188,7 @@ follower_profiles:
     family: external
     visibility: advanced
     display_name: "GM Velocity Vector"
-    description: "Pursues a gimbal-designated target with multicopter or native fixed-wing guidance"
+    description: "Pursues a gimbal-designated target with phase-specific multicopter or fixed-wing guidance"
     control_type: "velocity_body_offboard"
     live_qualified_phases: [multicopter, fixed_wing]
     airframe_phase: "multicopter"           # Gimbal is the evidence source, not the vehicle type
@@ -195,19 +203,20 @@ follower_profiles:
     session_controls:
       requested_speed:
         label: Requested speed
+        description: "Requested 3D translation magnitude along the observed target direction; ramps, guidance and safety may reduce the submitted command."
         unit: m/s
         step: 0.5
 
-  # Calibrated image pursuit through native PX4 navigation; qualification is separate.
+  # Calibrated image pursuit through the shared phase-bound guidance contract.
   fw_navigation_chase:
     config_section: FW_NAVIGATION_CHASE
     family: fixed_wing
     visibility: experimental
     display_name: "FW Navigation Chase"
-    description: "Calibrated image pursuit through native PX4 course, airspeed and vertical-path control; live qualification pending"
+    description: "Calibrated image pursuit with course, airspeed-reference and vertical-path objectives; source calibration and qualified command ownership required"
     control_type: fixed_wing_external
     airframe_phase: fixed_wing
-    live_qualified_phases: []
+    live_qualified_phases: [fixed_wing]
     native_phase_contracts:
       fixed_wing: fixed_wing_external
     required_fields: []

@@ -12,7 +12,7 @@ import pytest
 from classes.aircraft_state import AircraftBinding, AirframePhase, GuidanceSessionIdentity
 from classes.app_controller import AppController
 from tests.fixtures.following_observation import bind_image_source
-from classes.command_intent import CommandIntent
+from classes.command_intent import AltitudeHoldReference, CommandIntent
 from classes.fixed_wing_vector_guidance import FixedWingCommand
 from classes.target_continuity import (
     ContinuityContext,
@@ -127,9 +127,10 @@ def test_invalid_velocity_snapshot_is_rejected_before_retarget_reset(fields):
     assert controller._tracking_session_generation == 7
 
 
-def test_velocity_retarget_preserves_horizontal_motion_and_native_identity():
+@pytest.mark.parametrize('hold', [None, AltitudeHoldReference(517., 3)])
+def test_velocity_retarget_preserves_horizontal_motion_and_native_identity(hold):
     identity = GuidanceSessionIdentity("follow", AircraftBinding("aircraft", "connection", 1), 2)
-    prior = replace(_velocity_intent(), guidance_identity=identity)
+    prior = replace(_velocity_intent(), guidance_identity=identity, altitude_hold=hold)
     controller = _controller(prior)
 
     result = controller._prepare_following_target_transition("operator_target_retarget")
@@ -138,6 +139,7 @@ def test_velocity_retarget_preserves_horizontal_motion_and_native_identity():
     carryover = controller.offboard_commander.submit_intent.call_args.args[0]
     assert carryover.fields == {**prior.fields, "vel_body_down": 0.0, "yawspeed_deg_s": 0.0}
     assert carryover.guidance_identity == identity
+    assert carryover.altitude_hold == hold
     assert controller.target_continuity.supports_target_transition_intent(carryover)
     assert controller.target_continuity.begin_target_transition(session_epoch=8, previous_intent=prior)
 

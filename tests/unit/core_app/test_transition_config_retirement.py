@@ -55,15 +55,14 @@ def test_transition_timeout_is_inert_without_a_saved_config_rewrite(service):
     assert not config.get_backup_history()
 
 
-def test_undefined_velocity_switch_is_explicitly_retired_without_changing_input():
+def test_supported_velocity_switch_is_not_retired_or_stripped():
     service = ConfigService.get_instance()
     candidate = deepcopy(service.get_default())
     candidate["Safety"]["ALLOW_SESSION_VELOCITY_OVERRIDE"] = False
-    retirement = service.get_registered_retirement(["Safety", "ALLOW_SESSION_VELOCITY_OVERRIDE"])
-    assert retirement["replacement"] is None
+    assert service.get_registered_retirement(["Safety", "ALLOW_SESSION_VELOCITY_OVERRIDE"]) is None
     assert service.validate_config_mapping(candidate, require_safety=True).valid
     normalized = service._normalize_effective_config_locked(candidate)
-    assert "ALLOW_SESSION_VELOCITY_OVERRIDE" not in normalized["Safety"]
+    assert normalized["Safety"]["ALLOW_SESSION_VELOCITY_OVERRIDE"] is False
     assert candidate["Safety"]["ALLOW_SESSION_VELOCITY_OVERRIDE"] is False
 
 

@@ -165,6 +165,7 @@ class SafetySectionModel(BaseModel):
     """Validated hard global envelope and sparse, tightening overrides."""
 
     GlobalLimits: GlobalLimitsModel
+    ALLOW_SESSION_VELOCITY_OVERRIDE: StrictBool = True
     FollowerOverrides: Dict[str, SafetyLimitOverrideModel] = Field(
         default_factory=dict
     )
@@ -265,6 +266,9 @@ def normalize_safety_config(
         exclude_none=True,
     )
     normalized["Safety"]["GlobalLimits"]["MAX_ALTITUDE"] = validated.GlobalLimits.MAX_ALTITUDE
+    if "ALLOW_SESSION_VELOCITY_OVERRIDE" not in safety_raw:
+        # Preserve missing legacy policy for Config Sync's explicit migration.
+        normalized["Safety"].pop("ALLOW_SESSION_VELOCITY_OVERRIDE", None)
     return normalized
 
 

@@ -416,6 +416,11 @@ def run_host(args, scenario_path):
             "rate": {"yaw": limits["MAX_YAW_RATE"]},
             "altitude": {"min": limits["MIN_ALTITUDE"], "max": limits["MAX_ALTITUDE"]},
         }
+        initial_altitude = -staged_scenario["initial_conditions"]["vehicle_ned"][2]
+        if (initial_altitude < limits["MIN_ALTITUDE"]
+                or limits["MAX_ALTITUDE"] is not None and initial_altitude > limits["MAX_ALTITUDE"]):
+            raise ValueError("Scenario airborne start is outside the configured altitude envelope; "
+                             "choose valid initial_conditions without reducing saved safety limits")
         staged_scenario["continuity_policy"] = {"mode": config["TargetContinuity"]["MODE"]}
         (stage / "scenario.yaml").write_text(yaml.safe_dump(staged_scenario, sort_keys=False))
         write_json(stage / "harness-inputs.json", {
@@ -462,6 +467,7 @@ def pose_observation(payload, flight_state, manager, *, expected_aircraft_uid, m
     altitude = relative_mm / 1000.
     if not flight_state.get("fresh"):
         raise ValueError("Flight state is not fresh")
+    mode_text = None if manager is None else manager.get_flight_mode_text(flight_state.get("flight_mode"))
     return dict(
         monotonic_s=time.monotonic() if monotonic_s is None else monotonic_s,
         position_ned=position, quaternion_wxyz=quaternion, velocity_ned=velocity,
@@ -472,7 +478,7 @@ def pose_observation(payload, flight_state, manager, *, expected_aircraft_uid, m
                               for name in ("LOCAL_POSITION_NED", "ATTITUDE_QUATERNION")},
         source="px4_mavlink2rest_observed",
         flight_mode=flight_state.get("flight_mode"),
-        hold=manager.get_flight_mode_text(flight_state.get("flight_mode")) == "Hold",
+        hold=None if mode_text is None else mode_text == "Hold",
         airborne=(flight_state.get("arm_status") == "Armed"
                   and flight_state.get("landed_state") == "MAV_LANDED_STATE_IN_AIR"),
     )

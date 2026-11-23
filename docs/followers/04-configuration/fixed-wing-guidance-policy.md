@@ -5,10 +5,20 @@ PX4 owns coordinated turns, energy management, attitude control and allocation.
 The same policy is intended for native FW objectives produced from gimbal rays
 or image tracking. Input geometry remains specific to each tracker contract.
 
+That description applies to the native interface. The current
+[stock-MAVLink replacement](../07-integration/stock-px4-gimbal-vtol.md) is a
+component under qualification: it projects the same ray and speed request to
+attitude/thrust, retaining PX4 attitude/rate control but not native TECS energy
+control. It requires no DDS or custom firmware. Its isolated expert fixture
+also tests removal of pitch/sink soft limits; this is not yet an advertised
+application capability and does not change existing saved policy semantics.
+
 Current consolidation policy ends following on transition and requires a new
-Start afterward. VTOL admission remains gated pending transition-preserving
-release. Phase-retaining cycles below are historical evidence, not the current
-operator contract; see the [consolidation plan](../05-development/follower-consolidation-plan.md).
+Start afterward. The [standard VTOL application checkpoint](../../reporting/agent-ops/codex-modernization/checkpoints/2026-11-13-vtol-training-app.md) records bounded Gazebo
+MC/FW Start, speed, Stop and transition release. Physical-camera timing and
+sensorless hardware remain separate gates. Phase-retaining cycles below are
+historical evidence, not the current operator contract; see the
+[consolidation plan](../05-development/follower-consolidation-plan.md).
 
 | Setting | Factory value | Meaning |
 | --- | --- | --- |
@@ -28,6 +38,14 @@ tier. Existing saved configurations retain their values until Config Sync
 preview/apply accepts changes. Missing policy settings retain normal native
 behavior. Public video/CSRT, constant-position, altitude-guidance-off,
 altitude-safety and circuit-breaker defaults are preserved.
+
+## Stock-firmware integration
+
+Ordinary integration must not require the private firmware extension. Its
+replacement still needs implementation and unmodified-PX4 qualification; see
+[stock PX4 workflow](../07-integration/stock-px4-gimbal-vtol.md). Standard
+telemetry can report phase but does not supply the custom atomic ownership
+receipt. Keep the experiment separate from the normal control contract.
 
 ## Flight-path priority
 
@@ -150,8 +168,8 @@ aircraft profiles.
 | --- | --- |
 | Pure MC | Existing MC vector math and MAVSDK owner |
 | Pure FW | Native course, vertical-path and airspeed strategy |
-| Settled VTOL MC or FW | Intended reuse of the corresponding strategy; admission remains gated until S7 |
-| Standard VTOL or tailsitter during transition | End following and release to PX4; require a fresh Start afterward; actual S7 qualification pending |
+| Settled VTOL MC or FW | Reuse the qualified phase strategy with native ownership and source readiness; current image training selects MC/FW profiles explicitly |
+| Standard VTOL or tailsitter during transition | End following and release to PX4; require a fresh Start afterward; qualification remains specific to the recorded airframe/source |
 | Different gimbal or mounting | Provider adapter and mounting geometry produce the same physical ray |
 
 There is no separate tailsitter pursuit law. Public defaults provide the base

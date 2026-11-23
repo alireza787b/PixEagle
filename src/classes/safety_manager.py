@@ -67,8 +67,8 @@ class SafetyManager:
 
     # Hardcoded fallbacks for safety (used if config is missing)
     _FALLBACKS = {
-        'MIN_ALTITUDE': 3.0,
-        'MAX_ALTITUDE': 120.0,
+        'MIN_ALTITUDE': 5.0,
+        'MAX_ALTITUDE': 100.0,
         'ALTITUDE_WARNING_BUFFER': 2.0,
         'MAX_VELOCITY': 1.0,
         'MAX_VELOCITY_FORWARD': 0.5,
@@ -114,10 +114,17 @@ class SafetyManager:
         self._callbacks: List[Callable[[], None]] = []
         self._initialized = False
         self._session_velocity_binding = None
+        self._allow_session_velocity_override = False
+
+    def allows_session_velocity_override(self):
+        with self._lock:
+            return self._allow_session_velocity_override
 
     def bind_session_velocity(self, follower_name, owner, provider):
         """Bind an owned session's live velocity envelope without editing config."""
         with self._lock:
+            if not self._allow_session_velocity_override:
+                raise ValueError('session_velocity_override_disabled')
             self._session_velocity_binding = (follower_name.upper(), weakref.ref(owner), weakref.WeakMethod(provider))
 
     def clear_session_velocity(self, owner):
@@ -127,6 +134,8 @@ class SafetyManager:
                 self._session_velocity_binding = None
 
     def _session_velocity(self, follower_name):
+        if not self._allow_session_velocity_override:
+            return None
         binding = self._session_velocity_binding
         if binding is None or binding[0] != (follower_name or '').upper():
             return None
@@ -175,6 +184,10 @@ class SafetyManager:
     def _prepare_runtime_state(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """Build replacement state before entering the publication barrier."""
         safety_config = config.get('Safety', {})
+        allow_override = (safety_config.get('ALLOW_SESSION_VELOCITY_OVERRIDE', True)
+                          if isinstance(safety_config, dict) and safety_config else False)
+        if type(allow_override) is not bool:
+            raise ValueError('Safety.ALLOW_SESSION_VELOCITY_OVERRIDE must be a boolean')
         if not isinstance(safety_config, dict) or not safety_config:
             logger.error("Missing Safety section in config! Using hardcoded fallbacks.")
             global_limits: Dict[str, Any] = {}
@@ -205,6 +218,7 @@ class SafetyManager:
         )
         return {
             'global_limits': global_limits,
+            'allow_session_velocity_override': allow_override,
             'follower_overrides': follower_overrides,
             'follower_configs': follower_configs,
             'cache': {},
@@ -248,6 +262,7 @@ class SafetyManager:
         """Install prepared state using only bounded in-memory assignments."""
         with self._lock:
             self._global_limits = state['global_limits']
+            self._allow_session_velocity_override = state['allow_session_velocity_override']
             self._follower_overrides = state['follower_overrides']
             self._follower_configs = state['follower_configs']
             self._cache = state['cache']
@@ -258,6 +273,7 @@ class SafetyManager:
         with self._lock:
             return {
                 'global_limits': self._global_limits,
+                'allow_session_velocity_override': self._allow_session_velocity_override,
                 'follower_overrides': self._follower_overrides,
                 'follower_configs': self._follower_configs,
                 'cache': self._cache,
@@ -268,6 +284,7 @@ class SafetyManager:
         """Restore a captured state without reparsing or reloading config."""
         with self._lock:
             self._global_limits = state['global_limits']
+            self._allow_session_velocity_override = state['allow_session_velocity_override']
             self._follower_overrides = state['follower_overrides']
             self._follower_configs = state['follower_configs']
             self._cache = state['cache']

@@ -124,7 +124,7 @@ submits atomic `CommandIntent` snapshots; it does not send MAVSDK commands direc
 Body-frame velocity control - the primary mode for PixEagle followers.
 
 ```python
-from mavsdk.offboard import VelocityBodyYawspeed
+from mavsdk_grpc.offboard import VelocityBodyYawspeed
 
 # Create velocity command
 velocity_cmd = VelocityBodyYawspeed(
@@ -143,7 +143,7 @@ await self.drone.offboard.set_velocity_body(velocity_cmd)
 Angular rate control for fixed-wing or advanced maneuvers.
 
 ```python
-from mavsdk.offboard import AttitudeRate
+from mavsdk_grpc.offboard import AttitudeRate
 
 # Create attitude rate command
 attitude_cmd = AttitudeRate(
@@ -162,7 +162,7 @@ await self.drone.offboard.set_attitude_rate(attitude_cmd)
 NED-frame velocity control - requires yaw knowledge for conversion.
 
 ```python
-from mavsdk.offboard import VelocityNedYaw
+from mavsdk_grpc.offboard import VelocityNedYaw
 
 velocity_ned = VelocityNedYaw(
     north_m_s=2.0,

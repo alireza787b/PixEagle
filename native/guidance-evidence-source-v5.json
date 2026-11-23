@@ -1,0 +1,61 @@
+{
+  "schema_version": 3,
+  "scope": "Received-topic cadence only under the canonical isolated Runtime and reviewed producer gates; per-call delivery UNKNOWN",
+  "source_review_sha256": "d7b05b5d03686a45147500fe4fb019955925b31d4f2150ce006d1065d8c1844e",
+  "runtime_helper_sha256": "815d44c469e017a26d39ceb220e4201250255bc48a048fa9590da627fdd6aee3",
+  "runtime_assets_sha256": "3a995f479d8706939bd21911c14c9bd15164ace70403eeae4baf2c6564c8eaf1",
+  "scripts": {
+    "adapter.sh": "5581149d49278df82262fba7a8cc5b85d028b82c4b76c2bcedbba47c4021ea22",
+    "agent.sh": "22fef6c3d7c9a38b773a94ac7af887f7561a11ab391e3ecad168c23b00a35725"
+  },
+  "sdk_source": {
+    "repository": "Auterion/px4-ros2-interface-lib",
+    "commit": "912868fe2597bac4cf3115a54ac813a97eee4dbb",
+    "sha256": "a30997aba5e0a04fe27b898fa7160057670d93c28a839cac596b9211af21e477",
+    "extension_manifest_sha256": "8c7fb0e875302efd7316ae2089311c7fcb14796daab47935560824a8397f17b1"
+  },
+  "firmware_files": {
+    "Tools/msg/templates/ucdr/msg.h.em": "1d47571c5b9a5b580c44e5c6b2bd665bfeeb2a63260b886d0dc174ef1ed25b6d",
+    "msg/VehicleControlMode.msg": "621df1162bf1578157523cd57335c55b9f49a86574ee8dc4b31a1e7abf3b4e87",
+    "msg/versioned/FixedWingGuidanceStatus.msg": "84e87aaf3b1c27e8cfe99f28a0389d670169bee5707a214d560297f7ccfc0e85",
+    "msg/versioned/FixedWingLateralSetpoint.msg": "4f49b21414f896ab7620116944c824132d6def7f95767070e4c8f119411819c1",
+    "msg/versioned/FixedWingLongitudinalSetpoint.msg": "16ec72d3400d6f80029ee321b7ffd55dd2d472ad950d576738f4dcc501503bae",
+    "msg/versioned/OwnedModeRequest.msg": "473a5a541decfccca654ee771fff5ae5fe62400ab1314d9aec193a6150509cf9",
+    "msg/versioned/OwnedModeStatus.msg": "02162b66b65ab639072668532079a0ce16f048726c90d9666c23a325fa0a7aa2",
+    "msg/versioned/TrajectorySetpoint.msg": "d5671f1a094a9183e2337171ab738ae3395442e024b58aaacbf51c2b0188d5e2",
+    "msg/versioned/VehicleLocalPosition.msg": "4a24c882529ffaa71d834f0ef75e9cbacbe179db72b9227a13bca35205ccdd53",
+    "msg/versioned/VehicleStatus.msg": "086519d583f4b606195ccb301e414c2a5de122f0422d246afd705f4f30c96b57",
+    "msg/versioned/VtolVehicleStatus.msg": "22b8825377beaf7de217b0b5229c0890f74f544bddcf5fa30c73174b3eb2f8c3",
+    "src/modules/commander/Commander.cpp": "8e866f6474c31177e2de0a711900e1694d027c44c874a639b58e8d6285e532d5",
+    "src/modules/commander/ModeManagement.cpp": "7e0ea90ef54d9980e090c2aed0c2f757254fb1ac81f5b78488b6ce24626ea68a",
+    "src/modules/commander/OwnedModeGuard.hpp": "14fcd8f11a282c4e55e05d8223b59383e436839b285c245e21fab162c4a823ca",
+    "src/modules/commander/UserModeIntention.cpp": "e34c018c8d1ff1014cc3c662729bb823cfa0aed34ea6fb7c9050f9b39948dfa6",
+    "src/modules/commander/UserModeIntention.hpp": "0252c72e59566e48cd1d8adcb91fa10d107945a771be2d21a36560a54de93887",
+    "src/modules/ekf2/EKF2.cpp": "158c88664c651e923e49fc484338a923741c71d3fc95ab944624d55915550b28",
+    "src/modules/flight_mode_manager/FlightModeManager.cpp": "77f04f674f7fb1df281f004597696752200ad5d26bdc0c203651a549e6aac88e",
+    "src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.cpp": "14e72d46c143e6a53ef5a6665b09ce06bb31bcb2340ade8e48c7e9d4365f62bb",
+    "src/modules/fw_mode_manager/FixedWingModeManager.cpp": "27b75d7effcf9512fdbb74dc4a2fb7223c7a7b5cdba3a3121f98452ac9b8f1a7",
+    "src/modules/mavlink/mavlink_receiver.cpp": "5018de3b7c46061fedb4aa26ed76155ac1e765d299d1e827b539f933053050e2",
+    "src/modules/mc_pos_control/GotoControl/GotoControl.cpp": "9ee18de051ebf0495a196bbf213ccefed8d16d2fd2e1bb919e846f9e68b8dadc",
+    "src/modules/mc_pos_control/MulticopterPositionControl.cpp": "7a7d99cc65655bc7400ca9e99a1b1ce1581d809d50e68d8fbf514c4786063da3",
+    "src/modules/mc_pos_control/PositionControl/PositionControl.cpp": "6195d98ae81358f323b7699568a744b489b11bfceb682e7826abbaead3bab7df",
+    "src/modules/vtol_att_control/NativePhaseHistory.hpp": "0477a926c81cda9e734a4f800225c25aa0e8c8f80f571bdb41b2233578a9c107",
+    "src/modules/vtol_att_control/vtol_att_control_main.cpp": "1a5ba1e193bef35b4eaff321592668fdd90a293868eb59ca49252dbc7f63ad51",
+    "src/modules/vtol_att_control/vtol_att_control_main.h": "4ce75029eb41db6e5edc8209884b0d543fb8cb44a7fc2d650e91e247db35bc5d"
+  },
+  "protocol_version": 5,
+  "altitude_reference_timeout_s": 1.0,
+  "sdk_bundle_files": {
+    "ros/install/px4_msgs/include/px4_msgs/px4_msgs/msg/detail/fixed_wing_guidance_status__struct.hpp": "6ed53547e653deb1cacfd5e8ba19aa052c352d130654570a905fac282fa3bd80",
+    "ros/install/px4_msgs/include/px4_msgs/px4_msgs/msg/detail/owned_mode_request__struct.hpp": "367b21e0274652cf169f9ad70974657cb63c64f8e2615227749b9271a9165ac3",
+    "ros/install/px4_msgs/include/px4_msgs/px4_msgs/msg/detail/owned_mode_status__struct.hpp": "3a941efc2cd97240d1c9390282528b31f9da4d5da90ba693b1e93a7a5992f5e1",
+    "ros/install/px4_msgs/include/px4_msgs/px4_msgs/msg/detail/vtol_vehicle_status__struct.hpp": "5dde3d6c865bf3475fb02be74cd1e34b7a90816f260d532daef30e5bb979dfbc",
+    "ros/install/px4_ros2_cpp/include/px4_ros2/control/setpoint_types/experimental/trajectory.hpp": "a1722a48629ad73e7833cc73564ec764cb96af791d8fdd5f363e6148133d3d0e",
+    "ros/install/px4_ros2_cpp/include/px4_ros2/control/setpoint_types/fixedwing/lateral_longitudinal.hpp": "f637a3e3c7d0cd5adb2d1729cd3cc9ad17def62b55362d61d9eda995d01ee4d9",
+    "ros/install/px4_ros2_cpp/include/px4_ros2/control/vtol.hpp": "85ee068e50da62ae159750ea745abd9245b364cb4abcbc09a6ddfb54c8203658"
+  },
+  "wire_recorder_sha256": "709aea957ead6758c246544245a582ba615316032cc3e4bf373ee3a0a531afb6",
+  "runtime_dependencies": {
+    "tools/native_adapter_runtime.py": "cba51b09facb3e29f40f566ab66ac36b1c7fedf2829852b517a570a217b288c7"
+  }
+}

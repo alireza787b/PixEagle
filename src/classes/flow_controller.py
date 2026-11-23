@@ -381,7 +381,13 @@ class FlowController:
                 if hasattr(self.controller.video_handler, "get_frame_status"):
                     frame_status = self.controller.video_handler.get_frame_status()
                 self._observe_video_playback_epoch(frame_status)
-                if frame is None:
+                if frame_status.get('awaiting_new_capture') is True:
+                    loop.run_until_complete(self.controller.handle_video_frame_no_new_capture(frame_status))
+                    delay_seconds = self.controller.video_handler.delay_frame / 1000.0
+                    if delay_seconds > 0:
+                        time.sleep(delay_seconds)
+                    continue
+                if frame is None or frame_status.get('source') == 'cached':
                     logging.warning("FlowController: No frame from video_handler - continuing in degraded mode")
                     loop.run_until_complete(
                         self.controller.handle_video_frame_unavailable(frame_status)

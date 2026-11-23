@@ -85,6 +85,17 @@ metadata send. Client time after receipt must be added to both ages. A state of
 `fresh` describes how the capture was obtained; age still determines whether it
 is currently stale. No clock synchronization with the ground station is assumed.
 
+An asynchronous camera poll with no new capture skips image inference and pumps
+pending control work. Its cached pixels remain unusable as a new measurement.
+Readiness may retain the last producer-committed image observation with its
+original capture identity and receipt, subject to current source, target,
+geometry and freshness checks. Its age is bounded by the smaller of the current
+command TTL and the existing 250 ms dispatch-stall budget. Reads never restamp
+that observation or restart recovery budgets. During inference, API reads use
+that coherent committed observation without waiting for the model lock. Failed
+capture, EOF and source retirement retain their existing refusal paths;
+video-independent trackers continue updating without a new image.
+
 The dimensions are exact encoded output dimensions. `geometry_verified: false`
 means crop/orientation/calibration, source-to-aircraft geometry, and target
 coordinate mapping are not established. Reliable frame identity and JPEG size

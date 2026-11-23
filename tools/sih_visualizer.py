@@ -101,7 +101,8 @@ def write_png(path: Path, scenario: VisualizationScenario, samples: list[Visuali
         import matplotlib.pyplot as plt
     except ImportError:
         return
-    native = scenario.command_contract in {"fixed_wing_external", "vtol_external"}
+    native = any(sample.command_contract == "fixed_wing_external" for sample in samples)
+    translation = any(sample.command_contract == "velocity_body_offboard" for sample in samples)
     attitude = scenario.command_contract == "attitude_rate"
     groups = [
         ("course (degrees)", [("course_rad", "course", 180 / math.pi)]),
@@ -114,26 +115,39 @@ def write_png(path: Path, scenario: VisualizationScenario, samples: list[Visuali
         ("heading-frame velocity (m/s)", [("vel_body_fwd", "forward", 1), ("vel_body_right", "right", 1),
                                           ("vel_body_down", "down", 1)]),
     ]
+    if native and translation:
+        groups.append(("heading-frame velocity (m/s)", [("vel_body_fwd", "forward", 1),
+            ("vel_body_right", "right", 1), ("vel_body_down", "down", 1)]))
     if native:
         for key, label, unit in (("height_rate_m_s", "height rate", "m/s (up +)"),
                                   ("altitude_amsl_m", "altitude hold", "m AMSL")):
             if any(key in sample.command for sample in samples):
                 groups.append((unit, [(key, label, 1)]))
+    speed_fields = [(key, label, 1) for key, label in (
+        ("requested_speed", "acknowledged phase-specific request" if native and translation else
+            "acknowledged airspeed request" if native else "acknowledged 3D request"),
+        ("measured_translation_speed_m_s", "PX4 3D velocity magnitude"))
+        if any(getattr(sample, key) is not None for sample in samples)]
+    if speed_fields:
+        groups.append(("speed (m/s)", speed_fields))
     figure, axes = plt.subplots(len(groups) + 1, 1, figsize=(12, 3 * (len(groups) + 1)), constrained_layout=True)
-    times = [sample.timestamp for sample in samples]
+    origin = samples[0].timestamp if samples else 0.
+    times = [sample.timestamp - origin for sample in samples]
     for axis, (ylabel, fields) in zip(axes, groups):
         for key, label, factor in fields:
-            values = [sample.command.get(key, math.nan) * factor for sample in samples]
+            values = [(getattr(sample, key) if getattr(sample, key) is not None else math.nan) * factor
+                if ylabel == "speed (m/s)" else sample.command.get(key, math.nan) * factor for sample in samples]
             if key == "course_rad":
                 values = [math.nan if index and abs(value - values[index - 1]) > 180 else value
                           for index, value in enumerate(values)]
             axis.plot(times, values, label=label)
         if native and ylabel == "equivalent airspeed (m/s)":
             for key, label in (("observed_eas_m_s", "observed EAS"), ("native_effective_eas_m_s", "native EAS ref")):
-                axis.plot(times, [getattr(sample, key) if getattr(sample, key) is not None else math.nan
-                                  for sample in samples], label=label, linestyle="--")
+                values = [getattr(sample, key) if getattr(sample, key) is not None else math.nan for sample in samples]
+                if any(math.isfinite(value) for value in values):
+                    axis.plot(times, values, label=label, linestyle="--")
         axis.set_ylabel(ylabel)
-        axis.set_xlabel("time (s)")
+        axis.set_xlabel("elapsed time (s)")
         axis.legend()
     axes[0].set_title(f"{scenario.follower_profile}: {scenario.name} · {scenario.evidence_provenance}")
     for key, label, color in (("target_ned", "independent target truth", "#d18b24"),

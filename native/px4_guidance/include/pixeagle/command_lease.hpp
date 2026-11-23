@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdint>
 #include <optional>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <variant>
@@ -29,10 +30,16 @@ struct FixedWingObjective {
     double equivalent_airspeed{};
     std::optional<double> height_rate;
     std::optional<double> altitude_amsl;
+    // Only the pre-acquisition startup objective carries this reference.
+    std::optional<std::uint64_t> altitude_reference_generation{};
 };
 
 struct MulticopterObjective {
-    double north{}, east{}, down{}, yaw_rate{};
+    double north{}, east{};
+    std::optional<double> down{0.};
+    double yaw_rate{};
+    std::optional<double> altitude_amsl{};
+    std::optional<std::uint64_t> altitude_reference_generation{};
 };
 
 // Transition objectives do not request a transition. PX4's VTOL helper supplies
@@ -50,11 +57,15 @@ inline Phase phaseOf(const Objective& objective) {
     return Phase::Transition;
 }
 
+inline bool nativeFloatRepresentable(double value) {
+    return std::isfinite(value) && std::abs(value) <= std::numeric_limits<float>::max();
+}
+
 inline void validate(const Objective& objective) {
     const auto finite = [](double value) {
         // The native PX4 interface uses float. A finite JSON double must also
         // remain finite at that boundary, without an arbitrary speed ceiling.
-        if (!std::isfinite(value) || !std::isfinite(static_cast<float>(value)))
+        if (!nativeFloatRepresentable(value))
             throw std::invalid_argument("native_value_not_representable");
     };
     if (const auto* fw = std::get_if<FixedWingObjective>(&objective)) {
@@ -63,8 +74,14 @@ inline void validate(const Objective& objective) {
         if (fw->equivalent_airspeed <= 0 || fw->height_rate.has_value() == fw->altitude_amsl.has_value())
             throw std::invalid_argument("native_fixed_wing_contract_invalid");
         finite(fw->height_rate ? *fw->height_rate : *fw->altitude_amsl);
+        if (fw->altitude_reference_generation && !fw->altitude_amsl)
+            throw std::invalid_argument("native_fixed_wing_contract_invalid");
     } else if (const auto* mc = std::get_if<MulticopterObjective>(&objective)) {
-        for (double value : {mc->north, mc->east, mc->down, mc->yaw_rate}) finite(value);
+        for (double value : {mc->north, mc->east, mc->yaw_rate}) finite(value);
+        if (mc->down.has_value() == mc->altitude_amsl.has_value()
+                || mc->altitude_amsl.has_value() != mc->altitude_reference_generation.has_value())
+            throw std::invalid_argument("native_multicopter_contract_invalid");
+        finite(mc->down ? *mc->down : *mc->altitude_amsl);
     } else {
         const auto& transition = std::get<TransitionObjective>(objective);
         finite(transition.course);

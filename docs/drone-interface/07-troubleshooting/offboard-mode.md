@@ -37,7 +37,7 @@ OFFBOARD_MODE_CODE = 393216
 await drone.offboard.start()  # Rejected!
 
 # CORRECT - send initial setpoint first
-from mavsdk.offboard import VelocityBodyYawspeed
+from mavsdk_grpc.offboard import VelocityBodyYawspeed
 
 initial = VelocityBodyYawspeed(0.0, 0.0, 0.0, 0.0)
 await drone.offboard.set_velocity_body(initial)

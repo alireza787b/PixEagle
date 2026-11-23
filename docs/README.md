@@ -42,6 +42,7 @@ Welcome to the PixEagle documentation. This guide will help you find the informa
 | [OpenCV GStreamer](OPENCV_GSTREAMER.md) | Building OpenCV with GStreamer support |
 | [QGC Network JPEG Receiver Test](video/04-streaming/qgc-windows-receiver-test.md) | Receiver bench, Windows client media prerequisites and evidence boundaries |
 | [Gimbal Simulator](gimbal_simulator.md) | Testing gimbal functionality |
+| [Ubuntu Simulator Training](followers/05-development/ubuntu-training-platform.md) | Beginner menu, headless profiles and exact qualification scope |
 | [Companion Runtime Contract](architecture/companion-runtime-contract.md) | Sidecar ownership, auth, profile, secret, version, and evidence boundaries |
 | [API Exposure Boundary](apis/api-exposure-boundary.md) | Backend bind, CORS, route exposure, and production remote evidence boundary |
 | [API Security Policy](apis/api-security-policy.md) | Default-deny route classification, scopes, CSRF, audit treatment, and enforcement roadmap |

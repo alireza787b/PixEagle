@@ -74,6 +74,40 @@ def test_nested_writes_preserve_custom_siblings_and_sparse_absence(nested_servic
     }
 
 
+def test_saved_private_floor_is_preserved_until_explicit_factory_adoption(nested_service, monkeypatch):
+    service = nested_service
+    path = ["Safety", "GlobalLimits", "MIN_ALTITUDE"]
+    assert service.set_path(path, 3.0).valid
+    assert service.get_effective_defaults()["Safety"]["GlobalLimits"]["MIN_ALTITUDE"] == 5.0
+    previous = service.get_effective_defaults()
+    previous["Safety"]["GlobalLimits"]["MIN_ALTITUDE"] = 3.0
+    monkeypatch.setattr(service, "get_sync_meta", lambda: {"defaults_snapshot": previous})
+    report = build_defaults_sync_report(service)
+    assert path in [row["path"] for row in report["changed_defaults"]]
+    assert service.get_config()["Safety"]["GlobalLimits"]["MIN_ALTITUDE"] == 3.0
+    plan = build_defaults_sync_plan(service, [ConfigSyncOperation(op_type="ADOPT_DEFAULT", path=path)])
+    assert plan["valid"], plan["errors"]
+    assert plan["operations"][0]["target_value"] == 5.0
+    assert service.get_config()["Safety"]["GlobalLimits"]["MIN_ALTITUDE"] == 3.0
+
+
+def test_missing_legacy_speed_permission_requires_preview_and_explicit_adoption(nested_service, tmp_path):
+    path = ["Safety", "ALLOW_SESSION_VELOCITY_OVERRIDE"]
+    saved = tmp_path / "configs/config.yaml"
+    config = yaml.safe_load(saved.read_text())
+    del config["Safety"]["ALLOW_SESSION_VELOCITY_OVERRIDE"]
+    saved.write_text(yaml.safe_dump(config, sort_keys=False))
+    nested_service.reload()
+    before = saved.read_bytes()
+    report = build_defaults_sync_report(nested_service)
+    assert path in [row["path"] for row in report["new_parameters"]]
+    plan = build_defaults_sync_plan(nested_service, [ConfigSyncOperation(op_type="ADOPT_DEFAULT", path=path)])
+    assert plan["valid"], plan["errors"]
+    assert plan["operations"][0]["target_value"] is False
+    assert "ALLOW_SESSION_VELOCITY_OVERRIDE" not in nested_service.get_sync_config()["Safety"]
+    assert saved.read_bytes() == before
+
+
 @pytest.mark.parametrize("path,value", [
     (GENERAL_ALPHA, 2.0), (GENERAL_ALPHA, True), (GENERAL_ALPHA, None),
     (["Follower", "General", "NOT_DECLARED"], 1),
@@ -262,7 +296,7 @@ def test_optional_mission_ceiling_survives_edit_import_export_and_sync(nested_se
 def test_missing_mission_ceiling_in_replace_import_uses_checked_in_default(nested_service):
     ok, _ = nested_service.import_config({"Safety": {"GlobalLimits": {"MIN_ALTITUDE": 3.0}}}, "replace")
     assert ok
-    assert nested_service.get_path_value(["Safety", "GlobalLimits", "MAX_ALTITUDE"]) == 120.0
+    assert nested_service.get_path_value(["Safety", "GlobalLimits", "MAX_ALTITUDE"]) == 100.0
 
 
 def test_nested_resolver_supports_explicit_typed_extension_children(nested_service):

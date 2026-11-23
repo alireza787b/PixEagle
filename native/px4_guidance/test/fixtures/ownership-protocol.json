@@ -1,14 +1,16 @@
 {
-  "protocol_version": 3,
+  "protocol_version": 5,
   "capabilities": {
     "runtime_id": "test-adapter",
     "px4_firmware": "test-firmware",
     "external_mode_api_version": 2,
     "fixed_wing_supported": true,
     "multicopter_supported": true,
+    "multicopter_altitude_hold_supported": true,
     "unrestricted_speed_supported": false,
     "owned_mode_supported": true,
-    "owned_mode_id": 23
+    "owned_mode_id": 23,
+    "source_clock_id": null
   },
   "acquisition": {
     "runtime_id": "test-adapter",
@@ -27,7 +29,25 @@
     "source_nav_state": 4,
     "source_nav_state_timestamp": 1000000,
     "mode_id": 23,
-    "activation_timestamp": 2000000
+    "activation_timestamp": 2000000,
+    "start_context": {
+      "version": 1,
+      "runtime_id": "test-adapter",
+      "binding": {
+        "aircraft_uid": "aircraft-a",
+        "connection_generation": "1",
+        "telemetry_generation": 1
+      },
+      "firmware_incarnation": "00000000000000000000000000000002",
+      "mode_id": 23,
+      "registration_id": 99,
+      "intention_revision": 7,
+      "source_nav_state": 4,
+      "source_nav_state_timestamp": 1000000,
+      "phase": "fixed_wing",
+      "phase_source_instance": 0,
+      "phase_revision": 0
+    }
   },
   "release_receipt": {
     "acquisition": {
@@ -47,7 +67,25 @@
       "source_nav_state": 4,
       "source_nav_state_timestamp": 1000000,
       "mode_id": 23,
-      "activation_timestamp": 2000000
+      "activation_timestamp": 2000000,
+      "start_context": {
+        "version": 1,
+        "runtime_id": "test-adapter",
+        "binding": {
+          "aircraft_uid": "aircraft-a",
+          "connection_generation": "1",
+          "telemetry_generation": 1
+        },
+        "firmware_incarnation": "00000000000000000000000000000002",
+        "mode_id": 23,
+        "registration_id": 99,
+        "intention_revision": 7,
+        "source_nav_state": 4,
+        "source_nav_state_timestamp": 1000000,
+        "phase": "fixed_wing",
+        "phase_source_instance": 0,
+        "phase_revision": 0
+      }
     },
     "outcome": "hold_confirmed",
     "observed_nav_state": 4,

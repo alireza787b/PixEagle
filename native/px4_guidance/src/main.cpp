@@ -28,6 +28,10 @@ int main(int argc, char** argv) {
         const auto path = node->declare_parameter<std::string>("socket_path", "/run/pixeagle/guidance.sock");
         const auto timeout = node->declare_parameter<double>("status_timeout_s", 1.);
         const auto request_timeout = node->declare_parameter<double>("request_timeout_s", .5);
+        const auto source_clock_id = node->declare_parameter<std::string>("simulator_clock_id", "");
+        if (source_clock_id.size() > 128 || source_clock_id.find_first_not_of(
+                "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.:-") != std::string::npos)
+            throw std::invalid_argument("native_source_clock_identity_invalid");
         const auto runtime = runtimeId();
         std::optional<px4_msgs::msg::VehicleStatus> initial;
         auto probe = node->create_subscription<px4_msgs::msg::VehicleStatus>(
@@ -46,8 +50,12 @@ int main(int argc, char** argv) {
         mode.setNeutralProvider([&] {
             return observations.neutralFlightData(mode.status(), clockSeconds());
         });
+        mode.setAltitudeHoldProvider([&](const Identity& identity, double altitude, std::uint64_t generation, double now) {
+            return observations.altitudeHoldDown(identity, altitude, generation, now);
+        });
         if (!mode.doRegister()) throw std::runtime_error("native_registration_failed");
         if (!px4_ros2::messageCompatibilityCheck(*node, {{"fmu/out/fixed_wing_guidance_status", "FixedWingGuidanceStatus"},
+                {"fmu/out/vtol_vehicle_status", "VtolVehicleStatus"},
                 {"fmu/out/owned_mode_status", "OwnedModeStatus"}, {"fmu/in/owned_mode_request", "OwnedModeRequest"}}))
             throw std::runtime_error("native_firmware_contract_mismatch");
         while (rclcpp::ok() && !mode.registrationConfirmed() && clockSeconds() < discovery_deadline)
@@ -65,7 +73,9 @@ int main(int argc, char** argv) {
                 if (firmware != PIXEAGLE_EXPECTED_FIRMWARE_HASH)
                     throw std::invalid_argument("native_firmware_revision_mismatch");
                 return Json{{"runtime_id", runtime}, {"px4_firmware", firmware}, {"external_mode_api_version", 2},
+                    {"source_clock_id", source_clock_id.empty() ? Json(nullptr) : Json(source_clock_id)},
                     {"fixed_wing_supported", true}, {"multicopter_supported", initial->is_vtol},
+                    {"multicopter_altitude_hold_supported", initial->is_vtol},
                     {"unrestricted_speed_supported", false}, {"owned_mode_supported", mode.ownedContractAvailable()},
                     {"owned_mode_id", mode.id()}};
             }
@@ -80,13 +90,17 @@ int main(int argc, char** argv) {
             if (request.operation == "observe") {
                 exactFields(request.payload, {});
                 const auto health = mode.phaseSourceHealth();
+                const auto start_context = snapshot.is_null() ? std::optional<NativeStartContext>{}
+                    : mode.startContext(runtime, snapshot.at("binding"));
                 const auto optional_number = [](std::optional<double> value) -> Json {
                     return value ? Json(*value) : Json(nullptr);
                 };
                 return Json{{"runtime_id", runtime}, {"fresh", !snapshot.is_null()},
+                    {"start_context", start_context ? start_context->wire() : Json(nullptr)},
                     {"owner_confirmed", mode.observedOwner()}, {"rescue_active", mode.rescue()},
                     {"aircraft_state", snapshot}, {"publications", mode.publications()},
                     {"attitude_timing", snapshot.is_null() ? Json(nullptr) : observations.attitudeTiming(now)},
+                    {"source_attitude", observations.sourceAttitude(now)},
                     {"source_health", observations.health(now)}, {"phase_status_fresh", mode.fresh()},
                     {"phase_source_health", {
                         {"vehicle_status_age_s", optional_number(health.vehicle_age_s)},
@@ -96,17 +110,24 @@ int main(int argc, char** argv) {
                     {"vehicle_pose", observations.pose(now)},
                     {"native_guidance_feedback", observations.commandFeedback(now)},
                     {"release_pending", mode.releasePending()}, {"neutral_drain_active", mode.neutralDrainActive()},
+                    {"release_dispatch", mode.releaseDiagnostics()},
                     {"neutral_drain_failure", mode.neutralDrainFailure()},
                     {"nav_state", mode.status().nav_state}, {"nav_state_timestamp", mode.status().nav_state_timestamp},
                     {"release_receipt", mode.releaseReceipt(runtime)}};
             }
             if (request.operation == "engage") {
-                exactFields(request.payload, {"identity", "token", "runtime_id", "expires_at_monotonic_s"});
+                exactFields(request.payload, {"identity", "token", "runtime_id", "expires_at_monotonic_s", "altitude_reference", "start_context"});
                 if (request.payload.at("runtime_id") != runtime) throw std::invalid_argument("native_runtime_changed");
                 const auto identity = decodeIdentity(request.payload.at("identity"));
                 const auto token = decodeOwnershipToken(request.payload.at("token"));
+                const auto start_context = decodeStartContext(request.payload.at("start_context"));
+                if (start_context.runtime != runtime) throw std::invalid_argument("native_runtime_changed");
                 if (!observations.bindingMatches(identity) || snapshot.is_null())
                     throw std::invalid_argument("native_aircraft_context_unavailable");
+                const auto reference = decodeAltitudeReference(request.payload.at("altitude_reference"));
+                if (snapshot.at("altitude_reference_generation") != reference.generation
+                        || !observations.altitudeHoldDown(identity, reference.altitude_amsl, reference.generation, now))
+                    throw std::invalid_argument("native_altitude_reference_unavailable");
                 if (!pending_request || *pending_request != request.request_id) {
                     if (pending_identity) throw std::invalid_argument("native_session_already_owned");
                     engage_expires = finiteNumber(request.payload.at("expires_at_monotonic_s"));
@@ -116,14 +137,16 @@ int main(int argc, char** argv) {
                     if (mode.observedPhase() == Phase::FixedWing) {
                         hold = FixedWingObjective{snapshot.at("navigation_heading_rad").get<double>(),
                             snapshot.at("fixed_wing_envelope").at("trim_eas_m_s").get<double>(), {},
-                            snapshot.at("altitude_amsl_m").get<double>()};
+                            reference.altitude_amsl, reference.generation};
                     } else if (mode.observedPhase() == Phase::Multicopter && initial->is_vtol) {
-                        hold = MulticopterObjective{};
+                        hold = MulticopterObjective{0., 0., std::nullopt, 0., reference.altitude_amsl, reference.generation};
                     } else throw std::invalid_argument("native_engagement_phase_unsupported");
-                    mode.requestActivation(identity, token, std::move(hold), engage_expires);
+                    mode.requestActivation(identity, token, std::move(hold), engage_expires, start_context);
                     pending_identity = identity;
                     pending_request = request.request_id;
                 }
+                if (mode.acquisition(runtime).at("start_context") != start_context.wire())
+                    throw std::invalid_argument("native_start_context_changed");
                 if (mode.observedOwner()) {
                     mode.acquire(identity, engage_expires);
                     pending_request.reset();
@@ -137,6 +160,11 @@ int main(int argc, char** argv) {
                 const auto intent = decodeIntent(request.payload);
                 if (snapshot.is_null() || !observations.bindingMatches(intent.identity))
                     throw std::invalid_argument("native_aircraft_context_unavailable");
+                if (const auto* mc = std::get_if<MulticopterObjective>(&intent.objective)) {
+                    if (mc->altitude_amsl && !observations.altitudeHoldDown(intent.identity,
+                            *mc->altitude_amsl, *mc->altitude_reference_generation, now))
+                        throw std::invalid_argument("native_altitude_reference_unavailable");
+                }
                 mode.submit(intent, token);
                 return Json{{"accepted_sequence", intent.sequence}, {"owner_confirmed", mode.observedOwner()},
                     {"publications", mode.publications()}};

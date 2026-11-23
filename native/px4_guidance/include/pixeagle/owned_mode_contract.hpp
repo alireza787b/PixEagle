@@ -11,7 +11,7 @@
 namespace pixeagle {
 
 using OwnershipToken = std::array<std::uint64_t, 2>;
-constexpr std::uint8_t ownership_contract_version = 1;
+constexpr std::uint8_t ownership_contract_version = 2;
 constexpr std::uint64_t maximum_ownership_window_us = 500000;
 
 inline std::uint64_t requireOwnRegistration(std::uint64_t own, std::uint64_t current) {
@@ -68,6 +68,52 @@ inline OwnershipToken decodeOwnershipToken(const Json& value) {
     return token;
 }
 
+struct NativeStartContext {
+    std::string runtime;
+    Json binding;
+    OwnershipToken incarnation{};
+    std::uint8_t mode{}, source_mode{};
+    std::uint64_t registration{}, intention_revision{}, source_epoch{}, phase_instance{}, phase_revision{};
+    Phase phase{Phase::Unknown};
+
+    Json wire() const {
+        return {{"version", 1u}, {"runtime_id", runtime}, {"binding", binding},
+            {"firmware_incarnation", encodeOwnershipToken(incarnation)}, {"mode_id", mode},
+            {"registration_id", registration}, {"intention_revision", intention_revision},
+            {"source_nav_state", source_mode}, {"source_nav_state_timestamp", source_epoch},
+            {"phase", phase == Phase::Multicopter ? "multicopter" : "fixed_wing"},
+            {"phase_source_instance", phase_instance}, {"phase_revision", phase_revision}};
+    }
+    bool bindingMatches(const Identity& identity) const {
+        return binding.at("aircraft_uid") == identity.aircraft && binding.at("connection_generation") == identity.connection
+            && binding.at("telemetry_generation") == identity.telemetry_generation;
+    }
+};
+
+inline NativeStartContext decodeStartContext(const Json& value) {
+    exactFields(value, {"version", "runtime_id", "binding", "firmware_incarnation", "mode_id", "registration_id",
+        "intention_revision", "source_nav_state", "source_nav_state_timestamp", "phase", "phase_source_instance", "phase_revision"});
+    const auto& binding = value.at("binding");
+    exactFields(binding, {"aircraft_uid", "connection_generation", "telemetry_generation"});
+    nonemptyString(binding.at("aircraft_uid"));
+    nonemptyString(binding.at("connection_generation"));
+    unsignedInteger(binding.at("telemetry_generation"));
+    const auto phase = nonemptyString(value.at("phase"));
+    const auto mode = unsignedInteger(value.at("mode_id"));
+    const auto source_mode = unsignedInteger(value.at("source_nav_state"));
+    NativeStartContext result{nonemptyString(value.at("runtime_id")), binding,
+        decodeOwnershipToken(value.at("firmware_incarnation")), static_cast<std::uint8_t>(mode), static_cast<std::uint8_t>(source_mode),
+        unsignedInteger(value.at("registration_id")), unsignedInteger(value.at("intention_revision")),
+        unsignedInteger(value.at("source_nav_state_timestamp")), unsignedInteger(value.at("phase_source_instance")),
+        unsignedInteger(value.at("phase_revision")),
+        phase == "multicopter" ? Phase::Multicopter : phase == "fixed_wing" ? Phase::FixedWing : Phase::Unknown};
+    if (unsignedInteger(value.at("version")) != 1 || mode < 23 || mode > 30 || source_mode > 255 || mode == source_mode
+            || result.registration == 0 || result.source_epoch == 0 || result.phase == Phase::Unknown
+            || ((result.phase_instance == 0) != (result.phase_revision == 0)))
+        throw std::invalid_argument("native_start_context_invalid");
+    return result;
+}
+
 enum class OwnershipReceiptState { Pending, Acquired, Releasing, Released, Cancelled, Rejected, Expired, Superseded, Other };
 enum class TerminalReleaseOutcome { HoldConfirmed, OwnerAlreadyReleased };
 
@@ -87,6 +133,7 @@ struct OwnershipContext {
     std::uint64_t registration_id{};
     bool retired{}, pursuit_ended{};
     std::optional<TerminalReleaseObservation> terminal_release{};
+    std::optional<NativeStartContext> start_context{};
 
     void endPursuit(CommandLease& lease) { pursuit_ended = true; lease.revoke(); }
     void requirePursuit() const {
@@ -121,7 +168,8 @@ struct OwnershipContext {
         return {{"runtime_id", runtime}, {"identity", session}, {"token", encodeOwnershipToken(token)},
             {"firmware_incarnation", encodeOwnershipToken(incarnation)}, {"source_revision", source_revision},
             {"source_nav_state", source_mode}, {"source_nav_state_timestamp", source_epoch},
-            {"mode_id", mode}, {"activation_timestamp", acquired_epoch}};
+            {"mode_id", mode}, {"activation_timestamp", acquired_epoch},
+            {"start_context", start_context ? start_context->wire() : Json(nullptr)}};
     }
 
     Json releaseReceipt(const std::string& runtime, std::uint8_t observed_mode, std::uint64_t observed_epoch) const {
@@ -183,6 +231,14 @@ inline bool neutralDrainPermitted(const OwnershipContext& context, const NativeA
     return context.pursuit_ended && exactOriginalActivation(context, evidence)
         && ((evidence.state == OwnershipReceiptState::Acquired && evidence.owner_active)
             || evidence.state == OwnershipReceiptState::Releasing);
+}
+
+inline bool releaseRetransmissionPermitted(const OwnershipContext& context, const NativeActivationEvidence& evidence,
+        std::uint64_t original_clock, std::uint64_t original_expiry, std::uint64_t observed_clock) {
+    return original_clock > 0 && original_expiry > original_clock
+        && original_expiry - original_clock <= maximum_ownership_window_us
+        && observed_clock > original_clock && observed_clock < original_expiry
+        && neutralDrainPermitted(context, evidence);
 }
 
 // Waiting is not authority: only exactOriginalActivation may authorize startup

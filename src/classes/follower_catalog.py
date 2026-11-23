@@ -177,20 +177,27 @@ def evaluate_input(profile: FollowerProfile, manager, schema_type: str, *,
 
 
 def evaluate_aircraft(profile: FollowerProfile, aircraft_kind: str, *,
-                      observed_phase: str | None = None) -> Eligibility:
+                      observed_phase: str | None = None, phase_owner_verified: bool = False) -> Eligibility:
     """Selection is independent; starting needs a supported observed aircraft.
 
-    VTOL admission stays closed until transition-preserving release is qualified.
-    A configuration label or declared transition command cannot grant that gate.
+    VTOL requires the observed settled phase and the verified native ownership
+    contract. Configuration labels and command declarations cannot grant it.
     """
     if aircraft_kind not in {"multicopter", "fixed_wing", "vtol"}:
         return Eligibility(False, "aircraft_kind_unavailable")
     if observed_phase == "vtol_transition":
         return Eligibility(False, "following_transition_unavailable")
     if aircraft_kind == "vtol":
-        return Eligibility(False, "vtol_transition_release_unqualified")
-    phase = aircraft_kind
-    if observed_phase is not None and observed_phase != phase:
+        if phase_owner_verified is not True:
+            return Eligibility(False, "vtol_transition_release_unqualified")
+        if observed_phase not in {"multicopter", "fixed_wing"}:
+            return Eligibility(False, "aircraft_phase_unavailable")
+        if observed_phase not in dict(profile.native_phase_contracts):
+            return Eligibility(False, "follower_aircraft_incompatible")
+        phase = observed_phase
+    else:
+        phase = aircraft_kind
+    if aircraft_kind != 'vtol' and observed_phase is not None and observed_phase != phase:
         return Eligibility(False, "aircraft_phase_mismatch")
     if phase not in profile.phase_command_contracts:
         return Eligibility(False, "follower_aircraft_incompatible")

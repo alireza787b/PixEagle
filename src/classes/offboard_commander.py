@@ -445,6 +445,7 @@ class OffboardCommander:
             created_at_monotonic_s=intent.created_at_monotonic_s,
             created_at_utc=intent.created_at_utc,
             guidance_identity=intent.guidance_identity,
+            altitude_hold=intent.altitude_hold,
         )
         self._before_dispatch = before_dispatch
         self._dispatch_context = dict(dispatch_context or {})

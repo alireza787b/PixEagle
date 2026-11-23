@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Container entrypoint for the isolated camera/PX4 SIH qualification stack.
+# Container entrypoint for the isolated normal PixEagle simulation stack.
 set -euo pipefail
 
-runtime=${PIXEAGLE_SIH_RUNTIME:?}
-python=${PIXEAGLE_SIH_PYTHON:?}
-bin_dir=${PIXEAGLE_SIH_BIN_DIR:?}
-router=${PIXEAGLE_SIH_ROUTER:?}
-qgc_host=${PIXEAGLE_SIH_QGC_HOST:-127.0.0.1}
+runtime=${PIXEAGLE_SIM_RUNTIME:?}
+python=${PIXEAGLE_SIM_PYTHON:?}
+bin_dir=${PIXEAGLE_SIM_BIN_DIR:?}
+router=${PIXEAGLE_SIM_ROUTER:?}
+qgc_host=${PIXEAGLE_SIM_QGC_HOST:-127.0.0.1}
 
 [[ -f $runtime/profile-manifest.json && -f $runtime/configs/config.yaml ]] || {
     echo "Prepared SIH profile is missing." >&2
@@ -17,17 +17,23 @@ qgc_host=${PIXEAGLE_SIH_QGC_HOST:-127.0.0.1}
     exit 1
 }
 
-instance=$($python - "$runtime/profile-manifest.json" <<'PY'
+mapfile -t prepared < <($python - "$runtime/profile-manifest.json" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 manifest = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-if manifest.get("kind") != "gimbal-sih-preflight" or not manifest.get("flight_commands_blocked"):
-    raise SystemExit("Expected a prepared, initially command-blocked gimbal SIH profile")
+if (manifest.get('version') != 2 or manifest.get("kind") != "simulation-preflight"
+        or not manifest.get("flight_commands_blocked")):
+    raise SystemExit("Expected a prepared, initially command-blocked simulation profile")
 print(manifest["instance_id"])
+print('replay' if manifest['allow_recorded_sih_following'] else 'normal')
 PY
 )
+[[ ${#prepared[@]} == 2 ]] || { echo "Simulation profile declaration is unavailable." >&2; exit 1; }
+instance=${prepared[0]}
+supervisor_args=()
+if [[ ${prepared[1]} == replay ]]; then supervisor_args+=(--sih); fi
 
 mkdir -p "$runtime/logs" "$runtime/.ultralytics"
 children=()
@@ -61,13 +67,13 @@ export PIXEAGLE_INSTANCE_ID="$instance"
 export PIXEAGLE_PROJECT_ROOT="$runtime"
 export PIXEAGLE_RUNTIME_LOG_DIR="$runtime/logs/runtime"
 export PIXEAGLE_SIH_TRACE_DIR="$runtime/logs/traces"
-export PIXEAGLE_RUN_ID="gimbal_sih_$(date -u +%Y%m%dT%H%M%SZ)"
-export PIXEAGLE_ENABLE_SITL_INJECTIONS=1
+export PIXEAGLE_RUN_ID="simulation_$(date -u +%Y%m%dT%H%M%SZ)"
+unset PIXEAGLE_ENABLE_SITL_INJECTIONS PIXEAGLE_SIH_REPLAY_BINDING
 export YOLO_AUTOINSTALL=False
 export YOLO_CONFIG_DIR="$runtime/.ultralytics"
 export PYTHONPATH="$runtime/src"
 cd "$runtime"
 "$python" "$runtime/src/classes/backend_supervisor.py" --root "$runtime" \
-    --log "$runtime/logs/pixeagle.log" --sih &
+    --log "$runtime/logs/pixeagle.log" "${supervisor_args[@]}" &
 backend_pid=$!
 wait "$backend_pid"

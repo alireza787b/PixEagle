@@ -5,7 +5,53 @@ import json
 import pytest
 import yaml
 
-from tools.prepare_sitl_gimbal_profile import prepare, validate
+from tools.prepare_simulation_profile import prepare, validate
+
+
+def test_fixed_wing_image_profile_can_be_preselected_without_fabricating_aircraft_phase(tmp_path):
+    directory = tmp_path / 'fw'
+    prepare(directory, recorded_video='test4.mp4', tracking_engine='local',
+            follower_mode='fw_navigation_chase', enable_altitude_control=True)
+    config = yaml.safe_load((directory / 'configs/config.yaml').read_text())
+    assert config['Follower']['FOLLOWER_MODE'] == 'fw_navigation_chase'
+    assert config['FOLLOWER_CIRCUIT_BREAKER'] is True
+    assert validate(directory)['follower_mode'] == 'fw_navigation_chase'
+
+
+@pytest.mark.parametrize('rotation', [0, 90, 180, 270])
+def test_stamped_gazebo_profile_is_explicit_and_keeps_commands_blocked(tmp_path, rotation):
+    settings = dict(socket_path='/run/pixeagle-camera/camera.sock', source_clock_id='test-world',
+        world='training', image_topic='/camera/image', max_attitude_skew_s=.05)
+    directory = tmp_path / 'gazebo'
+    prepare(directory, gazebo_camera=settings, tracking_engine='local', follower_mode='mc_velocity_chase',
+            enable_altitude_control=True, frame_rotation_deg=rotation)
+    config = yaml.safe_load((directory / 'configs/config.yaml').read_text())
+    assert config['VideoSource']['VIDEO_SOURCE_TYPE'] == 'GAZEBO_CAMERA'
+    assert config['VideoSource']['GAZEBO_CAMERA'] == settings
+    assert config['VideoSource']['FRAME_ROTATION_DEG'] == rotation
+    assert config['FOLLOWER_CIRCUIT_BREAKER'] is True
+    assert config['Follower']['General']['ENABLE_ALTITUDE_CONTROL'] is True
+    assert config['Follower']['FollowerOverrides']['MC_VELOCITY_CHASE']['ENABLE_ALTITUDE_CONTROL'] is True
+    assert not config['GimbalTracker']['ENABLED']
+    assert not config['GimbalTracker']['CONTROL_ENABLED']
+    assert validate(directory)['video_source'] == 'gazebo'
+
+
+@pytest.mark.parametrize('rotation', [True, 45, -90, 90.0])
+def test_profile_refuses_ambiguous_display_rotation_before_staging(tmp_path, rotation):
+    with pytest.raises(ValueError, match='Frame rotation'):
+        prepare(tmp_path / 'invalid', recorded_video='test4.mp4', tracking_engine='local',
+                follower_mode='mc_velocity_chase', frame_rotation_deg=rotation)
+    assert not (tmp_path / 'invalid').exists()
+
+
+def test_stamped_gazebo_and_udp_sources_cannot_be_combined(tmp_path):
+    settings = dict(socket_path='/run/pixeagle-camera/camera.sock', source_clock_id='test-world',
+        world='training', image_topic='/camera/image', max_attitude_skew_s=.05)
+    with pytest.raises(ValueError, match='one simulation video source'):
+        prepare(tmp_path / 'mixed', gazebo_camera=settings, udp_url='udp://127.0.0.1:5600',
+            tracking_engine='local', follower_mode='mc_velocity_chase')
+    assert not (tmp_path / 'mixed').exists()
 
 
 def test_prepared_gimbal_sih_profile_blocks_commands_and_uses_one_mount_setting(tmp_path):
@@ -163,3 +209,72 @@ def test_recorded_sih_opt_in_is_private_and_keeps_aircraft_commands_blocked(tmp_
     assert config["Follower"]["FOLLOWER_EXECUTION_MODE"] == "PX4"
     assert config["FOLLOWER_CIRCUIT_BREAKER"] is True
     assert validate(directory)["allow_recorded_sih_following"] is True
+
+
+def test_gazebo_camera_profile_uses_normal_udp_capture_without_replay_or_gimbal(tmp_path):
+    directory = tmp_path / 'gazebo'
+    prepare(directory, udp_url='udp://127.0.0.1:5600', tracking_engine='local',
+            follower_mode='mc_velocity_chase', enable_altitude_control=True,
+            username='admin', password='admin')
+    config = yaml.safe_load((directory / 'configs/config.yaml').read_text())
+    manifest = validate(directory)
+    assert manifest['video_source'] == 'udp'
+    assert config['VideoSource']['VIDEO_SOURCE_TYPE'] == 'UDP_STREAM'
+    assert config['VideoSource']['USE_GSTREAMER'] is True
+    assert config['VideoSource']['UDP_URL'] == 'udp://127.0.0.1:5600'
+    assert not config['GimbalTracker']['ENABLED'] and not config['GimbalTracker']['CONTROL_ENABLED']
+    assert not config['Follower']['SIH_RECORDED_VIDEO_FOLLOWING']
+    assert config['Follower']['FollowerOverrides']['MC_VELOCITY_CHASE']['ENABLE_ALTITUDE_CONTROL'] is True
+    assert config['FOLLOWER_CIRCUIT_BREAKER'] is True
+    assert config['Safety']['GlobalLimits']['ALTITUDE_SAFETY_ENABLED'] is True
+    credentials = json.loads((directory / 'credentials.json').read_text())
+    assert credentials['username'] == 'admin' and credentials['password'] == 'admin'
+
+
+@pytest.mark.parametrize('url', ['http://127.0.0.1:5600', 'udp://192.0.2.1:5600',
+                                 'udp://127.0.0.1:0', 'udp://user@127.0.0.1:5600',
+                                 'udp://127.0.0.1:5600/path', 'udp://127.0.0.1:5600?x=1'])
+def test_udp_training_profile_rejects_nonlocal_or_ambiguous_source_before_copy(tmp_path, url):
+    with pytest.raises(ValueError):
+        prepare(tmp_path / 'bad', udp_url=url, tracking_engine='local', follower_mode='mc_velocity_chase')
+    assert not (tmp_path / 'bad').exists()
+
+
+def test_profile_uses_catalog_compatible_mc_followers(tmp_path):
+    directory = tmp_path / 'ground'
+    prepare(directory, udp_url='udp://127.0.0.1:5600', tracking_engine='local',
+            follower_mode='mc_velocity_ground')
+    assert validate(directory)['follower_mode'] == 'mc_velocity_ground'
+
+
+@pytest.mark.parametrize('mount', ['HORIZONTAL', 'VERTICAL'])
+def test_rendered_gimbal_keeps_video_and_external_observation_contracts_separate(tmp_path, mount):
+    camera = dict(socket_path='/run/pixeagle-camera/camera.sock', source_clock_id='test-clock',
+        world='training', image_topic='/camera/image', max_attitude_skew_s=.05)
+    gimbal = dict(socket_path='/run/pixeagle-gimbal/gimbal.sock', source_clock_id='test-clock',
+        world='training', max_attitude_skew_s=.05)
+    directory = tmp_path / 'rendered'
+    prepare(directory, gazebo_camera=camera, gazebo_gimbal=gimbal, mount_type=mount,
+        tracking_engine='camera', follower_mode='gm_velocity_vector', enable_altitude_control=True,
+        username='admin', password='admin')
+    config = yaml.safe_load((directory / 'configs/config.yaml').read_text())
+    assert validate(directory)['gazebo_gimbal'] == gimbal
+    assert config['VideoSource']['GAZEBO_CAMERA'] == camera
+    assert config['VideoSource']['FIXED_CAMERA_CALIBRATION'] is None
+    assert config['GimbalTracker']['GAZEBO_INPUT'] == gimbal
+    assert config['GimbalTracker']['MOUNT_TYPE'] == mount
+    assert config['GimbalTracker']['ENABLED'] and not config['GimbalTracker']['CONTROL_ENABLED']
+    assert config['Tracking']['DEFAULT_TRACKING_ALGORITHM'] == 'Gimbal'
+    assert config['FOLLOWER_CIRCUIT_BREAKER'] is True
+
+
+@pytest.mark.parametrize('field', ['world', 'source_clock_id'])
+def test_rendered_gimbal_refuses_another_world_or_clock_before_snapshot(tmp_path, field):
+    camera = dict(socket_path='/run/camera.sock', source_clock_id='test-clock', world='training',
+        image_topic='/camera/image', max_attitude_skew_s=.05)
+    gimbal = dict(socket_path='/run/gimbal.sock', source_clock_id='test-clock', world='training', max_attitude_skew_s=.05)
+    gimbal[field] = 'another'
+    with pytest.raises(ValueError, match='same simulator clock/world'):
+        prepare(tmp_path / 'bad', gazebo_camera=camera, gazebo_gimbal=gimbal,
+            tracking_engine='camera', follower_mode='gm_velocity_vector')
+    assert not (tmp_path / 'bad').exists()

@@ -79,6 +79,9 @@ sections:
         - value: CUSTOM_GSTREAMER
           label: Custom GStreamer
           description: Use the advanced custom GStreamer input pipeline
+        - value: GAZEBO_CAMERA
+          label: Gazebo training camera
+          description: Actual stamped images from the isolated simulator provider
       NATIVE_CAPTURE_RESOLUTION:
         type: boolean
         default: true
@@ -363,6 +366,33 @@ sections:
         - optical_to_body_frd_wxyz
         - distortion_model
         - mount_kind
+        additional_properties: false
+      GAZEBO_CAMERA:
+        type: object
+        default: null
+        description: Private isolated simulator image source and declared sample-clock identity; launcher managed.
+        reload_tier: system_restart
+        reboot_required: true
+        nullable: true
+        properties:
+          socket_path:
+            type: string
+          source_clock_id:
+            type: string
+          world:
+            type: string
+          image_topic:
+            type: string
+          max_attitude_skew_s:
+            type: number
+            min: 1.0e-06
+            unit: seconds
+        required:
+        - socket_path
+        - source_clock_id
+        - world
+        - image_topic
+        - max_attitude_skew_s
         additional_properties: false
       CUSTOM_PIPELINE:
         type: string
@@ -3331,6 +3361,37 @@ sections:
         - value: topotek_sip_udp
           label: Topotek SIP UDP
           description: Topotek SIP-series UDP frames using GAC, GIC, TRC, and OFT
+      GAZEBO_INPUT:
+        type: object
+        default: null
+        description: Private isolated simulator SIP source; null keeps normal camera UDP. Launcher managed; camera controls
+          disabled.
+        reload_tier: system_restart
+        reboot_required: false
+        nullable: true
+        properties:
+          socket_path:
+            type: string
+          source_clock_id:
+            type: string
+          world:
+            type: string
+          max_attitude_skew_s:
+            type: number
+            min: 1.0e-06
+            unit: seconds
+          control_contract:
+            type: string
+            nullable: true
+            enum:
+            - rendered_scene_v1
+            description: Private rendered scene control contract; absent/null is input-only.
+        required:
+        - socket_path
+        - source_clock_id
+        - world
+        - max_attitude_skew_s
+        additional_properties: false
       MOUNT_TYPE:
         type: string
         default: HORIZONTAL
@@ -3750,11 +3811,11 @@ sections:
           description: PID-based pursuit control with coordinated turn guidance from gimbal angles
         - value: gm_velocity_vector
           label: GM Velocity Vector
-          description: Pursues a gimbal-designated target with multicopter or native fixed-wing guidance
+          description: Pursues a gimbal-designated target with phase-specific multicopter or fixed-wing guidance
         - value: fw_navigation_chase
           label: FW Navigation Chase
-          description: Calibrated image pursuit through native PX4 course, airspeed and vertical-path control; live qualification
-            pending
+          description: Calibrated image pursuit with course, airspeed-reference and vertical-path objectives; source calibration
+            and qualified command ownership required
         - value: fw_attitude_rate
           label: FW Attitude Rate
           description: Fixed-wing visual guidance with L1/TECS-inspired rate and thrust control
@@ -7034,6 +7095,18 @@ sections:
     category: follower
     icon: sports_motorsports
     parameters:
+      REQUESTED_SPEED:
+        type: float
+        default: 0.5
+        description: Requested 3D speed at session start; null or a missing saved value retains the previous forward target.
+          Session adjustments are temporary.
+        reload_tier: follower_restart
+        reboot_required: false
+        min: 0.0
+        max: 30.0
+        step: 0.5
+        unit: m/s
+        nullable: true
       INITIAL_FORWARD_VELOCITY:
         type: float
         default: 0.0
@@ -9051,15 +9124,23 @@ sections:
     category: safety
     icon: shield
     parameters:
+      ALLOW_SESSION_VELOCITY_OVERRIDE:
+        type: boolean
+        default: false
+        description: 'Advanced: allow supported MC session controls to replace saved velocity caps. Off for new installations.
+          Missing legacy values retain compatibility until Config Sync applies this choice. Altitude, rate and authority guards
+          are unchanged; fixed-wing policy is configured separately.'
+        reload_tier: follower_restart
+        reboot_required: false
       GlobalLimits:
         type: object
         default:
-          MIN_ALTITUDE: 3.0
-          MAX_ALTITUDE: 120.0
+          MIN_ALTITUDE: 5.0
+          MAX_ALTITUDE: 100.0
           ALTITUDE_WARNING_BUFFER: 2.0
           ALTITUDE_SAFETY_ENABLED: true
-          MAX_VELOCITY: 1.0
-          MAX_VELOCITY_FORWARD: 0.5
+          MAX_VELOCITY: 4.0
+          MAX_VELOCITY_FORWARD: 4.0
           MAX_VELOCITY_LATERAL: 0.5
           MAX_VELOCITY_VERTICAL: 0.5
           MAX_YAW_RATE: 45.0
@@ -9068,8 +9149,8 @@ sections:
           EMERGENCY_STOP_ENABLED: true
           RTL_ON_VIOLATION: true
           MAX_SAFETY_VIOLATIONS: 5
-        description: Complete non-bypassable safety envelope; every canonical field is required and follower profiles may
-          only tighten it
+        description: Complete saved safety envelope; every canonical field is required and follower profiles may only tighten
+          it. Explicitly permitted session velocity overrides affect velocity caps only.
         reload_tier: follower_restart
         reboot_required: false
         required:
@@ -9091,7 +9172,7 @@ sections:
         properties:
           MIN_ALTITUDE:
             type: float
-            default: 3.0
+            default: 5.0
             description: Absolute minimum permitted altitude above the configured reference
             reload_tier: follower_restart
             reboot_required: false
@@ -9101,7 +9182,7 @@ sections:
             unit: m
           MAX_ALTITUDE:
             type: float
-            default: 120.0
+            default: 100.0
             description: Maximum permitted relative altitude; null means no mission ceiling, while omission inherits the default
             reload_tier: follower_restart
             reboot_required: false
@@ -9129,23 +9210,23 @@ sections:
             reboot_required: false
           MAX_VELOCITY:
             type: float
-            default: 1.0
+            default: 4.0
             description: Maximum overall velocity magnitude
             reload_tier: follower_restart
             reboot_required: false
             min: 1.0e-06
             max: 30.0
-            step: 0.01
+            step: 0.1
             unit: m/s
           MAX_VELOCITY_FORWARD:
             type: float
-            default: 0.5
+            default: 4.0
             description: Maximum forward velocity magnitude
             reload_tier: follower_restart
             reboot_required: false
             min: 1.0e-06
             max: 30.0
-            step: 0.01
+            step: 0.1
             unit: m/s
           MAX_VELOCITY_LATERAL:
             type: float
@@ -9279,7 +9360,7 @@ sections:
                 reboot_required: false
                 min: 1.0e-06
                 max: 30.0
-                step: 0.01
+                step: 0.1
                 unit: m/s
               MAX_VELOCITY_FORWARD:
                 type: float
@@ -9288,7 +9369,7 @@ sections:
                 reboot_required: false
                 min: 1.0e-06
                 max: 30.0
-                step: 0.01
+                step: 0.1
                 unit: m/s
               MAX_VELOCITY_LATERAL:
                 type: float
@@ -9402,7 +9483,7 @@ sections:
                 reboot_required: false
                 min: 1.0e-06
                 max: 30.0
-                step: 0.01
+                step: 0.1
                 unit: m/s
               MAX_VELOCITY_FORWARD:
                 type: float
@@ -9411,7 +9492,7 @@ sections:
                 reboot_required: false
                 min: 1.0e-06
                 max: 30.0
-                step: 0.01
+                step: 0.1
                 unit: m/s
               MAX_VELOCITY_LATERAL:
                 type: float
@@ -9525,7 +9606,7 @@ sections:
                 reboot_required: false
                 min: 1.0e-06
                 max: 30.0
-                step: 0.01
+                step: 0.1
                 unit: m/s
               MAX_VELOCITY_FORWARD:
                 type: float
@@ -9534,7 +9615,7 @@ sections:
                 reboot_required: false
                 min: 1.0e-06
                 max: 30.0
-                step: 0.01
+                step: 0.1
                 unit: m/s
               MAX_VELOCITY_LATERAL:
                 type: float
@@ -9647,7 +9728,7 @@ sections:
                 reboot_required: false
                 min: 1.0e-06
                 max: 30.0
-                step: 0.01
+                step: 0.1
                 unit: m/s
               MAX_VELOCITY_FORWARD:
                 type: float
@@ -9656,7 +9737,7 @@ sections:
                 reboot_required: false
                 min: 1.0e-06
                 max: 30.0
-                step: 0.01
+                step: 0.1
                 unit: m/s
               MAX_VELOCITY_LATERAL:
                 type: float
@@ -9769,7 +9850,7 @@ sections:
                 reboot_required: false
                 min: 1.0e-06
                 max: 30.0
-                step: 0.01
+                step: 0.1
                 unit: m/s
               MAX_VELOCITY_FORWARD:
                 type: float
@@ -9778,7 +9859,7 @@ sections:
                 reboot_required: false
                 min: 1.0e-06
                 max: 30.0
-                step: 0.01
+                step: 0.1
                 unit: m/s
               MAX_VELOCITY_LATERAL:
                 type: float
@@ -9891,7 +9972,7 @@ sections:
                 reboot_required: false
                 min: 1.0e-06
                 max: 30.0
-                step: 0.01
+                step: 0.1
                 unit: m/s
               MAX_VELOCITY_FORWARD:
                 type: float
@@ -9900,7 +9981,7 @@ sections:
                 reboot_required: false
                 min: 1.0e-06
                 max: 30.0
-                step: 0.01
+                step: 0.1
                 unit: m/s
               MAX_VELOCITY_LATERAL:
                 type: float
@@ -10013,7 +10094,7 @@ sections:
                 reboot_required: false
                 min: 1.0e-06
                 max: 30.0
-                step: 0.01
+                step: 0.1
                 unit: m/s
               MAX_VELOCITY_FORWARD:
                 type: float
@@ -10022,7 +10103,7 @@ sections:
                 reboot_required: false
                 min: 1.0e-06
                 max: 30.0
-                step: 0.01
+                step: 0.1
                 unit: m/s
               MAX_VELOCITY_LATERAL:
                 type: float
@@ -10137,7 +10218,7 @@ sections:
                 reboot_required: false
                 min: 1.0e-06
                 max: 30.0
-                step: 0.01
+                step: 0.1
                 unit: m/s
               MAX_VELOCITY_FORWARD:
                 type: float
@@ -10146,7 +10227,7 @@ sections:
                 reboot_required: false
                 min: 1.0e-06
                 max: 30.0
-                step: 0.01
+                step: 0.1
                 unit: m/s
               MAX_VELOCITY_LATERAL:
                 type: float
@@ -10259,7 +10340,7 @@ sections:
                 reboot_required: false
                 min: 1.0e-06
                 max: 30.0
-                step: 0.01
+                step: 0.1
                 unit: m/s
               MAX_VELOCITY_FORWARD:
                 type: float
@@ -10268,7 +10349,7 @@ sections:
                 reboot_required: false
                 min: 1.0e-06
                 max: 30.0
-                step: 0.01
+                step: 0.1
                 unit: m/s
               MAX_VELOCITY_LATERAL:
                 type: float

@@ -243,6 +243,8 @@ def main(argv=None):
     parser.add_argument('--adapter-bundle', type=Path)
     parser.add_argument('--adapter-file-manifest', type=Path)
     parser.add_argument('--config', type=Path, default=ROOT / 'configs/config_default.yaml')
+    parser.add_argument('--release-drop-count', type=int, choices=range(17), default=0,
+                        help='Isolated fault fixture: drop initial release deliveries per acquisition')
     args = parser.parse_args(argv)
     fixture = case(args.case_fixture)
     if not args.execute:

@@ -1,4 +1,5 @@
 #include <pixeagle/external_mode.hpp>
+#include <pixeagle/multicopter_setpoint.hpp>
 #include <pixeagle/phase_observation.hpp>
 #include <px4_ros2/utils/message_version.hpp>
 #include <chrono>
@@ -68,7 +69,14 @@ ExternalMode::ExternalMode(rclcpp::Node& node, double status_timeout_s, double r
     _vtol_subscription = node.create_subscription<px4_msgs::msg::VtolVehicleStatus>(
         "fmu/out/vtol_vehicle_status" + px4_ros2::getMessageNameVersion<px4_msgs::msg::VtolVehicleStatus>(),
         rclcpp::SensorDataQoS(), [this](px4_msgs::msg::VtolVehicleStatus::ConstSharedPtr message) {
-            if (message->timestamp <= _vtol_status.timestamp) return;
+            if (message->timestamp < _vtol_status.timestamp) return;
+            const bool new_instance = message->phase_source_instance > _vtol_status.phase_source_instance;
+            const bool same_instance = message->phase_source_instance == _vtol_status.phase_source_instance;
+            const bool new_revision = same_instance && message->phase_revision > _vtol_status.phase_revision;
+            if (message->timestamp == _vtol_status.timestamp && !new_instance && !new_revision) return;
+            if (new_instance) _phase_history_valid = message->phase_revision > 0;
+            else if (!same_instance || message->phase_revision < _vtol_status.phase_revision
+                     || message->phase_source_instance == 0 || message->phase_revision == 0) _phase_history_valid = false;
             _vtol_status = *message;
             _vtol_received = monotonicSeconds();
             endPursuitOnPhaseExit();
@@ -89,7 +97,7 @@ PhaseSourceHealth ExternalMode::phaseSourceHealth() const {
     const auto age = [now](double received) -> std::optional<double> {
         return received >= 0. && now >= received ? std::optional<double>{now - received} : std::nullopt;
     };
-    return {age(_status_received), _is_vtol ? age(_vtol_received) : std::nullopt, _status_timeout_s,
+    return {age(_status_received), _is_vtol ? age(_vtol_received) : std::nullopt, vehicle_status_heartbeat_s + _status_timeout_s,
         _is_vtol ? std::optional<double>{vtol_status_heartbeat_s + _status_timeout_s} : std::nullopt};
 }
 
@@ -177,7 +185,12 @@ void ExternalMode::endPursuitOnPhaseExit() {
     const auto recent = [now](double received, double budget) {
         return received >= 0. && now >= received && now - received < budget;
     };
-    if (observedPursuitPhaseExit(_engagement_phase, recent(_status_received, _status_timeout_s),
+    const auto original = _ownership_context->start_context;
+    const bool phase_history_changed = original && _is_vtol
+        && recent(_vtol_received, vtol_status_heartbeat_s + _status_timeout_s)
+        && (!_phase_history_valid || _vtol_status.phase_source_instance != original->phase_instance
+            || _vtol_status.phase_revision != original->phase_revision);
+    if (phase_history_changed || observedPursuitPhaseExit(_engagement_phase, recent(_status_received, vehicle_status_heartbeat_s + _status_timeout_s),
             _status.in_transition_mode, vehiclePhase(), _is_vtol
             && recent(_vtol_received, vtol_status_heartbeat_s + _status_timeout_s), vtolPhase())) stopOwnedMode();
 }
@@ -251,6 +264,12 @@ void ExternalMode::observeOwnership() {
         _activation_hold.reset();
         revoke();
         _neutral_drain_failure.clear();
+    } else if (_release_request && releaseRetransmissionPermitted(context, activationEvidence(),
+            _release_request->source_clock_us, _release_request->expires_at_us, status.source_clock_us)) {
+        // Retry only on progressing native status, with the original payload and
+        // deadline. Firmware deduplicates it against the exact acquisition.
+        _ownership_publisher->publish(*_release_request);
+        ++_release_dispatch_count;
     }
 }
 
@@ -267,6 +286,13 @@ Json ExternalMode::releaseReceipt(const std::string& runtime) const {
     return _ownership_context->releaseReceipt(runtime, _ownership_status.nav_state, _ownership_status.nav_state_timestamp);
 }
 
+Json ExternalMode::releaseDiagnostics() const {
+    return {{"dispatch_count", _release_dispatch_count},
+        {"source_clock_us", _ownership_status.source_clock_us}, {"receipt_state", _ownership_status.state},
+        {"request_source_clock_us", _release_request ? _release_request->source_clock_us : 0},
+        {"request_expires_at_us", _release_request ? _release_request->expires_at_us : 0}};
+}
+
 void ExternalMode::requestOwnership(bool release) {
     if (!_ownership_context || _ownership_context->retired || !ownedContractAvailable()) throw std::invalid_argument("native_ownership_contract_unavailable");
     auto& context = *_ownership_context;
@@ -281,6 +307,11 @@ void ExternalMode::requestOwnership(bool release) {
     request.incarnation = context.incarnation;
     request.token = context.token;
     request.source_revision = context.source_revision;
+    if (!context.start_context) throw std::invalid_argument("native_start_context_required");
+    request.source_vehicle_type = context.start_context->phase == Phase::Multicopter
+        ? px4_msgs::msg::VehicleStatus::VEHICLE_TYPE_ROTARY_WING : px4_msgs::msg::VehicleStatus::VEHICLE_TYPE_FIXED_WING;
+    request.source_phase_instance = context.start_context->phase_instance;
+    request.source_phase_revision = context.start_context->phase_revision;
     request.source_nav_state = context.source_mode;
     request.source_nav_state_timestamp = context.source_epoch;
     request.mode_id = context.mode;
@@ -291,12 +322,36 @@ void ExternalMode::requestOwnership(bool release) {
     request.expires_at_us = release ? ownershipDeadline(request.source_clock_us, now, now + _request_timeout_s) : context.expires;
     request.target_system = _status.system_id;
     request.target_component = _status.component_id;
-    if (release) _release_request = request;
+    if (release) { _release_request = request; ++_release_dispatch_count; }
     _ownership_publisher->publish(request);
 }
 
-void ExternalMode::requestActivation(const Identity& identity, OwnershipToken token, Objective hold, double expires) {
+std::optional<NativeStartContext> ExternalMode::startContext(const std::string& runtime, const Json& binding) const {
+    if (!fresh() || rescue() || !registrationConfirmed() || acquisitionOutstanding()
+            || !_ownership_status.phase_settled || _ownership_status.nav_state != _status.nav_state
+            || _ownership_status.nav_state_timestamp != _status.nav_state_timestamp
+            || _ownership_status.vehicle_type != _status.vehicle_type || _status.nav_state == id()) return {};
+    const auto phase = observedPhase();
+    if (phase != Phase::Multicopter && phase != Phase::FixedWing) return {};
+    if (_is_vtol && (!_phase_history_valid || _vtol_status.transition_intent_pending
+            || _ownership_status.phase_source_instance != _vtol_status.phase_source_instance
+            || _ownership_status.phase_revision != _vtol_status.phase_revision)) return {};
+    const auto first = px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_EXTERNAL1;
+    const auto last = px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_EXTERNAL8;
+    if (id() < first || id() > last) return {};
+    const auto registration = requireOwnRegistration(registrationRequestId(), _ownership_status.registration_ids[id() - first]);
+    return decodeStartContext(NativeStartContext{runtime, binding, _ownership_status.incarnation,
+        static_cast<std::uint8_t>(id()), _status.nav_state, registration, _ownership_status.intention_revision,
+        _status.nav_state_timestamp, _is_vtol ? _vtol_status.phase_source_instance : 0,
+        _is_vtol ? _vtol_status.phase_revision : 0, phase}.wire());
+}
+
+void ExternalMode::requestActivation(const Identity& identity, OwnershipToken token, Objective hold, double expires,
+                                   const NativeStartContext& start_context) {
     const auto now = monotonicSeconds();
+    const auto current = startContext(start_context.runtime, start_context.binding);
+    if (!current || current->wire() != start_context.wire() || !start_context.bindingMatches(identity))
+        throw std::invalid_argument("native_start_context_changed");
     if (token[0] == 0 && token[1] == 0) throw std::invalid_argument("native_ownership_token_invalid");
     if (_lease.identity() || _activation_hold || acquisitionOutstanding() || !fresh() || rescue() || !registrationConfirmed()
             || _status.nav_state == id() || _ownership_status.nav_state != _status.nav_state
@@ -314,11 +369,13 @@ void ExternalMode::requestActivation(const Identity& identity, OwnershipToken to
         throw std::invalid_argument("native_mode_registration_unavailable");
     const auto own_registration = requireOwnRegistration(registrationRequestId(),
         _ownership_status.registration_ids[id() - first_external]);
-    _ownership_context = OwnershipContext{identity, token, _ownership_status.incarnation,
-        _ownership_status.intention_revision, _status.nav_state_timestamp, 0,
-        ownershipDeadline(_ownership_status.source_clock_us, now, expires), _status.nav_state, static_cast<std::uint8_t>(id()),
+    _ownership_context = OwnershipContext{identity, token, start_context.incarnation,
+        start_context.intention_revision, start_context.source_epoch, 0,
+        ownershipDeadline(_ownership_status.source_clock_us, now, expires), start_context.source_mode, static_cast<std::uint8_t>(id()),
         own_registration};
+    _ownership_context->start_context = start_context;
     _release_request.reset();
+    _release_dispatch_count = 0;
     _engagement_phase = phaseOf(hold);
     _neutral_drain_failure.clear();
     _activation_hold = std::move(hold);
@@ -401,7 +458,10 @@ void ExternalMode::updateSetpoint(float /*dt_s*/) {
     // this subscriber or main acquires the lease. Waiting never authorizes output.
     if (_activation_hold && _ownership_context) {
         if (startupActivationMayWait(*_ownership_context, activationEvidence(), now, _activation_expires)) {
-            if (observedOwner() && phaseOf(*_activation_hold) == phase) publish(*_activation_hold);
+            if (!observedOwner()) return;
+            if (phaseOf(*_activation_hold) == phase && publish(*_activation_hold)) return;
+            stopOwnedMode();
+            drainNeutral();
             return;
         }
         stopOwnedMode();
@@ -414,8 +474,21 @@ void ExternalMode::updateSetpoint(float /*dt_s*/) {
     drainNeutral();
 }
 
+std::optional<float> ExternalMode::altitudeHoldDown(double altitude_amsl, std::uint64_t generation) const noexcept {
+    if (!_ownership_context || !_altitude_hold_provider) return {};
+    try {
+        return _altitude_hold_provider(_ownership_context->identity, altitude_amsl, generation, monotonicSeconds());
+    } catch (const std::exception&) {
+        // A reference failure ends this original pursuit through the normal
+        // conditional release path; it must never escape a ROS timer callback.
+        return {};
+    }
+}
+
 bool ExternalMode::publish(const Objective& objective) {
     if (const auto* fw = std::get_if<FixedWingObjective>(&objective)) {
+        if (fw->altitude_reference_generation
+                && !altitudeHoldDown(*fw->altitude_amsl, *fw->altitude_reference_generation)) return false;
         px4_ros2::FwLateralLongitudinalSetpoint setpoint;
         setpoint.withCourse(static_cast<float>(fw->course)).withEquivalentAirspeed(static_cast<float>(fw->equivalent_airspeed));
         if (fw->height_rate) setpoint.withHeightRate(static_cast<float>(*fw->height_rate));
@@ -425,7 +498,13 @@ bool ExternalMode::publish(const Objective& objective) {
         _fixed_wing->update(setpoint);
     } else if (const auto* mc = std::get_if<MulticopterObjective>(&objective)) {
         if (!_trajectory) { revoke(); return false; }
-        _trajectory->update(Eigen::Vector3f(mc->north, mc->east, mc->down), {}, {}, static_cast<float>(mc->yaw_rate));
+        if (mc->altitude_amsl) {
+            const auto down = altitudeHoldDown(*mc->altitude_amsl, *mc->altitude_reference_generation);
+            if (!down) return false;
+            _trajectory->update(multicopterAltitudeSetpoint(*mc, *down));
+        } else {
+            _trajectory->update(Eigen::Vector3f(mc->north, mc->east, *mc->down), {}, {}, static_cast<float>(mc->yaw_rate));
+        }
     } else {
         if (!_trajectory || !_vtol || !transitionDirectionConfirmed()) return false;
         const auto& transition = std::get<TransitionObjective>(objective);

@@ -21,7 +21,7 @@ from classes.api_security_types import APIPrincipalKind, APIAuditPolicy, APISens
 from classes.api_v1_actions import ensure_api_action_store, new_api_action_record
 from classes.api_v1_contracts import APINativeTargetState
 from classes.api_v1_integration import context_snapshot
-from classes.gimbal_control import get_gimbal_control_status
+from classes.gimbal_control import get_gimbal_control_status, is_camera_video_live
 from classes.tracking_roi import tracking_point_to_pixels, tracking_roi_to_pixels, TrackingROIError
 from classes.parameters import Parameters
 from classes.camera_runtime import CameraLifecycleBusy
@@ -367,10 +367,7 @@ def _validate_camera_selection_commit(owner, request, principal, entry, reserved
         raise NativeTargetError("native_context_stale", "Camera, aircraft, video, or target changed during selection.")
     video = getattr(owner.app_controller, "video_handler", None)
     if video is not None:
-        frame_status = video.get_frame_status()
-        stamp = frame_status.get("last_successful_frame_time")
-        if (frame_status.get("source") != "fresh" or not isinstance(stamp, (int, float))
-                or not 0 <= time.time() - stamp <= 2):
+        if not is_camera_video_live(video):
             raise NativeTargetError("frame_expired", "Camera video is no longer live. Tap again.")
 
 
@@ -413,18 +410,49 @@ async def native_target_action(owner, request, response, http_request, action_ty
         scope = hashlib.sha256((principal.kind.value + "\0" + principal.subject).encode()).hexdigest() + ":"
         digest = hashlib.sha256(json.dumps(request.model_dump(mode="json"), sort_keys=True).encode()).hexdigest()
 
+        def replayed_record():
+            if request.dry_run:
+                return None
+            replay = store.lookup_idempotent_action(action_type, request.idempotency_key, scope=scope)
+            if replay:
+                if store.request_digests.get(replay["action_id"]) != digest:
+                    raise NativeTargetError("idempotency_conflict", "This key belongs to a different target request.")
+                response.status_code = 200
+            return replay
+
         async def execute():
             lock = getattr(app, "_follower_state_lock", None)
             if lock is None:
                 raise NativeTargetError("target_state_unavailable", "Tracker lifecycle is unavailable.", 503)
+            replay = replayed_record()
+            if replay:
+                return replay
+            resolved_camera_selection = None
+            if action_type == "gimbal_control" and request.operation == "select":
+                from classes.gimbal_control import prepare_gimbal_selection, _provider
+
+                control = getattr(_provider(app), "manual_control", None)
+                resolver = getattr(control, "resolve_selection", None)
+                if callable(resolver):
+                    with app._tracker_model_state_lock, _context_transaction(owner):
+                        preview = _validate_guard(owner, request, principal, action_type)
+                        frame = _validate_frame(owner, request, preview)
+                        try:
+                            prepared = prepare_gimbal_selection(app, request,
+                                selection_orientation=frame["geometry_key"],
+                                source_sample=frame["stamped"].capture.source_sample)
+                        except ValueError as exc:
+                            raise NativeTargetError("invalid_target_coordinates", str(exc), 422) from exc
+                    # Lookup is read-only and holds no lifecycle/model lock.
+                    # Stop may proceed; admission is checked again after IO.
+                    try:
+                        resolved_camera_selection = await resolver(prepared)
+                    except (ValueError, RuntimeError) as exc:
+                        raise NativeTargetError("invalid_target_coordinates", str(exc), 422) from exc
             async with lock, AsyncExitStack() as lifecycle:
-                if not request.dry_run:
-                    replay = store.lookup_idempotent_action(action_type, request.idempotency_key, scope=scope)
-                    if replay:
-                        if store.request_digests.get(replay["action_id"]) != digest:
-                            raise NativeTargetError("idempotency_conflict", "This key belongs to a different target request.")
-                        response.status_code = 200
-                        return replay
+                replay = replayed_record()
+                if replay:
+                    return replay
                 publisher = getattr(owner, "frame_publisher", None)
                 with app._tracker_model_state_lock, _context_transaction(owner):
                     before = _validate_guard(owner, request, principal, action_type)
@@ -487,9 +515,14 @@ async def native_target_action(owner, request, response, http_request, action_ty
                         from classes.gimbal_control import prepare_gimbal_selection
 
                         try:
-                            prepared_camera_selection = prepare_gimbal_selection(
+                            prepared_camera_selection = resolved_camera_selection or prepare_gimbal_selection(
                                 app, request, selection_orientation=entry["geometry_key"],
+                                source_sample=entry["stamped"].capture.source_sample,
                             )
+                            control = getattr(_provider(app), "manual_control", None) if resolved_camera_selection else None
+                            if resolved_camera_selection and (prepared_camera_selection.control is not control
+                                    or prepared_camera_selection.mode != control.selection_mode):
+                                raise ValueError("Camera selection mode changed; select the target again")
                         except ValueError as exc:
                             raise NativeTargetError("invalid_target_coordinates", str(exc), 422) from exc
                     runtime = getattr(app, "camera_runtime", None)

@@ -1092,7 +1092,8 @@ async def test_engagement_and_publication_share_accepted_image_observation_befor
     attach_component_observer(binding, connection, lambda name, value: logs.append((name, value)),
                               started=100., clock=lambda: env.now[0])
     assert binding.on_observation is binding.transport.on_observation
-    baseline = await binding.engage()
+    from tests.fixtures.native_ownership import start_context
+    baseline = await binding.engage(start_context=start_context(guidance.identity, runtime_id="native-fixture"))
     assert connection.get_aircraft_state() == current
     assert connection.last_packet is packet
     follower.bind_airframe_session(guidance)
@@ -1726,6 +1727,25 @@ def retained_post_release_fixture():
     return json.loads((Path(__file__).parent/'fixtures/native_post_release_observations.json').read_text())
 
 
+def projected_post_release_fixture():
+    """Synthetic protocol5 projection; recorded protocol4 bytes remain historical."""
+    fixture = retained_post_release_fixture()
+    from tests.fixtures.native_ownership import project_recorded_acquisition
+    fixture['acquisition'] = project_recorded_acquisition(fixture['acquisition'])
+    for observation in fixture['observations']:
+        receipt = observation['packet']['release_receipt']
+        receipt['acquisition'] = project_recorded_acquisition(receipt['acquisition'])
+    return fixture
+
+
+def test_historical_post_release_fixture_has_no_protocol5_authority():
+    from classes.native_guidance import NativeAcquisitionContext, NativeGuidanceError
+    fixture = retained_post_release_fixture()
+    assert 'start_context' not in fixture['acquisition']
+    with pytest.raises(NativeGuidanceError, match='native_acquisition_context_invalid'):
+        NativeAcquisitionContext.from_payload(fixture['acquisition'])
+
+
 def write_projection_evidence(root, evidence):
     paths = {'pose': 'px4/pose_trace.jsonl', 'target': 'trace/target_truth.jsonl',
              'state': 'trace/follower_state.jsonl', 'published': 'trace/offboard_publish_trace.jsonl',
@@ -1736,10 +1756,10 @@ def write_projection_evidence(root, evidence):
         path.write_text(''.join(json.dumps(row)+'\n' for row in evidence.get(key, [])))
 
 
-def test_actual_post_stop_packets_close_the_retained_replay_gap_without_invented_commands(tmp_path):
+def test_projected_post_stop_packets_close_the_retained_replay_gap_without_invented_commands(tmp_path):
     from classes.native_guidance import NativeAcquisitionContext
     from classes.sih_visualization import VisualizationScenario, analyze_timeline, build_timeline, load_evidence
-    fixture = retained_post_release_fixture()
+    fixture = projected_post_release_fixture()
     scenario_path = tmp_path/'scenario.yaml'
     scenario_path.write_text(yaml.safe_dump(fixture['scenario']))
     scenario = VisualizationScenario.from_yaml(scenario_path)
@@ -1784,10 +1804,10 @@ def test_actual_post_stop_packets_close_the_retained_replay_gap_without_invented
 
 
 @pytest.mark.parametrize('bad', ['missing_pose', 'stale_pose', 'stale_state', 'not_fresh'])
-def test_missing_or_stale_actual_post_stop_sample_keeps_the_replay_unknown(tmp_path, bad):
+def test_missing_or_stale_projected_post_stop_sample_keeps_the_replay_unknown(tmp_path, bad):
     from classes.native_guidance import NativeAcquisitionContext
     from classes.sih_visualization import VisualizationScenario, analyze_timeline, build_timeline, load_evidence
-    fixture = retained_post_release_fixture()
+    fixture = projected_post_release_fixture()
     context = NativeAcquisitionContext.from_payload(fixture['acquisition'])
     logged = []
     original_pose = fixture['prefix_evidence']['pose'][-1]['px4_timestamp_us']
@@ -1818,9 +1838,9 @@ def test_missing_or_stale_actual_post_stop_sample_keeps_the_replay_unknown(tmp_p
     assert analyze_timeline(scenario, build_timeline(scenario, load_evidence(tmp_path)))['stale_after_fresh_samples'] == 1
 
 
-def test_duplicate_actual_pose_identity_never_refreshes_movement_evidence():
+def test_duplicate_recorded_pose_identity_never_refreshes_movement_evidence():
     from classes.native_guidance import NativeAcquisitionContext
-    fixture = retained_post_release_fixture()
+    fixture = projected_post_release_fixture()
     context = NativeAcquisitionContext.from_payload(fixture['acquisition'])
     logged = []
     original_pose = fixture['prefix_evidence']['pose'][-1]['px4_timestamp_us']
@@ -1839,7 +1859,7 @@ def test_duplicate_actual_pose_identity_never_refreshes_movement_evidence():
 @pytest.mark.parametrize('bad', ['owner', 'runtime', 'token', 'unconfirmed', 'binding', 'publication'])
 def test_post_stop_projection_needs_original_release_proof_before_any_inactive_record(bad):
     from classes.native_guidance import NativeAcquisitionContext
-    fixture = retained_post_release_fixture()
+    fixture = projected_post_release_fixture()
     sample = deepcopy(fixture['observations'][0])
     packet = sample['packet']
     context = NativeAcquisitionContext.from_payload(fixture['acquisition'])
@@ -1865,7 +1885,7 @@ def test_post_stop_projection_needs_original_release_proof_before_any_inactive_r
 
 async def test_later_readonly_capture_preserves_post_stop_publication_cursor():
     from classes.native_guidance import NativeAcquisitionContext
-    fixture = retained_post_release_fixture()
+    fixture = projected_post_release_fixture()
     sample = deepcopy(fixture['observations'][-1])
     context = NativeAcquisitionContext.from_payload(fixture['acquisition'])
     sample['packet']['publications'] += 1
@@ -1884,7 +1904,7 @@ async def test_later_readonly_capture_preserves_post_stop_publication_cursor():
 
 async def test_later_readonly_capture_does_not_reemit_the_final_confirmation_pose(monkeypatch):
     from classes.native_guidance import NativeAcquisitionContext
-    fixture = retained_post_release_fixture()
+    fixture = projected_post_release_fixture()
     sample = fixture['observations'][-1]
     context = NativeAcquisitionContext.from_payload(fixture['acquisition'])
     client = SimpleNamespace(observe=AsyncMock(return_value=sample['packet']))

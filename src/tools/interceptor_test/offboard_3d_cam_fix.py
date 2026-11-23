@@ -24,9 +24,9 @@ import time
 import numpy as np
 import matplotlib.pyplot as plt
 
-from mavsdk import System
-from mavsdk.offboard import OffboardError, VelocityBodyYawspeed
-from mavsdk.offboard import PositionNedYaw
+from mavsdk_grpc import System
+from mavsdk_grpc.offboard import OffboardError, VelocityBodyYawspeed
+from mavsdk_grpc.offboard import PositionNedYaw
 
 # =============================================================================
 #                            USER-CONFIGURABLE ZONE

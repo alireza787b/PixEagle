@@ -2629,8 +2629,24 @@ class ConfigService:
             except (TypeError, ValueError) as exc:
                 errors.append(f"FW navigation geometry semantic validation failed: {exc}")
 
+        if isinstance(candidate.get('GimbalTracker'), dict):
+            try:
+                from classes.gazebo_gimbal_source import validate_gazebo_gimbal_config
+                validate_gazebo_gimbal_config(candidate['GimbalTracker'])
+            except (TypeError, ValueError) as exc:
+                errors.append(f'Gazebo gimbal configuration semantic validation failed: {exc}')
+
         video_source = candidate.get("VideoSource")
         calibration = video_source.get("FIXED_CAMERA_CALIBRATION") if isinstance(video_source, dict) else None
+        if isinstance(video_source, dict) and (
+                video_source.get("GAZEBO_CAMERA") is not None
+                or video_source.get("VIDEO_SOURCE_TYPE") == "GAZEBO_CAMERA"):
+            try:
+                from classes.gazebo_capture import GazeboCameraSettings
+
+                GazeboCameraSettings.from_mapping(video_source.get("GAZEBO_CAMERA"))
+            except (TypeError, ValueError) as exc:
+                errors.append(f"Gazebo camera configuration semantic validation failed: {exc}")
         if calibration is not None:
             try:
                 from classes.fixed_camera_calibration import FixedCameraCalibration

@@ -52,6 +52,27 @@ def test_old_airspeed_does_not_become_fresh_with_a_new_pose():
     assert owner.selected_airspeed(timeout_s=0.5).valid is False
 
 
+def test_read_only_acceptance_does_not_commit_progress_or_refresh_old_evidence():
+    clock = [100.]
+    owner = AircraftStateOwner(clock=lambda: clock[0])
+    assert not owner.accepts(None)
+    state = aircraft_state()
+    owner.bind(state.binding)
+    assert owner.accepts(state)
+    assert owner.snapshot(timeout_s=.5) is None
+    assert owner.commit(state)
+    clock[0] = 100.1
+    next_state = replace(state, sequence=2, observed_at_monotonic_s=100.1)
+    assert owner.accepts(next_state)
+    assert owner.snapshot(timeout_s=.5) is state
+    assert owner.commit(next_state)
+    assert not owner.accepts(state)
+    assert owner.accepts(next_state)
+    clock[0] = 100.7
+    assert owner.accepts(next_state)
+    assert owner.snapshot(timeout_s=.5) is None
+
+
 def test_phase_progress_can_precede_pose_without_refreshing_measurement_age():
     clock = [100.]
     owner = AircraftStateOwner(clock=lambda: clock[0])
@@ -276,3 +297,17 @@ def test_tailsitter_virtual_fw_frame_is_invariant_with_combined_yaw_roll_and_pit
     wrong_double_rotation = Quaternion(*q_nf).rotate(physical_ray)
     assert (direct.x, direct.y, direct.z) != pytest.approx(
         (wrong_double_rotation.x, wrong_double_rotation.y, wrong_double_rotation.z))
+
+
+@pytest.mark.parametrize('scale', [1., 1.0004, .9996])
+def test_quaternion_composition_matches_successive_rotations_and_normalizes(scale):
+    first = Quaternion.from_euler(.3, -.5, .8)
+    second = Quaternion.from_euler(-.2, .7, -.4)
+    first = Quaternion(*(v * scale for v in (first.w, first.x, first.y, first.z)))
+    second = Quaternion(*(v * scale for v in (second.w, second.x, second.y, second.z)))
+    ray = Vector3(.2, .3, .9)
+    direct = first.rotate(second.rotate(ray))
+    composed = first.compose(second)
+    actual = composed.rotate(ray)
+    assert (actual.x, actual.y, actual.z) == pytest.approx((direct.x, direct.y, direct.z), abs=1e-12)
+    assert math.hypot(composed.w, composed.x, composed.y, composed.z) == pytest.approx(1.)

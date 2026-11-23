@@ -14,7 +14,7 @@ from classes.command_dispatch_guard import DispatchRefusalKind, DispatchRefused,
 from classes.aircraft_state import AircraftKind, AircraftLayout, AircraftState, AirframePhase
 from classes.guidance_phase_session import PhaseSessionState
 from classes.native_command_transport import NativeCommandTransport
-from classes.native_guidance import NativeAcquisitionContext, NativeGuidanceError, NativeReleaseReceipt, make_ownership_token
+from classes.native_guidance import NativeAcquisitionContext, NativeGuidanceError, NativeReleaseReceipt, NativeStartContext, make_ownership_token
 from classes.target_continuity import ContinuityMode, ContinuityPolicy, TargetEvidenceState
 
 
@@ -45,16 +45,17 @@ class NativeFollowBinding:
         self.continuity = continuity
         self.profile_name = profile_name
         self._continuity_config = deepcopy(continuity_config)
-        fw_policy = ContinuityPolicy.resolve(self._continuity_config, profile_name, AirframePhase.FIXED_WING)
-        if fw_policy.mode is not ContinuityMode.BOUNDED_FLIGHT:
-            raise ValueError("native_fixed_wing_continuity_not_configured")
+        if AirframePhase.FIXED_WING in guidance.supported_phases:
+            fw_policy = ContinuityPolicy.resolve(self._continuity_config, profile_name, AirframePhase.FIXED_WING)
+            if fw_policy.mode is not ContinuityMode.BOUNDED_FLIGHT:
+                raise ValueError("native_fixed_wing_continuity_not_configured")
         self._target_evidence = target_evidence
         self._context = context
         self._circuit_breaker = circuit_breaker
         self.clock = clock
         self.transport = NativeCommandTransport(
             client, connection, guidance.identity, circuit_breaker=circuit_breaker,
-            clock=clock, on_observation=self.on_observation,
+            clock=clock, on_observation=self.on_observation, altitude_limits=guidance.altitude_limits,
         )
         self._engage_attempted = False
         self._engage_in_progress = False
@@ -95,6 +96,10 @@ class NativeFollowBinding:
             raise NativeGuidanceError("native_release_unconfirmed")
         return receipt
 
+    @property
+    def release_confirmed(self) -> bool:
+        return self.release_receipt is not None
+
     def context(self, base):
         state = self.connection.get_aircraft_state()
         return replace(
@@ -106,7 +111,7 @@ class NativeFollowBinding:
             vehicle_yaw_deg=None if state is None else math.degrees(state.navigation_heading_rad),
         )
 
-    async def engage(self, *, before_dispatch=None, on_mode_dispatch=None):
+    async def engage(self, *, start_context=None, before_dispatch=None, on_mode_dispatch=None):
         if self._engage_attempted or self._stopping:
             raise NativeGuidanceError("native_follow_binding_already_started")
         self._engage_attempted = True
@@ -121,8 +126,20 @@ class NativeFollowBinding:
             def dispatched():
                 validate_before_dispatch(on_mode_dispatch)
                 self.acquire_dispatched = True
+            state = self.connection.get_aircraft_state()
+            if state is None:
+                raise NativeGuidanceError("native_aircraft_state_unavailable")
+            if not isinstance(start_context, NativeStartContext):
+                raise NativeGuidanceError("native_start_context_required")
+            phase = self.guidance.phase_owner.initial_phase or state.phase
+            start_context.require_match(state.binding, self._runtime_id, phase=phase)
+            if state.phase is not phase:
+                raise NativeGuidanceError("native_start_context_changed")
+            altitude_reference = self.guidance.prepare_engagement_reference(state)
             result = await self.client.engage(
                 self._acquisition_identity, ownership_token=self._ownership_token,
+                altitude_reference=altitude_reference,
+                start_context=start_context,
                 circuit_breaker_active=self._circuit_breaker(),
                 before_dispatch=may_engage, on_mode_dispatch=dispatched)
             self._acquisition = NativeAcquisitionContext.from_payload(result.get("acquisition"))
@@ -138,7 +155,12 @@ class NativeFollowBinding:
             if observation.get("fresh") is not True or observation.get("rescue_active") is not False:
                 raise NativeGuidanceError("native_aircraft_state_unavailable")
             state = AircraftState.from_payload(observation["aircraft_state"])
-            self.connection.commit_aircraft_state(state)
+            commit = getattr(self.connection, "commit_native_observation", None)
+            if callable(commit):
+                if commit(observation) is not True:
+                    raise NativeGuidanceError("native_aircraft_state_rejected")
+            else:
+                self.connection.commit_aircraft_state(state)
             accepted = self.connection.get_aircraft_state()
             if accepted is None or accepted != state:
                 raise NativeGuidanceError("native_aircraft_state_rejected")

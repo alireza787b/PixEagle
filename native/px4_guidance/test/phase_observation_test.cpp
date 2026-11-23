@@ -12,13 +12,17 @@ TEST(PhaseObservation, NormalVtolHeartbeatCadenceCannotExpireBetweenSamples) {
     }
 }
 
-TEST(PhaseObservation, VtolHeartbeatAllowanceDoesNotExtendVehicleOwnershipFreshness) {
+TEST(PhaseObservation, EachPhaseSourceIncludesOnlyItsOwnHeartbeatAndDeliveryAllowance) {
     EXPECT_TRUE(phaseSourcesFresh(10., 9.8, 8.8, true, 1.));
-    EXPECT_FALSE(phaseSourcesFresh(10., 8.8, 9.8, true, 1.));
+    EXPECT_TRUE(phaseSourcesFresh(10., 8.8, 9.8, true, 1.));
+    EXPECT_FALSE(phaseSourcesFresh(10., 8.5, 9.8, true, 1.));
     EXPECT_FALSE(phaseSourcesFresh(10., 9.8, 8., true, 1.));
     EXPECT_FALSE(phaseSourcesFresh(10., 9.8, -1., true, 1.));
     EXPECT_FALSE(phaseSourcesFresh(10., 9.8, 10.1, true, 1.));
     EXPECT_TRUE(phaseSourcesFresh(10., 9.8, -1., false, 1.));
+    EXPECT_TRUE(phaseSourcesFresh(10., 8.51, -1., false, 1.));
+    EXPECT_FALSE(phaseSourcesFresh(10., 8.5, -1., false, 1.));
+    EXPECT_FALSE(phaseSourcesFresh(10., 10.1, -1., false, 1.));
 }
 
 TEST(PhaseObservation, SourceTimeoutInputsCannotBeNonfiniteOrNonpositive) {

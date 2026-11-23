@@ -11,7 +11,7 @@
 SafetyManager is a singleton that provides:
 
 - Saved global velocity/rate/altitude limits with tightening follower overrides
-- Explicit, owned [session velocity override](../04-configuration/session-speed.md) on supported followers; reset restores saved caps
+- Explicitly permitted, owned [session velocity override](../04-configuration/session-speed.md) on supported followers; reset restores saved caps
 - Per-follower limits that may only tighten the global envelope
 - Dynamic limit access for BaseFollower
 - Configuration hot-reload support
@@ -64,7 +64,7 @@ class AltitudeLimits(NamedTuple):
 
 The value and source summary share the same resolver. An explicit global
 `MAX_ALTITUDE: null` remains `None`; an omitted setting resolves to the existing
-120 m fallback. A finite follower ceiling may tighten an unbounded global value.
+100 m fallback. A finite follower ceiling may tighten an unbounded global value.
 See [limits configuration](limits-configuration.md#optional-upper-mission-ceiling)
 for inheritance and migration rules. Altitude checks still require a finite
 height, and native physical limits are unchanged.

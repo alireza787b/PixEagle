@@ -28,6 +28,8 @@ def environment(monkeypatch):
 
     def build(mount, profile=None, altitude=False):
         config = deepcopy(defaults)
+        # This component fixture's independent world geometry flies at 20 m.
+        config['Safety']['GlobalLimits']['MIN_ALTITUDE'] = 3.0
         config['GimbalTracker']['MOUNT_TYPE'] = mount
         if profile is not None:
             config['Follower']['FOLLOWER_MODE'] = profile
@@ -171,10 +173,11 @@ def test_input_dispatch_comes_from_declaration_not_a_profile_id(monkeypatch, req
 def test_bearing_response_uses_actual_motion_and_correct_altitude_contract(altitude):
     from tools.run_sih_follower_validation import scenario_path
     scenario = MCScenario.from_yaml(scenario_path('gm_velocity_chase', altitude))
-    target = (20., 4., -23. if altitude else -20.)
-    records = [dict(position_ned=(0., 0., -20.), target_ned=target, altitude_m=20., yaw_rad=0.),
-               dict(position_ned=(.2, 0., -20.2 if altitude else -20.), target_ned=target,
-                    altitude_m=20.2 if altitude else 20., yaw_rad=.1)]
+    height = -scenario.visual.initial_vehicle_ned[2]
+    target = (20., 4., -height - 3. if altitude else -height)
+    records = [dict(position_ned=(0., 0., -height), target_ned=target, altitude_m=height, yaw_rad=0.),
+               dict(position_ned=(.2, 0., -height - .2 if altitude else -height), target_ned=target,
+                    altitude_m=height + .2 if altitude else height, yaw_rad=.1)]
     fields = dict(vel_body_fwd=.1, vel_body_right=0., vel_body_down=-.1 if altitude else 0., yawspeed_deg_s=5.)
     publications = [dict(monotonic_s=t, success=True, fields=fields) for t in (1., 1.05)]
     def evaluate(rows, published=publications):

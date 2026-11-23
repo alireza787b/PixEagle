@@ -72,6 +72,17 @@ in `aircraft_state.py`; the HTML renderer consumes those vectors and must not
 add another quaternion/axis transform. Missing heading keeps command direction
 unknown, rather than substituting level flight.
 
+Camera installation work starts with
+`docs/trackers/06-integration/camera-mounting.md`. Keep display orientation,
+source-bound fixed-camera calibration, provider raw-angle mapping and actual
+aircraft phase separate. Use the physical quaternion for camera rays; never
+apply PX4's FW tailsitter control-frame rotation twice. Simulator gimbal or
+protocol emulation must not be reported as measured hardware mechanics.
+Rendered cameras must be physically attached through the declared model/joint
+hierarchy. Do not make a detached camera chase the aircraft with world-pose
+service calls. Prefer standard Gazebo controllers and observed link/sensor
+feedback; actuator targets never substitute for measured camera pose.
+
 ## API And MCP Rules
 
 - New public JSON APIs belong under `/api/v1/...`.
@@ -104,3 +115,11 @@ Checkpoint reports should include:
 
 Vendor-specific agent files, if added later, should be thin pointers to this
 file rather than duplicate operating specs.
+
+For repeatable visual training, use `tools/launch_training.py` and the
+[training guide](docs/followers/05-development/ubuntu-training-platform.md).
+Beginner menus exclude advanced tailsitter/gimbal presets. Agents select explicit
+profiles and can use `--headless`; that starts an isolated stack, never flight.
+Review the qualification matrix before claiming an airframe/input combination
+passed. Preserve failed evidence, actual PX4 pose and original measurement clocks;
+a rendered workflow or successful submission is not hardware qualification.

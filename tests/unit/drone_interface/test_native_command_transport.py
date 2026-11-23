@@ -55,6 +55,16 @@ async def test_published_snapshot_requires_current_contract_owner_and_intent_fre
     assert transport.published_intent(ttl_s=.5) is None
 
 
+async def test_rejected_native_observation_cannot_reuse_an_equal_cached_pose():
+    transport, client, identity = setup_transport()
+    transport.connection.commit_native_observation = lambda packet: False
+    intent = replace(FixedWingCommand(.3, 18., 0., None).intent(identity, profile_name='gm_velocity_vector', source='test'),
+                     created_at_monotonic_s=100.)
+    with pytest.raises(ValueError, match='state_rejected'):
+        await transport.publish(intent, reason='heartbeat', ttl_s=.5)
+    client.submit.assert_not_called()
+
+
 async def test_native_publication_count_excludes_previous_owners_and_local_acks_alone():
     transport, client, identity = setup_transport()
     intent = replace(FixedWingCommand(.3, 18., 0., None).intent(identity, profile_name="gm_velocity_vector", source="test"),

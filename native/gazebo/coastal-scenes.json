@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "camera_scenes": {
+    "x500-mono-camera-board-v3": "x500-mono-camera-training-coast-v2",
+    "rc-cessna-mono-camera-courtyard-v1": "rc-cessna-mono-camera-training-coast-v2",
+    "standard-vtol-mono-camera-courtyard-v4": "standard-vtol-mono-camera-training-coast-v2",
+    "quadtailsitter-nose-camera-courtyard-v1": "quadtailsitter-nose-camera-training-coast-v2"
+  }
+}

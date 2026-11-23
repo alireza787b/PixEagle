@@ -56,21 +56,169 @@ def synthetic_log(*, phase=400000, end=400000, filled_native_topic=False):
                                vehicle_type=np.where(stamps < phase, 1, 2))}
     for field in ['position', 'acceleration']:
         for i in range(3): data['trajectory_setpoint'][f'{field}[{i}]'] = np.full(len(data['trajectory_setpoint']['timestamp']), np.nan)
-    for i in range(3): data['trajectory_setpoint'][f'velocity[{i}]'] = np.zeros(len(data['trajectory_setpoint']['timestamp']))
+    for i in range(3):
+        data['trajectory_setpoint'][f'velocity[{i}]'] = np.zeros(len(data['trajectory_setpoint']['timestamp']))
+        data['trajectory_setpoint'][f'jerk[{i}]'] = np.zeros(len(data['trajectory_setpoint']['timestamp']))
     data['trajectory_setpoint']['yaw'] = np.full(len(data['trajectory_setpoint']['timestamp']), np.nan)
     data['trajectory_setpoint']['yawspeed'] = np.zeros(len(data['trajectory_setpoint']['timestamp']))
     return SimpleNamespace(get_dataset=lambda name: SimpleNamespace(data=data[name]),
         dropouts=[], file_corruption=False), data
 
 
-def audit(log, count=4, *, vehicle_type=1):
+def audit(log, count=4, *, vehicle_type=1, provenance=None):
     ctx = context()
     receipt = release_receipt(ctx, outcome='owner_already_released', nav_state=23, timestamp=ctx.activation_timestamp)
     # This pure interval fixture mocks source verification, never actual provenance.
-    with patch('tools.native_guidance_evidence._source_provenance', return_value={'scope': 'SYNTHETIC_TEST_ONLY'}):
+    with patch('tools.native_guidance_evidence._source_provenance',
+               return_value=provenance if provenance is not None else {'scope': 'SYNTHETIC_TEST_ONLY'}):
         return ownership_interval(log, asdict(ctx), asdict(receipt), vehicle_type=vehicle_type,
             initial_altitude_m=30., phase_exit_required=vehicle_type == 1,
             publication_counter_delta=count, run_directory='synthetic-fixture-never-native-evidence')
+
+
+def held_mc_log(**kwargs):
+    log, data = synthetic_log(**kwargs)
+    trajectory = data['trajectory_setpoint']
+    trajectory['position[2]'][:] = -30.
+    trajectory['velocity[2]'][:] = np.nan
+    for i in range(3):
+        trajectory[f'jerk[{i}]'] = np.zeros(len(trajectory['timestamp']))
+    position = data['vehicle_local_position']
+    position['x'] = np.arange(len(position['timestamp'])) * .125
+    position['vx'][:] = 2.5
+    position['z_global'] = np.ones(len(position['timestamp']), dtype=bool)
+    data['fixed_wing_guidance_status'] = dict(timestamp=position['timestamp'].copy(),
+        autopilot_uid=np.full(len(position['timestamp']), 42),
+        home_update_count=np.zeros(len(position['timestamp'])),
+        home_altitude_valid=np.ones(len(position['timestamp']), dtype=bool),
+        home_altitude_amsl=np.full(len(position['timestamp']), 500.))
+    source = dict(protocol_version=5, multicopter_altitude_hold_supported=True, altitude_reference_timeout_s=1.,
+        mc_altitude_reference=dict(altitude_amsl_m=530., reference_generation=7,
+            position_fingerprint=dict(x=.125, y=0., z=-30., vx=2.5, vy=0., vz=0., altitude_amsl_m=530.),
+            dds_position_timestamp_us=1794570356442135, aircraft_uid='42'))
+    return log, data, source
+
+
+def test_recorded_mc_mixed_hold_form_requires_original_reference_and_preserves_cadence():
+    log, _, source = held_mc_log()
+    result = audit(log, provenance=source)
+    assert result['passed'] and result['checks']['native_publication_source_attributed']
+    assert result['native_topic_samples'] == {'trajectory_setpoint': 4}
+    assert result['publication_gaps']['trajectory_setpoint']['maximum_gap_s'] == .05
+    assert result['per_command_delivery'].startswith('UNKNOWN')
+    assert not audit(log)['checks']['native_publication_source_attributed']
+
+
+def test_mc_hold_compares_the_actual_float32_conversion_without_a_new_height_tolerance():
+    log, data, source = held_mc_log()
+    down = np.float32(-30.123456789)
+    data['vehicle_local_position']['z'][data['vehicle_local_position']['timestamp'] < 400000] = down
+    source['mc_altitude_reference']['altitude_amsl_m'] = 500. - float(down)
+    source['mc_altitude_reference']['position_fingerprint'].update(z=float(down), altitude_amsl_m=500. - float(down))
+    data['trajectory_setpoint']['position[2]'][:] = down
+    assert audit(log, provenance=source)['checks']['native_publication_source_attributed']
+    data['trajectory_setpoint']['position[2]'][1] = np.nextafter(down, np.float32(np.inf))
+    assert not audit(log, provenance=source)['checks']['native_publication_source_attributed']
+
+
+@pytest.mark.parametrize('bad', [
+    'wrong_z', 'wrong_sign', 'finite_vz', 'nan_vx', 'position_xy', 'acceleration', 'yaw', 'jerk',
+    'missing_anchor', 'protocol3', 'unsupported', 'nan_anchor', 'bool_generation', 'wrong_uid',
+    'missing_position', 'future_position', 'stale_position', 'future_sample', 'stale_sample',
+    'duplicate_position', 'z_invalid', 'not_global', 'ref_changed', 'z_reset', 'home_changed',
+    'home_invalid', 'stale_envelope', 'future_envelope', 'missing_envelope', 'duplicate_envelope',
+    'ambiguous_native_match', 'missing_native_match', 'only_same_tick_match',
+])
+def test_mc_held_publication_cannot_qualify_with_mixed_or_unbound_reference(bad):
+    from tools import native_guidance_evidence as evidence
+
+    log, data, source = held_mc_log()
+    trajectory, position, envelope = (data[name] for name in
+        ('trajectory_setpoint', 'vehicle_local_position', 'fixed_wing_guidance_status'))
+    if bad == 'wrong_z': trajectory['position[2]'][-1] += .01
+    elif bad == 'wrong_sign': trajectory['position[2]'] *= -1
+    elif bad == 'finite_vz': trajectory['velocity[2]'][0] = 0.
+    elif bad == 'nan_vx': trajectory['velocity[0]'][0] = np.nan
+    elif bad == 'position_xy': trajectory['position[0]'][0] = 0.
+    elif bad == 'acceleration': trajectory['acceleration[0]'][0] = 0.
+    elif bad == 'yaw': trajectory['yaw'][0] = 0.
+    elif bad == 'jerk': trajectory['jerk[0]'][0] = 1.
+    elif bad == 'missing_anchor': source.pop('mc_altitude_reference')
+    elif bad == 'protocol3': source['protocol_version'] = 3
+    elif bad == 'unsupported': source['multicopter_altitude_hold_supported'] = False
+    elif bad == 'nan_anchor': source['mc_altitude_reference']['altitude_amsl_m'] = np.nan
+    elif bad == 'bool_generation': source['mc_altitude_reference']['reference_generation'] = True
+    elif bad == 'wrong_uid': envelope['autopilot_uid'][:] = 43
+    elif bad == 'missing_position': position.pop('ref_timestamp')
+    elif bad == 'future_position': position['timestamp'] += 1000000
+    elif bad == 'stale_position': position['timestamp'] -= 1000000
+    elif bad == 'future_sample': position['timestamp_sample'] += 1
+    elif bad == 'stale_sample': position['timestamp_sample'] -= 1000001
+    elif bad == 'duplicate_position': position['timestamp'][3] = position['timestamp'][2]
+    elif bad == 'z_invalid': position['z_valid'][4] = False
+    elif bad == 'not_global': position['z_global'][4] = False
+    elif bad == 'ref_changed': position['ref_alt'][4] += 1.
+    elif bad == 'z_reset': position['z_reset_counter'][4] += 1
+    elif bad == 'home_changed': envelope['home_update_count'][4] += 1
+    elif bad == 'home_invalid': envelope['home_altitude_valid'][4] = False
+    elif bad == 'stale_envelope': envelope['timestamp'] -= 1000000
+    elif bad == 'future_envelope': envelope['timestamp'] += 1000000
+    elif bad == 'missing_envelope': envelope.pop('home_update_count')
+    elif bad == 'duplicate_envelope': envelope['timestamp'][3] = envelope['timestamp'][2]
+    elif bad == 'ambiguous_native_match': position['x'][0] = .125
+    elif bad == 'missing_native_match': source['mc_altitude_reference']['position_fingerprint']['x'] = .126
+    elif bad == 'only_same_tick_match': position['x'][1:3] = [.25, .125]
+    assert not evidence._exclusive_payloads(log, ('trajectory_setpoint',), 200000, 400000, source)
+
+
+def test_mc_held_form_does_not_waive_exact_end_transition_or_first_last_gap():
+    log, data, source = held_mc_log()
+    trajectory = data['trajectory_setpoint']
+    for key in trajectory:
+        trajectory[key] = np.r_[trajectory[key], 400000 if key == 'timestamp' else trajectory[key][-1]]
+    result = audit(log, provenance=source)
+    assert result['native_right_edge']['classification'] == 'UNKNOWN' and not result['passed']
+    assert result['native_topic_samples'] == {'trajectory_setpoint': 4}
+    log, data, source = held_mc_log()
+    data['trajectory_setpoint']['velocity[0]'][1] = np.nan
+    data['trajectory_setpoint']['acceleration[0]'][1] = 0.
+    assert not audit(log, provenance=source)['checks']['native_publication_source_attributed']
+    for keep in ([3], [0]):
+        log, data, source = held_mc_log()
+        for key, value in data['trajectory_setpoint'].items():
+            data['trajectory_setpoint'][key] = value[keep]
+        assert not audit(log, provenance=source)['checks']['authority_publication_gaps_within_100ms']
+
+
+def test_mc_reference_is_checked_after_pursuit_end_through_retained_authority():
+    log, data, source = held_mc_log(end=800000, filled_native_topic=True)
+    position = data['vehicle_local_position']
+    position['z_reset_counter'][position['timestamp'] >= 600000] = 1
+    result = audit(log, provenance=source)
+    assert result['pursuit_interval_us'] == [200000, 400000]
+    assert result['checks']['source_pose_flags_and_reference_stable']
+    assert not result['checks']['native_publication_source_attributed']
+
+
+def test_mc_reference_uses_recorded_producer_timeout_without_changing_pose_gate():
+    from tools import native_guidance_evidence as evidence
+
+    log, data, source = held_mc_log()
+    for name in ('vehicle_local_position', 'fixed_wing_guidance_status'):
+        for field in ('timestamp', 'timestamp_sample'):
+            if field in data[name]:
+                data[name][field] = data[name][field].copy() + 2000000
+    data['vehicle_local_position']['timestamp_sample'] -= 900000
+    ticks = data['trajectory_setpoint']['timestamp'] + 2000000
+    assert evidence._held_reference_matches(log, 2200000, 2400000, ticks,
+        data['trajectory_setpoint']['position[2]'], source)
+    data['vehicle_local_position']['timestamp_sample'] -= 100001
+    assert not evidence._held_reference_matches(log, 2200000, 2400000, ticks,
+        data['trajectory_setpoint']['position[2]'], source)
+    # The separate pre-existing pursuit pose gate remains 750ms.
+    log, data, source = held_mc_log()
+    data['vehicle_local_position']['timestamp_sample'] -= 750001
+    assert not audit(log, provenance=source)['checks']['full_raw_pose_finite_and_fresh']
 
 
 def test_native_zoom_is_separate_without_peak_subtraction_but_authority_gate_is_hard():

@@ -8,6 +8,33 @@ passed in `reports/native-guidance/gazebo-quadtailsitter-control-20261113-r1`
 and `reports/sitl/follower-consolidation-20261111/s7-gazebo-disarmed-runtime-r1`.
 These are build/startup evidence, not flight qualification.
 
+## Stock firmware workflow
+
+For ordinary current training, compile the reviewed unmodified upstream pin:
+
+```bash
+python3 tools/build_native_guidance.py --target gazebo --firmware-policy stock \
+  --px4-source /path/to/clean-pinned-PX4 \
+  --output-dir reports/native-guidance/gazebo-stock
+```
+
+Initialize the recursive submodules declared by `gazebo_build` and
+`stock_px4.additional_submodules` in `dependencies.lock.json`. The stock source
+must remain clean and match the exact stock commit/version. No firmware patch,
+DDS adapter or aircraft parameter write is applied. The same resource hashing,
+build/image validation and isolated renderer are used for both policies.
+`--gazebo-resource-variant quadtailsitter-no-pitot-v1` removes only the declared
+simulated airspeed sensor, preserving the unmodified firmware and other resources.
+
+Put the resulting `gazebo-build-manifest.json` in the training launcher's
+`--build-manifest` argument. The verified manifest selects stock MAVLink without
+adapter-bundle arguments. This is build/startup preparation; repeat the operator
+workflow before claiming the new stack accepted. Historical manifests retain
+their original builder authority and must not be relabelled or overwritten.
+
+The sections below describe the earlier explicitly selected experimental build.
+It remains separate from the normal stock workflow.
+
 ## Inputs
 
 The firmware revision and reviewed extension still come from
@@ -179,6 +206,168 @@ original full container ID and ownership token; stopping rechecks identity and
 stopped state without removing the container or prescribing log policy.
 This does not qualify the legacy MC worker on a VTOL model or bypass App admission.
 
+## Explicit MC camera runtime scenario
+
+`native/gazebo/scenarios/x500-mono-camera-aruco-v1.json` selects the stock
+`4010_gz_x500_mono_cam` airframe and `aruco` world from the unchanged, verified
+stock package (`3d4eb66f…` manifest, `656d044f…` image, `0c6f6557…` firmware ELF).
+Its runtime selection is separate from that build's recorded 4018/default
+selection. The original build manifest, image, firmware and resource files are
+not rewritten. `tools/sih_baseline.py` and its recipe fingerprint are unchanged;
+historical builds still require their matching build authority.
+
+After `verified_simulation_build` succeeds, callers can explicitly pass
+`gazebo_scenario="x500-mono-camera-aruco-v1"` to `simulation_launch_args` and
+`verify_simulator`. The former only stages the private rootfs and returns argv;
+the latter only probes an already running simulator. Omitting this argument
+preserves the existing SIH/quad-tailsitter defaults. A conflicting explicit
+model is refused before staging. This helper slice adds no flight runner or
+public configuration setting. The existing full-App startup and aircraft
+admission contracts still apply.
+
+The descriptor pins the complete selected model directories, textures, world,
+server config, packaged plugins and the exact 4010 → 4001 → `rc.mc_defaults`
+include chain. Only literal, unconditional identity declarations are read;
+shell is never executed by the validator. Runtime checks retain the exact image,
+binary and full Gazebo resource tree, and additionally require the selected
+airframe-chain hashes, MC identity parameters, declared scene objects and single
+camera topic. The result records `gazebo.runtime_scenario` beside the unchanged
+`firmware_build`. Descriptor changes produce a new scenario hash, not a new or
+retroactively qualified firmware build. No-pitot packages cannot use this stock
+descriptor.
+
+The proposed bench spawn is Gazebo **ENU** `[-6, 0, 0, 0, 0, 0]` (metres/radians),
+facing the marker at the origin. The existing camera sits 0.12 m forward,
+0.03 m sideways and 0.242 m above its base link. It emits 1280×960 images at
+30 Hz with horizontal FOV 1.74 rad (99.6947°). Total modeled vehicle mass is
+2.1143076923 kg, including the 0.05 kg camera. The static ground marker is only
+0.5×0.5 m. Visible pixel area and perspective through the intended altitude
+range must be measured before a demo; no tracker success is implied by a topic.
+
+For instance 0 the expected Gazebo image topic is
+`/world/aruco/model/x500_mono_cam_0/link/camera_link/sensor/camera/image`.
+The pinned `GstCameraSystem` automatically sends the single camera as RTP/H.264
+to `127.0.0.1:5600` inside the isolated network namespace. A normal PixEagle
+GStreamer input in that namespace can use `udp://0.0.0.0:5600`. Routing that video
+to the custom QGC, authentication, App startup and optional GUI rendering belong
+to the separately reviewed lab topology. Do not loop the processed output back
+into its input port. `HEADLESS=1` suppresses Gazebo's GUI; OGRE2 camera rendering,
+H.264 decoding and advancing image frames remain actual bench gates.
+
+The separate stock `moving_platform` world is available for later motion tests,
+but is not selected here: its 5×5 m deck starts 2 m above ground and applies
+force/torque noise even at requested zero speed. No new target physics,
+controller, native parameter tuning, public defaults or flight permission is
+introduced by this scenario.
+
+### Raised visual training target
+
+`x500-mono-camera-board-v1` is a separate version 2 descriptor. It reuses the same
+stock image/ELF, 4010 aircraft, camera, calibration and spawn. Its one added world,
+`native/gazebo/worlds/training_board_v1.sdf`, preserves the stock `aruco` world
+and tiny marker, adding a static visual board. The loader compares the world
+structure after removing that declared board and restoring the original name;
+physics, lighting, georeference, existing objects and plugins must be unchanged.
+The addition cannot overwrite any packaged resource. Before launch the verified
+world is copied into the private run directory, made read-only and mounted at
+its declared new resource path. Runtime verification requires that read-only
+file mount and the full original resource tree plus exactly the added hash/mode.
+The original build manifest and `x500-mono-camera-aruco-v1` bytes remain unchanged.
+
+The board is centered at **Gazebo world ENU [12, 0, 6] metres**, with zero
+roll/pitch/yaw. Its 6×6 m vertical panel faces -X; the black border, white inset,
+opposing black squares and orange center supply distinct visual features.
+The target is visual-only, with no collision, sensor, plugin or motion controller.
+Typed descriptor metadata binds its static pose, panel dimensions and aim point
+to the SDF. This is fixture metadata, not synthetic tracker input or a safety
+boundary; it does not prevent flying through the panel.
+
+With unchanged spawn [-6,0,0], level attitude and aircraft height about 6 m, the
+camera-to-panel range is about 17.8 m. The pinned 1.74 rad horizontal FOV predicts
+roughly 90×90 pixels at 640×480 analysis resolution (roughly 180×180 at 1280×960).
+It also geometrically fits the camera view at the bench pose. These are pinhole
+estimates, not rendering/CSRT evidence. The prior disarmed stock-marker capture
+showed only a 44×1-pixel dark line; its capture PASS and visibility limitation
+remain unchanged. The added world requires its own rendered-frame/visibility
+check before an operator demo and later airborne tracking/following evidence.
+
+### Standard VTOL camera courtyard (resource preparation only)
+
+`standard-vtol-mono-camera-courtyard-v1` is an explicit schema-3 scenario over
+that same stock build/image. It selects unchanged `4004_gz_standard_vtol` and
+`rc.vtol_defaults`: MAV type 22, VTOL type 2, five rotors (four lift plus pusher)
+and three control surfaces. The pinned `rcS` accepts `PX4_SYS_AUTOSTART=4004`
+before filename lookup; `px4-rc.gzsim` separately spawns the distinct
+`standard_vtol_mono_cam` model from `PX4_SIM_MODEL`. No parameter/default or
+firmware file is changed. The descriptor pins both startup scripts.
+
+The new model is exactly two merged stock includes (`standard_vtol`, `mono_cam`)
+and one fixed camera joint. Validation rejects extra links, controllers,
+plugins, altered joints, rotated mounts or undeclared model files. Its SDF and
+model.config plus one new world use the same private, read-only resource mounts
+and full runtime tree/scene verification as the prior target scenario. Stock
+model directories and all previous descriptor/world files stay byte-identical.
+
+The declared camera pose is **[0.12, 0.03, 0.242, 0, 0, 0] relative to
+`base_link` FLU**: 0.12 m forward, 0.03 m left, 0.242 m up. Both the include and
+joint explicitly use that frame, avoiding an inherited model-height offset.
+The mount stays fixed in MC and FW; a standard quadplane needs no tailsitter
+phase rotation. In physical FRD the translation is [0.12, -0.03, -0.242] m.
+The original camera link adds 0.05 kg and its original inertia/offset to the
+5.02500003 kg aircraft: composite link-mass sum **5.07500003 kg**. This payload
+impact is explicit; it is not a claim of identical plant response.
+
+Camera output remains the pinned 1280×960, 30 Hz, 1.74-rad horizontal-FOV sensor
+and H.264 port 5600. Instance 0 image topic is
+`/world/training_courtyard_v1/model/standard_vtol_mono_cam_0/link/camera_link/sensor/camera/image`.
+Future fixed-camera calibration must bind this declared sensor/mount and actual
+capture-path signature/analysis geometry through the existing calibration
+contract. Do not copy the x500 runtime source signature, invent exposure timing,
+or apply an additional phase rotation. This resource slice creates no active
+calibration or image-to-attitude timing qualification.
+
+The offline world preserves the original `aruco` gravity, lighting and
+georeference. New static visual-only objects are:
+
+| Object | World ENU center (m) | Geometry |
+| --- | --- | --- |
+| Initial contrasting board | [35, 25, 10] | 10×10 m vertical, facing -X |
+| Far contrasting board | [150, -45, 12] | 16×16 m vertical, facing -X |
+| Blue/orange buildings | [80, 60, 10], [180, -60, 7] | 20×18×20 m and 20×18×14 m |
+| Parked vehicle props | [45, 32, 0.3], [110, -32, 0.3] | Pinned local rover body mesh and static wheel visuals |
+
+Spawn remains [-6, 0, 0] facing +X. The new visuals leave the central strip
+|y| < 20 m clear; they add no collision, sensor, joint or motion plugin. The
+stock ground/marker remains. They are visual features, not obstacle-avoidance
+or collision protection. No Fuel asset is fetched. Actual render visibility,
+camera occlusion, airborne geometry and tracking response remain untested.
+
+The ordinary training launcher now admits declared VTOL kinds only with the
+verified native adapter and calibrated stamped-image source. MC Chase remains
+MAVSDK-based for pure MC; the isolated VTOL path uses one native owner. FW
+Navigation Chase requires its native image/timing resolver and request-time
+phase/intention fence. Following ends on transition and requires a fresh explicit
+Start once settled. The standard-quadplane operator run passed these normal
+application workflows; see the [acceptance checkpoint](../docs/reporting/agent-ops/codex-modernization/checkpoints/2026-11-14-quadplane-acceptance-tailsitter.md).
+Scenario availability alone grants no flight authority or hardware qualification.
+
+### Tailsitter fixed-nose camera
+
+`quadtailsitter-nose-camera-courtyard-v1` reuses the pinned 4018 stock plant and
+populated courtyard. Its wrapper adds only the pinned camera and fixed joint.
+The camera weighs 0.050 kg, with inertia diagonal 0.00004 kg m² and camera-frame
+inertial offset [0.03, 0.03, 0.03] m. Its base-link FLU mount is
+`[0, 0, 0.34, 0, -pi/2, 0]`. The image is 1280×960, horizontal FOV 1.74 rad,
+30 Hz. The training server overlay removes the unused stock video encoder.
+
+The scenario's fixed mount supplies the calibration quaternion through one
+canonical rotation composition. It looks skyward in MC hover and forward in FW;
+there is no phase-switched mount or second tailsitter rotation. Ordered literal
+defaults are resolved in shell include order (VTOL defaults specify MAV type 22,
+4018 overrides it to 20); ambiguous same-file assignments, computed values and
+conditional identity remain rejected. Runtime parameters are independently
+verified. See the [operator guide](../docs/followers/05-development/ubuntu-training-platform.md#inputs-frames-and-replacement-cameras).
+
 ## Next gates
 
 No simulator launch or flight was performed for this verifier extension. Keep
@@ -222,3 +411,28 @@ The Gazebo airspeed callback does not currently use the SIH failure-injection
 hook, so an accepted `failure airspeed off` command alone is not evidence of
 sensor absence. No-pitot behavior, pursuit, S7 admission, S8 steep descent,
 private aircraft equivalence and hardware remain unqualified.
+
+### Versioned visual courtyard for operator training
+
+`standard-vtol-mono-camera-courtyard-v4` selects the authentic-version-metadata
+firmware package (`96f0968e…` manifest) and the separate
+`training_courtyard_v2.sdf` world. All earlier descriptors/worlds remain intact.
+`x500-mono-camera-board-v3` selects that same package with its original MC scene
+unchanged. Aircraft, camera, plugins, defaults and controller resources are
+byte-identical to the preceding package; the real firmware ELF hash differs.
+
+The v2 courtyard adds 11 declared, static, collision-free visual models:
+a 600×600 m pattern of contrasting 100 m field blocks, crossed dark roads,
+white runway edges/thresholds, and eight striped buildings distributed around
+ENU radii 210–252 m. Buildings are 18–30 m tall and stay outside the original
+central flight corridor. There are 215 total visuals, no downloaded textures,
+new plugins or collision geometry; added boxes disable their own shadows.
+These are tracking features, not physical obstacle protection. Existing targets,
+world gravity, georeference, aircraft mass and fixed camera calibration are unchanged.
+
+At 35 m altitude, visible 20 m features at 150–250 m range subtend roughly
+43–72 native camera pixels (about 22–36 at 640-wide analysis), when they are in
+view. This pinhole estimate is not a rendering or tracking qualification.
+A skyward or aircraft-occluded view can still contain no usable ground features;
+resource presence cannot correct attitude, framing, or tracker drift onto the nose.
+Actual visibility in MC and FW remains an operator bench check.

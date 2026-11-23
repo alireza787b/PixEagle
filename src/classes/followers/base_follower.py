@@ -21,11 +21,13 @@ Safety Integration (v5.0.0+):
 """
 
 from abc import ABC, abstractmethod
+from dataclasses import replace
 from typing import Tuple, Dict, Any, List, Optional
 from classes.command_intent import CommandIntent
 from classes.aircraft_state import AircraftState
 from classes.circuit_breaker import FollowerCircuitBreaker
 from classes.follower_logger import FollowerLogger
+from classes.follower_session_controls import SessionControl
 from classes.safety_manager import get_safety_manager
 from classes.safety_types import AltitudeLimits, SafetyAction, SafetyStatus
 from classes.schema_manager import get_schema_manager
@@ -753,24 +755,114 @@ class BaseFollower(ABC):
 
     def release_session_controls(self) -> None:
         """Release optional session-owned runtime resources."""
+        session = getattr(self, '_airframe_session', None)
+        if session is not None:
+            session.end('follow_session_ended')
+
+    def bind_airframe_session(self, session) -> None:
+        """Transfer the existing control declaration to one prepared native owner."""
+        from classes.phase_guidance_session import PhaseGuidanceSession
+        prepared = getattr(self, '_airframe_session', None)
+        if (not isinstance(session, PhaseGuidanceSession) or getattr(self, '_airframe_session_bound', False)
+                or prepared is not None and prepared is not session):
+            raise ValueError('airframe_session_binding_invalid')
+        session.require_state()
+        self._airframe_session = session
+        self._airframe_session_bound = True
+        self._session_controls = {}
 
     def create_session_controls(self) -> dict:
         """Opt-in implementations resolve declared controls against safety limits."""
         return {}
 
     def session_controls(self) -> list:
+        session = getattr(self, '_airframe_session', None)
+        if session is not None:
+            control = session.controls.snapshot(client_contract_version=2)
+            return [control] if control is not None else []
         return [control.snapshot() for control in getattr(self, '_session_controls', {}).values()]
 
     def update_session_control(self, control_id: str, value: float, revision: int) -> None:
         self.validate_session_control(control_id, value, revision)
+        session = getattr(self, '_airframe_session', None)
+        if session is not None:
+            session.controls.update(value, identity=session.identity, expected_revision=revision)
+            return
         controls = getattr(self, '_session_controls', {})
         self._session_controls = {**controls, control_id: controls[control_id].updated(value, revision)}
 
     def validate_session_control(self, control_id: str, value: float, revision: int) -> None:
+        session = getattr(self, '_airframe_session', None)
+        if session is not None:
+            if control_id != 'requested_speed':
+                raise ValueError('session_control_unsupported')
+            session.controls.validate_update(value, identity=session.identity, expected_revision=revision)
+            return
         controls = getattr(self, '_session_controls', {})
         if control_id not in controls:
             raise ValueError('session_control_unsupported')
         controls[control_id].updated(value, revision)
+
+    def _create_translation_speed_controls(self, ceiling: float, *, startup=None) -> dict:
+        declaration = self.setpoint_handler.profile_config.get('session_controls', {}).get('requested_speed')
+        if declaration is None:
+            return {}
+        value = ceiling if startup is None else startup
+        configured = SessionControl('requested_speed', declaration['label'], declaration['unit'],
+                                    0.0, ceiling, declaration['step'], float(value))
+        configured.updated(value, configured.revision)
+        if not self.safety_manager.allows_session_velocity_override():
+            return {configured.control_id: replace(configured, description=declaration.get('description'))}
+        control = SessionControl('requested_speed', declaration['label'], declaration['unit'],
+                                 0.0, None, declaration['step'], float(value), configured_maximum=ceiling,
+                                 description=declaration.get('description'))
+        return {control.control_id: control}
+
+    def _requested_speed_control(self):
+        session = getattr(self, '_airframe_session', None)
+        return session.controls.current_control if session is not None else getattr(self, '_session_controls', {}).get('requested_speed')
+
+    def _sync_translation_speed_override(self) -> None:
+        control = self._requested_speed_control()
+        if control is not None and control.override_active:
+            self.safety_manager.bind_session_velocity(self._follower_config_name, self, self._session_velocity_envelope)
+        else:
+            self._clear_session_velocity()
+
+    def _clear_session_velocity(self) -> None:
+        release = getattr(getattr(self, 'safety_manager', None), 'clear_session_velocity', None)
+        if callable(release):
+            release(self)
+
+    def _translation_speed_envelope(self, current_magnitude: float):
+        control = self._requested_speed_control()
+        if control is None or not control.override_active:
+            return None
+        previous = getattr(self, '_submitted_command_fields', None) or {}
+        speed = math.hypot(*(previous.get(name, 0) for name in ('vel_body_fwd', 'vel_body_right', 'vel_body_down')))
+        return max(control.value, current_magnitude, speed)
+
+    def _limit_translation_speed(self, fields: Dict[str, float], *, acceleration: float,
+                                 update_rate_hz: float, ramp_increase: bool = False) -> Dict[str, float]:
+        control = self._requested_speed_control()
+        if control is None:
+            return dict(fields)
+        names = ('vel_body_fwd', 'vel_body_right', 'vel_body_down')
+        previous = getattr(self, '_submitted_command_fields', None) or dict.fromkeys(names, 0.0)
+        rate = float(update_rate_hz)
+        now = time.monotonic()
+        timestamp = getattr(self, '_submitted_command_timestamp', None)
+        _, dt = self.bounded_control_delta(timestamp if timestamp is not None else now - 1 / rate,
+                                           rate, current_timestamp=now)
+        previous_speed = math.hypot(*(previous[name] for name in names))
+        requested = min(control.value, previous_speed + acceleration * dt) if ramp_increase else control.value
+        ceiling = max(requested, previous_speed - acceleration * dt)
+        result = dict(fields)
+        speed = math.hypot(*(result[name] for name in names))
+        if speed > ceiling:
+            for name in names:
+                result[name] *= ceiling / speed
+        return result
 
     def limit_session_control_command(self, fields: Dict[str, float]) -> Dict[str, float]:
         return dict(fields)

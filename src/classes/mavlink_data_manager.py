@@ -1,4 +1,5 @@
 from collections import deque
+from copy import deepcopy
 import threading
 import time
 import requests
@@ -8,6 +9,7 @@ from typing import Dict, Optional
 from .parameters import Parameters
 from .logging_manager import logging_manager
 from .aircraft_identity import TelemetryAircraftIdentity
+from .mavlink_aircraft_state import MavlinkAircraftStateSource, MavlinkGuidanceObservation
 from .telemetry_observation import AltitudeSourceSample
 import math
 
@@ -32,6 +34,7 @@ class MavlinkDataManager:
         self.mavlink_host = mavlink_host
         self.mavlink_port = mavlink_port
         self.polling_interval = polling_interval
+        self._poll_period_demands = {}
         # Route selection is explicit and shared by aggregate/follower reads.
         # Existing literal data paths are rebased to this configured route.
         self.system_id = self._route_id("MAVLINK_SYSTEM_ID", 1)
@@ -65,9 +68,12 @@ class MavlinkDataManager:
         self._aircraft_identity = TelemetryAircraftIdentity(
             self.system_id, self.component_id, self.stale_timeout_s,
         )
+        self._aircraft_state_source = MavlinkAircraftStateSource()
         self._stop_event = threading.Event()
         self._thread = None
         self._lock = threading.RLock()
+        self._identity_request_lock = threading.Lock()
+        self._identity_request_after = 0.0
         self.velocity_buffer = deque(maxlen=10)  # Buffer for velocity smoothing
         self.min_velocity_threshold = 0.5  # m/s, adjust based on your drone's characteristics
         self.gamma = 0
@@ -146,8 +152,40 @@ class MavlinkDataManager:
                 and not self._stop_event.is_set() and not self._validation_timeout_active(),
             )
 
+    def request_aircraft_identity(self):
+        """Request metadata on this route; only received packets establish identity.
+
+        This is AUTOPILOT_VERSION discovery, never a flight-mode/setpoint action.
+        Concurrent viewers share one request and the existing poller's results.
+        """
+        if not self.enabled or self._stop_event.is_set() or not self._identity_request_lock.acquire(blocking=False):
+            return False
+        try:
+            with self._lock:
+                now = time.monotonic()
+                if self.get_aircraft_identity().get('fresh') or now < self._identity_request_after:
+                    return False
+                self._identity_request_after = now + max(self.polling_interval, self.stale_timeout_s)
+            packet = deepcopy(self._request_json('/v1/helper/mavlink?name=COMMAND_LONG'))
+            if (not isinstance(packet, dict) or not isinstance(packet.get('message'), dict)
+                    or packet['message'].get('type') != 'COMMAND_LONG'):
+                raise ValueError('mavlink_identity_query_template_invalid')
+            packet['message'].update(command={'type': 'MAV_CMD_REQUEST_MESSAGE'}, confirmation=0,
+                target_system=self.system_id, target_component=self.component_id,
+                param1=148.0, param2=0.0, param3=0.0, param4=0.0, param5=0.0, param6=0.0, param7=0.0)
+            validation_timeout = self._validation_timeout_exception()
+            if validation_timeout is not None:
+                raise validation_timeout
+            response = requests.post(f'http://{self.mavlink_host}:{self.mavlink_port}/v1/mavlink',
+                                     json=packet, timeout=self.request_timeout_s)
+            response.raise_for_status()
+            self.logger.debug('Requested AUTOPILOT_VERSION on telemetry route %d/%d', self.system_id, self.component_id)
+            return True
+        finally:
+            self._identity_request_lock.release()
+
     def get_flight_state(self):
-        """Return the fresh observed arm and landed states for native following."""
+        """Read observed flight state; phase freshness is independent of HTTP/heartbeat."""
         with self._lock:
             identity = self.get_aircraft_identity()
             aggregate_age_s = (
@@ -164,9 +202,42 @@ class MavlinkDataManager:
                 "arm_status": self.data.get("arm_status") if fresh else None,
                 "landed_state": self.data.get("landed_state") if fresh else None,
                 "flight_mode": self.data.get("flight_mode") if fresh else None,
+                "flight_mode_observed_at_monotonic_s": (
+                    self._aircraft_identity.heartbeat_observed_at_monotonic_s if fresh else None),
                 "aircraft_kind": self._aircraft_identity.aircraft_kind.value if fresh else "unknown",
+                "phase_observation": self._aircraft_identity.phase_snapshot(connected=fresh),
                 "offboard_exit_observed_at_monotonic_s": getattr(self, '_offboard_exit_observed_at', None),
             }
+
+    def get_aircraft_state_source_epoch(self):
+        with self._lock:
+            return self._aircraft_state_source.epoch if self.get_aircraft_identity()["fresh"] else None
+
+    def get_aircraft_state_observation(self, binding, *, source_epoch, envelope=None):
+        """Read the existing poller's source-owned snapshot; acquire no authority."""
+        with self._lock:
+            state = self.get_flight_state()
+            return self._aircraft_state_source.snapshot(
+                binding, source_epoch=source_epoch, identity=state, phase=state["phase_observation"],
+                now=time.monotonic(), timeout_s=self.stale_timeout_s, envelope=envelope,
+            )
+
+    def get_guidance_observation(self, binding, *, source_epoch, envelope=None):
+        """Keep mode, local position and pose in the same aggregate-read epoch."""
+        with self._lock:
+            state = self.get_aircraft_state_observation(binding, source_epoch=source_epoch, envelope=envelope)
+            if state is None:
+                return None
+            flight = self.get_flight_state()
+            armed = flight.get("arm_status")
+            mode = flight.get("flight_mode")
+            return MavlinkGuidanceObservation(
+                state, source_epoch, self.system_id, self.component_id,
+                True if armed == "Armed" else False if armed == "Disarmed" else None,
+                mode if type(mode) is int else None,
+                flight.get("flight_mode_observed_at_monotonic_s"), self._aircraft_state_source.local_position(),
+                flight["phase_observation"]["generation"], self._aircraft_identity.mode_revision,
+            )
 
     @staticmethod
     def _validate_float_config(name, value, *, default, minimum, maximum):
@@ -247,6 +318,7 @@ class MavlinkDataManager:
         """
         with self._lock:
             self._aircraft_identity.invalidate("telemetry_polling_stopped")
+            self._aircraft_state_source.invalidate()
         thread = self._thread
         if not self.enabled or thread is None:
             return True
@@ -277,7 +349,22 @@ class MavlinkDataManager:
         """
         while not self._stop_event.is_set():
             self._fetch_and_parse_all_data()
-            self._stop_event.wait(self.polling_interval)
+            self._stop_event.wait(self.get_polling_period())
+
+    def set_polling_period_demand(self, owner, period_s):
+        """Consumers share the existing poller without overwriting saved settings."""
+        if type(period_s) not in (int, float) or not math.isfinite(period_s) or period_s <= 0:
+            raise ValueError("mavlink_polling_period_invalid")
+        with self._lock:
+            self._poll_period_demands[owner] = period_s
+
+    def clear_polling_period_demand(self, owner):
+        with self._lock:
+            self._poll_period_demands.pop(owner, None)
+
+    def get_polling_period(self):
+        with self._lock:
+            return min(self.polling_interval, *self._poll_period_demands.values()) if self._poll_period_demands else self.polling_interval
 
     def _fetch_and_parse_all_data(self):
         """
@@ -298,6 +385,13 @@ class MavlinkDataManager:
 
             with self._lock:
                 self._aircraft_identity.observe(json_data)
+                self._aircraft_state_source.observe(
+                    self._extract_data_from_json(json_data,
+                        f"/vehicles/{self.system_id}/components/{self.component_id}/messages"),
+                    identity=self._aircraft_identity.snapshot(connected=True),
+                    phase=self._aircraft_identity.phase_snapshot(connected=True),
+                    kind=self._aircraft_identity.aircraft_kind, now=time.monotonic(),
+                )
                 # Iterate through the data points defined in Parameters
                 for point_name, json_path in self.data_points.items():
                     if point_name in ["vn", "ve", "vd"]:
@@ -406,6 +500,7 @@ class MavlinkDataManager:
         """Handle connection errors with clean, throttled logging."""
         with self._lock:
             self._aircraft_identity.invalidate("telemetry_disconnected")
+            self._aircraft_state_source.invalidate()
             self.last_fetch_attempt_monotonic_s = time.monotonic()
             self.connection_state = "error"
             self.last_request_result = "failure"
@@ -605,6 +700,7 @@ class MavlinkDataManager:
     def _request_json(self, uri):
         """Fetch one MAVLink2REST URI with configured timeout and retry policy."""
         url = f"http://{self.mavlink_host}:{self.mavlink_port}{uri}"
+        message_request = uri.startswith("/v1/mavlink/vehicles/") and "/messages/" in uri
         attempts = self.request_retries + 1
         last_error = None
         for attempt in range(1, attempts + 1):
@@ -615,8 +711,19 @@ class MavlinkDataManager:
                 if validation_timeout is not None:
                     raise validation_timeout
                 response = requests.get(url, timeout=self.request_timeout_s)
+                if message_request and response.status_code == 404:
+                    self._record_successful_fetch()
+                    return None
                 response.raise_for_status()
-                json_data = response.json()
+                try:
+                    json_data = response.json()
+                except ValueError:
+                    if not message_request:
+                        raise
+                    # Older bridges return the non-JSON literal None for an unseen message.
+                    if response.text.strip() != "None":
+                        self._warn_malformed_payload(uri, "non-JSON message response", time.monotonic())
+                    json_data = None
                 self._record_successful_fetch()
                 return json_data
             except Exception as exc:

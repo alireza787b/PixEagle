@@ -5,9 +5,9 @@ import time
 from dataclasses import asdict
 from pathlib import Path
 from typing import Callable, List, Literal, NamedTuple, Optional, TypedDict
-from mavsdk import System
+from mavsdk_grpc import System
 from classes.parameters import Parameters
-from mavsdk.offboard import OffboardError, VelocityBodyYawspeed, AttitudeRate
+from mavsdk_grpc.offboard import OffboardError, VelocityBodyYawspeed, AttitudeRate
 from classes.command_safety import (
     CommandValidationError,
     validate_and_clamp_command_values,
@@ -18,6 +18,7 @@ from classes.setpoint_handler import SetpointHandler
 from classes.attitude_envelope import guard_body_rates
 from classes.aircraft_state import AircraftBinding, AircraftKind, AircraftState, AircraftStateOwner, AirframePhase, Quaternion, finite_number
 from classes.native_guidance import NativeGuidanceClient, NativeGuidanceError
+from classes.gazebo_guidance_alignment import SourceAttitudeHistory
 from classes.telemetry_observation import AltitudeObservation, AltitudeSourceSample
 
 # Import circuit breaker for testing support
@@ -218,6 +219,7 @@ class PX4InterfaceManager:
     DEFAULT_TELEMETRY_MAX_SKEW_S = 0.25
     DEFAULT_MAVLINK2REST_CYCLE_TIMEOUT_S = 1.0
     DEFAULT_OWNED_TASK_STOP_TIMEOUT_S = 2.0
+    NATIVE_OBSERVATION_PERIOD_S = .02
     # Hold the first accepted setpoint long enough to establish PX4 proof-of-life.
     OFFBOARD_PRIME_DURATION_S = 1.1
     MAVSDK_TELEMETRY_STREAM_NAMES = ("position", "attitude", "velocity_ned")
@@ -261,6 +263,10 @@ class PX4InterfaceManager:
         self._telemetry_generation = 0
         self._aircraft_state_owner = AircraftStateOwner()
         self._native_guidance_client = None
+        self._mavlink_guidance_source = None
+        self._native_observation_task = None
+        self._native_observation_snapshot = None
+        self._source_attitude_history = SourceAttitudeHistory()
         self._native_guidance_lock = asyncio.Lock()
         self._telemetry_connection_generation = None
         self._telemetry_state = "idle"
@@ -473,6 +479,7 @@ class PX4InterfaceManager:
     def _advance_connection_generation(self) -> int:
         """Invalidate command owners created for every previous connection."""
         self._abort_native_guidance()
+        self._clear_mavlink_guidance_source()
         self._connection_generation += 1
         self._aircraft_identity = None
         self._aircraft_state_owner.bind(None)
@@ -559,17 +566,240 @@ class PX4InterfaceManager:
     def get_aircraft_state(self) -> AircraftState | None:
         if self.get_aircraft_state_binding() is None:
             return None
+        if getattr(self, '_mavlink_guidance_source', None) is not None:
+            observation = self.get_mavlink_guidance_observation()
+            return None if observation is None else observation.state
+        if self._native_guidance_client is not None and self._native_observation_snapshot is None:
+            return None
         return self._aircraft_state_owner.snapshot(timeout_s=self.get_telemetry_stale_timeout_s())
+
+    @property
+    def mavlink_guidance_source(self):
+        return getattr(self, '_mavlink_guidance_source', None)
+
+    def _clear_mavlink_guidance_source(self):
+        source = self.mavlink_guidance_source
+        close = getattr(source, 'close', None)
+        if callable(close):
+            close()
+        self._mavlink_guidance_source = None
+
+    def get_mavlink_guidance_observation(self):
+        source = self.mavlink_guidance_source
+        observation = None if source is None else source.observation()
+        if observation is None:
+            return None
+        previous = self._aircraft_state_owner.snapshot(timeout_s=self.get_telemetry_stale_timeout_s())
+        if previous != observation.state and not self.commit_aircraft_state(observation.state):
+            return None
+        return observation if self._aircraft_state_owner.snapshot(
+            timeout_s=self.get_telemetry_stale_timeout_s()) == observation.state else None
+
+    async def prepare_mavlink_guidance(self, *, lookahead_m):
+        """Read-only stock setup on the existing connection and telemetry owner."""
+        from classes.mavlink_guidance_source import MavlinkGuidanceSource
+
+        async with self._native_guidance_lock:
+            client = self._native_guidance_client
+            if client is not None and client.session_identity is not None:
+                raise ValueError("guidance_command_owner_already_active")
+            binding = self.get_aircraft_state_binding()
+            if binding is None or not self.is_command_connection_ready():
+                raise ValueError("mavlink_guidance_connection_unavailable")
+            manager = getattr(self, 'mavlink_data_manager', None)
+            if manager is None and self.app_controller is not None:
+                manager = getattr(self.app_controller, 'mavlink_data_manager', None)
+            if manager is None:
+                raise ValueError("mavlink_guidance_telemetry_unavailable")
+            rate = self.get_follower_data_refresh_rate_hz()
+            try:
+                results = await asyncio.wait_for(asyncio.gather(
+                    self.drone.telemetry.set_rate_attitude_quaternion(rate),
+                    self.drone.telemetry.set_rate_velocity_ned(rate),
+                    self.drone.telemetry.set_rate_position(rate),
+                    self.drone.telemetry.set_rate_fixedwing_metrics(rate),
+                    self.drone.telemetry.set_rate_vtol_state(min(1., rate)), return_exceptions=True),
+                    timeout=self.get_mavsdk_command_timeout_s())
+                if any(isinstance(result, Exception) for result in results):
+                    logger.warning("Stock guidance telemetry-rate request incomplete; observed source freshness remains authoritative")
+            except asyncio.TimeoutError:
+                logger.warning("Stock guidance telemetry-rate request timed out; waiting for observed source progress")
+            source = await MavlinkGuidanceSource.prepare(manager, binding,
+                current_binding=self.get_aircraft_state_binding, parameter_client=self.drone.param,
+                lookahead_m=lookahead_m, timeout_s=self.get_mavsdk_command_timeout_s())
+            self._abort_native_guidance()
+            source.request_polling_period(1. / rate)
+            self._clear_mavlink_guidance_source()
+            self._aircraft_state_owner.bind(None)
+            self._aircraft_state_owner.bind(binding)
+            self._mavlink_guidance_source = source
+            self.get_mavlink_guidance_observation()
+            return source
 
     @property
     def native_guidance_client(self):
         return self._native_guidance_client
 
+    @property
+    def source_attitude_history(self):
+        history = getattr(self, '_source_attitude_history', None)
+        if history is None:
+            history = SourceAttitudeHistory()
+            self._source_attitude_history = history
+        return history
+
+    @property
+    def airframe_contract_ready(self):
+        source = self.mavlink_guidance_source
+        if source is not None:
+            state = self.get_aircraft_state()
+            return bool(state is not None and source.envelope is not None and source.tuning is not None
+                        and state.phase in {AirframePhase.MULTICOPTER, AirframePhase.FIXED_WING})
+        client = self._native_guidance_client
+        capabilities = None if client is None else client.capabilities
+        state = self.get_aircraft_state()
+        return bool(capabilities is not None and state is not None and state.is_vtol
+            and capabilities.owned_mode_supported and capabilities.multicopter_supported
+            and capabilities.multicopter_altitude_hold_supported)
+
+    @property
+    def guidance_start_context(self):
+        """Immutable original observation; polling cannot renew its source age."""
+        source = self.mavlink_guidance_source
+        if source is not None:
+            return source.start_context
+        snapshot = getattr(self, '_native_observation_snapshot', None)
+        client = self._native_guidance_client
+        capabilities = None if client is None else client.capabilities
+        current = self.get_aircraft_state()
+        if (snapshot is None or capabilities is None or current is None
+                or client.session_identity is not None
+                or getattr(client, 'passive_observation_allowed', True) is not True):
+            return None
+        context, state = snapshot
+        if (context is None or current.binding != state.binding or current.phase is not state.phase
+                or not state.fresh(time.monotonic(), self.get_telemetry_stale_timeout_s())
+                or current.rescue_active or self._native_observation_snapshot is not snapshot):
+            return None
+        try:
+            context.require_match(current.binding, capabilities.runtime_id, phase=current.phase)
+        except (ValueError, NativeGuidanceError):
+            return None
+        return context
+
+    @property
+    def guidance_capabilities(self):
+        source = self.mavlink_guidance_source
+        if source is not None:
+            from classes.mavlink_vector_guidance_session import MavlinkGuidanceCapabilities
+            fixed_wing = source.envelope is not None and source.tuning is not None
+            return MavlinkGuidanceCapabilities(source.runtime_id, fixed_wing, True, True, fixed_wing)
+        client = self._native_guidance_client
+        return None if client is None else client.capabilities
+
+    def commit_native_observation(self, observation):
+        """Retain state, pre-acquire identity and raw source samples from one read."""
+        from classes.native_guidance import NativeStartContext
+
+        client = self._native_guidance_client
+        capabilities = None if client is None else client.capabilities
+        if capabilities is None or observation.get('runtime_id') != capabilities.runtime_id:
+            return False
+        payload = observation.get('aircraft_state')
+        state = None if payload is None else AircraftState.from_payload(payload)
+        binding = self.get_aircraft_state_binding()
+        if state is None or binding is None or state.binding != binding:
+            return False
+        if not self._aircraft_state_owner.accepts(state):
+            return False
+        if observation.get('fresh') is not True or observation.get('rescue_active') is not False:
+            snapshot = self._native_observation_snapshot
+            if snapshot is not None and snapshot[1].binding == binding:
+                self._native_observation_snapshot = None
+            self.source_attitude_history.clear_if_current(binding, capabilities.runtime_id)
+            return False
+        payload = observation.get('start_context')
+        try:
+            context = None if payload is None else NativeStartContext.from_payload(payload)
+            if context is not None:
+                context.require_match(state.binding, capabilities.runtime_id, phase=state.phase)
+        except (ValueError, NativeGuidanceError):
+            self._native_observation_snapshot = None
+            self.source_attitude_history.clear_if_current(binding, capabilities.runtime_id)
+            raise
+        self.commit_aircraft_state(state)
+        if self._aircraft_state_owner.snapshot(timeout_s=self.get_telemetry_stale_timeout_s()) != state:
+            return False
+        self._native_observation_snapshot = (context, state)
+        source = observation.get('source_attitude')
+        clock_id = getattr(capabilities, 'source_clock_id', None)
+        if source is None or clock_id is None:
+            self.source_attitude_history.clear()
+        else:
+            try:
+                self.source_attitude_history.commit(source, state,
+                    runtime_id=capabilities.runtime_id, source_clock_id=clock_id)
+            except (TypeError, ValueError):
+                self.source_attitude_history.clear()
+                logger.warning('Native source-attitude evidence rejected; camera alignment is unavailable')
+        return True
+
     def _abort_native_guidance(self) -> None:
+        task = getattr(self, '_native_observation_task', None)
+        if task is not None and not task.done():
+            task.cancel()
         client = getattr(self, "_native_guidance_client", None)
         self._native_guidance_client = None
+        self._native_observation_snapshot = None
+        self.source_attitude_history.clear()
         if client is not None:
             client.abort()
+
+    def _ensure_native_observation_task(self, client, binding):
+        task = getattr(self, '_native_observation_task', None)
+        if task is None or task.done():
+            self._native_observation_task = asyncio.create_task(
+                self._observe_native_passively(client, binding), name='PixEagleNativeObservations')
+
+    async def _observe_native_passively(self, client, binding):
+        """Keep source history at the native status cadence, independent of UI reads.
+
+        The socket owner serializes observation with acquisition. Once owned,
+        only the existing command publisher observes; this task sends no action.
+        """
+        try:
+            while self._native_guidance_client is client and self.get_aircraft_state_binding() == binding:
+                await asyncio.sleep(self.NATIVE_OBSERVATION_PERIOD_S)
+                async with self._native_guidance_lock:
+                    if self._native_guidance_client is not client or self.get_aircraft_state_binding() != binding:
+                        return
+                    observation = await client.observe(passive=True)
+                    if self._native_guidance_client is not client or self.get_aircraft_state_binding() != binding:
+                        return
+                    if (observation is None or client.session_identity is not None
+                            or getattr(client, 'passive_observation_allowed', True) is not True):
+                        continue
+                    if (observation.get('rescue_active') is not False
+                            or observation.get('owner_confirmed') is not False):
+                        raise NativeGuidanceError('native_aircraft_state_unavailable')
+                    if observation.get('fresh') is not True:
+                        # A valid stale read revokes admission, not the transport
+                        # identity. Only passive observation may recover here.
+                        self._native_observation_snapshot = None
+                        self.source_attitude_history.clear()
+                        continue
+                    if not self.commit_native_observation(observation):
+                        raise NativeGuidanceError('native_aircraft_state_unavailable')
+        except asyncio.CancelledError:
+            raise
+        except (NativeGuidanceError, ValueError, TypeError, KeyError):
+            if self._native_guidance_client is client and self.get_aircraft_state_binding() == binding:
+                self._native_guidance_client = None
+                self._native_observation_snapshot = None
+                self.source_attitude_history.clear()
+                self._aircraft_state_owner.bind(None)
+                client.abort()
+                logger.warning('Passive native observations unavailable; fresh discovery is required')
 
     async def prepare_native_guidance(self, socket_path: Path):
         """Read-only native discovery, bound to this verified aircraft connection.
@@ -578,8 +808,11 @@ class PX4InterfaceManager:
         not acquire a mode or create another telemetry/publication worker.
         """
         async with self._native_guidance_lock:
+            if self.mavlink_guidance_source is not None:
+                raise NativeGuidanceError("guidance_transport_already_prepared")
             previous = self._native_guidance_client
-            if previous is not None and previous.session_identity is not None:
+            if previous is not None and (previous.session_identity is not None
+                    or getattr(previous, 'passive_observation_allowed', True) is not True):
                 raise NativeGuidanceError("native_follow_session_already_owned")
             binding = self.get_aircraft_state_binding()
             if binding is None:
@@ -587,6 +820,9 @@ class PX4InterfaceManager:
             client = previous
             try:
                 if client is None or client.capabilities is None:
+                    if not await self._cancel_owned_task(
+                            getattr(self, '_native_observation_task', None), label='Previous native observation worker'):
+                        raise NativeGuidanceError('native_observation_cleanup_pending')
                     if client is not None:
                         await client.close()
                     client = NativeGuidanceClient(socket_path)
@@ -595,21 +831,32 @@ class PX4InterfaceManager:
                     await client.bind(binding)
                 else:
                     capabilities = client.capabilities
-                observation = await client.observe()
+                observation = await client.observe(passive=True)
+                if observation is None:
+                    # An acquisition won the RPC lock. Passive discovery must
+                    # neither replace its context nor close its owned socket.
+                    return capabilities
                 if (observation.get("fresh") is not True or observation.get("rescue_active") is not False
                         or observation.get("owner_confirmed") is not False):
                     raise NativeGuidanceError("native_aircraft_state_unavailable")
                 state = AircraftState.from_payload(observation["aircraft_state"])
                 if state.binding != binding or self.get_aircraft_state_binding() != binding:
                     raise NativeGuidanceError("native_aircraft_connection_changed")
-                self.commit_aircraft_state(state)
+                if not self.commit_native_observation(observation):
+                    raise NativeGuidanceError("native_aircraft_state_rejected")
                 if self.get_aircraft_state() != state:
                     raise NativeGuidanceError("native_aircraft_state_rejected")
                 self._native_guidance_client = client
+                self._ensure_native_observation_task(client, binding)
                 return capabilities
             except BaseException as error:
                 if self._native_guidance_client is client:
                     self._native_guidance_client = None
+                    task = getattr(self, '_native_observation_task', None)
+                    if task is not None and not task.done():
+                        task.cancel()
+                    self._native_observation_snapshot = None
+                    self.source_attitude_history.clear()
                 if self.get_aircraft_state_binding() == binding:
                     self._aircraft_state_owner.bind(None)
                 if client is not None:
@@ -625,6 +872,7 @@ class PX4InterfaceManager:
                 "Cannot start telemetry for a superseded PX4 connection generation"
             )
         self._abort_native_guidance()
+        self._clear_mavlink_guidance_source()
         self._telemetry_generation += 1
         self._aircraft_state_owner.bind(None)
         self._telemetry_connection_generation = connection_generation
@@ -2162,14 +2410,20 @@ class PX4InterfaceManager:
             getattr(self, "_sender_quiesce_task", None) is not None
             and not self._sender_quiesce_task.done()
         )
+        native_observer_alive = bool(
+            getattr(self, '_native_observation_task', None) is not None
+            and not self._native_observation_task.done()
+        )
         alive_count = (
             int(sender_quiesce_alive)
+            + int(native_observer_alive)
             + int(telemetry_supervisor_alive)
             + int(connection_monitor_alive)
             + sum(int(alive) for alive in stream_workers.values())
         )
         return {
             "sender_quiesce_alive": sender_quiesce_alive,
+            "native_observer_alive": native_observer_alive,
             "telemetry_supervisor_alive": telemetry_supervisor_alive,
             "connection_monitor_alive": connection_monitor_alive,
             "mavsdk_stream_workers": stream_workers,
@@ -2179,13 +2433,15 @@ class PX4InterfaceManager:
 
     async def _cancel_telemetry_update_task(self):
         """Cancel and join the owned telemetry supervisor task."""
+        native_stopped = await self._cancel_owned_task(
+            getattr(self, '_native_observation_task', None), label='Native observation worker')
         supervisor_stopped = await self._cancel_owned_task(
             self.update_task,
             label="PX4 telemetry supervisor",
             timeout_s=self.DEFAULT_OWNED_TASK_STOP_TIMEOUT_S * 2.0,
         )
         streams_stopped = await self._cancel_mavsdk_stream_tasks()
-        return supervisor_stopped and streams_stopped
+        return native_stopped and supervisor_stopped and streams_stopped
 
     async def _cancel_connection_monitor_task(self):
         """Cancel and join the owned MAVSDK connection monitor."""
@@ -2232,6 +2488,8 @@ class PX4InterfaceManager:
                 or command_intent.control_type != control_type
                 or command_intent.profile_name != self.setpoint_handler.profile_name):
             raise ValueError("command_dispatch_snapshot_mismatch")
+        if command_intent.altitude_hold is not None:
+            raise ValueError("altitude_hold_transport_unsupported")
         return dict(command_intent.fields)
 
     async def send_velocity_body_offboard_commands(
@@ -3097,7 +3355,7 @@ class PX4InterfaceManager:
             logger.debug(f"Sending ATTITUDE_RATE (deg/s): Roll={roll_deg_s:.3f}, Pitch={pitch_deg_s:.3f}, Yaw={yaw_deg_s:.3f}, Thrust={thrust:.3f}")
 
             # Send the attitude rate commands to the drone (values already in deg/s)
-            from mavsdk.offboard import AttitudeRate, OffboardError
+            from mavsdk_grpc.offboard import AttitudeRate, OffboardError
             next_setpoint = AttitudeRate(roll_deg_s, pitch_deg_s, yaw_deg_s, thrust)
             return await self._safe_mavsdk_call(
                 self.drone.offboard.set_attitude_rate,

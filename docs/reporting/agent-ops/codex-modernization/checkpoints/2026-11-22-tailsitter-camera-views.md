@@ -17,19 +17,19 @@ and [provider contract](../../../../trackers/05-development/external-gimbal-prov
 
 ## Configuration migration
 
-Schema 1.11 registers the undefined `Safety.ALLOW_SESSION_VELOCITY_OVERRIDE`
-path for exact, operator-reviewed removal. Validation filters registered
-retirements before semantic checks, preserving their stored values until a
-confirmed Config Sync removal. Both public defaults and generated private
-profiles use this same schema/registry generation. Private installation values
-and files stay outside the repository; normal PX4 upper-speed policy replaces
-an unavailable experimental policy in the command-blocked bench export.
+The profile audit includes the newer stock-MAVLink release branch and the
+public 7.5.4 replay patch. Schema 1.11 adds the Home setting. The expert
+`Safety.ALLOW_SESSION_VELOCITY_OVERRIDE` flag is supported and retained, not
+retired. Public defaults and private overlays use one schema generation.
+Private files remain outside Git; their follower output is command-blocked.
+Stock and native experimental policy availability retain their own qualified
+contracts; a schema-valid setting alone is not evidence of activation.
 
 ## Verification and remaining boundary
 
 Deterministic tests cover both transition directions, aborts, duplicate/stale
 receipts, reconnect, manual/Stop priority, unavailable providers and Home packet
-dispatch through the existing executor. Configuration tests cover the retirement
+dispatch through the existing executor. Configuration tests cover supported-policy retention and the retirement
 preview/apply boundary. Replay regressions distinguish submitted commands and
 PX4-observed motion. Earlier saved-angle replay evidence is historical and does
 not qualify this replacement Home policy.

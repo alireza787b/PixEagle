@@ -1,6 +1,6 @@
 # Optional atomic external-mode ownership request. This never arms or requests a VTOL transition.
 uint32 MESSAGE_VERSION = 0
-uint8 CONTRACT_VERSION = 1
+uint8 CONTRACT_VERSION = 2
 uint8 OPERATION_ACQUIRE = 1
 uint8 OPERATION_RELEASE = 2
 
@@ -10,6 +10,9 @@ uint8 operation
 uint64[2] incarnation # Firmware Commander instance, copied from OwnedModeStatus
 uint64[2] token # Opaque acquisition token, bound to the companion's runtime/session
 uint64 source_revision # Original acquisition source intention revision
+uint8 source_vehicle_type # Original settled VehicleStatus vehicle type
+uint64 source_phase_instance # Original VTOL module lifetime, zero only for non-VTOL
+uint64 source_phase_revision # Original persistent transition/phase history
 uint64 source_nav_state_timestamp # Original acquisition source mode epoch, raw PX4 time
 uint8 source_nav_state
 uint8 mode_id # Registered external mode to acquire/release

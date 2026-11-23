@@ -8,6 +8,7 @@ from enum import Enum
 from typing import Optional, Tuple
 
 from classes.aircraft_state import finite_number
+from classes.capture_timing import SourceSampleStamp
 
 
 class CoordinateSystem(Enum):
@@ -59,11 +60,14 @@ class GimbalAngleObservation:
     angle_received_at_monotonic_s: float
     tracking_state: str | None
     tracking_received_at_monotonic_s: float | None
+    source_sample: SourceSampleStamp | None = None
     time_basis: str = field(default='backend_receipt', init=False)
     bearing_semantics: str = field(default='camera_boresight', init=False)
     physical_target_identity_confirmed: bool = field(default=False, init=False)
 
     def __post_init__(self):
+        if self.source_sample is not None and not isinstance(self.source_sample, SourceSampleStamp):
+            raise ValueError('gimbal_observation_source_sample_invalid')
         if self.source is not None and not isinstance(self.source, CameraObservationSource):
             raise ValueError('gimbal_observation_source_invalid')
         if self.target_generation is not None and (type(self.target_generation) is not int or self.target_generation < 0):
@@ -92,9 +96,14 @@ class GimbalAngleObservation:
     @classmethod
     def from_dict(cls, payload):
         try:
-            if not isinstance(payload, dict) or set(payload) != set(cls.__dataclass_fields__):
+            if not isinstance(payload, dict) or set(payload) | {'source_sample'} != set(cls.__dataclass_fields__):
                 raise ValueError('gimbal_observation_contract_invalid')
             values = dict(payload)
+            sample = values.get('source_sample')
+            if sample is not None:
+                if not isinstance(sample, dict) or set(sample) != set(SourceSampleStamp.__dataclass_fields__):
+                    raise ValueError('gimbal_observation_source_sample_invalid')
+                values['source_sample'] = SourceSampleStamp(**sample)
             for name, expected in (('time_basis', 'backend_receipt'), ('bearing_semantics', 'camera_boresight'),
                                    ('physical_target_identity_confirmed', False)):
                 actual = values.pop(name)
@@ -163,6 +172,7 @@ class GimbalData:
     angle_sample_monotonic: Optional[float] = None
     angle_sample_sequence: Optional[int] = None
     tracking_sample_monotonic: Optional[float] = None
+    source_sample: SourceSampleStamp | None = None
 
     def is_tracking_active(self) -> bool:
         """Return True only when the provider reports active tracking."""

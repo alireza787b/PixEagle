@@ -57,7 +57,7 @@ class AircraftLayout(str, Enum):
 
 
 # Standard MAV_TYPE wire identifiers, not follower configuration or flight
-# phases. VTOL's current phase must still come from fresh native state.
+# phases. VTOL's current phase needs its own fresh phase observation.
 _MAVLINK_AIRCRAFT_TYPES = (
     (1, "FIXED_WING", AircraftKind.FIXED_WING),
     (2, "QUADROTOR", AircraftKind.MULTICOPTER),
@@ -87,24 +87,49 @@ def _mavlink_aircraft_type(value):
         if isinstance(value, dict):
             value = value.get("type")
     if type(value) is int:
-        return next((entry for entry in _MAVLINK_AIRCRAFT_TYPES if entry[0] == value), None)
+        return next((item for item in _MAVLINK_AIRCRAFT_TYPES if item[0] == value), None)
     if isinstance(value, str):
         name = value.removeprefix("MAV_TYPE_")
         aliases = {"VTOL_DUOROTOR": "VTOL_TAILSITTER_DUOROTOR", "VTOL_QUADROTOR": "VTOL_TAILSITTER_QUADROTOR"}
         name = aliases.get(name, name)
-        return next((entry for entry in _MAVLINK_AIRCRAFT_TYPES if entry[1] == name), None)
+        return next((item for item in _MAVLINK_AIRCRAFT_TYPES if item[1] == name), None)
     return None
 
 
 def aircraft_kind_from_mavlink(value) -> AircraftKind:
     """Classify an observed HEARTBEAT type; unknown types stay unsupported."""
-    entry = _mavlink_aircraft_type(value)
-    return entry[2] if entry else AircraftKind.UNKNOWN
+    item = _mavlink_aircraft_type(value)
+    return AircraftKind.UNKNOWN if item is None else item[2]
 
 
-def is_tailsitter_heartbeat(value) -> bool:
-    entry = _mavlink_aircraft_type(value)
-    return bool(entry and entry[1].startswith("VTOL_TAILSITTER"))
+def aircraft_is_tailsitter_from_mavlink(value) -> bool:
+    """Use standard type declarations, never aircraft pitch or mount presets."""
+    item = _mavlink_aircraft_type(value)
+    return item is not None and item[1].startswith("VTOL_TAILSITTER")
+
+
+def airframe_phase_from_mavlink(kind: AircraftKind, vtol_state=None) -> AirframePhase:
+    """Decode standard EXTENDED_SYS_STATE; neither attitude nor config is phase."""
+    if kind is AircraftKind.MULTICOPTER:
+        return AirframePhase.MULTICOPTER
+    if kind is AircraftKind.FIXED_WING:
+        return AirframePhase.FIXED_WING
+    if kind is not AircraftKind.VTOL:
+        return AirframePhase.UNKNOWN
+    if isinstance(vtol_state, dict):
+        vtol_state = vtol_state.get("type")
+    phases = (
+        (1, "TRANSITION_TO_FW", AirframePhase.VTOL_TRANSITION),
+        (2, "TRANSITION_TO_MC", AirframePhase.VTOL_TRANSITION),
+        (3, "MC", AirframePhase.MULTICOPTER),
+        (4, "FW", AirframePhase.FIXED_WING),
+    )
+    if type(vtol_state) is int:
+        return next((phase for number, _, phase in phases if number == vtol_state), AirframePhase.UNKNOWN)
+    if isinstance(vtol_state, str):
+        label = vtol_state.removeprefix("MAV_VTOL_STATE_")
+        return next((phase for _, name, phase in phases if name == label), AirframePhase.UNKNOWN)
+    return AirframePhase.UNKNOWN
 
 
 def finite_number(value: float, name: str) -> float:
@@ -175,6 +200,17 @@ class Quaternion:
                        vector.y + w * ty + z * tx - x * tz,
                        vector.z + w * tz + x * ty - y * tx)
 
+    def compose(self, other: "Quaternion") -> "Quaternion":
+        """Compose rotations, applying ``other`` first and this rotation last."""
+        values = (
+            self.w * other.w - self.x * other.x - self.y * other.y - self.z * other.z,
+            self.w * other.x + self.x * other.w + self.y * other.z - self.z * other.y,
+            self.w * other.y - self.x * other.z + self.y * other.w + self.z * other.x,
+            self.w * other.z + self.x * other.y - self.y * other.x + self.z * other.w,
+        )
+        norm = math.hypot(*values)
+        return Quaternion(*(value / norm for value in values))
+
     @property
     def heading_rad(self) -> float:
         forward = self.rotate(Vector3(1.0, 0.0, 0.0))
@@ -200,6 +236,17 @@ def heading_frame_to_ned(vector: Vector3, heading_rad: float) -> Vector3:
 def body_ray_to_heading_frame(ray: Vector3, physical_attitude: Quaternion, heading_rad: float) -> Vector3:
     """Physical FRD LOS → NED → MAVLink's yaw-only velocity coordinates."""
     return ned_to_heading_frame(physical_attitude.rotate(ray), heading_rad)
+
+
+def fixed_wing_control_attitude(physical_attitude: Quaternion, *, is_tailsitter: bool) -> Quaternion:
+    """Match PX4's FW measurement frame; camera rays still use physical FRD.
+
+    This converts observations, not outgoing FW virtual attitude setpoints.
+    """
+    if not isinstance(physical_attitude, Quaternion) or type(is_tailsitter) is not bool:
+        raise ValueError("fixed_wing_attitude_frame_invalid")
+    return (physical_attitude.compose(Quaternion.from_euler(0., math.pi / 2., 0.))
+            if is_tailsitter else physical_attitude)
 
 
 @dataclass(frozen=True)
@@ -434,32 +481,43 @@ class AircraftStateOwner:
                 self._snapshot = None
                 self._attitude_packet = None
 
+    def accepts(self, state: AircraftState) -> bool:
+        """Validate current/progressing evidence without renewing a receipt."""
+        with self._lock:
+            return isinstance(state, AircraftState) and (state == self._snapshot or self._accepts_locked(state))
+
+    def _accepts_locked(self, state: AircraftState) -> bool:
+        if (not isinstance(state, AircraftState) or state.binding != self._binding
+                or state.observed_at_monotonic_s > self._clock()):
+            return False
+        timing = state.attitude_timing
+        if timing is not None and timing.publication_received_at_monotonic_s > self._clock():
+            return False
+        previous = self._snapshot
+        if previous is not None and (state.sequence <= previous.sequence
+                or state.observed_at_monotonic_s < previous.observed_at_monotonic_s
+                or state.source != previous.source or state.is_vtol != previous.is_vtol
+                or state.is_tailsitter != previous.is_tailsitter):
+            return False
+        if self._attitude_packet is not None and timing is not None:
+            before, attitude = self._attitude_packet
+            if (timing.publication_timestamp_us < before.publication_timestamp_us
+                    or timing.sample_timestamp_us < before.sample_timestamp_us
+                    or timing.publication_received_at_monotonic_s < before.publication_received_at_monotonic_s
+                    or timing.sample_received_at_monotonic_s < before.sample_received_at_monotonic_s
+                    or (timing.publication_timestamp_us == before.publication_timestamp_us
+                        and timing.sample_timestamp_us == before.sample_timestamp_us
+                        and (timing != before or state.attitude_body_to_ned != attitude))
+                    or not preserves_attitude_sample(before, attitude, timing, state.attitude_body_to_ned)):
+                return False
+        return True
+
     def commit(self, state: AircraftState) -> bool:
         with self._lock:
-            if state.binding != self._binding:
+            if not self._accepts_locked(state):
                 return False
-            if state.observed_at_monotonic_s > self._clock():
-                return False
-            timing = state.attitude_timing
-            if timing is not None and timing.publication_received_at_monotonic_s > self._clock():
-                return False
-            previous = self._snapshot
-            if previous is not None and (state.sequence <= previous.sequence
-                    or state.observed_at_monotonic_s < previous.observed_at_monotonic_s
-                    or state.source != previous.source or state.is_vtol != previous.is_vtol
-                    or state.is_tailsitter != previous.is_tailsitter):
-                return False
-            if self._attitude_packet is not None and timing is not None:
-                before, attitude = self._attitude_packet
-                if (timing.publication_timestamp_us < before.publication_timestamp_us
-                        or timing.sample_timestamp_us < before.sample_timestamp_us
-                        or timing.publication_received_at_monotonic_s < before.publication_received_at_monotonic_s
-                        or timing.sample_received_at_monotonic_s < before.sample_received_at_monotonic_s
-                        or (timing.publication_timestamp_us == before.publication_timestamp_us
-                            and (timing != before or state.attitude_body_to_ned != attitude))
-                        or not preserves_attitude_sample(before, attitude, timing, state.attitude_body_to_ned)):
-                    return False
             self._snapshot = state
+            timing = state.attitude_timing
             if timing is not None:
                 self._attitude_packet = (timing, state.attitude_body_to_ned)
             return True

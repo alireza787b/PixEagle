@@ -3,7 +3,7 @@
 import asyncio
 import json
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -55,6 +55,81 @@ def test_heartbeat_progress_required_and_frozen_http_payload_expires():
     assert not identity.snapshot(connected=True, now=14)["fresh"]
     identity.observe(mavlink_payload(2), now=15)
     assert not identity.snapshot(connected=True, now=15)["fresh"]
+
+
+def test_expiry_with_new_heartbeat_restores_freshness_without_replacing_same_aircraft():
+    identity = TelemetryAircraftIdentity(7, 1, 2)
+    identity.observe(mavlink_payload(10), now=10)
+    identity.observe(mavlink_payload(11), now=11)
+    before = identity.snapshot(connected=True, now=11)
+    assert before['fresh']
+    assert not identity.snapshot(connected=True, now=13.001)['fresh']
+    identity.observe(mavlink_payload(12), now=13.01)
+    renewed = identity.snapshot(connected=True, now=13.01)
+    assert renewed['connection_generation'] == before['connection_generation']
+    assert renewed['fresh']
+    assert not identity.snapshot(connected=True, now=15.011)['fresh']
+
+
+@pytest.mark.parametrize('kind', [1, 2, 20, 22])
+def test_delayed_aggregate_polls_do_not_manufacture_aircraft_replacements(kind):
+    identity = TelemetryAircraftIdentity(7, 1, 2.)
+    def packet(counter):
+        value = mavlink_payload(counter)
+        messages = value['vehicles']['7']['components']['1']['messages']
+        messages['HEARTBEAT']['message']['mavtype'] = kind
+        messages['ATTITUDE'] = {'message': {'time_boot_ms': counter * 1000}}
+        return value
+    identity.observe(packet(10), now=10.)
+    identity.observe(packet(11), now=11.)
+    generation = identity.generation
+    for index in range(12, 25):
+        received = 11. + (index - 11) * 2.01
+        assert not identity.snapshot(connected=True, now=received)['fresh']
+        identity.observe(packet(index), now=received)
+        assert identity.snapshot(connected=True, now=received)['fresh']
+        assert identity.generation == generation
+    # Successful reads of a cached packet never refresh the heartbeat.
+    identity.observe(packet(24), now=received + 2.01)
+    assert not identity.snapshot(connected=True, now=received + 2.01)['fresh']
+    assert identity.generation == generation
+    identity.invalidate('telemetry_disconnected')
+    identity.observe(packet(25), now=received + 2.02)
+    assert identity.generation != generation
+    assert not identity.snapshot(connected=True, now=received + 2.02)['fresh']
+
+
+@pytest.mark.parametrize('change', ['uid', 'counter', 'boot', 'kind', 'invalid', 'frozen'])
+def test_expiry_cannot_confirm_changed_or_unprogressed_identity(change):
+    identity = TelemetryAircraftIdentity(7, 1, 2)
+    payload = mavlink_payload(10)
+    messages = payload['vehicles']['7']['components']['1']['messages']
+    messages['HEARTBEAT']['message']['mavtype'] = {'type': 'MAV_TYPE_QUADROTOR'}
+    messages['ATTITUDE'] = {'message': {'time_boot_ms': 1000}}
+    identity.observe(payload, now=10)
+    messages['HEARTBEAT']['status']['time']['counter'] = 11
+    messages['ATTITUDE']['message']['time_boot_ms'] = 2000
+    identity.observe(payload, now=11)
+    messages['HEARTBEAT']['status']['time']['counter'] = 12
+    messages['ATTITUDE']['message']['time_boot_ms'] = 3000
+    if change == 'uid':
+        messages['AUTOPILOT_VERSION']['message']['uid'] = 22
+    elif change == 'counter':
+        messages['HEARTBEAT']['status']['time']['counter'] = 1
+    elif change == 'boot':
+        messages['ATTITUDE']['message']['time_boot_ms'] = 100
+    elif change == 'kind':
+        messages['HEARTBEAT']['message']['mavtype'] = {'type': 'MAV_TYPE_FIXED_WING'}
+    elif change == 'invalid':
+        messages.pop('AUTOPILOT_VERSION')
+    else:
+        messages['HEARTBEAT']['status']['time']['counter'] = 11
+    identity.observe(payload, now=13.01)
+    for now in (13.01, 13.5, 14.):
+        assert not identity.snapshot(connected=True, now=now)['fresh']
+    if change == 'frozen':
+        identity.observe(payload, now=14.)
+        assert not identity.snapshot(connected=True, now=14.)['fresh']
 
 
 def test_identity_replacement_reconnect_and_counter_reset_invalidate_generation():
@@ -311,12 +386,31 @@ async def test_observation_is_serialized_and_cancellation_does_not_leave_an_owne
     controller.px4_interface.observe_aircraft_identity.assert_awaited_once()
 
 
+async def test_observational_discovery_requests_independent_telemetry_metadata_off_loop():
+    import threading
+    controller = AppController.__new__(AppController)
+    controller._flight_event_loop = asyncio.get_running_loop()
+    controller._follower_state_lock = asyncio.Lock()
+    controller.shutdown_flag = False
+    controller.following_active = False
+    controller.px4_interface = SimpleNamespace(connect=AsyncMock(), observe_aircraft_identity=AsyncMock())
+    worker_threads = []
+    controller.mavlink_data_manager = SimpleNamespace(
+        request_aircraft_identity=Mock(side_effect=lambda: worker_threads.append(threading.get_ident())))
+    await controller.observe_native_connection()
+    controller.px4_interface.connect.assert_awaited_once()
+    controller.px4_interface.observe_aircraft_identity.assert_awaited_once()
+    assert len(worker_threads) == 1 and worker_threads[0] != threading.get_ident()
+    assert not controller.following_active and not controller._follower_state_lock.locked()
+
+
 async def test_native_viewer_does_not_reconfigure_live_follow_telemetry():
     controller = AppController.__new__(AppController)
     controller._flight_event_loop = asyncio.get_running_loop()
     controller._follower_state_lock = asyncio.Lock()
     controller.shutdown_flag = False
     controller.following_active = True
+    controller.mavlink_data_manager = SimpleNamespace(request_aircraft_identity=Mock())
     controller.px4_interface = SimpleNamespace(
         connect=AsyncMock(), observe_aircraft_identity=AsyncMock(),
         get_connection_status=lambda: {"connected": True},
@@ -324,6 +418,7 @@ async def test_native_viewer_does_not_reconfigure_live_follow_telemetry():
     await controller.observe_native_connection()
     controller.px4_interface.connect.assert_not_called()
     controller.px4_interface.observe_aircraft_identity.assert_awaited_once()
+    controller.mavlink_data_manager.request_aircraft_identity.assert_not_called()
     controller.px4_interface.get_connection_status = lambda: {"connected": False}
     with pytest.raises(RuntimeError, match="Following owns"):
         await controller.observe_native_connection()

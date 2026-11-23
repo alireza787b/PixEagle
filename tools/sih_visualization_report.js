@@ -17,7 +17,7 @@ const px4Gazebo=PAYLOAD.summary.evidence_kind==='px4_gazebo';
 const alignedPoseCount=Number(PAYLOAD.summary.pose_observed_samples||0),rawPoseCount=PAYLOAD.summary.evidence_counts?.pose;
 const hasRawPoseCount=!synthetic&&Number.isInteger(rawPoseCount)&&rawPoseCount>=0;
 const poseCount=hasRawPoseCount?rawPoseCount:alignedPoseCount;
-evidenceKind.textContent=synthetic?'Synthetic moving-target fixture':px4Sih?'PX4-observed SIH · component':px4Gazebo?'PX4-observed Gazebo':'Imported trace · read-only';
+evidenceKind.textContent=synthetic?'Synthetic moving-target fixture':px4Sih?`PX4-observed SIH · ${PAYLOAD.summary.qualification_scope === 'stock_application_lifecycle' ? 'application lifecycle' : 'component'}`:px4Gazebo?'PX4-observed Gazebo':'Imported trace · read-only';
 coverage.textContent=synthetic?`Synthetic pose: ${poseCount} samples`:hasRawPoseCount?`${px4Sih||px4Gazebo?'PX4 pose':'Pose'}: ${poseCount} records`:`Aligned pose samples: ${poseCount}`;
 if(!poseCount||synthetic)coverage.classList.add('warning');
 document.getElementById('scrub').max=Math.max(0,samples.length-1);
@@ -87,7 +87,8 @@ function drawCommand(drone, sample) {
 }
 const horizontalSpeed = ned => ned ? Math.hypot(ned[0], ned[1]) : null;
 const series = [
-    ['requested speed (m/s)', s => s.requested_speed, '#ffbd69'],
+    ['acknowledged speed request (m/s)', s => s.requested_speed, '#ffbd69'],
+    ['PX4 3D velocity magnitude (m/s)', s => s.measured_translation_speed_m_s, '#6ee7a1'],
     ['forward (m/s)', s => s.command.vel_body_fwd, '#68b5ff'],
     ['right (m/s)', s => s.command.vel_body_right, '#ffbd69'],
     ['command down (m/s)', s => s.command.vel_body_down, '#6ee7a1'],
@@ -152,6 +153,7 @@ function update() {
         ...(s.speed_source ? {'speed source': s.speed_source} : {'speed policy': PAYLOAD.scenario.speed_source_policy || '—'}),
         'measurement age': s.measurement_age_s == null ? '—' : `${s.measurement_age_s.toFixed(3)} s`,
         [requestBasis(s.command_contract)]: s.requested_speed == null ? '—' : `${s.requested_speed.toFixed(2)} m/s`,
+        ...(s.measured_translation_speed_m_s == null ? {} : {'PX4 3D velocity': `${s.measured_translation_speed_m_s.toFixed(2)} m/s`}),
         ...commandRows(s),
         ...(s.px4_velocity_setpoint_ned ? {'PX4 horizontal setpoint': `${horizontalSpeed(s.px4_velocity_setpoint_ned).toFixed(2)} m/s`,
                                           'PX4 down setpoint': `${s.px4_velocity_setpoint_ned[2].toFixed(2)} m/s`} : {}),

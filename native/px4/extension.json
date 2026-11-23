@@ -10,29 +10,33 @@
     "patches/0006-front-transition-native-heading.patch": "daa8cfc37f75a1980c6d32201ddf7a9aaae9626bb578e365f57f75f17283e8ac",
     "patches/0007-fw-mode-transition-heading-functional-tests.patch": "21982a7ee5e6772d720539638d737e27d4b430f253a8c2c52b4efc304082cab3",
     "patches/0008-control-allocation-active-axis-normalization.patch": "becc4c2f301f61f9aabcca331bc1f052c7d93809afedb257543f4df0e161b454",
-    "patches/0009-control-allocation-sparse-axes-functional-tests.patch": "5bd68d30100e0c7df12280854caaa3061ebf3c1c6b83b2a167874a55052b49a8"
+    "patches/0009-control-allocation-sparse-axes-functional-tests.patch": "5bd68d30100e0c7df12280854caaa3061ebf3c1c6b83b2a167874a55052b49a8",
+    "patches/0010-native-phase-history-source.patch": "f87479928498b4ee5712c8840d49103c26747e82c51ec5aaa4c98c740a76fae9",
+    "patches/0011-original-phase-context-acquisition-fence.patch": "317e4c491d0c54fb1f8a18271f22b56fdb3e51c087ece79ae707a7d9f5f029a2",
+    "patches/0012-owned-mode-start-context-functional-tests.patch": "9db00db10268abef35aa0a6bca08519cf73599fa225a5c666bea0102360ee1f2",
+    "patches/0013-raw-physical-attitude-source-pair.patch": "da66125efbe76c3c8abb5644c8380e3327aae6f66076b1155fa02cbff677ed8e"
   },
   "files": {
     "msg/CMakeLists.txt": "8a3d4f411de620f30c5bd09f18de58b508977e9299e9972aa050dd58753b5c8e",
-    "msg/versioned/FixedWingGuidanceStatus.msg": "9953eea47787fa738264a2e125e6a2854bbfc040aaf3531f2c2d24f3e81654d7",
-    "src/modules/commander/CMakeLists.txt": "a8905b691f204cef6ec5105171bfa528dc4295176fe292fc18931d35e5c390ab",
-    "src/modules/commander/Commander.cpp": "68ee0039df1e956a5a7d99980c2d3eb80b53d3912d9cc78b4c4262472295266a",
+    "msg/versioned/FixedWingGuidanceStatus.msg": "84e87aaf3b1c27e8cfe99f28a0389d670169bee5707a214d560297f7ccfc0e85",
+    "src/modules/commander/CMakeLists.txt": "05366820a79c31f47e38d30fd5b33b302f635c1764bfc0927ae32f602083c2bf",
+    "src/modules/commander/Commander.cpp": "8e866f6474c31177e2de0a711900e1694d027c44c874a639b58e8d6285e532d5",
     "src/modules/fw_lateral_longitudinal_control/CMakeLists.txt": "685f20bf66d5e25584f5026c49538c6543a55deb1ec2259990b85609672ad73a",
-    "src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.cpp": "24f38be3860e2821af5241b98cf72d79d16b19e11f804dc0c4102705928aa722",
-    "src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.hpp": "f6ce6ed866ad570077fa724971e89b01df722545ce185dcb9e3782c3e58de7fe",
-    "src/modules/uxrce_dds_client/dds_topics.yaml": "e9c74091157fe2f62de08b862626191861574f3ee655bb99c8e241fdde0063e2",
-    "msg/versioned/OwnedModeRequest.msg": "775b0821b817562af1bab888bda07611c1dcda0521f651834e29593a7876370f",
-    "msg/versioned/OwnedModeStatus.msg": "8d8bbb11e0ae6faa15e8668874ae972399b41ad29239c8d4902a2d6ff630393d",
+    "src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.cpp": "14e72d46c143e6a53ef5a6665b09ce06bb31bcb2340ade8e48c7e9d4365f62bb",
+    "src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.hpp": "dacff6ff5856946dbe6b098985ecc49337dc5484f27f13edc78cbbce8d392bc2",
+    "src/modules/uxrce_dds_client/dds_topics.yaml": "2884fae7f1ef1418a1f8fa4baa9f673f1296790ba74ba1bd47f97b1c504f19c7",
+    "msg/versioned/OwnedModeRequest.msg": "473a5a541decfccca654ee771fff5ae5fe62400ab1314d9aec193a6150509cf9",
+    "msg/versioned/OwnedModeStatus.msg": "02162b66b65ab639072668532079a0ce16f048726c90d9666c23a325fa0a7aa2",
     "platforms/posix/src/px4/common/CMakeLists.txt": "03d04d4eaf4b35b11e3c028028423b11582dfa057cfe77423f91e96e8e9cc572",
     "platforms/posix/src/px4/common/posix_random.c": "42068e5c1edc5957aa19928256a3259ed84212677d8c21267f76d9475c67fde1",
     "src/modules/commander/Commander.hpp": "261654089241d01771a83a900b10ec4e269050fedd78d02b21d0b90983292167",
     "src/modules/commander/ModeManagement.cpp": "7e0ea90ef54d9980e090c2aed0c2f757254fb1ac81f5b78488b6ce24626ea68a",
     "src/modules/commander/ModeManagement.hpp": "c55ff6c87fadf55f0b8cfd334cfd39afc13e6a95f59e94f23244cd248fd2e422",
-    "src/modules/commander/OwnedModeGuard.hpp": "7b0a09144b711f82038775ce44cea0749e351af8de714bc18f3f9867fa801a1e",
-    "src/modules/commander/OwnedModeGuardTest.cpp": "d71fbd69d652cf98fc13c3a7acfa70ad90ad55904b4dc0bfb2df66ef30af4a4e",
+    "src/modules/commander/OwnedModeGuard.hpp": "14fcd8f11a282c4e55e05d8223b59383e436839b285c245e21fab162c4a823ca",
+    "src/modules/commander/OwnedModeGuardTest.cpp": "940b4eb43a484c6627613e8a678220aede5cad4abc25d12526c7592fc5c40328",
     "src/modules/commander/UserModeIntention.cpp": "e34c018c8d1ff1014cc3c662729bb823cfa0aed34ea6fb7c9050f9b39948dfa6",
     "src/modules/commander/UserModeIntention.hpp": "0252c72e59566e48cd1d8adcb91fa10d107945a771be2d21a36560a54de93887",
-    "src/modules/commander/UserModeIntentionOwnedTest.cpp": "39b7c9c8f59f96db8e353239f175f5f277361e1ac27bd99d1e4e429a7a1b06f5",
+    "src/modules/commander/UserModeIntentionOwnedTest.cpp": "054e13f04c7f2050501883c166686b924cb9af9886195b9fefe22b52e0d28839",
     "src/modules/flight_mode_manager/tasks/Transition/FlightTaskTransition.cpp": "ae86cd959dc53eb8356479a69d1e64a99dcc27a82211b93edc051f1c29f6e802",
     "src/modules/flight_mode_manager/tasks/Transition/CMakeLists.txt": "2ed76a32d6dcf75a64dfc375ef6247c734f6fee040ada412e72177d47d9898d8",
     "src/modules/flight_mode_manager/tasks/Transition/FlightTaskTransitionTest.cpp": "dd270d74f747dedbdc5a04502e38b7bbbad2b6840b5cc20d1b78f63abbcba0c9",
@@ -45,7 +49,12 @@
     "src/modules/fw_mode_manager/FixedWingModeManager.hpp": "823cb9036b8ab6b0cbca991f2177f60edd03a24e28130c4d48a4d85fde38d6f2",
     "src/lib/control_allocation/control_allocation/ControlAllocationPseudoInverse.cpp": "87f9b85ba895a154ed09a7277b65f9beef584d0c742f496b0059dfdbc84dda61",
     "src/lib/control_allocation/control_allocation/CMakeLists.txt": "62d029facdb46f8ccefc58b0737d7468f5bd2ac1a8cea8f232d550654235bc7b",
-    "src/lib/control_allocation/control_allocation/ControlAllocationSparseAxesTest.cpp": "5c03b0142412697264faf55c888318bc5942291b4d5d6fd772adbb8dfc9079eb"
+    "src/lib/control_allocation/control_allocation/ControlAllocationSparseAxesTest.cpp": "5c03b0142412697264faf55c888318bc5942291b4d5d6fd772adbb8dfc9079eb",
+    "msg/versioned/VtolVehicleStatus.msg": "22b8825377beaf7de217b0b5229c0890f74f544bddcf5fa30c73174b3eb2f8c3",
+    "src/modules/vtol_att_control/vtol_att_control_main.cpp": "1a5ba1e193bef35b4eaff321592668fdd90a293868eb59ca49252dbc7f63ad51",
+    "src/modules/vtol_att_control/vtol_att_control_main.h": "4ce75029eb41db6e5edc8209884b0d543fb8cb44a7fc2d650e91e247db35bc5d",
+    "src/modules/vtol_att_control/NativePhaseHistory.hpp": "0477a926c81cda9e734a4f800225c25aa0e8c8f80f571bdb41b2233578a9c107",
+    "src/modules/commander/OwnedModeStartContextTest.cpp": "a1640c18a128048a0a2bf9b21fcf827091418eeff24c4d10054b29b6712983b3"
   },
   "deleted_files": [
     "src/modules/commander/ExpectedModeGuard.hpp",
@@ -60,6 +69,7 @@
     "src/modules/fw_mode_manager/FixedWingModeManager.cpp": "e614b56f9dddbec221dab486867e03f659cd3babc7e0a22e5e0ddf65e5378c8b",
     "src/modules/fw_mode_manager/FixedWingModeManager.hpp": "a05a36b10e504e2669837024350a16f8fb9eb1902504e1d5f2e834593832fdd4",
     "src/lib/control_allocation/control_allocation/ControlAllocationPseudoInverse.cpp": "646b13263af5f445a24baf2b023c930764b8b2627ccaac3f5413e95b1fbb5e4e",
-    "src/lib/control_allocation/control_allocation/CMakeLists.txt": "13ccbcadde873975b50d39bfa5d88d9954da0744301e5f56c0ba5bf5bb063e36"
+    "src/lib/control_allocation/control_allocation/CMakeLists.txt": "13ccbcadde873975b50d39bfa5d88d9954da0744301e5f56c0ba5bf5bb063e36",
+    "src/modules/commander/OwnedModeGuard.hpp": "877c0e52569ab72e434b8be7cf3f70414ab153625204060ed18fdf01a2353e9c"
   }
 }

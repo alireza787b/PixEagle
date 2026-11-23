@@ -116,10 +116,14 @@ def main() -> None:
                         help="Canonical patched pinned PX4 checkout; required for simulator and PX4 functional targets")
     parser.add_argument("--image", default="pixeagle-native-contracts:development", help="Contract-test image tag")
     parser.add_argument("--target", choices=("contracts", "sih", "gazebo", "px4-functional"), default="contracts")
+    parser.add_argument("--firmware-policy", choices=("experimental", "stock"), default="experimental",
+                        help="Stock SIH/Gazebo compiles the unmodified upstream pin without the experimental extension")
     parser.add_argument("--regression", help="Locked PX4 functional regression; defaults to the lock's selected regression")
     parser.add_argument("--gazebo-resource-variant", choices=GAZEBO_RESOURCE_VARIANTS,
                         default="stock", help="Reviewed packaged Gazebo sensor variant; stock is unchanged")
     args = parser.parse_args()
+    if args.firmware_policy == "stock" and args.target not in {"sih", "gazebo"}:
+        parser.error("--firmware-policy stock requires --target sih or gazebo")
     if args.regression is not None and args.target != "px4-functional":
         parser.error("--regression requires --target px4-functional")
     if args.gazebo_resource_variant != "stock" and args.target != "gazebo":
@@ -134,13 +138,15 @@ def main() -> None:
         return
     if args.target in ("sih", "gazebo"):
         if args.px4_source is None:
-            parser.error(f"--target {args.target} requires --px4-source with the reviewed extension applied")
+            parser.error(f"--target {args.target} requires --px4-source matching the selected firmware policy")
         from tools.sih_baseline import build_sih, build_simulator
 
         build = build_sih if args.target == "sih" else build_simulator
         selection = {} if args.target == "sih" else {"simulator": "gazebo"}
         if args.gazebo_resource_variant != "stock":
             selection["resource_variant"] = args.gazebo_resource_variant
+        if args.firmware_policy != "experimental":
+            selection["firmware_policy"] = args.firmware_policy
         build(args.px4_source, args.output_dir, prepare_only=args.prepare_only,
               verify_extension=verify_extension, cache=args.cache_dir.expanduser(), **selection)
         return

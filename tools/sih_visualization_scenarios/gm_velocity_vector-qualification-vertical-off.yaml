@@ -7,7 +7,7 @@ airframe: multicopter
 evidence_provenance: synthetic_fixture
 stable_flight: {required: true, settle_samples: 7}
 initial_conditions:
-  vehicle_ned: [0.0, 0.0, -20.0]
+  vehicle_ned: [0.0, 0.0, -40.0]
 follower:
   profile: gm_velocity_vector
   purpose: Simulated boresight pursuit of independent world target
@@ -20,15 +20,15 @@ follower:
 constraints:
   velocity: {forward: 0.5, right: 0.5, down: 0.0}
   rate: {yaw: 45.0}
-  altitude: {min: 3.0, max: 120.0}
+  altitude: {min: 30.0, max: 120.0}
 continuity_policy: {mode: immediate_handoff}
 target:
   waypoints:
-    - {time_s: 0.0, position_ned: [18.0, 0.0, -20.0]}
-    - {time_s: 4.0, position_ned: [18.8, 0.0, -20.0]}
-    - {time_s: 8.0, position_ned: [19.6, 4.0, -20.0]}
-    - {time_s: 16.0, position_ned: [21.2, -4.0, -20.0]}
-    - {time_s: 24.0, position_ned: [22.8, -4.0, -20.0]}
+    - {time_s: 0.0, position_ned: [18.0, 0.0, -40.0]}
+    - {time_s: 4.0, position_ned: [18.8, 0.0, -40.0]}
+    - {time_s: 8.0, position_ned: [19.6, 4.0, -40.0]}
+    - {time_s: 16.0, position_ned: [21.2, -4.0, -40.0]}
+    - {time_s: 24.0, position_ned: [22.8, -4.0, -40.0]}
 faults: []
 qualification:
   expected_handoff: false

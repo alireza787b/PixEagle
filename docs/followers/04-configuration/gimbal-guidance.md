@@ -69,8 +69,9 @@ use `coordinated_turn` when yaw-first behavior is required.
 These settings are not a target-loss supervisor. Stale tracker evidence,
 Stop, circuit breaker, pilot takeover, invalid telemetry, and Offboard authority
 remain governed by the existing continuity and safety owners. Ordinary 2D
-camera followers do not expose session speed or this policy until their own
-direction and capability contracts are qualified.
+camera followers do not use this gimbal geometry policy. MC Chase and FW
+Navigation Chase advertise their own qualified speed controls through the same
+capability/action contract; clients must not infer support from profile names.
 
 Existing configurations keep their explicit values. A deployment that has no
 `GimbalTracker.GUIDANCE` group receives the documented defaults through config

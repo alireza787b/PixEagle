@@ -2,6 +2,23 @@
 
 Status values: `open`, `in_progress`, `blocked`, `done`, `deferred`.
 
+2026-11-16 stock-firmware direction (PXE-0181): hardware work is paused. The
+unmodified SIH build, production MC Position/vertical Vector components and the
+new stock-MAVLink FW moving-target component pass their scoped checks. The FW
+component accepts above-maximum speed and steep pitch requests without DDS;
+application ownership, continuity, VTOL and client integration remain open. The
+earlier direct-probe post-Stop speed undershoot is retained as a separate finding.
+See the [stock-MAVLink checkpoint](checkpoints/2026-11-16-stock-mavlink-vector.md).
+
+2026-11-14 tailsitter Stop: pursuit was operator-accepted, but native release
+remained unconfirmed. The shared frozen-request retransmission repair and
+separate fixed-camera/gimbal staging are tracked in the
+[Stop checkpoint](checkpoints/2026-11-14-tailsitter-stop-and-gimbal-staging.md).
+Do not mark the whole tailsitter case accepted from pursuit or component Hold
+alone; retain the independent FW altitude-response finding and pending GUI test.
+
+2026-11-14 native Start repair: passive sampling, typed refusal display and target-readiness notification are covered by the [offline repair checkpoint](checkpoints/2026-11-14-follow-start-readiness.md). Fresh operator acceptance and declarative VTOL recipe composition remain open under PXE-0181.
+
 PXE-0171 update (2026-09-19): automatic BGR/NV12 selection is implemented;
 explicit templates remain authoritative. See the
 [implementation and validation checkpoint](checkpoints/2026-09-19-csi-auto-capture.md).
@@ -458,3 +475,63 @@ remain open. Integration work is unpublished.
   choice without replay. Matching backend configuration acknowledges it.
   All 550 Dashboard tests, build/lint and 74 API checks pass. VTOL admission,
   actual deployment and remaining client work are unchanged.
+
+- **2026-11-15 — Reusable operator launcher and native FW ground setup:**
+  beginner menu exposes MC, conventional FW and standard quadplane; advanced
+  tailsitter profiles remain explicit. Stock Cessna resource admission, native
+  adapter startup, camera provenance and independent identity pass ground checks.
+  Standalone FW airborne operator acceptance remains pending. Shared dependency
+  recipes no longer opt pure MC into native FW/VTOL ownership. See the
+  [workflow recap](checkpoints/2026-11-15-training-workflow-recap.md) for evidence,
+  exact scope, visual-fidelity limits and remaining release gates.
+
+- **2026-11-15 — Native FW startup and speed editor:** corrected phase-status
+  cadence accounting and stale passive rediscovery churn; high-rate ownership
+  and command expiry stay unchanged. QGC/Dashboard editors round presentation
+  and keep detailed explanations collapsed. The renewed application has no
+  native refusals in 13,297 sampled observations and confirms operator Stop.
+  [Evidence, validation and real-link boundaries](checkpoints/2026-11-15-native-fw-startup-recovery.md).
+
+- **2026-11-16 — Stock MAVLink ownership component:** production source clocks,
+  shared phase/speed controls, Restore and one-shot command ownership pass stock
+  airplane SIH through the existing commander (396 submissions, zero failures,
+  Hold confirmed). Publication loss triggers PX4 Return while SDK autoresend stays
+  inactive. The stock binding reuses FW continuity without a second loss timer.
+  Received boresight timing remains explicitly unqualified, not relabeled as
+  exposure synchronization. Full regression gives 7,722 unit passes; API and
+  integration give 357. Application admission, telemetry cadence, public override
+  permission, VTOL/fault scenarios and hardware remain open. Latest requested
+  public/private values are recorded for the final adoption review in the
+  [ownership checkpoint](checkpoints/2026-11-16-stock-mavlink-session-ownership.md).
+
+- **2026-11-17 — Stock application integration:** stock airplane and tailsitter
+  MC/FW application runs pass Start, speed adjustment, brief-loss recovery and
+  observed Hold. A reproduced readiness/command-snapshot race is fixed without
+  weakening freshness checks. Pilot Return and transition end following without
+  cleanup mode replay; native PX4 Offboard-loss Return remains authoritative.
+  Both clients label ground-speed proxy feedback explicitly. See the
+  [application checkpoint](checkpoints/2026-11-17-stock-mavlink-application.md).
+
+- **2026-11-17 — Factory/expert authority and rc.4 candidate:** one explicit
+  permission bounds public session speed controls without duplicating the limit
+  resolver. Legacy absence remains visible in Config Sync. Factory altitude is
+  5–100 m with target guidance off; private profiles remain outside Git. Latest
+  unmodified PX4 tailsitter MC/FW application checks and renewed backend/client
+  gates pass. Hardware and exact-head cloud/package acceptance remain separate;
+  see the [candidate checkpoint](checkpoints/2026-11-17-stock-factory-release-candidate.md).
+
+- **2026-11-17 — Expectation audit follow-up:** stock Gazebo training no longer
+  requires the experimental native bundle. Template binding keeps verified
+  resources, historical descriptors and original provenance separate. Full-stack
+  startup reproduced an independent telemetry UID discovery gap; bounded metadata
+  requests repair it without granting authority or reconfiguring active following.
+  Disarmed video/association checks pass; operator flight and hardware remain pending.
+
+- **2026-11-17 — Follow Start identity/freshness repair:** a public operator run
+  refused Start after `telemetry_generation` changed. Recorded-packet replay
+  reproduces false identity replacement from late heartbeat polls. The shared
+  owner now separates freshness from identity; stale data still blocks Start,
+  while actual disconnect/reboot/identity changes retire queued bindings. All
+  520 selected identity/lifecycle checks and 163 API/configuration gates pass.
+  Fresh operator acceptance remains pending; see the
+  [candidate journal](journal/2026-11-17-stock-factory-release-candidate.md).

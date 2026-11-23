@@ -362,7 +362,7 @@ def test_old_offboard_exit_is_not_reused_against_an_explicit_new_start_or_native
     ctrl.mavlink_data_manager = SimpleNamespace(get_flight_state=lambda: {
         'fresh': True, 'autopilot_uid': 'actual-aircraft', 'offboard_exit_observed_at_monotonic_s': 99.})
     ctrl._command_dispatch_guard()()
-    ctrl._native_follow_binding = SimpleNamespace()
+    ctrl._airframe_follow_binding = SimpleNamespace()
     ctrl.mavlink_data_manager.get_flight_state = lambda: {
         'fresh': True, 'autopilot_uid': 'actual-aircraft', 'offboard_exit_observed_at_monotonic_s': 101.}
     ctrl._command_dispatch_guard()()

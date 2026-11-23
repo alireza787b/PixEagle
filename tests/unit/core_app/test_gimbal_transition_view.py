@@ -101,6 +101,7 @@ def test_only_stock_tailsitter_packets_drive_camera_observer(monkeypatch):
     observed = record.call_args.args[0]
     assert observed.phase is MC and observed.eligible and observed.aircraft[0] == "101"
     messages["HEARTBEAT"]["message"]["system_status"] = {"type": "MAV_STATE_CRITICAL"}
+    messages["HEARTBEAT"]["status"]["time"]["counter"] += 1
     manager._fetch_and_parse_all_data()
     assert not record.call_args.args[0].eligible
     messages["HEARTBEAT"]["message"]["mavtype"] = "MAV_TYPE_VTOL_TILTROTOR"

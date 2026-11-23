@@ -12,7 +12,7 @@ initial_conditions:
   vehicle_ned:
   - 0.0
   - 0.0
-  - -20.0
+  - -40.0
 follower:
   profile: mc_velocity_ground
   purpose: Independent ground target with observed floor-limited descent
@@ -48,7 +48,7 @@ constraints:
   rate:
     yaw: 45.0
   altitude:
-    min: 3.0
+    min: 30.0
     max: 120.0
 continuity_policy:
   mode: immediate_handoff

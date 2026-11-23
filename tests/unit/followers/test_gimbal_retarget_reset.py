@@ -27,6 +27,7 @@ from tests.unit.drone_interface.test_aircraft_state import aircraft_state
 def environment(monkeypatch):
     previous = Parameters.get_runtime_config_snapshot()
     defaults = yaml.safe_load((Path(__file__).resolve().parents[3] / 'configs/config_default.yaml').read_text())
+    defaults['Safety']['ALLOW_SESSION_VELOCITY_OVERRIDE'] = True
     now = [100.]
     monkeypatch.setattr('classes.followers.base_follower.time.monotonic', lambda: now[0])
     followers = []
@@ -137,7 +138,8 @@ def bind_native(follower, now, phase=AirframePhase.FIXED_WING):
     pair = [None]
     if phase is AirframePhase.FIXED_WING:
         follower.bind_guidance_input_resolver(lambda *_: pair[0])
-    session = follower.create_airframe_session(identity, NativeCapabilities('native', 'fixture', 2, True, True, False),
+    session = follower.create_airframe_session(identity, NativeCapabilities('native', 'fixture', 2, True, True, False,
+        multicopter_altitude_hold_supported=True),
         confirmation_s=0., observation_timeout_s=.75, clock=lambda: now[0])
     assert session.observe(state, owner_confirmed=True, target_confirmed=True).pursuit_allowed
     follower.bind_airframe_session(session)

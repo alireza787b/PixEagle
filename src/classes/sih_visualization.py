@@ -155,8 +155,8 @@ class VisualizationScenario:
         speed_source_policy = str(follower.get("speed_source_policy", "none"))
         if speed_source_policy not in {"none", "auto", "airspeed_only", "ground_speed_only", "native_auto"}:
             raise VisualizationValidationError("follower.speed_source_policy is invalid")
-        if native_contract and speed_source_policy != "native_auto":
-            raise VisualizationValidationError("Native FW/VTOL scenarios require automatic native speed-source semantics")
+        if native_contract and speed_source_policy not in {"auto", "native_auto"}:
+            raise VisualizationValidationError("FW/VTOL phase scenarios require automatic speed-source semantics")
         evidence_provenance = str(raw.get("evidence_provenance", "synthetic_fixture"))
         if evidence_provenance not in {"synthetic_fixture", "px4_sih", "px4_gazebo", "camera_field"}:
             raise VisualizationValidationError("evidence_provenance is invalid")
@@ -259,6 +259,7 @@ class VisualizationSample:
     limiting_reason: Optional[str] = None
     requested_speed: Optional[float] = None
     effective_speed: Optional[float] = None
+    measured_translation_speed_m_s: Optional[float] = None
     speed_source: Optional[str] = None
     measurement_age_s: Optional[float] = None
     stale: bool = False
@@ -289,6 +290,7 @@ class VisualizationSample:
             "limiting_reason": self.limiting_reason,
             "requested_speed": self.requested_speed,
             "effective_speed": self.effective_speed,
+            "measured_translation_speed_m_s": self.measured_translation_speed_m_s,
             "speed_source": self.speed_source,
             "measurement_age_s": self.measurement_age_s,
             "stale": self.stale,
@@ -586,6 +588,8 @@ def build_timeline(
         course_direction = None if course is None else (math.cos(course), math.sin(course), 0.)
         speed = _command_speed(command)
         requested_raw = tracker_record.get("requested_speed") if tracker_record else None
+        if requested_raw is None:
+            requested_raw = (state_record or {}).get("requested_speed")
         try:
             requested_speed = None if requested_raw is None else float(requested_raw)
         except (TypeError, ValueError, OverflowError):
@@ -634,6 +638,7 @@ def build_timeline(
             limiting_reason=(state_record or {}).get("limiting_reason") or metadata.get("limiting_reason"),
             requested_speed=requested_speed,
             effective_speed=speed,
+            measured_translation_speed_m_s=_optional_measurement((state_record or {}).get("measured_translation_speed_m_s")),
             speed_source=speed_source,
             measurement_age_s=measurement_age,
             stale=vehicle is None or (not released and tracker_record is None and publish_record is None),
@@ -866,7 +871,7 @@ def write_csv(path: Path, samples: Iterable[VisualizationSample]) -> None:
         "command_contract", "aircraft_phase", "observed_eas_m_s", "native_effective_eas_m_s",
         "vel_body_fwd", "vel_body_right", "vel_body_down", "rollspeed_deg_s", "pitchspeed_deg_s",
         "yawspeed_deg_s", "thrust", "published", "command_expected", "tracker_state", "continuity_state",
-        "limiting_reason", "requested_speed", "effective_speed", "speed_source",
+        "limiting_reason", "requested_speed", "effective_speed", "measured_translation_speed_m_s", "speed_source",
         "measurement_age_s", "stale", "events",
     ]
     with path.open("w", newline="", encoding="utf-8") as stream:
@@ -902,6 +907,7 @@ def write_csv(path: Path, samples: Iterable[VisualizationSample]) -> None:
                 "limiting_reason": sample.limiting_reason or "",
                 "requested_speed": sample.requested_speed if sample.requested_speed is not None else "",
                 "effective_speed": sample.effective_speed if sample.effective_speed is not None else "",
+                "measured_translation_speed_m_s": sample.measured_translation_speed_m_s if sample.measured_translation_speed_m_s is not None else "",
                 "speed_source": sample.speed_source or "",
                 "measurement_age_s": sample.measurement_age_s if sample.measurement_age_s is not None else "",
                 "stale": sample.stale,

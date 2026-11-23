@@ -1,6 +1,9 @@
 # Follower qualification inventory
 
-Reviewed 2026-11-12. The [raw-backed evidence selector](../02-reference/follower-visual-guide.md)
+Reviewed 2026-11-15. Rendered application/operator scope is summarized in the
+[training workflow matrix](ubuntu-training-platform.md#what-is-actually-qualified);
+it does not promote the component cases below to full hardware qualification.
+ The [raw-backed evidence selector](../02-reference/follower-visual-guide.md)
 retains the MC image cases; the [consolidation checkpoint](../../reporting/agent-ops/codex-modernization/checkpoints/2026-11-09-follower-consolidation.md)
 records renewed S5/S6 image/gimbal/native-FW evidence pending S10's unified selector.
 This page records behavior and broader gates.
@@ -17,9 +20,9 @@ The [consolidation plan](follower-consolidation-plan.md) defines the next gates.
 | `mc_velocity_distance` | Image position; visual centering with zero forward command | Observed MC component cases in the selector; no measured distance keeping |
 | `mc_attitude_rate` | Image position and aircraft state; rates/thrust | Observed advanced rate/height-hold component cases; live retarget requires Stop; no target-vertical qualification |
 | `fw_attitude_rate` | Image position and aircraft state; L1/TECS-inspired rates/thrust | Synthetic replay; live gate remains; native Vector evidence does not qualify this implementation |
-| `fw_navigation_chase` | Calibrated image bearing; native course/EAS/altitude guidance | Renewed S5 airplane component cases; physical calibration/timing and live admission remain gated |
+| `fw_navigation_chase` | Calibrated image bearing; native course/EAS/altitude guidance | Renewed S5 airplane components and bounded rendered-camera standard-VTOL application; physical calibration/timing remain gated |
 | `gm_velocity_chase` | Camera-provider angles and canonical installation geometry; MC PID pursuit | Renewed S6 nominal/fault MC cases, both mounts; simulated boresight, no physical acquisition qualification |
-| `gm_velocity_vector` | Provider angles to physical ray; MC velocity or native FW navigation | Renewed S6 nominal/fault MC and native-FW cases, both mounts; new VTOL and native ownership release remain S7 gates |
+| `gm_velocity_vector` | Provider angles to physical ray; MC velocity or native FW navigation | Renewed S6 nominal/fault MC and native-FW cases, both mounts; bounded native VTOL release evidence exists; remaining source/application/fault cases stay gated |
 
 Public defaults select Position, circuit breaker on and shared target-altitude
 guidance off. That shared flag is not a universal altitude-hold contract:
@@ -57,6 +60,12 @@ The two distinct revised loss fixtures start the target 3 m above the aircraft;
 both pass that same gate without changing gains, limits or loss timing. This
 does not establish repeatability of the original weak-excitation fixture.
 
+The [standard VTOL application checkpoint](../../reporting/agent-ops/codex-modernization/checkpoints/2026-11-13-vtol-training-app.md) records actual MC/FW
+Start, speed and confirmed Stop with the normal rendered camera. The
+[readiness repair](../../reporting/agent-ops/codex-modernization/checkpoints/2026-11-14-follow-start-readiness.md)
+retains the later operator failure evidence and offline fixes; it is not renewed
+flight-response acceptance.
+
 ## Qualification rules
 
 - Distinguish contract tests, synthetic replay, actual PX4 SIH, physical camera,
@@ -65,9 +74,11 @@ does not establish repeatability of the original weak-excitation fixture.
   target truth, actual pose/attitude and actual publications in the same run.
 - Position and centering profiles are not required to intercept targets; pursuit
   needs independently measured closure/path response appropriate to its purpose.
-- New transition behavior is **end following and require a new Start**. Today's
-  adapter Stop-to-Hold does not prove transition-preserving release. This remains
-  an S7 gate; historical automatic-resume passes cannot satisfy it.
+- New transition behavior is **end following and require a new Start**. The
+  [standard VTOL application checkpoint](../../reporting/agent-ops/codex-modernization/checkpoints/2026-11-13-vtol-training-app.md) records this behavior for its
+  exact standard-VTOL rendered-camera stack. Other sources/airframes and the
+  complete fault matrix remain gated; historical automatic-resume passes cannot
+  satisfy this contract.
 - Unrestricted FW firmware policy, native setup/ARM64 packaging, real image-to-FW
   geometry and remaining profile/application/fault runs remain open.
 - Rerun affected qualification after changes. Never integrate commands to invent

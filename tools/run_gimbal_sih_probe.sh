@@ -11,7 +11,7 @@ router=${PIXEAGLE_SIH_ROUTER:-"$cache/slice-4-2026-09-26/mavlink-router-src/buil
 backend_image=${PIXEAGLE_SIH_BACKEND_IMAGE:-sha256:ecfaf2358be090447ff9948397075ce76cefff3a152fbfab006a2d26495ea14b}
 px4_image=${PIXEAGLE_SIH_PX4_IMAGE:-px4io/px4-sitl@sha256:fd6d93dc2705482aeb64ea26fdf16185d8a511010fdc53e26305f10d91855865}
 host_python=${PIXEAGLE_SIH_HOST_PYTHON:-python3}
-entry=$repo/tools/sitl_gimbal_stack_entry.sh
+entry=$repo/tools/simulation_stack_entry.sh
 
 [[ $# == 2 && ( $1 == --check || $1 == --probe || $1 == --hold ) ]] || {
     echo "Usage: $0 --check|--probe|--hold PRIVATE_RUNTIME" >&2
@@ -29,7 +29,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, sys.argv[1])
-from tools.prepare_sitl_gimbal_profile import validate
+from tools.prepare_simulation_profile import validate
 
 manifest = validate(Path(sys.argv[2]))
 print(f"Validated command-blocked SIH profile: {manifest['instance_id']}")
@@ -169,9 +169,9 @@ docker run -d --rm --name "$px4_name" --label pixeagle.sih=gimbal-probe \
 docker run -d --rm --name "$stack_name" --label pixeagle.sih=gimbal-probe \
     --user "$(id -u):$(id -g)" --network "container:$px4_name" \
     -e LD_LIBRARY_PATH=/mnt/hostlibs \
-    -e PIXEAGLE_SIH_RUNTIME="$runtime" -e PIXEAGLE_SIH_PYTHON="$python" \
-    -e PIXEAGLE_SIH_BIN_DIR="$bin_dir" -e PIXEAGLE_SIH_ROUTER="$router" \
-    -e PIXEAGLE_SIH_QGC_HOST="$gateway" \
+    -e PIXEAGLE_SIM_RUNTIME="$runtime" -e PIXEAGLE_SIM_PYTHON="$python" \
+    -e PIXEAGLE_SIM_BIN_DIR="$bin_dir" -e PIXEAGLE_SIM_ROUTER="$router" \
+    -e PIXEAGLE_SIM_QGC_HOST="$gateway" \
     -v "$runtime:$runtime" -v "$python_root:$python_root:ro" \
     -v "$router:$router:ro" -v "$bin_dir:$bin_dir:ro" -v "$opencv_lib:$opencv_lib:ro" \
     -v /usr/lib/x86_64-linux-gnu:/mnt/hostlibs:ro \

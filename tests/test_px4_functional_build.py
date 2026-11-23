@@ -26,6 +26,29 @@ NAMES = {f"Case{number}" for number in range(10)}
 NEGATIVE = {f"Case{number}" for number in range(6)}
 
 
+def test_native_start_context_comparison_omits_only_the_gate_and_keeps_source_history_and_tests():
+    repository = Path(__file__).resolve().parents[1]
+    selector, record = tool.select_regression(repository, 'owned-mode-start-context')
+    assert selector == 'owned-mode-start-context'
+    assert record['target'] == 'functional-OwnedModeStartContext'
+    assert record['expected_tests'] == 14 and len(record['expected_negative_failures']) == 9
+    fixture = (repository / 'native/px4/patches/0012-owned-mode-start-context-functional-tests.patch').read_text()
+    names = set(re.findall(r'^\+TEST_F\(' + re.escape(record['test_suite']) + r', (\w+)\)', fixture, re.M))
+    assert len(names) == record['expected_tests']
+    assert set(record['expected_negative_failures']) < names
+    original = json.loads((repository / 'native/px4/extension.json').read_text())
+    with tool.source_authority(repository, 'baseline', record) as authority:
+        control = json.loads((authority / 'native/px4/extension.json').read_text())
+        assert set(original['patches']) - set(control['patches']) == {record['negative_patch']}
+        changed = {name for name in original['files'] if original['files'][name] != control['files'][name]}
+        assert changed == {'src/modules/commander/OwnedModeGuard.hpp'}
+        assert control['files'][record['test_source']] == original['files'][record['test_source']]
+        for name in ('patches/0010-native-phase-history-source.patch',
+                     'patches/0012-owned-mode-start-context-functional-tests.patch',
+                     'patches/0013-raw-physical-attitude-source-pair.patch'):
+            assert control['patches'][name] == original['patches'][name]
+
+
 def xml(path, failures=(), *, skipped=False, names=NAMES, suite=SUITE):
     root = ET.Element("testsuites", tests=str(len(names)), failures=str(len(failures)), disabled="0", errors="0")
     suite_node = ET.SubElement(root, "testsuite", name=suite)

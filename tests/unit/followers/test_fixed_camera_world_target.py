@@ -73,8 +73,9 @@ def test_frozen_world_anchor_is_not_rebased_on_current_aircraft_pose():
     scenario = MCScenario.from_yaml(scenario_path("mc_velocity_chase"))
     anchor = (7., 8., -.2)
     target = scenario.target_at(2., anchor)
-    at_start = scenario.camera.project((7., 8., -20.2), (1., 0., 0., 0.), target)
-    later = scenario.camera.project((8., 9., -20.2), (1., 0., 0., 0.), target)
+    altitude = scenario.visual.initial_vehicle_ned[2] + anchor[2]
+    at_start = scenario.camera.project((7., 8., altitude), (1., 0., 0., 0.), target)
+    later = scenario.camera.project((8., 9., altitude), (1., 0., 0., 0.), target)
     assert at_start != later
     assert scenario.target_at(2., anchor) == target
 
@@ -127,7 +128,7 @@ def test_unsupported_or_outside_fault_window_is_rejected(tmp_path, fault):
 
 def test_ground_fixture_refuses_same_altitude_target(tmp_path):
     raw = yaml.safe_load(scenario_path("mc_velocity_ground").read_text())
-    raw["target"]["waypoints"][0]["position_ned"][2] = -20.
+    raw["target"]["waypoints"][0]["position_ned"][2] = raw["initial_conditions"]["vehicle_ned"][2]
     path = tmp_path / "invalid-ground.yaml"
     path.write_text(yaml.safe_dump(raw))
     with pytest.raises(ValueError, match="below"):
@@ -195,12 +196,13 @@ def test_stale_control_telemetry_scenario_declares_a_bounded_terminal_outage():
 
 def response_inputs():
     scenario = MCScenario.from_yaml(scenario_path("mc_velocity_position"))
+    initial_z = scenario.visual.initial_vehicle_ned[2]
     # Synthetic analysis fixtures only. These do not become qualification artifacts.
-    observations = [dict(position_ned=(0., 0., -20.), target_ned=(18., 4., -20.),
-                         quaternion_wxyz=(1., 0., 0., 0.), altitude_m=20., roll_deg=0., pitch_deg=0.),
-                    dict(position_ned=(0., 0., -20.), target_ned=(18., 4., -20.),
+    observations = [dict(position_ned=(0., 0., initial_z), target_ned=(18., 4., initial_z),
+                         quaternion_wxyz=(1., 0., 0., 0.), altitude_m=-initial_z, roll_deg=0., pitch_deg=0.),
+                    dict(position_ned=(0., 0., initial_z), target_ned=(18., 4., initial_z),
                          quaternion_wxyz=(math.cos(.05), 0., 0., math.sin(.05)),
-                         altitude_m=20., roll_deg=0., pitch_deg=0.)]
+                         altitude_m=-initial_z, roll_deg=0., pitch_deg=0.)]
     publications = [dict(success=True, monotonic_s=timestamp,
                          fields=dict(vel_body_fwd=0., vel_body_right=0., vel_body_down=0., yawspeed_deg_s=5.))
                     for timestamp in (10., 10.05)]
@@ -313,15 +315,18 @@ def test_altitude_minimum_response_requires_a_positive_finite_distance(tmp_path,
         MCScenario.from_yaml(path)
 
 
-def altitude_response_inputs(profile="mc_velocity_position", *, target_z=-23., observed_z=-20.2):
+def altitude_response_inputs(profile="mc_velocity_position", *, target_offset_m=-3., observed_delta_m=-.2):
     _, observations, publications, kwargs = response_inputs()
     scenario = MCScenario.from_yaml(altitude_scenario_path(profile))
+    initial_z = scenario.visual.initial_vehicle_ned[2]
+    target_z = 0. if profile == "mc_velocity_ground" else initial_z + target_offset_m
+    observed_z = initial_z + observed_delta_m
     for row in observations:
         row["target_ned"] = (18., 4., target_z) if profile != "mc_velocity_ground" else (4., 3., target_z)
     observations[-1]["position_ned"] = (0., 0., observed_z)
     observations[-1]["altitude_m"] = -observed_z
     for row in publications:
-        row["fields"]["vel_body_down"] = math.copysign(.2, target_z + 20.)
+        row["fields"]["vel_body_down"] = math.copysign(.2, target_z - initial_z)
     if profile == "mc_velocity_chase":
         observations[-1]["position_ned"] = (.2, 0., observed_z)
         for row in publications:
@@ -334,13 +339,14 @@ def altitude_response_inputs(profile="mc_velocity_position", *, target_z=-23., o
     return scenario, observations, publications, kwargs
 
 
-@pytest.mark.parametrize("profile,target_z,observed_z", [
-    (profile, target_z, observed_z)
+@pytest.mark.parametrize("profile,target_offset_m,observed_delta_m", [
+    (profile, target_offset_m, observed_delta_m)
     for profile in VELOCITY_PROFILES if profile != "mc_velocity_ground"
-    for target_z, observed_z in [(-23., -20.2), (-17., -19.8)]
-] + [("mc_velocity_ground", 0., -19.8)])
-def test_response_requires_actual_target_directed_vertical_movement(profile, target_z, observed_z):
-    scenario, observations, publications, kwargs = altitude_response_inputs(profile, target_z=target_z, observed_z=observed_z)
+    for target_offset_m, observed_delta_m in [(-3., -.2), (3., .2)]
+] + [("mc_velocity_ground", 0., .2)])
+def test_response_requires_actual_target_directed_vertical_movement(profile, target_offset_m, observed_delta_m):
+    scenario, observations, publications, kwargs = altitude_response_inputs(
+        profile, target_offset_m=target_offset_m, observed_delta_m=observed_delta_m)
     report = evaluate_response(scenario, observations, publications, **kwargs)
     assert report["checks"]["observed_vertical_response"]
     assert report["metrics"]["vertical_response_work_m"] == pytest.approx(.2)
@@ -348,9 +354,9 @@ def test_response_requires_actual_target_directed_vertical_movement(profile, tar
     assert report["passed"]
 
 
-@pytest.mark.parametrize("observed_z", [-20., -19.8, -20.05])
-def test_vertical_commands_without_sufficient_correct_observed_motion_fail(observed_z):
-    scenario, observations, publications, kwargs = altitude_response_inputs(observed_z=observed_z)
+@pytest.mark.parametrize("observed_delta_m", [0., .2, -.05])
+def test_vertical_commands_without_sufficient_correct_observed_motion_fail(observed_delta_m):
+    scenario, observations, publications, kwargs = altitude_response_inputs(observed_delta_m=observed_delta_m)
     report = evaluate_response(scenario, observations, publications, **kwargs)
     assert report["checks"]["observed_image_response"]
     assert not report["checks"]["observed_vertical_response"]
@@ -358,7 +364,7 @@ def test_vertical_commands_without_sufficient_correct_observed_motion_fail(obser
 
 
 def test_pitch_alignment_cannot_substitute_for_vertical_aircraft_response():
-    scenario, observations, publications, kwargs = altitude_response_inputs(observed_z=-20.)
+    scenario, observations, publications, kwargs = altitude_response_inputs(observed_delta_m=0.)
     # Correct yaw and pitch align the image without moving the aircraft.
     yaw = math.atan2(4., 18.)
     pitch = math.atan2(3., math.hypot(18., 4.))
@@ -376,16 +382,16 @@ def test_pitch_alignment_cannot_substitute_for_vertical_aircraft_response():
 
 
 def test_target_only_height_closure_cannot_substitute_for_aircraft_motion():
-    scenario, observations, publications, kwargs = altitude_response_inputs(observed_z=-20.)
-    observations[-1]["target_ned"] = (18., 4., -22.)
+    scenario, observations, publications, kwargs = altitude_response_inputs(observed_delta_m=0.)
+    observations[-1]["target_ned"] = (18., 4., scenario.visual.initial_vehicle_ned[2] - 2.)
     report = evaluate_response(scenario, observations, publications, **kwargs)
     assert report["metrics"]["vertical_response_work_m"] == 0.
     assert not report["checks"]["observed_vertical_response"]
 
 
 def test_wrong_way_aircraft_motion_fails_even_when_target_motion_closes_height_gap():
-    scenario, observations, publications, kwargs = altitude_response_inputs(observed_z=-19.8)
-    observations[-1]["target_ned"] = (18., 4., -22.)
+    scenario, observations, publications, kwargs = altitude_response_inputs(observed_delta_m=.2)
+    observations[-1]["target_ned"] = (18., 4., scenario.visual.initial_vehicle_ned[2] - 2.)
     report = evaluate_response(scenario, observations, publications, **kwargs)
     assert report["metrics"]["vertical_response_work_m"] == pytest.approx(-.2)
     assert not report["checks"]["observed_vertical_response"]

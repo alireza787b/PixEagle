@@ -84,20 +84,41 @@ def build_image(arguments: list[str], log: Path) -> None:
 
 
 def authority(repository: Path = ROOT, *, simulator: str = "sih",
-              resource_variant: str = "stock") -> tuple[dict, dict]:
+              resource_variant: str = "stock", firmware_policy: str = "experimental") -> tuple[dict, dict]:
     if simulator not in ("sih", "gazebo"):
         raise ValueError("Unsupported simulator build recipe")
+    if firmware_policy not in {"experimental", "stock"}:
+        raise ValueError("Unknown simulator firmware policy")
     if resource_variant != "stock" and simulator != "gazebo":
         raise ValueError("Gazebo resource variants require the Gazebo build")
     lock = json.loads((repository / "native/dependencies.lock.json").read_text())
-    extension_path = repository / "native/px4/extension.json"
-    extension = json.loads(extension_path.read_text())
-    if extension["baseline_commit"] != lock["reference_px4_commit"]:
-        raise ValueError("SIH firmware and extension baseline pins disagree")
-    for name, checksum in extension["patches"].items():
-        if digest(repository / "native/px4" / name) != checksum:
-            raise ValueError(f"SIH extension patch checksum mismatch: {name}")
+    if firmware_policy == "stock":
+        stock = lock.get("stock_px4")
+        if (not isinstance(stock, dict) or set(stock) != {"commit", "version", "additional_submodules"}
+                or not isinstance(stock["commit"], str) or not re.fullmatch(r"[0-9a-f]{40}", stock["commit"])):
+            raise ValueError("Stock PX4 requires an explicit reviewed source pin")
+        extra = stock["additional_submodules"]
+        if (not isinstance(extra, list)
+                or any(not isinstance(name, str) or not name or Path(name).is_absolute()
+                       or any(part in {".", ".."} for part in name.split("/")) for name in extra)
+                or len(set(extra)) != len(extra)):
+            raise ValueError("Invalid stock PX4 submodule selection")
+        firmware = {"policy": "stock", "commit": stock["commit"], "patches": {}, "version": stock["version"]}
+    else:
+        extension_path = repository / "native/px4/extension.json"
+        extension = json.loads(extension_path.read_text())
+        if extension["baseline_commit"] != lock["reference_px4_commit"]:
+            raise ValueError("SIH firmware and extension baseline pins disagree")
+        for name, checksum in extension["patches"].items():
+            if digest(repository / "native/px4" / name) != checksum:
+                raise ValueError(f"SIH extension patch checksum mismatch: {name}")
+        firmware = {"commit": lock["reference_px4_commit"], "extension_sha256": digest(extension_path),
+                    "patches": extension["patches"]}
+        if "reference_px4_version" in lock:
+            firmware["version"] = lock["reference_px4_version"]
     spec = dict(lock[simulator + "_build"])
+    if firmware_policy == "stock":
+        spec["submodules"] = list(dict.fromkeys([*spec.get("submodules", []), *extra]))
     if "resource_variant" in spec:
         raise ValueError("Select Gazebo resource variants explicitly, outside the stock recipe")
     target = "px4_sitl_sih" if simulator == "sih" else "px4_sitl_default"
@@ -122,8 +143,6 @@ def authority(repository: Path = ROOT, *, simulator: str = "sih",
         value = spec.get(key)
         if not isinstance(value, str) or not re.fullmatch(r"[^\s]+@sha256:[0-9a-f]{64}", value):
             raise ValueError(f"{simulator} {key} requires an immutable image pin; prepare and lock dependencies first")
-    firmware = {"commit": lock["reference_px4_commit"], "extension_sha256": digest(extension_path),
-                "patches": extension["patches"]}
     return firmware, spec
 
 
@@ -134,16 +153,48 @@ def recipe_fingerprint(firmware: dict, spec: dict, *, repository: Path | None = 
     return json_digest({"firmware": firmware, "build": spec, "builder_sha256": digest(builder)})
 
 
-def verify_source(source: Path, repository: Path, verify_extension, *, simulator: str = "sih") -> dict:
-    """Require the reviewed patch and exact, clean recursive submodule revisions."""
+def verify_version_metadata(source: Path, expected: dict) -> dict:
+    """Use pinned upstream tag ancestry, never a fabricated firmware version."""
+    fields = {"describe", "tag", "tag_object", "tag_commit"}
+    if (not isinstance(expected, dict) or set(expected) != fields
+            or any(not isinstance(expected[key], str) or not expected[key] for key in fields)
+            or not re.fullmatch(r"v\d+\.\d+\.\d+(?:-[A-Za-z0-9.]+)?", expected["tag"])
+            or re.match(r"v0\.0\.0(?:$|-)", expected["tag"])
+            or any(not re.fullmatch(r"[0-9a-f]{40}", expected[key]) for key in ("tag_object", "tag_commit"))):
+        raise ValueError("Pinned PX4 release metadata is missing or unknown")
+    prefix = ("git", "-C", str(source))
+    try:
+        actual = {
+            "describe": command(*prefix, "describe", "--exclude", "ext/*", "--tags", "--match", "v[0-9]*"),
+            "tag": command(*prefix, "describe", "--exclude", "ext/*", "--abbrev=0", "--tags", "--match", "v[0-9]*"),
+            "tag_object": command(*prefix, "rev-parse", "refs/tags/" + expected["tag"]),
+            "tag_commit": command(*prefix, "rev-parse", "refs/tags/" + expected["tag"] + "^{commit}"),
+        }
+        command(*prefix, "merge-base", "--is-ancestor", expected["tag_commit"], "HEAD")
+    except subprocess.CalledProcessError as error:
+        raise ValueError("PX4 release ancestry is unavailable; refusing v0.0.0 fallback") from error
+    if actual != expected:
+        raise ValueError("PX4 release metadata differs from the pinned upstream ancestry")
+    return actual
+
+
+def verify_source(source: Path, repository: Path, verify_extension, *, simulator: str = "sih",
+                  firmware_policy: str = "experimental") -> dict:
+    """Require the selected source policy and exact recursive submodule revisions."""
     if not (source / ".git").is_dir():
         raise ValueError("SIH needs a standalone Git checkout, not a linked worktree or binary directory")
     if (source / ".git/objects/info/alternates").exists():
         raise ValueError("SIH source Git objects must be self-contained")
-    extension = repository / "native/px4"
-    verify_extension(source, extension)
-    manifest = json.loads((extension / "extension.json").read_text())
-    approved = set(manifest["files"]) | set(manifest.get("deleted_files", []))
+    firmware, spec = authority(repository, simulator=simulator, firmware_policy=firmware_policy)
+    if firmware_policy == "stock":
+        if command("git", "-C", str(source), "rev-parse", "HEAD") != firmware["commit"]:
+            raise ValueError("Stock PX4 source differs from its reviewed commit")
+        approved = set()
+    else:
+        extension = repository / "native/px4"
+        verify_extension(source, extension)
+        manifest = json.loads((extension / "extension.json").read_text())
+        approved = set(manifest["files"]) | set(manifest.get("deleted_files", []))
     changed = command("git", "-c", "gc.auto=0", "-C", str(source), "diff", "HEAD", "--name-only",
                       "--ignore-submodules=none").splitlines()
     untracked = command("git", "-C", str(source), "ls-files", "--others", "--exclude-standard").splitlines()
@@ -151,7 +202,6 @@ def verify_source(source: Path, repository: Path, verify_extension, *, simulator
     if unexpected:
         raise ValueError("Unreviewed SIH source changes: " + ", ".join(sorted(unexpected)))
     submodules = command("git", "-C", str(source), "submodule", "status", "--recursive")
-    spec = authority(repository, simulator=simulator)[1]
     required = spec.get("submodules", [])
     initialized = []
     missing = set(required)
@@ -169,6 +219,8 @@ def verify_source(source: Path, repository: Path, verify_extension, *, simulator
     if missing:
         raise ValueError("Missing SIH submodules: " + ", ".join(sorted(missing)))
     provenance = {"submodules": initialized}
+    if "version" in firmware:
+        provenance["version"] = verify_version_metadata(source, firmware["version"])
     if simulator == "gazebo":
         resources = source / "Tools/simulation/gz"
         for relative in ("models/quadtailsitter/model.sdf", "models/airspeed/model.sdf", "worlds/default.sdf"):
@@ -288,7 +340,11 @@ def validate_build_manifest(path: Path, *, repository: Path = ROOT, simulator: s
         raise ValueError("Simulation build manifest and build metadata must be objects")
     declared_variant = manifest.get("build", {}).get("resource_variant")
     variant_name = declared_variant.get("name") if isinstance(declared_variant, dict) else "stock"
-    firmware, spec = authority(repository, simulator=simulator, resource_variant=variant_name)
+    declared_firmware = manifest.get("firmware")
+    if not isinstance(declared_firmware, dict):
+        raise ValueError("Simulation firmware metadata must be an object")
+    policy = declared_firmware.get("policy", "experimental")
+    firmware, spec = authority(repository, simulator=simulator, resource_variant=variant_name, firmware_policy=policy)
     fingerprint = recipe_fingerprint(firmware, spec, repository=repository)
     if (manifest.get("schema_version") != 1 or manifest.get("kind") != f"pixeagle_{simulator}_build"
             or manifest.get("firmware") != firmware or manifest.get("build") != spec
@@ -317,24 +373,29 @@ def validate_build_manifest(path: Path, *, repository: Path = ROOT, simulator: s
 
 
 def build_sih(source: Path, output: Path, *, prepare_only: bool, verify_extension,
-              repository: Path = ROOT, cache: Path | None = None) -> Path:
+              repository: Path = ROOT, cache: Path | None = None,
+              firmware_policy: str = "experimental") -> Path:
     return build_simulator(source, output, prepare_only=prepare_only, verify_extension=verify_extension,
-                           repository=repository, cache=cache)
+                           repository=repository, cache=cache, firmware_policy=firmware_policy)
 
 
 def build_simulator(source: Path, output: Path, *, prepare_only: bool, verify_extension,
                     repository: Path = ROOT, cache: Path | None = None, simulator: str = "sih",
-                    resource_variant: str = "stock") -> Path:
+                    resource_variant: str = "stock", firmware_policy: str = "experimental") -> Path:
     source, output = source.expanduser().resolve(), output.expanduser().resolve()
     if output.is_relative_to(source) or source.is_relative_to(output):
         raise ValueError("Keep SIH build evidence separate from the source checkout")
-    firmware, spec = authority(repository, simulator=simulator, resource_variant=resource_variant)
+    firmware, spec = authority(repository, simulator=simulator, resource_variant=resource_variant,
+                               firmware_policy=firmware_policy)
     fingerprint = recipe_fingerprint(firmware, spec, repository=repository)
     if digest(repository / "tools/sih_baseline.py") != digest(Path(__file__)):
         raise ValueError("Run the builder from the selected build authority; mixed builder versions cannot build")
     variant = spec.get("resource_variant")
     selection = {} if simulator == "sih" else {"simulator": simulator}
-    provenance = verify_source(source, repository, verify_extension, **selection)
+    source_selection = dict(selection)
+    if firmware_policy != "experimental":
+        source_selection["firmware_policy"] = firmware_policy
+    provenance = verify_source(source, repository, verify_extension, **source_selection)
     if variant is not None:
         derived_gazebo_resource((source / "Tools/simulation/gz" / variant["resource"]).read_bytes(), variant)
     if output.exists() and any(output.iterdir()):
@@ -348,7 +409,7 @@ def build_simulator(source: Path, output: Path, *, prepare_only: bool, verify_ex
                 or (Path(directory) == source and name == "build")}
 
     shutil.copytree(source, context / "source", symlinks=True, ignore=ignored)
-    copied_provenance = verify_source(context / "source", repository, verify_extension, **selection)
+    copied_provenance = verify_source(context / "source", repository, verify_extension, **source_selection)
     if copied_provenance != provenance:
         raise ValueError("SIH source changed while preparing the build")
     dependency_setup = ""

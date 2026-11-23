@@ -37,8 +37,9 @@ declared phases. Use `[]` while a profile is unqualified. A native command
 contract describes capability; it never grants live admission. Start checks the
 actual phase against this list in addition to aircraft/input readiness. The
 catalog's aggregate `live_eligible` means at least one phase is admitted, not
-that every declared phase is. VTOL admission retains its separate pending
-transition-release gate.
+that every declared phase is. VTOL admission additionally requires qualified
+transition release, the native ownership contract and current source readiness;
+the [standard VTOL application checkpoint](../../reporting/agent-ops/codex-modernization/checkpoints/2026-11-13-vtol-training-app.md) records the bounded Gazebo case.
 
 Developer-owned command schemas upgrading from 2.4 must supply this declaration
 explicitly; there is no permissive fallback. This migration does not rewrite
@@ -61,8 +62,8 @@ have either course/EAS/height-rate or course/EAS/AMSL-altitude, with no scalar
 defaults. A native-only profile therefore declares `required_fields: []`;
 `FixedWingCommand` validates the complete variant and session binding.
 
-The registered `fw_navigation_chase` declares that native FW contract and an
-empty live-qualified phase list. It accepts image-position tracker selection,
+The registered `fw_navigation_chase` declares that native FW contract and
+`live_qualified_phases: [fixed_wing]`. It accepts image-position tracker selection,
 then separately requires measured calibration and exact attitude association.
 See its [reference](../02-reference/fw-navigation-chase.md); compatible pixels
 alone cannot satisfy native pursuit readiness.
@@ -84,9 +85,11 @@ MC uses its own velocity contract. Do not rename fields to pretend commands
 are interchangeable. The current adapter supports only its declared native
 contracts; extending one requires an implementation and qualification.
 
-The new end-on-transition policy is still pending. The common flight owner
-rejects VTOL Start until transition-preserving release is qualified. Historical native
-transition holding does not establish that policy.
+An observed transition ends following and releases the native owner. A new Start
+requires fresh settled phase and source readiness. The bounded Gazebo application
+checkpoint verifies this workflow; historical continuing-session transitions
+cannot qualify it. Installed MC/FW recipe resolution remains a separate planned
+step; the current image workflow chooses its registered leaf profile explicitly.
 
 ## Shared eligibility and clients
 

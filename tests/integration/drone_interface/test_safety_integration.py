@@ -312,7 +312,7 @@ class TestOffboardModeSafety:
     @pytest.mark.asyncio
     async def test_initial_zero_velocity_required(self):
         """Test that zero velocity must be sent before starting offboard."""
-        from mavsdk.offboard import VelocityBodyYawspeed
+        from mavsdk_grpc.offboard import VelocityBodyYawspeed
 
         # Initial hover command required
         initial_cmd = VelocityBodyYawspeed(0.0, 0.0, 0.0, 0.0)

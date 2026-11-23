@@ -148,9 +148,9 @@ async def test_native_only_preview_is_refused_before_construction_or_native_acqu
     app._cleanup_failed_follow_start = AsyncMock()
     app._refresh_target_continuity_policy = MagicMock()
     app.px4_interface = SimpleNamespace(connect=AsyncMock(), start_offboard_mode=AsyncMock())
-    app._prepare_native_follow_binding = AsyncMock()
+    app._prepare_airframe_follow_binding = AsyncMock()
     app.observe_native_connection = AsyncMock()
-    app._native_follow_binding = None
+    app._airframe_follow_binding = None
 
     async def apply():
         monkeypatch.setattr(Parameters, "FOLLOWER_MODE", "fw_navigation_chase")
@@ -165,7 +165,7 @@ async def test_native_only_preview_is_refused_before_construction_or_native_acqu
     app._refresh_target_continuity_policy.assert_not_called()
     app.px4_interface.connect.assert_not_awaited()
     app.px4_interface.start_offboard_mode.assert_not_awaited()
-    app._prepare_native_follow_binding.assert_not_awaited()
+    app._prepare_airframe_follow_binding.assert_not_awaited()
     app.observe_native_connection.assert_not_awaited()
     assert app._apply_pending_follower_config.await_count == int(change_during_apply)
 
@@ -176,8 +176,8 @@ def test_live_refusal_recommends_preview_only_when_its_transport_is_supported(mo
 
     monkeypatch.setattr(Parameters, "FOLLOWER_MODE", mode)
     result = {"errors": []}
-    assert AppController._refuse_unqualified_live_profile(SimpleNamespace(px4_interface=None),
-                                                        FollowerFactory.get_follower_info(mode), result)
+    profile = FollowerFactory.get_follower_info(mode) | {"live_qualified_phases": []}
+    assert AppController._refuse_unqualified_live_profile(SimpleNamespace(px4_interface=None), profile, result)
     assert result["precondition"]["code"] == "continuity_profile_not_live_qualified"
     assert ("COMMAND_PREVIEW" in result["precondition"]["reason"]) is hint
     assert result["errors"] == [result["precondition"]["reason"]]

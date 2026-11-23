@@ -281,6 +281,33 @@ SCHEMA_OVERRIDES = {
     'FW_NAVIGATION_CHASE.FORWARD_REENTRY_BEARING_DEG': {
         'type': 'float', 'min': 0.0, 'max': 180.0, 'step': 1.0, 'unit': 'deg',
         'description': 'Absolute bearing within which the turn-direction latch clears; must be below rearward entry.'},
+    'GimbalTracker.GAZEBO_INPUT': {
+        'type': 'object', 'nullable': True, 'reload_tier': 'system_restart',
+        'description': 'Private isolated simulator SIP source; null keeps normal camera UDP. Launcher managed; camera controls disabled.',
+        'properties': {
+            'socket_path': {'type': 'string'},
+            'source_clock_id': {'type': 'string'},
+            'world': {'type': 'string'},
+            'max_attitude_skew_s': {'type': 'number', 'min': 0.000001, 'unit': 'seconds'},
+            'control_contract': {'type': 'string', 'nullable': True, 'enum': ['rendered_scene_v1'],
+                                 'description': 'Private rendered scene control contract; absent/null is input-only.'},
+        },
+        'required': ['socket_path', 'source_clock_id', 'world', 'max_attitude_skew_s'],
+        'additional_properties': False,
+    },
+    'VideoSource.GAZEBO_CAMERA': {
+        'type': 'object', 'nullable': True, 'reload_tier': 'system_restart',
+        'description': 'Private isolated simulator image source and declared sample-clock identity; launcher managed.',
+        'properties': {
+            'socket_path': {'type': 'string'},
+            'source_clock_id': {'type': 'string'},
+            'world': {'type': 'string'},
+            'image_topic': {'type': 'string'},
+            'max_attitude_skew_s': {'type': 'number', 'min': 0.000001, 'unit': 'seconds'},
+        },
+        'required': ['socket_path', 'source_clock_id', 'world', 'image_topic', 'max_attitude_skew_s'],
+        'additional_properties': False,
+    },
     'VideoSource.FIXED_CAMERA_CALIBRATION': {
         'type': 'object',
         'nullable': True,
@@ -470,6 +497,8 @@ SCHEMA_OVERRIDES = {
              'description': 'Read frames from a Raspberry Pi or Jetson CSI camera'},
             {'value': 'CUSTOM_GSTREAMER', 'label': 'Custom GStreamer',
              'description': 'Use the advanced custom GStreamer input pipeline'},
+            {'value': 'GAZEBO_CAMERA', 'label': 'Gazebo training camera',
+             'description': 'Actual stamped images from the isolated simulator provider'},
         ],
         'description': 'Primary video input source type',
     },
@@ -669,10 +698,19 @@ SCHEMA_OVERRIDES = {
             },
         ],
     },
+    'Safety.ALLOW_SESSION_VELOCITY_OVERRIDE': {
+        'description': (
+            'Advanced: allow supported MC session controls to replace saved velocity caps. '
+            'Off for new installations. Missing legacy values retain compatibility until Config Sync applies this choice. '
+            'Altitude, rate and authority guards are unchanged; fixed-wing policy is configured separately.'
+        ),
+        'reload_tier': 'follower_restart',
+    },
     'Safety.GlobalLimits': {
         'description': (
-            'Complete non-bypassable safety envelope; every canonical field is '
-            'required and follower profiles may only tighten it'
+            'Complete saved safety envelope; every canonical field is required '
+            'and follower profiles may only tighten it. Explicitly permitted '
+            'session velocity overrides affect velocity caps only.'
         ),
         'required': [
             'MIN_ALTITUDE',
@@ -1473,6 +1511,9 @@ SCHEMA_OVERRIDES = {
         'description': 'How often to check altitude safety (seconds)'},
 
     # MC_VELOCITY_CHASE — velocity/acceleration params wrongly capped at 1.0
+    'MC_VELOCITY_CHASE.REQUESTED_SPEED': {'type': 'float', 'nullable': True, 'min': 0.0,
+        'max': 30.0, 'step': 0.5, 'unit': 'm/s', 'reload_tier': 'follower_restart',
+        'description': 'Requested 3D speed at session start; null or a missing saved value retains the previous forward target. Session adjustments are temporary.'},
     'MC_VELOCITY_CHASE.FORWARD_RAMP_RATE': {'min': 0.0, 'max': 20.0, 'step': 0.05, 'unit': 'm/s²',
         'description': 'Forward velocity ramp-up acceleration rate (m/s²)'},
     'MC_VELOCITY_CHASE.INITIAL_FORWARD_VELOCITY': {'min': 0.0, 'max': 30.0, 'step': 0.1, 'unit': 'm/s',

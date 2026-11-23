@@ -45,7 +45,8 @@ def owner(target_owner, monkeypatch):
     )
     owner.app_controller.px4_interface.get_connection_status = Mock(return_value={"connected": False})
     owner.app_controller.px4_interface.get_aircraft_state = Mock(return_value=None)
-    owner.app_controller.refresh_native_following_state = AsyncMock()
+    owner.app_controller.px4_interface.guidance_capabilities = None
+    owner.app_controller.refresh_airframe_following_state = AsyncMock()
     return owner
 
 
@@ -61,7 +62,7 @@ def test_normal_modes_are_advertised_without_an_aircraft_or_start_permission(own
     assert result["activation_pending"] is False
     assert {row["mode"] for row in result["profiles"] if row["compatible"]} == {
         "mc_velocity_chase", "mc_velocity_ground", "mc_velocity_distance",
-        "mc_velocity_position", "mc_attitude_rate",
+        "mc_velocity_position", "mc_attitude_rate", "fw_navigation_chase",
     }
     owner.app_controller.px4_interface.connect.assert_not_called()
 
@@ -78,6 +79,8 @@ def test_catalog_separates_selection_from_live_qualification(owner):
     assert row["live_qualified_phases"] == []
     vector = next(item for item in snapshot["profiles"] if item["mode"] == "gm_velocity_vector")
     assert vector["live_qualified_phases"] == ["multicopter", "fixed_wing"]
+    native = next(item for item in snapshot['profiles'] if item['mode'] == 'fw_navigation_chase')
+    assert native['live_qualified_phases'] == ['fixed_wing'] and native['live_eligible'] is True
 
 
 def test_preview_catalog_explains_native_only_refusal_without_disabling_rate_preview(owner):
@@ -89,7 +92,7 @@ def test_preview_catalog_explains_native_only_refusal_without_disabling_rate_pre
     rows = {row["mode"]: row for row in snapshot["profiles"]}
     native = rows["fw_navigation_chase"]
     assert native["selection_eligible"] is True
-    assert native["live_qualified_phases"] == [] and native["live_eligible"] is False
+    assert native["live_qualified_phases"] == ["fixed_wing"] and native["live_eligible"] is True
     assert native["preview_eligible"] is False and native["compatible"] is False
     assert native["preview_reason_code"] == native["reason_code"] == "command_preview_transport_unsupported"
     assert rows["fw_attitude_rate"]["preview_eligible"] is True
@@ -126,6 +129,100 @@ def test_start_does_not_infer_aircraft_support_from_selected_profile(owner, monk
     snapshot = following_snapshot(owner, owner.principal_test)
     assert not snapshot["start_allowed"]
     assert reason in snapshot["start_reason_codes"]
+
+
+def native_vtol_readiness(owner, monkeypatch, *, phase='multicopter', proof=True,
+                          mode='gm_velocity_vector', client_present=True):
+    from classes.aircraft_state import AirframePhase, GuidanceSessionIdentity
+    from classes.native_guidance import NativeCapabilities
+    from tests.fixtures.native_ownership import start_context
+    from tests.unit.drone_interface.test_aircraft_state import aircraft_state
+
+    ready_owner(owner, monkeypatch)
+    monkeypatch.setattr(Parameters, 'FOLLOWER_MODE', mode)
+    owner._get_config_service = lambda: SimpleNamespace(get_parameter=lambda *_: mode)
+    if mode == 'gm_velocity_vector':
+        monkeypatch.setattr('classes.api_v1_native_following._selected_tracker_output',
+                            lambda *_: ('GimbalTracker', 'GIMBAL_ANGLES'))
+    owner.flight_test['aircraft_kind'] = 'vtol'
+    state = None if phase is None else aircraft_state(phase=AirframePhase(phase), is_vtol=True)
+    original = None
+    if phase in {'multicopter', 'fixed_wing'}:
+        original = start_context(GuidanceSessionIdentity('api-admission', state.binding, 0), phase=phase)
+    owner.app_controller.px4_interface.get_aircraft_state.return_value = state
+    if client_present:
+        owner.app_controller.px4_interface.native_guidance_client = SimpleNamespace(capabilities=NativeCapabilities(
+            'test-adapter', 'fixture', 2, True, True, False, True, 23, True, 'clock-a'))
+    owner.app_controller.px4_interface.airframe_contract_ready = proof
+    owner.app_controller._capture_guidance_start_context = Mock(return_value=original)
+    return following_snapshot(owner, owner.principal_test)
+
+
+@pytest.mark.parametrize('phase,mode', [('multicopter', 'mc_velocity_chase'),
+    ('multicopter', 'gm_velocity_vector'), ('fixed_wing', 'gm_velocity_vector')])
+def test_verified_native_vtol_settled_phase_can_pass_api_admission(owner, monkeypatch, phase, mode):
+    # Phase admission is independent of provider timing. The latter is tested
+    # with the real gimbal resolver and separately below at the API boundary.
+    monkeypatch.setattr('classes.gazebo_guidance_alignment.native_guidance_input_readiness',
+                        lambda *_: {'ready': True, 'reason_code': None})
+    snapshot = native_vtol_readiness(owner, monkeypatch, phase=phase, mode=mode)
+    assert snapshot['start_allowed'], snapshot['start_reason_codes']
+    assert snapshot['guard']['start_context_id']
+    owner.app_controller.refresh_airframe_following_state.assert_not_awaited()
+    owner.app_controller.px4_interface.connect.assert_not_called()
+
+
+def test_native_fw_gimbal_phase_proof_alone_does_not_qualify_provider_timing(owner, monkeypatch):
+    snapshot = native_vtol_readiness(owner, monkeypatch, phase='fixed_wing')
+    assert not snapshot['start_allowed']
+    assert 'physical_capture_timing_unqualified' in snapshot['start_reason_codes']
+    owner.app_controller.refresh_airframe_following_state.assert_not_awaited()
+    owner.app_controller.px4_interface.connect.assert_not_called()
+
+
+@pytest.mark.parametrize('proof', [None, False, 0, 1, 'verified', object()])
+def test_api_does_not_infer_vtol_admission_from_truthy_or_missing_native_proof(owner, monkeypatch, proof):
+    snapshot = native_vtol_readiness(owner, monkeypatch, proof=proof)
+    assert not snapshot['start_allowed']
+    assert 'vtol_transition_release_unqualified' in snapshot['start_reason_codes']
+    owner.app_controller.px4_interface.connect.assert_not_called()
+
+
+@pytest.mark.parametrize('phase,reason', [(None, 'native_aircraft_state_unavailable'),
+    ('unknown', 'aircraft_phase_unavailable'), ('vtol_transition', 'following_transition_unavailable')])
+def test_native_proof_cannot_supply_a_missing_or_transition_phase_in_api(owner, monkeypatch, phase, reason):
+    snapshot = native_vtol_readiness(owner, monkeypatch, phase=phase)
+    assert not snapshot['start_allowed'] and reason in snapshot['start_reason_codes']
+    owner.app_controller.px4_interface.connect.assert_not_called()
+
+
+def test_verified_native_contract_cannot_replace_fresh_flight_state(owner, monkeypatch):
+    native_vtol_readiness(owner, monkeypatch)
+    owner.flight_test['fresh'] = False
+    snapshot = following_snapshot(owner, owner.principal_test)
+    assert not snapshot['start_allowed']
+    assert 'vehicle_flight_state_unavailable' in snapshot['start_reason_codes']
+    owner.app_controller.px4_interface.connect.assert_not_called()
+
+
+def test_mavsdk_only_profile_cannot_borrow_a_verified_native_contract(owner, monkeypatch):
+    snapshot = native_vtol_readiness(owner, monkeypatch, mode='mc_velocity_position')
+    assert not snapshot['start_allowed']
+    assert 'aircraft_phase_unavailable' in snapshot['start_reason_codes']
+    assert snapshot['guard']['start_context_id'] is None
+    owner.app_controller.px4_interface.connect.assert_not_called()
+
+
+@pytest.mark.parametrize('client_present,reason', [(False, 'native_aircraft_state_unavailable'),
+    (True, 'physical_capture_timing_unqualified')])
+def test_native_fw_candidate_still_requires_qualified_image_source(owner, monkeypatch, client_present, reason):
+    snapshot = native_vtol_readiness(owner, monkeypatch, phase='fixed_wing', mode='fw_navigation_chase',
+                                     client_present=client_present)
+    row = next(item for item in snapshot['profiles'] if item['mode'] == 'fw_navigation_chase')
+    assert row['live_eligible'] and row['live_qualified_phases'] == ['fixed_wing']
+    assert not snapshot['start_allowed']
+    assert reason in snapshot['start_reason_codes']
+    owner.app_controller.px4_interface.connect.assert_not_called()
 
 
 def test_start_permission_readiness_matches_the_action_scopes(owner, monkeypatch):
@@ -286,14 +383,14 @@ async def test_read_requires_native_credentials_and_scopes(owner):
     response = await get_native_following(owner, request)
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store"
-    owner.app_controller.refresh_native_following_state.assert_awaited_once_with('mc_velocity_position')
+    owner.app_controller.refresh_airframe_following_state.assert_awaited_once_with('mc_velocity_position')
 
 
 async def test_adapter_absence_retains_choices_and_specific_not_ready_reason(owner, monkeypatch):
     from classes.native_guidance import NativeGuidanceError
     monkeypatch.setattr(Parameters, 'FOLLOWER_MODE', 'gm_velocity_vector')
     owner._get_config_service = lambda: SimpleNamespace(get_parameter=lambda *_: 'gm_velocity_vector')
-    owner.app_controller.refresh_native_following_state.side_effect = NativeGuidanceError('native_connection_unavailable')
+    owner.app_controller.refresh_airframe_following_state.side_effect = NativeGuidanceError('native_connection_unavailable')
     request = SimpleNamespace(state=SimpleNamespace(api_principal=owner.principal_test))
     response = await get_native_following(owner, request)
     payload = __import__('json').loads(response.body)
@@ -310,7 +407,7 @@ async def test_get_and_start_share_sanitized_passive_refusal_without_action(owne
     import json
     from classes.native_guidance import NativeGuidanceError
     snapshot = ready_owner(owner, monkeypatch)
-    owner.app_controller.refresh_native_following_state.side_effect = NativeGuidanceError(error)
+    owner.app_controller.refresh_airframe_following_state.side_effect = NativeGuidanceError(error)
     owner.app_controller.connect_px4 = AsyncMock()
     status = await get_native_following(owner, action_request(owner))
     assert status.status_code == 200 and json.loads(status.body)['profiles']
@@ -324,7 +421,7 @@ async def test_get_and_start_share_sanitized_passive_refusal_without_action(owne
 async def test_unexpected_refresh_error_keeps_generic_api_failure(owner, monkeypatch):
     import json
     snapshot = ready_owner(owner, monkeypatch)
-    owner.app_controller.refresh_native_following_state.side_effect = RuntimeError('private implementation detail')
+    owner.app_controller.refresh_airframe_following_state.side_effect = RuntimeError('private implementation detail')
     owner.app_controller.connect_px4 = AsyncMock()
     status = await get_native_following(owner, action_request(owner))
     action = await native_follow_action(owner, start_body(snapshot), Response(), action_request(owner), start=True)
@@ -341,6 +438,8 @@ async def test_unexpected_refresh_error_keeps_generic_api_failure(owner, monkeyp
 def test_native_readiness_uses_cached_actual_phase_without_rpc(owner, monkeypatch, phase, reason):
     from classes.aircraft_state import AirframePhase
     from tests.unit.drone_interface.test_aircraft_state import aircraft_state
+    monkeypatch.setattr('classes.gazebo_guidance_alignment.native_guidance_input_readiness',
+                        lambda *_: {'ready': True, 'reason_code': None})
     monkeypatch.setattr(Parameters, 'FOLLOWER_MODE', 'gm_velocity_vector')
     owner._get_config_service = lambda: SimpleNamespace(get_parameter=lambda *_: 'gm_velocity_vector')
     owner.flight_test['aircraft_kind'] = 'fixed_wing'
@@ -351,7 +450,7 @@ def test_native_readiness_uses_cached_actual_phase_without_rpc(owner, monkeypatc
     payload = following_snapshot(owner, owner.principal_test)
     for code in ['native_aircraft_state_unavailable', 'aircraft_phase_mismatch', 'following_transition_unavailable']:
         assert (code in payload['start_reason_codes']) is (code == reason)
-    owner.app_controller.refresh_native_following_state.assert_not_awaited()
+    owner.app_controller.refresh_airframe_following_state.assert_not_awaited()
     owner.app_controller.px4_interface.connect.assert_not_called()
 
 
@@ -377,14 +476,42 @@ def start_body(snapshot):
     )
 
 
-async def test_native_start_rechecks_context_on_flight_owner_before_commands(owner, monkeypatch):
+def test_start_guard_distinguishes_late_same_aircraft_from_stale_data_and_reconnect(owner, monkeypatch):
+    from classes.aircraft_identity import TelemetryAircraftIdentity
+    from classes.api_v1_native_following import _check_start
+    from classes.api_v1_native_targets import NativeTargetError
+    from tests.unit.core_app.test_api_v1_integration import mavlink_payload
+
+    ready_owner(owner, monkeypatch)
+    identity = TelemetryAircraftIdentity(7, 1, 2.)
+    identity.observe(mavlink_payload(10, uid='42'), now=10.)
+    identity.observe(mavlink_payload(11, uid='42'), now=11.)
+    owner.telemetry_test.update(identity.snapshot(connected=True, now=11.))
+    body = start_body(following_snapshot(owner, owner.principal_test))
+    _check_start(owner, body, owner.principal_test, 'before_start')
+    owner.telemetry_test.update(identity.snapshot(connected=True, now=13.01))
+    with pytest.raises(NativeTargetError):
+        _check_start(owner, body, owner.principal_test, 'before_offboard')
+    identity.observe(mavlink_payload(12, uid='42'), now=13.01)
+    owner.telemetry_test.update(identity.snapshot(connected=True, now=13.01))
+    _check_start(owner, body, owner.principal_test, 'before_offboard')
+    identity.invalidate('telemetry_disconnected')
+    identity.observe(mavlink_payload(13, uid='42'), now=14.)
+    identity.observe(mavlink_payload(14, uid='42'), now=14.1)
+    owner.telemetry_test.update(identity.snapshot(connected=True, now=14.1))
+    with pytest.raises(NativeTargetError, match='changed'):
+        _check_start(owner, body, owner.principal_test, 'before_offboard')
+    owner.app_controller.px4_interface.connect.assert_not_called()
+
+
+async def test_native_start_rechecks_context_on_flight_owner_before_commands(owner, monkeypatch, caplog):
     snapshot = ready_owner(owner, monkeypatch)
     calls = []
 
-    async def start(native_start_guard, *, native_attempt_id, native_aircraft_uid):
+    async def start(native_start_guard, *, native_attempt_id, native_aircraft_uid, guidance_start_context):
         assert native_attempt_id == "b" * 32 and native_aircraft_uid == "42"
         native_start_guard("before_start")
-        owner.telemetry_test["connection_generation"] = "changed"
+        owner.telemetry_test["connection_generation"] = "private-route-value-should-not-log"
         with pytest.raises(Exception, match="changed"):
             native_start_guard("before_offboard")
         calls.append("guarded")
@@ -395,8 +522,12 @@ async def test_native_start_rechecks_context_on_flight_owner_before_commands(own
     record = await native_follow_action(owner, start_body(snapshot), response, action_request(owner), start=True)
     assert response.status_code == 202
     assert record["status"] == "failure"
+    assert record['result']['outcome']['precondition']['code'] == 'native_follow_context_stale'
+    assert record['result']['outcome']['precondition']['stage'] == 'before_offboard'
+    assert 'telemetry_generation' in caplog.text
+    assert 'private-route-value-should-not-log' not in caplog.text
     assert calls == ["guarded"]
-    owner.app_controller.refresh_native_following_state.assert_awaited_once_with('mc_velocity_position')
+    owner.app_controller.refresh_airframe_following_state.assert_awaited_once_with('mc_velocity_position')
     owner.app_controller.px4_interface.connect.assert_not_called()
 
 
@@ -622,7 +753,7 @@ async def test_pending_native_start_can_be_stopped_without_waiting_for_activatio
     app._disconnect_px4_internal = AsyncMock(return_value={"steps": ["stopped"], "errors": []})
     entered = asyncio.Event()
 
-    async def slow_start(_guard):
+    async def slow_start(_guard, *, guidance_start_context):
         entered.set()
         await asyncio.Event().wait()
 

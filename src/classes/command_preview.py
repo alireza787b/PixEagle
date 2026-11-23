@@ -269,6 +269,8 @@ class CommandPreviewCommander:
             reason=intent.reason,
             created_at_monotonic_s=intent.created_at_monotonic_s,
             created_at_utc=intent.created_at_utc,
+            guidance_identity=intent.guidance_identity,
+            altitude_hold=intent.altitude_hold,
         )
         self._last_intent = retained
         self._intent_history.append(retained)

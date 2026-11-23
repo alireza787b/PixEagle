@@ -143,7 +143,7 @@ def override_follower():
     follower.max_velocity = 1
     follower.safety_manager = SafetyManager()
     follower.safety_manager.load_from_config({'Safety': {'GlobalLimits': {
-        'MAX_VELOCITY': 1, 'MAX_VELOCITY_FORWARD': 1,
+        'MIN_ALTITUDE': 3, 'MAX_VELOCITY': 1, 'MAX_VELOCITY_FORWARD': 1,
         'MAX_VELOCITY_LATERAL': .2, 'MAX_VELOCITY_VERTICAL': .25,
     }}})
     follower.setpoint_handler = SimpleNamespace(profile_config={'session_controls': {'requested_speed': {

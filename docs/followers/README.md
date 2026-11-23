@@ -7,6 +7,14 @@ Profiles have distinct multicopter, fixed-wing and external/gimbal input
 contracts. See the [qualification inventory](05-development/follower-sih-validation-matrix.md)
 for actual response evidence and live availability; implementation is not flight qualification.
 
+The [standard VTOL application checkpoint](../reporting/agent-ops/codex-modernization/checkpoints/2026-11-13-vtol-training-app.md)
+records bounded MC/FW Start, speed, Stop and transition-release evidence with an
+actual Gazebo-rendered camera. It does not qualify physical-camera timing or
+sensorless hardware. The current image workflow selects MC Chase or FW Navigation
+Chase while inactive; transition ends following and requires a fresh Start after
+settlement. Installed profiles that resolve configured MC/FW strategies at Start
+are proposed, not implemented.
+
 ---
 
 ## Quick Navigation
@@ -39,7 +47,7 @@ for actual response evidence and live availability; implementation is not flight
 
 | Follower | Control Type | Use Case |
 |----------|--------------|----------|
-| [fw_navigation_chase](02-reference/fw-navigation-chase.md) | fixed_wing_external | Calibrated image pursuit through native PX4 navigation; experimental, live gate closed |
+| [fw_navigation_chase](02-reference/fw-navigation-chase.md) | fixed_wing_external | Calibrated image pursuit through native PX4 navigation; experimental, bounded Gazebo application evidence |
 | [fw_attitude_rate](02-reference/fw-attitude-rate.md) | attitude_rate | Research visual guidance; current live gate remains |
 
 ### Gimbal (GM)

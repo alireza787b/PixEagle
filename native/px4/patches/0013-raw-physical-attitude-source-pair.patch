@@ -1,0 +1,72 @@
+diff --git a/msg/versioned/FixedWingGuidanceStatus.msg b/msg/versioned/FixedWingGuidanceStatus.msg
+--- a/msg/versioned/FixedWingGuidanceStatus.msg
++++ b/msg/versioned/FixedWingGuidanceStatus.msg
+@@ -9,6 +9,10 @@
+ uint64 nav_state_timestamp # [us] Time the current navigation mode was activated
+ uint64 autopilot_uid # Same legacy hardware UID as MAVLink AUTOPILOT_VERSION
+ uint64 firmware_git_hash # Native firmware git version, for runtime provenance
++uint64 attitude_source_publication_us # Raw PX4 vehicle_attitude publication clock; not XRCE adjusted
++uint64 attitude_source_sample_us # Raw PX4 vehicle_attitude sample clock; not XRCE adjusted
++float32[4] attitude_source_quaternion # Physical body-to-NED quaternion from that exact native sample
++uint8 attitude_source_quat_reset_counter # Reset counter paired with that exact quaternion
+ uint8 nav_state # [enum VehicleStatus.NAVIGATION_STATE] Observed mode
+ float32 home_altitude_amsl # [m] Current estimator/home altitude reference; not terrain clearance
+ uint32 home_update_count # Changes when the native home reference changes
+diff --git a/src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.cpp b/src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.cpp
+--- a/src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.cpp
++++ b/src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.cpp
+@@ -374,7 +374,7 @@
+ 
+ void FwLateralLongitudinalControl::publishGuidanceStatus(hrt_abstime now, bool active, float effective_airspeed)
+ {
+-	if (now - _last_guidance_status_publication < 100_ms) {
++	if (now - _last_guidance_status_publication < 20_ms) {
+ 		return;
+ 	}
+ 
+@@ -393,6 +393,14 @@
+ 	status.fixed_wing_attitude_sample_age = (_fixed_wing_attitude_timestamp > 0 && status.timestamp >= _fixed_wing_attitude_timestamp)
+ 						? (status.timestamp - _fixed_wing_attitude_timestamp) * 1e-6f : NAN;
+ 	status.fixed_wing_frame_is_tailsitter = _fixed_wing_frame_is_tailsitter;
++	status.attitude_source_publication_us = _guidance_source_attitude.timestamp;
++	status.attitude_source_sample_us = _guidance_source_attitude.timestamp_sample;
++
++	for (unsigned index = 0; index < 4; ++index) {
++		status.attitude_source_quaternion[index] = _guidance_source_attitude.q[index];
++	}
++
++	status.attitude_source_quat_reset_counter = _guidance_source_attitude.quat_reset_counter;
+ 	uuid_uint32_t uid;
+ 	board_get_uuid32(uid);
+ 	status.autopilot_uid = (static_cast<uint64_t>(uid[PX4_CPU_UUID_WORD32_UNIQUE_M]) << 32) | uid[PX4_CPU_UUID_WORD32_UNIQUE_H];
+@@ -741,6 +749,7 @@
+ 
+ 	if (_vehicle_attitude_sub.update(&att)) {
+ 
++		_guidance_source_attitude = att;
+ 		Dcmf R{Quatf(att.q)};
+ 
+ 		// if the vehicle is a tailsitter we have to rotate the attitude by the pitch offset
+diff --git a/src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.hpp b/src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.hpp
+--- a/src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.hpp
++++ b/src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.hpp
+@@ -202,6 +202,7 @@
+ 	float _yaw{0.f};
+ 	matrix::Vector3f _fixed_wing_forward_ned{NAN, NAN, NAN};
+ 	hrt_abstime _fixed_wing_attitude_timestamp{};
++	vehicle_attitude_s _guidance_source_attitude{};
+ 	bool _fixed_wing_frame_is_tailsitter{};
+ 	struct lateral_control_state {
+ 		matrix::Vector2f ground_speed;
+diff --git a/src/modules/uxrce_dds_client/dds_topics.yaml b/src/modules/uxrce_dds_client/dds_topics.yaml
+--- a/src/modules/uxrce_dds_client/dds_topics.yaml
++++ b/src/modules/uxrce_dds_client/dds_topics.yaml
+@@ -102,7 +102,7 @@
+ 
+   - topic: /fmu/out/fixed_wing_guidance_status
+     type: px4_msgs::msg::FixedWingGuidanceStatus
+-    rate_limit: 10.
++    rate_limit: 50.
+ 
+   - topic: /fmu/out/vtol_vehicle_status
+     type: px4_msgs::msg::VtolVehicleStatus

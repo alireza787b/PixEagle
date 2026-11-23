@@ -28,7 +28,8 @@ static NativeActivationEvidence evidence(const OwnershipContext& source) {
 TEST(NeutralRelease, MulticopterRequiresNoFwEnvelopeAndCommandsOnlyZeroVelocityAndYaw) {
     const auto value = std::get<MulticopterObjective>(neutralReleaseObjective(Phase::Multicopter, NAN, NAN, NAN, NAN));
     EXPECT_DOUBLE_EQ(value.north, 0.); EXPECT_DOUBLE_EQ(value.east, 0.);
-    EXPECT_DOUBLE_EQ(value.down, 0.); EXPECT_DOUBLE_EQ(value.yaw_rate, 0.);
+    ASSERT_TRUE(value.down); EXPECT_DOUBLE_EQ(*value.down, 0.);
+    EXPECT_FALSE(value.altitude_amsl); EXPECT_FALSE(value.altitude_reference_generation); EXPECT_DOUBLE_EQ(value.yaw_rate, 0.);
 }
 
 TEST(NeutralRelease, FixedWingUsesCurrentNativeCourseTrimAndLevelPathWithoutAnAltitudeTarget) {

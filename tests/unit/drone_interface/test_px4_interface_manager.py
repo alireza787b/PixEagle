@@ -1118,7 +1118,7 @@ class TestPX4InterfaceManagerTelemetry:
 
     @staticmethod
     def float32_sdk_position(home_m, height_m, *, wire_path):
-        from mavsdk.telemetry_pb2 import Position
+        from mavsdk_grpc.telemetry_pb2 import Position
         if wire_path:
             f32 = lambda value: struct.unpack("!f", struct.pack("!f", value))[0]
             home = f32(home_m)

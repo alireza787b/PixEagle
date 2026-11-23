@@ -1,5 +1,12 @@
 # Native PX4 guidance — development checkpoint
 
+The ordinary product direction now uses stock PX4; see the
+[stock integration workflow](../docs/followers/07-integration/stock-px4-gimbal-vtol.md).
+The private ownership extension documented here is not a normal-user firmware
+requirement. These instructions describe the retained, explicitly selected DDS
+experiment. Ordinary FW/VTOL application sessions now select stock MAVLink;
+its qualification scope and hardware checkpoint are in the integration guide.
+
 This is the shared companion adapter for experimental native FW guidance,
 including `gm_velocity_vector` and calibrated-image `fw_navigation_chase`.
 It is **not installed or enabled by ordinary PixEagle
@@ -8,17 +15,22 @@ setup yet**. Existing multicopter following continues through MAVSDK.
 PX4 owns coordinated turns, energy management, attitude/rate control and VTOL
 transition. The adapter publishes navigation objectives, not a second TECS or
 attitude controller. There must not be simultaneous MAVSDK and DDS command
-publishers. VTOL admission remains closed: the accepted
+publishers. Hardware VTOL admission remains closed: the accepted
 [consolidation plan](../docs/followers/05-development/follower-consolidation-plan.md)
 ends following on transition and requires a fresh Start afterward. Historical
 phase-retaining cycle reports below do not qualify the terminal release path;
 actual transition-preserving authority release remains S7 work.
 
+Historical component reports below do not establish current application or
+hardware acceptance. In particular, an old component pass did not qualify the
+later fixed-nose tailsitter Stop failure. Current stock application Stop and
+takeover evidence is recorded separately in the integration guide.
+
 | Boundary | Contract |
 | --- | --- |
 | Backend → adapter | Private, same-UID Unix socket; versioned JSON; one session and expiring command lease |
 | FW → PX4 | Course in NED, equivalent airspeed, and either AMSL altitude or upward-positive height rate |
-| VTOL MC → PX4 | NED velocity and yaw rate |
+| VTOL MC → PX4 | Horizontal NED velocity and yaw rate, with either vertical velocity or an explicit engagement-altitude position target |
 | Transition release drain → PX4 | Neutral native FW/MC setpoints for the coherently observed transition; no transition request or pursuit |
 | PX4 → backend | Observed phase, full physical-body quaternion, velocity, relative/home altitude, qualified airspeed and native envelope |
 | Acquire/release → PX4 | Optional atomic owned-mode request/receipt; original token, firmware incarnation, intention revision, registration and actual activation epoch |
@@ -37,7 +49,7 @@ be replaced by MC yaw. No camera mount is changed during a VTOL transition.
 
 ## Correlated ownership contract
 
-Private RPC protocol 3 requires the optional `OwnedModeRequest`/`OwnedModeStatus`
+Private RPC protocol 5 requires the optional `OwnedModeRequest`/`OwnedModeStatus`
 firmware extension; there is no raw mode-command fallback. An engagement ACK
 contains the original causal acquisition receipt, not merely an accepted
 intention. The adapter advertises its actual registered `owned_mode_id`.
@@ -45,12 +57,72 @@ Intent and release writes require that acquisition's token. Stop, EOF
 and lost-reply reconciliation retain the same context; a same-ID replacement,
 reused registration or firmware restart cannot become the old owner.
 
-Protocol 2 peers are refused during hello, before acquisition. The separate
+Protocol 4 and older peers are refused during hello, before acquisition. The separate
 PX4 ROS external-mode API remains version 2 and the owned-mode firmware contract
-remains version 1. The `multicopter_supported` capability advertises settled
+is version 2. The `multicopter_supported` capability advertises settled
 native MC commands; it does not authorize transition pursuit. There is no
 phase-advance RPC or external transition-command payload. Observed phase remains
 available, and the adapter retains its internal neutral transition drain.
+
+Protocol 5 retains one finite AMSL engagement-altitude reference and its native
+reference generation before acquisition. Startup and the first follower objective
+use the same reference; receiving the engagement ACK never recaptures the height.
+For native MC pursuit with target-altitude guidance disabled, horizontal velocity
+and yaw rate are retained while PX4's position controller holds that altitude.
+Explicit target-altitude guidance uses vertical velocity instead. The two command
+variants are exclusive; no application PID or vertical-to-horizontal redistribution
+is added. The `multicopter_altitude_hold_supported` capability advertises this
+native contract, not support on the ordinary MAVSDK body-velocity path.
+
+Protocol 5 also requires the exact typed `start_context` from passive observation,
+captured before asynchronous startup. Its stable identity includes aircraft binding,
+adapter runtime, firmware incarnation, registration, source intention revision,
+source navigation mode and activation epoch, phase and native VTOL history.
+`NativeStartContext.context_id` hashes canonical JSON over those semantic fields;
+pose, sample/publication times and poll sequence do not enter it. The source mode's
+`source_nav_state_timestamp` does enter it. Acquisition echoes the original context;
+it cannot substitute newer observations or assume that own activation advances the
+intention revision by one. Missing or incompatible contexts refuse before acquisition.
+
+The native VTOL controller owns persistent `phase_source_instance` and
+`phase_revision` fields on the existing VTOL status topic. Accepted transition
+intent publishes history before ACK/state update, including an explicit pending
+intent bit. Physical phase/failure changes also advance history; heartbeat and
+observation reads do not. A round trip or abort therefore invalidates old intent
+even when the companion misses every intermediate packet. Commander compares the
+original settled phase/history at acquisition and through pending activation.
+Cancellation withdraws only the exact tagged intention; established ownership keeps
+the existing conditional release and neutral drain. Pure FW needs no VTOL history;
+ordinary MAVSDK MC does not use this protocol. This source change still requires
+new firmware, adapter and normal-application simulator qualification.
+
+For simulator camera association, the optional adapter ROS parameter
+`simulator_clock_id` is echoed as nullable `source_clock_id` in capabilities.
+The launcher must establish that token from a verified shared world; the label
+grants no command authority or clock conversion. An optional `source_attitude`
+observation carries raw PX4 sample/publication times, the same physical quaternion
+and its reset counter, plus that sample's first monotonic receipt. It is copied
+before the native FW frame transform. This observation topic has a 20 ms native
+publication minimum and a matching 50 Hz DDS cap; controller and setpoint rates
+are unchanged. Actual arrival rate and camera association still need measurement.
+Repeated envelope packets cannot renew the sample receipt. XRCE-adjusted
+attitude timestamps remain separate; absent, stale, conflicting or unmatched raw
+samples cannot authorize camera alignment. No higher-rate, exposure-time or exact
+image-to-pose association is implied.
+
+Retargeting and bounded recovery retain the original height. Each native hold
+publication checks fresh bound observations and the reference generation, then
+converts AMSL to local NED height. A source/home/local-reference reset ends pursuit
+through the original owner's release path. Terminal neutral draining still uses
+zero vertical velocity and cannot reuse a pursuit anchor. This implementation
+requires new simulator qualification; the earlier altitude-drift failure remains
+recorded. Ordinary MAVSDK MC altitude-off behavior remains zero vertical velocity
+pending a separately qualified compatible position/velocity transport.
+The same captured `AltitudeLimits` validates native current height and the
+absolute hold target before acquisition and at the final MC command boundary.
+AMSL targets use the current native home-relative offset; out-of-bounds targets
+are rejected without clamping or recapturing the reference. FW reuses this check
+and retains its native vertical-response guard.
 
 The Python client supports Python 3.10 and newer without an extra async runtime
 dependency. Drain and reply share one monotonic RPC budget; read-only release
@@ -109,6 +181,15 @@ configurable for advanced use; the native operation cap stays 500 ms. These
 clocks are not assumed equivalent during paused or scaled SIH. Duplicates renew neither
 deadline nor receipt freshness. A deadline-crossing activation remains unresolved
 until native release is observed; an ineligible Hold cannot claim success.
+
+A release request is retransmitted unchanged on progressing native ownership
+status while its original 500 ms source-clock window and exact original
+Acquired/Releasing authority remain valid. No new timer, acquisition, deadline
+or user command is created. Terminal proof, takeover, rescue, retirement or
+expiry prevents retransmission. This covers the common native Stop, EOF and
+phase-exit path. The existing `observe` diagnostics include dispatch count,
+original request clock/expiry and current receipt state without exposing tokens.
+An RPC timeout still means unconfirmed release; it cannot be relabelled Hold.
 
 Firmware incarnation uses 128 bits from the platform's secure random provider.
 POSIX uses `/dev/urandom`; NuttX requires its linked random-pool provider. Missing,
@@ -228,6 +309,13 @@ toolchain and passes the locked submodule paths through PX4's existing
 attempted external download fails the build; no manifest is accepted as a
 replacement for a successful compilation. BuildKit can reuse matching layers,
 but the cached development executable is never imported into the build context.
+
+The canonical source lock also pins the authentic upstream release-tag object,
+its peeled commit and the normal `git describe` result. New source snapshots
+need that reachable ancestry: a hash-only shallow checkout must not silently
+compile PX4's `v0.0.0` fallback. The generated firmware version remains derived
+by upstream CMake; the base commit and reviewed local patch set remain separate
+provenance. Metadata enrichment never changes or relabels archived builds.
 
 The builder extracts `bin/` and `etc/` from a stopped compiler container without
 starting it, preserving command aliases. It packages a separate minimal runtime
@@ -365,10 +453,16 @@ missing prerequisites and actual publication counts remain visible in
 diagnostics. Missing pose stays unknown; commands are never integrated into a
 fabricated aircraft trajectory.
 
-PX4 sends changed VTOL status immediately and unchanged status at 1 Hz. Its
-freshness budget includes that sample interval plus the configured native
-`status_timeout_s` delivery allowance. Vehicle ownership and high-rate pose
-retain their existing deadlines. `phase_source_health` exposes actual ages and
+Pinned PX4 Commander publishes vehicle status on change or every 500 ms; VTOL
+status changes immediately and otherwise arrives at 1 Hz. Each phase-status
+freshness budget includes its own sample interval plus the configured native
+`status_timeout_s` delivery allowance (1.5 s and 2 s at the 1 s default).
+High-rate ownership, command leases, pose and target freshness retain their
+existing deadlines. This is a cadence allowance, not a new loss-recovery timer.
+Well-formed stale passive reads invalidate Start/pose admission and keep the
+read-only connection for recovery. They never engage, publish or restart a
+previous follow session. Identity/protocol errors, rescue and unexpected
+ownership still retire that connection. `phase_source_health` exposes actual ages and
 budgets; duplicate or reordered packets cannot refresh them. MC/transition
 envelope observations use the native unloaded minimum-speed reference, while
 settled FW retains the performance model's bank/load-dependent minimum. An

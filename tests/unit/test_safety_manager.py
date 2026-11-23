@@ -133,8 +133,8 @@ class TestConfigurationLoading:
         safety_manager.load_from_config({})
 
         # Should use fallbacks
-        assert safety_manager.get_limit('MIN_ALTITUDE') == 3.0
-        assert safety_manager.get_limit('MAX_ALTITUDE') == 120.0
+        assert safety_manager.get_limit('MIN_ALTITUDE') == 5.0
+        assert safety_manager.get_limit('MAX_ALTITUDE') == 100.0
 
     def test_initialized_flag_set(self, safety_manager, config_with_global_limits):
         """Initialization status is exposed without private-state reads."""
@@ -229,20 +229,21 @@ class TestLimitResolutionHierarchy:
         safety_manager.load_from_config({'Safety': {'GlobalLimits': {}}})
 
         result = safety_manager.get_limit('MIN_ALTITUDE')
-        assert result == 3.0  # Fallback value
+        assert result == 5.0  # Fallback value
 
-    def test_fail_safe_fallbacks_match_checked_in_global_defaults(self):
-        """Duplicated emergency constants must not drift from canonical defaults."""
+    def test_fail_safe_fallbacks_do_not_exceed_checked_in_velocity_defaults(self):
+        """Missing configuration retains a restricted fallback, not the cruise ceiling."""
         project_root = Path(__file__).resolve().parents[2]
         with (project_root / 'configs' / 'config_default.yaml').open(
             encoding='utf-8'
         ) as config_file:
             global_limits = yaml.safe_load(config_file)['Safety']['GlobalLimits']
 
-        assert SafetyManager._FALLBACKS == {
-            key: global_limits[key]
-            for key in SafetyManager._FALLBACKS
-        }
+        for key, fallback in SafetyManager._FALLBACKS.items():
+            if key in ('MAX_VELOCITY', 'MAX_VELOCITY_FORWARD'):
+                assert 0 < fallback <= global_limits[key]
+            else:
+                assert fallback == global_limits[key]
 
     def test_legacy_max_forward_velocity_alias_is_not_resolved(self, safety_manager):
         """SafetyManager accepts only the canonical velocity limit name."""

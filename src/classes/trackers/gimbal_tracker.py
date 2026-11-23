@@ -69,9 +69,6 @@ import time
 import numpy as np
 import logging
 import threading
-import hashlib
-import json
-from dataclasses import asdict
 from typing import Optional, Tuple, Dict, Any
 from classes.trackers.base_tracker import BaseTracker
 from classes.tracker_output import TrackerOutput, TrackerDataType
@@ -82,7 +79,7 @@ from classes.gimbal_provider import (
     list_supported_gimbal_providers,
 )
 from classes.gimbal_types import TrackingState, GimbalData, GimbalAngleObservation
-from classes.gimbal_geometry import resolve_angle_geometry, resolve_mount_type
+from classes.gimbal_geometry import angle_geometry_revision, resolve_angle_geometry, resolve_mount_type
 from classes.camera_runtime import CameraRuntime
 from classes.parameters import Parameters
 
@@ -164,9 +161,7 @@ class GimbalTracker(BaseTracker):
         mount = resolve_mount_type(gimbal_cfg, getattr(Parameters, 'GM_VELOCITY_CHASE', {}),
                                    getattr(Parameters, 'GM_VELOCITY_VECTOR', {}), allowed=('HORIZONTAL', 'VERTICAL'))
         geometry = resolve_angle_geometry(gimbal_cfg, mount)
-        fingerprint = json.dumps({'provider': self.provider_metadata.get('provider'), 'mount': mount,
-                                  'mapping': asdict(geometry)}, sort_keys=True, separators=(',', ':'))
-        self._geometry_revision = 'gimbal-geometry-v1:' + hashlib.sha256(fingerprint.encode()).hexdigest()
+        self._geometry_revision = angle_geometry_revision(self.provider_metadata.get('provider'), mount, geometry)
         self._angle_observation = None
 
         # Monitoring state
@@ -611,7 +606,8 @@ class GimbalTracker(BaseTracker):
             observation = GimbalAngleObservation(source, generation, self.provider_metadata['provider'],
                 self._geometry_revision, tuple(angles), system, sequence, received,
                 self._tracking_state_name(status.state) if status is not None and status_received is not None else None,
-                status_received if status is not None else None)
+                status_received if status is not None else None,
+                source_sample=getattr(data, 'source_sample', None))
         except (ValueError, TypeError, KeyError):
             return None, 'gimbal_receipt_metadata_unavailable'
         if observation == self._angle_observation:

@@ -40,9 +40,11 @@ not establish range; a provider bearing is not a measured pixel.
 
 The AppController flight owner owns admission, continuity, final authorization,
 publication and teardown. Do not add strategy-local loss timers, Hold/RTL
-requests or reconnect action replay. Current VTOL admission stays unavailable
-until the transition-preserving release gate passes; declaring native phases
-does not grant it.
+requests or reconnect action replay. Native phase declarations do not grant
+admission: actual phase, ownership, source/timing readiness and the applicable
+qualification remain required. The [standard VTOL application checkpoint](../../reporting/agent-ops/codex-modernization/checkpoints/2026-11-13-vtol-training-app.md)
+records bounded rendered-camera MC/FW Start, speed, Stop and transition-release
+evidence; physical-camera timing and sensorless hardware remain unqualified.
 
 `VectorGuidanceSession` accepts preconstructed phase controls and an explicit
 supported-phase set. Gimbal Vector supplies its existing MC declaration; a
@@ -55,8 +57,11 @@ required. Native cleanup accepts only the original binding's validated typed
 release receipt after local publication quiesces; already-released authority does
 not imply that PixEagle sent Hold. Associated world rays
 use `calculate_ned`; provider/body rays use the existing capability-checked path.
-These are calculation/lifecycle boundaries, not camera timing or VTOL release
-qualification.
+These calculation/lifecycle boundaries do not themselves qualify camera timing
+or VTOL release. The current image workflow selects separate MC Chase and FW
+Navigation Chase profiles while inactive. Installed profiles that resolve an
+approved MC/FW strategy at each Start are proposed, not implemented; reuse these
+owners and registered strategies rather than constructing two followers.
 
 ## Calibrated image input boundary (S5/S6 preparation)
 
@@ -75,9 +80,9 @@ Calibration/attitude alignment and live image-FW admission remain separate gates
 The registered [FW Navigation Chase](../02-reference/fw-navigation-chase.md)
 demonstrates the native image contract. Its ordinary factory constructor reads
 only explicit `FW_NAVIGATION_CHASE` geometry plus shared operational/policy
-settings. It remains experimental with no live-qualified phase; constructor
-success, input selection compatibility and native command shape grant no
-aircraft authority.
+settings. It remains experimental with `fixed_wing` declared live-qualified;
+source/runtime readiness is checked separately. Constructor success, input
+selection compatibility and native command shape grant no aircraft authority.
 
 Use real constructors and actual defaults as well as focused math fixtures.
 Cover complete fields/units, nonzero aim, both axis signs, finite output,

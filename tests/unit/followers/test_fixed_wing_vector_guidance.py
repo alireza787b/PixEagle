@@ -63,12 +63,12 @@ def test_absent_mission_ceiling_preserves_engagement_hold_and_lower_lookahead():
     result = calculate(Vector3(1, 0, -1), planner=planner, state=state, limits=limits)
     assert result.command.altitude_amsl_m == 1500.
     low = aircraft_state(relative_altitude_m=5., altitude_amsl_m=505.)
-    assert FixedWingVectorGuidance._guard_altitude(-1., low, limits) == (0., "altitude_lower_warning_band")
+    assert FixedWingVectorGuidance.guard_altitude(-1., low, limits) == (0., "altitude_lower_warning_band")
     descending = aircraft_state(relative_altitude_m=8., altitude_amsl_m=508.,
                                velocity_ned_m_s=Vector3(20., 0., 4.))
-    assert FixedWingVectorGuidance._guard_altitude(-4., descending, limits) == (0., "altitude_descent_response_limited")
+    assert FixedWingVectorGuidance.guard_altitude(-4., descending, limits) == (0., "altitude_descent_response_limited")
     with pytest.raises(ValueError, match="altitude_hard_limit"):
-        FixedWingVectorGuidance._guard_altitude(1., aircraft_state(relative_altitude_m=2.), limits)
+        FixedWingVectorGuidance.guard_altitude(1., aircraft_state(relative_altitude_m=2.), limits)
 
 
 def test_rearward_noise_does_not_reverse_turn_direction():

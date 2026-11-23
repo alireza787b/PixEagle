@@ -27,7 +27,10 @@ from classes.following_observation_source import (
 from classes.aircraft_state import AircraftKind, AircraftLayout, AirframePhase, GuidanceSessionIdentity
 from classes.fixed_wing_guidance_policy import FixedWingGuidancePolicy
 from classes.native_follow_binding import NativeFollowBinding, requires_native_guidance
-from classes.native_guidance import DEFAULT_SOCKET_PATH, NativeGuidanceError, NativeReleaseReceipt
+from classes.mavlink_follow_binding import MavlinkFollowBinding
+from classes.mavlink_guidance_source import MavlinkStartContext
+from classes.mavlink_vector_guidance_session import MavlinkGuidanceCapabilities, mavlink_session_factory
+from classes.native_guidance import DEFAULT_SOCKET_PATH, NativeGuidanceError, NativeReleaseReceipt, NativeStartContext
 from classes.command_preview import (
     COMMAND_PREVIEW_EXECUTION_MODE,
     CommandPreviewCommander,
@@ -105,6 +108,9 @@ except ImportError:
     logging.warning("SmartTracker not available - AI packages not installed")
 
 
+_GUIDANCE_START_CONTEXT_UNCAPTURED = object()
+
+
 class AppController:
     FOLLOW_START_CANCEL_TIMEOUT_S = 2.0
 
@@ -129,7 +135,7 @@ class AppController:
         self.following_active = False
         self._following_session_id = None
         self._following_observation_source = None
-        self._native_follow_binding = None
+        self._airframe_follow_binding = None
         self._following_session_aircraft_uid = None
         self._following_session_connection_generation = None
         # Immutable ownership captured for a teardown episode. Normal execution
@@ -1135,7 +1141,7 @@ class AppController:
         with state_lock:
             self.tracking_input_frame = snapshot
             previous = getattr(self, 'tracking_input_context', None)
-            self.tracking_input_context = None
+            context = None
             publisher = getattr(self, 'frame_publisher', None)
             source_id = getattr(publisher, 'stream_id', None)
             if (isinstance(capture_geometry, tuple) and len(capture_geometry) == 4
@@ -1160,13 +1166,13 @@ class AppController:
                             and previous.provenance.geometry_revision == revision
                             and previous.provenance.calibration_revision == calibration_revision):
                         context = previous
-                    self.tracking_input_context = context
                 except ValueError:
                     self._image_calibration_binding = None
                     logging.debug('Image frame has no complete capture provenance')
             else:
                 self._image_calibration_binding = None
                 self._image_calibration_error = 'capture_geometry_unavailable'
+            self.tracking_input_context = context
         return snapshot
 
     def _publish_segmentation_selection_snapshot(
@@ -1221,6 +1227,14 @@ class AppController:
             return source.copy() if source is not None else None
 
     def _commit_tracking_image_measurement(self, tracker, output, context, pixel, *, success=True):
+        measurement = self._create_tracking_image_measurement(tracker, output, context, pixel, success=success)
+        committed = None if not isinstance(output, TrackerOutput) else dataclasses.replace(
+            output, image_measurement=measurement,
+            raw_data=dict(output.raw_data or {}), metadata=dict(output.metadata or {}))
+        self._committed_tracker_observation = (tracker, int(getattr(self, '_tracking_session_generation', 0)), committed)
+        return measurement
+
+    def _create_tracking_image_measurement(self, tracker, output, context, pixel, *, success=True):
         """Bind one accepted result to its original frame; never refresh on reads."""
         tracker.image_measurement = None
         if (getattr(tracker, 'is_external_tracker', False)
@@ -1413,6 +1427,7 @@ class AppController:
                 source="target_continuity",
                 reason=reason,
                 guidance_identity=previous_intent.guidance_identity,
+                altitude_hold=previous_intent.altitude_hold,
             )
             if not prepare_follower(reason):
                 raise RuntimeError("follower rejected target-transition preparation")
@@ -2014,6 +2029,7 @@ class AppController:
         """Invalidate asynchronous work associated with the previous target."""
         generation = int(getattr(self, "_tracking_session_generation", 0)) + 1
         self._tracking_session_generation = generation
+        self._committed_tracker_observation = None
         for tracker in (getattr(self, 'tracker', None), getattr(self, 'smart_tracker', None)):
             if tracker is not None:
                 tracker.image_measurement = None
@@ -2066,7 +2082,7 @@ class AppController:
         state = self._get_target_continuity_supervisor().get_status()["authority_state"]
         if state not in {"ACTIVE", "COASTING", "REACQUIRING"}:
             return
-        if time.monotonic() - getattr(self, "_last_continuity_dispatch_at", 0.0) < 0.25:
+        if time.monotonic() - getattr(self, "_last_continuity_dispatch_at", 0.0) < self._continuity_stall_timeout_s:
             return
         await self._dispatch_tracker_observation_after_video_stall()
 
@@ -2493,8 +2509,11 @@ class AppController:
             return
         # Registered native-mode ownership is observed by its own contract;
         # a delayed MAVLink Offboard-exit event cannot revoke that newer owner.
-        if getattr(self, "_native_follow_binding", None) is not None:
+        if isinstance(getattr(self, "_airframe_follow_binding", None), NativeFollowBinding):
             return
+        binding = getattr(self, "_airframe_follow_binding", None)
+        if binding is not None:
+            binding.abort("offboard_mode_exited")
         if not self.following_active:
             # Follow mode already inactive, no action needed
             return
@@ -3298,15 +3317,39 @@ class AppController:
         decision = evaluate_aircraft(
             descriptor, kind.value if isinstance(kind, AircraftKind) else "unknown",
             observed_phase=None if state is None else state.phase.value,
+            phase_owner_verified=getattr(self.px4_interface, 'airframe_contract_ready', False) is True,
         )
         if not decision.eligible:
             result["precondition"] = {"code": decision.reason_code}
             raise ValueError(decision.reason_code)
 
-    async def _prepare_native_follow_binding(self):
+    def _capture_guidance_start_context(self):
+        """Capture a transport-specific source context before startup can await."""
+        profile = Follower.get_mode_info(Parameters.FOLLOWER_MODE)
+        if not profile.get("native_phase_contracts") or self._is_command_preview_configured():
+            return None
+        kind_getter = getattr(self.px4_interface, "get_aircraft_kind", None)
+        kind = kind_getter() if callable(kind_getter) else AircraftKind.UNKNOWN
+        if not isinstance(kind, AircraftKind) or kind in (AircraftKind.UNKNOWN, AircraftKind.MULTICOPTER):
+            return None
+        if not requires_native_guidance(profile, kind,
+                expected_layout=AircraftLayout(getattr(Parameters, "AIRFRAME_LAYOUT", "AUTO"))):
+            return None
+        context = getattr(self.px4_interface, "guidance_start_context", None)
+        state = self.px4_interface.get_aircraft_state()
+        capabilities = self.px4_interface.guidance_capabilities
+        if not isinstance(context, (NativeStartContext, MavlinkStartContext)) or state is None or capabilities is None:
+            raise NativeGuidanceError("native_start_context_required")
+        context.require_match(state.binding, capabilities.runtime_id, phase=state.phase)
+        return context
+
+    @staticmethod
+    def _guidance_start_context_failure(error):
+        return {"steps": [], "errors": [str(error)], "precondition": {"code": str(error)}}
+
+    async def _prepare_airframe_follow_binding(self, start_context):
         """Prepare one owner; only the existing explicit start may engage it."""
-        client = self.px4_interface.native_guidance_client
-        capabilities = None if client is None else client.capabilities
+        capabilities = self.px4_interface.guidance_capabilities
         if capabilities is None:
             raise RuntimeError("native_aircraft_state_unavailable")
         state = self.px4_interface.get_aircraft_state()
@@ -3320,36 +3363,65 @@ class AppController:
         layout = AircraftLayout(getattr(Parameters, "AIRFRAME_LAYOUT", "AUTO"))
         if not layout.matches(state):
             raise RuntimeError("aircraft_layout_mismatch")
+        if not isinstance(start_context, (NativeStartContext, MavlinkStartContext)):
+            raise NativeGuidanceError("native_start_context_required")
+        start_context.require_match(state.binding, capabilities.runtime_id, phase=state.phase)
         concrete = self.follower.follower
         create = getattr(concrete, "create_airframe_session", None)
         if not callable(create):
             raise RuntimeError("follower_native_strategy_unavailable")
+        from classes.received_guidance_input import bind_airframe_input_resolver
+        expected_input = self._follow_start_input_identity()
+
+        def validate_input():
+            try:
+                self._require_follow_start_input_identity(expected_input, {}, stage="native_image_preparation")
+            except RuntimeError as error:
+                raise NativeGuidanceError(str(error)) from error
+
+        try:
+            await bind_airframe_input_resolver(self, concrete, state, capabilities, validate_input=validate_input)
+        except ValueError as error:
+            raise NativeGuidanceError(str(error)) from error
         identity = GuidanceSessionIdentity(self._following_session_id, state.binding, 0)
+        source = self.px4_interface.mavlink_guidance_source
+        options = {"session_factory": mavlink_session_factory(source)} if isinstance(capabilities, MavlinkGuidanceCapabilities) else {}
         guidance = create(
-            identity, capabilities,
+            identity, capabilities, **options,
             confirmation_s=getattr(Parameters, "AIRFRAME_PHASE_CONFIRMATION_S", .5),
             observation_timeout_s=self.px4_interface.get_telemetry_stale_timeout_s(),
             initial_phase=state.phase,
             fixed_wing_policy=FixedWingGuidancePolicy.from_mapping(getattr(Parameters, "FixedWingGuidance", None)),
             expected_layout=layout,
         )
-        binding = NativeFollowBinding(
-            guidance, self.px4_interface, self.px4_interface.native_guidance_client,
-            self._get_target_continuity_supervisor(), profile_name=concrete.profile_name,
-            continuity_config=self._following_continuity_config,
-            target_evidence=lambda: self._target_evidence_snapshot(self.get_tracker_output()),
-            context=self._build_target_continuity_context,
-            circuit_breaker=FollowerCircuitBreaker.is_active,
-        )
-        self._native_follow_binding = binding
+        if isinstance(capabilities, MavlinkGuidanceCapabilities):
+            session_id = self._following_session_id
+            binding = MavlinkFollowBinding(guidance, self.px4_interface, source,
+                self._get_target_continuity_supervisor(), continuity_config=self._following_continuity_config,
+                target_evidence=lambda: self._target_evidence_snapshot(self.get_tracker_output()),
+                context=self._build_target_continuity_context, circuit_breaker=FollowerCircuitBreaker.is_active,
+                owns_session=lambda: (self._following_session_id == session_id and self._airframe_follow_binding is binding
+                                      and self.px4_interface.mavlink_guidance_source is source),
+                command_period_s=1. / OffboardCommander._validate_command_rate_hz(None),
+                prime_duration_s=PX4InterfaceManager.OFFBOARD_PRIME_DURATION_S)
+        else:
+            binding = NativeFollowBinding(
+                guidance, self.px4_interface, self.px4_interface.native_guidance_client,
+                self._get_target_continuity_supervisor(), profile_name=concrete.profile_name,
+                continuity_config=self._following_continuity_config,
+                target_evidence=lambda: self._target_evidence_snapshot(self.get_tracker_output()),
+                context=self._build_target_continuity_context,
+                circuit_breaker=FollowerCircuitBreaker.is_active,
+            )
+        self._airframe_follow_binding = binding
         return binding
 
-    async def refresh_native_following_state(self, selected_mode: str) -> None:
-        """Refresh passive native telemetry on the existing flight owner only."""
+    async def refresh_airframe_following_state(self, selected_mode: str, *, transport="mavlink") -> None:
+        """Stock observations by default; native remains an explicit advanced tool."""
         from classes.follower_catalog import get_follower_profile
 
         profile = get_follower_profile(selected_mode)
-        if (not profile.native_phase_contracts or not profile.live_eligibility.eligible
+        if (not profile.native_phase_contracts or not profile.implementation_available
                 or self._is_command_preview_configured()
                 or self.px4_interface.get_aircraft_kind() not in (AircraftKind.FIXED_WING, AircraftKind.VTOL)):
             return
@@ -3360,7 +3432,7 @@ class AppController:
         async def refresh():
             async with self._follower_state_lock:
                 if (getattr(self, "shutdown_flag", False) or self.following_active
-                        or getattr(self, "_native_follow_binding", None) is not None
+                        or getattr(self, "_airframe_follow_binding", None) is not None
                         or getattr(self, "_following_stopping", False)
                         or getattr(self, "_following_offboard_cleanup_required", False)
                         or self._is_command_preview_configured()
@@ -3371,12 +3443,21 @@ class AppController:
                     return
                 if requires_native_guidance({"native_phase_contracts": dict(profile.native_phase_contracts)}, kind,
                         expected_layout=AircraftLayout(getattr(Parameters, "AIRFRAME_LAYOUT", "AUTO"))):
-                    await self.px4_interface.prepare_native_guidance(DEFAULT_SOCKET_PATH)
+                    if transport == "native":
+                        await self.px4_interface.prepare_native_guidance(DEFAULT_SOCKET_PATH)
+                    elif transport == "mavlink":
+                        if self.px4_interface.mavlink_guidance_source is None:
+                            try:
+                                await self.px4_interface.prepare_mavlink_guidance(lookahead_m=Parameters.FW_ATTITUDE_RATE["L1_DISTANCE"])
+                            except (ValueError, asyncio.TimeoutError) as error:
+                                raise NativeGuidanceError(str(error)) from error
+                    else:
+                        raise ValueError("guidance_transport_invalid")
 
         await self._run_on_flight_event_loop(refresh)
 
-    async def _stop_native_follow_binding(self, result, *, reason, allow_handoff=True):
-        binding = self._native_follow_binding
+    async def _stop_airframe_follow_binding(self, result, *, reason, allow_handoff=True):
+        binding = self._airframe_follow_binding
         try:
             if not allow_handoff:
                 binding.abort(reason)
@@ -3385,11 +3466,12 @@ class AppController:
             if outcome.get("errors") or not outcome.get("local_sender_quiesced"):
                 raise RuntimeError("native_follow_release_not_confirmed")
             self._following_offboard_cleanup_required = False
-            self._native_follow_binding = None
-            result["steps"].append("Native command owner released")
+            self._airframe_follow_binding = None
+            result["steps"].append("Following command sender quiesced")
         except Exception as exc:
             self._following_offboard_cleanup_required = True
-            result["errors"].append(f"Native command owner cleanup failed: {exc}")
+            result["errors"].append(f"Guidance command owner cleanup failed: {exc}")
+            logging.error("Guidance command owner release unconfirmed: %s", exc)
 
     def _get_command_preview_readiness(
         self,
@@ -3425,15 +3507,25 @@ class AppController:
                 return
             await self.px4_interface.connect()
             await self.px4_interface.observe_aircraft_identity()
+            manager = getattr(self, 'mavlink_data_manager', None)
+            request_identity = getattr(manager, 'request_aircraft_identity', None)
+            if callable(request_identity):
+                await asyncio.to_thread(request_identity)
 
     async def connect_px4(
         self, native_start_guard=None, *, native_attempt_id=None, native_aircraft_uid=None,
+        guidance_start_context=_GUIDANCE_START_CONTEXT_UNCAPTURED,
     ) -> Dict[str, any]:
         """Start one follow session on the stable flight owner loop."""
+        if guidance_start_context is _GUIDANCE_START_CONTEXT_UNCAPTURED:
+            try:
+                guidance_start_context = self._capture_guidance_start_context()
+            except NativeGuidanceError as error:
+                return self._guidance_start_context_failure(error)
         return await self._run_on_flight_event_loop(
-            self._connect_px4_once_on_flight_loop if native_start_guard is None
-            else lambda: self._connect_px4_once_on_flight_loop(
+            lambda: self._connect_px4_once_on_flight_loop(
                 native_start_guard, native_attempt_id, native_aircraft_uid,
+                guidance_start_context=guidance_start_context,
             )
         )
 
@@ -3517,6 +3609,33 @@ class AppController:
                 else "following_observation_source_unavailable")
         return {"ready": verdict is ObservationSourceVerdict.UNCHANGED,
                 "reason_code": None if verdict is ObservationSourceVerdict.UNCHANGED else code}
+
+    @property
+    def _continuity_stall_timeout_s(self):
+        return .25
+
+    def _current_image_measurement(self, output) -> bool:
+        """Qualify the original receipt within the existing dispatch/command budget."""
+        measurement = getattr(output, 'image_measurement', None)
+        context = getattr(self, 'tracking_input_context', None)
+        if (getattr(self, 'shutdown_flag', False) or measurement is None
+                or not isinstance(context, ImageFrameContext)
+                or self._guidance_source_verdict(output) is not ObservationSourceVerdict.UNCHANGED
+                or not evaluate_tracker_command_freshness(output)['usable_for_following']):
+            return False
+        try:
+            ttl = getattr(getattr(self, 'offboard_commander', None), 'command_ttl_s', None)
+            timeout = min(OffboardCommander._validate_command_ttl_s(ttl), self._continuity_stall_timeout_s)
+            provenance = context.provenance
+            measurement.provenance.require_current(source_id=self.frame_publisher.stream_id,
+                source_epoch=self.frame_publisher.control_source_epoch,
+                target_generation=int(getattr(self, '_tracking_session_generation', 0)),
+                geometry_revision=provenance.geometry_revision,
+                calibration_revision=provenance.calibration_revision,
+                now_monotonic_s=time.monotonic(), max_receipt_age_s=timeout)
+            return True
+        except (AttributeError, TypeError, ValueError):
+            return False
 
     def _freeze_following_observation_source(self) -> tuple:
         output = self.get_tracker_output()
@@ -3608,7 +3727,7 @@ class AppController:
             if (current.get("autopilot_uid"), current.get("connection_generation")) != aircraft_key:
                 raise DispatchRefused("following_aircraft_context_changed", DispatchRefusalKind.SUPERSEDED
                                       if teardown else DispatchRefusalKind.TERMINAL)
-            binding = getattr(self, "_native_follow_binding", None)
+            binding = getattr(self, "_airframe_follow_binding", None)
             if not preview and binding is None:
                 manager = getattr(aircraft, "mavlink_data_manager", None) or getattr(self, "mavlink_data_manager", None)
                 flight_getter = getattr(manager, "get_flight_state", None)
@@ -3627,8 +3746,14 @@ class AppController:
 
     async def _connect_px4_once_on_flight_loop(
         self, native_start_guard=None, native_attempt_id=None, native_aircraft_uid=None,
+        *, guidance_start_context=_GUIDANCE_START_CONTEXT_UNCAPTURED,
     ) -> Dict[str, Any]:
         """Coalesce concurrent starts and retain an abortable startup task."""
+        if guidance_start_context is _GUIDANCE_START_CONTEXT_UNCAPTURED:
+            try:
+                guidance_start_context = self._capture_guidance_start_context()
+            except NativeGuidanceError as error:
+                return self._guidance_start_context_failure(error)
         existing = getattr(self, "_follow_start_task", None)
         if existing is not None and not existing.done():
             if native_start_guard is not None:
@@ -3641,8 +3766,7 @@ class AppController:
         self._native_follow_start_connection_generation = None
 
         start_task = asyncio.create_task(
-            self._connect_px4_on_flight_loop() if native_start_guard is None
-            else self._connect_px4_on_flight_loop(native_start_guard),
+            self._connect_px4_on_flight_loop(native_start_guard, guidance_start_context=guidance_start_context),
             name="pixeagle-follow-start",
         )
         self._follow_start_task = start_task
@@ -3704,7 +3828,7 @@ class AppController:
 
             has_runtime_components = any(
                 getattr(self, name, None) is not None
-                for name in ("offboard_commander", "setpoint_sender", "follower", "_native_follow_binding")
+                for name in ("offboard_commander", "setpoint_sender", "follower", "_airframe_follow_binding")
             )
             if self.following_active or has_runtime_components:
                 result["steps"].append(
@@ -3822,7 +3946,9 @@ class AppController:
 
         return result
 
-    async def _connect_px4_on_flight_loop(self, native_start_guard=None) -> Dict[str, Any]:
+    async def _connect_px4_on_flight_loop(
+        self, native_start_guard=None, *, guidance_start_context=_GUIDANCE_START_CONTEXT_UNCAPTURED,
+    ) -> Dict[str, Any]:
         """
         Enhanced PX4 connection with unified command protocol support.
         Automatically stops existing follower if active before starting a new one.
@@ -3830,6 +3956,12 @@ class AppController:
         Returns:
             Dict with status information including steps taken and any errors
         """
+        guidance_context_error = None
+        if guidance_start_context is _GUIDANCE_START_CONTEXT_UNCAPTURED:
+            try:
+                guidance_start_context = self._capture_guidance_start_context()
+            except NativeGuidanceError as error:
+                guidance_context_error = error
         if native_start_guard is not None and self._is_command_preview_configured():
             return {"steps": [], "errors": ["Native aircraft following requires PX4 execution."],
                     "precondition": {"code": "native_follow_preview_unavailable"}}
@@ -3838,8 +3970,8 @@ class AppController:
 
         result = {"steps": [], "errors": [], "auto_stopped": False}
         offboard_cleanup_required = False
-        native_binding = None
-        initial_native_intent = None
+        airframe_binding = None
+        initial_phase_intent = None
         mavsdk_start_attempted = False
 
         configured_profile = Follower.get_mode_info(Parameters.FOLLOWER_MODE)
@@ -3853,6 +3985,8 @@ class AppController:
                 result["errors"].append("A previous follow teardown is still unresolved.")
                 result["precondition"] = {"code": "following_stop_pending"}
                 return result
+            if guidance_context_error is not None:
+                return self._guidance_start_context_failure(guidance_context_error)
             if native_start_guard is not None:
                 try:
                     native_start_guard("before_start")
@@ -3889,7 +4023,7 @@ class AppController:
             # Auto-stop if follower is already active (user-friendly feature)
             has_runtime_components = any(
                 getattr(self, name, None) is not None
-                for name in ("offboard_commander", "setpoint_sender", "follower", "_native_follow_binding")
+                for name in ("offboard_commander", "setpoint_sender", "follower", "_airframe_follow_binding")
             )
             if self.following_active or has_runtime_components:
                 logging.info("Follower already active - automatically stopping before restart...")
@@ -3955,16 +4089,24 @@ class AppController:
                     "Complete follower telemetry confirmed "
                     f"({telemetry_readiness.get('source', 'unknown')})"
                 )
-                native_required = False
+                phase_owner_required = False
                 kind = self.px4_interface.get_aircraft_kind()
                 if (configured_profile.get("native_phase_contracts") and isinstance(kind, AircraftKind)
                         and kind is not AircraftKind.UNKNOWN):
-                    native_required = requires_native_guidance(
+                    phase_owner_required = requires_native_guidance(
                         configured_profile, kind,
                         expected_layout=AircraftLayout(getattr(Parameters, "AIRFRAME_LAYOUT", "AUTO")),
                     )
-                if native_required:
-                    await self.px4_interface.prepare_native_guidance(DEFAULT_SOCKET_PATH)
+                if phase_owner_required:
+                    if isinstance(guidance_start_context, MavlinkStartContext):
+                        try:
+                            await self.px4_interface.prepare_mavlink_guidance(lookahead_m=Parameters.FW_ATTITUDE_RATE["L1_DISTANCE"])
+                        except (ValueError, asyncio.TimeoutError) as error:
+                            raise NativeGuidanceError(str(error)) from error
+                    else:
+                        await self.px4_interface.prepare_native_guidance(DEFAULT_SOCKET_PATH)
+                elif guidance_start_context is not None:
+                    raise NativeGuidanceError("native_start_context_changed")
                 self._require_live_aircraft_profile(configured_profile, result)
 
                 initial_target_coords = resolve_initial_target_coords(
@@ -4005,14 +4147,14 @@ class AppController:
                     raise
 
                 self._require_follow_start_input_identity(start_input_identity, result, stage="after_connection")
-                if native_required:
+                if phase_owner_required:
                     # Discovery supplies real native state, but acquires no mode.
-                    native_binding = await self._prepare_native_follow_binding()
+                    airframe_binding = await self._prepare_airframe_follow_binding(guidance_start_context)
                     self._require_live_aircraft_profile(configured_profile, result)
                     self._require_follow_start_input_identity(start_input_identity, result, stage="after_native_discovery")
                 self._require_follow_start_readiness(
                     result,
-                    stage="after_native_discovery" if native_required else "before_offboard",
+                    stage="after_native_discovery" if phase_owner_required else "before_offboard",
                 )
                 altitude = evaluate_following_start_altitude(
                     self, limits=self.follower.follower.altitude_limits,
@@ -4034,11 +4176,12 @@ class AppController:
                 try:
                     # Cancellation can arrive while MAVSDK is awaiting its ack.
                     # Treat that interval as possibly entered Offboard.
-                    if native_required:
-                        initial_native_intent = await native_binding.engage(
+                    if phase_owner_required:
+                        initial_phase_intent = await airframe_binding.engage(
+                            start_context=guidance_start_context,
                             before_dispatch=startup_dispatch_guard, on_mode_dispatch=mode_dispatched)
-                        self.follower.follower.bind_airframe_session(native_binding.guidance)
-                        offboard_result = {"executed": True, "command_owner": "px4_native_external_mode"}
+                        self.follower.follower.bind_airframe_session(airframe_binding.guidance)
+                        offboard_result = {"executed": True, "command_owner": airframe_binding.transport.publication_source}
                     else:
                         mavsdk_start_attempted = True
                         offboard_result = await self.px4_interface.start_offboard_mode(
@@ -4055,7 +4198,7 @@ class AppController:
                         raise RuntimeError("; ".join(offboard_result["errors"]))
                     if offboard_result.get("executed") is True:
                         result["steps"].append(
-                            "Native external-mode ownership confirmed" if native_binding is not None
+                            "Phase-bound command ownership confirmed" if airframe_binding is not None
                             else "MAVSDK Offboard start command acknowledged"
                         )
                     elif offboard_result.get("simulated") is True:
@@ -4087,7 +4230,7 @@ class AppController:
                     result["errors"].append(error_msg)
                     raise
 
-                if native_binding is None:
+                if airframe_binding is None:
                     self._reset_follower_control_session()
                 # Create the application-level MAVSDK setter owner. MAVSDK itself
                 # independently retransmits the latest setpoint for PX4's wire
@@ -4098,15 +4241,15 @@ class AppController:
                         self.follower.follower.setpoint_handler,
                         on_failure_threshold=lambda status, session=self._following_session_id:
                             self._schedule_offboard_commander_failure(status, expected_session_id=session),
-                        before_dispatch=self._command_dispatch_guard(initial_native_intent),
+                        before_dispatch=self._command_dispatch_guard(initial_phase_intent),
                         stop_before_dispatch=self._command_dispatch_guard(teardown=True),
                         dispatch_context=self._command_dispatch_context(),
                         on_publish_result=self._record_offboard_publish_result,
-                        command_transport=native_binding.transport if native_binding is not None else None,
+                        command_transport=airframe_binding.transport if airframe_binding is not None else None,
                     )
                     self._assert_setpoint_handler_ownership(require_commander=True)
-                    if native_binding is not None and not self._submit_command_intent_to_commander(initial_native_intent):
-                        raise RuntimeError("Initial native phase objective was rejected")
+                    if airframe_binding is not None and not self._submit_command_intent_to_commander(initial_phase_intent):
+                        raise RuntimeError("Initial phase objective was rejected")
 
                     commander_started = await self.offboard_commander.start()
                     if commander_started:
@@ -4159,6 +4302,8 @@ class AppController:
                 )
                 raise
             except Exception as e:
+                if isinstance(e, NativeGuidanceError):
+                    result.setdefault("precondition", {"code": str(e)})
                 error_msg = f"Failed to connect/start offboard mode: {e}"
                 logging.error(error_msg)
                 result["errors"].append(error_msg)
@@ -4212,8 +4357,8 @@ class AppController:
                       if mavsdk_start_attempted else None)
         if isinstance(preacquire, dict) and preacquire.get("local_sender_quiesced") is True:
             offboard_cleanup_required = False
-        if getattr(self, "_native_follow_binding", None) is not None:
-            await self._stop_native_follow_binding(
+        if getattr(self, "_airframe_follow_binding", None) is not None:
+            await self._stop_airframe_follow_binding(
                 result, reason="follow_start_failed", allow_handoff=offboard_cleanup_required,
             )
         elif offboard_cleanup_required:
@@ -4272,7 +4417,7 @@ class AppController:
         retry_failed: bool = False,
     ) -> Dict[str, Any]:
         """Join one teardown episode; only an explicit Stop may retry failure."""
-        native = getattr(self, "_native_follow_binding", None)
+        native = getattr(self, "_airframe_follow_binding", None)
         if native is not None and native.terminal_reason:
             reason_code = native.terminal_reason
         existing = getattr(self, "_following_stop_future", None)
@@ -4335,7 +4480,7 @@ class AppController:
     async def _complete_following_teardown(self, retained, **options) -> Dict[str, Any]:
         """Retain the teardown outcome even if all request waiters disconnect."""
         preview = retained["execution_mode"] == COMMAND_PREVIEW_EXECUTION_MODE
-        native_binding = getattr(self, "_native_follow_binding", None)
+        airframe_binding = getattr(self, "_airframe_follow_binding", None)
         supervisor = self._get_target_continuity_supervisor() if not options["reset_continuity"] else None
         session = retained["follow_session_id"]
         try:
@@ -4354,7 +4499,7 @@ class AppController:
             if (not options["reset_continuity"]
                     and supervisor is getattr(self, "target_continuity", None)
                     and getattr(self, "_following_session_id", None) in (None, session)):
-                success, detail = self._following_teardown_confirmation(result, preview, native_binding)
+                success, detail = self._following_teardown_confirmation(result, preview, airframe_binding)
                 supervisor.record_handoff_result(success=success, detail=detail)
             if (not result.get("errors") and not self.following_active
                     and getattr(self, "offboard_commander", None) is None
@@ -4393,7 +4538,7 @@ class AppController:
 
         has_runtime_components = any(
             getattr(self, name, None) is not None
-            for name in ("offboard_commander", "setpoint_sender", "follower", "_native_follow_binding")
+            for name in ("offboard_commander", "setpoint_sender", "follower", "_airframe_follow_binding")
         )
         cleanup_required = bool(getattr(self, "_following_offboard_cleanup_required", False))
         if not self.following_active and not has_runtime_components and not cleanup_required:
@@ -4420,7 +4565,7 @@ class AppController:
 
                     commander = self.offboard_commander
                     stopped = await commander.stop(
-                        publish_final=commander_publish_final and getattr(self, "_native_follow_binding", None) is None
+                        publish_final=commander_publish_final and getattr(self, "_airframe_follow_binding", None) is None
                     )
                     if not stopped:
                         raise RuntimeError(
@@ -4454,8 +4599,8 @@ class AppController:
 
             # Do not attempt a final command when MAVSDK has already confirmed
             # the link is gone. PX4 owns the configured Offboard-loss failsafe.
-            if getattr(self, "_native_follow_binding", None) is not None:
-                await self._stop_native_follow_binding(
+            if getattr(self, "_airframe_follow_binding", None) is not None:
+                await self._stop_airframe_follow_binding(
                     result, reason=context.get("reason_code", "operator_stop"),
                     allow_handoff=attempt_offboard_stop,
                 )
@@ -6006,9 +6151,9 @@ class AppController:
             return False
 
         try:
-            native_binding = getattr(self, "_native_follow_binding", None)
-            if native_binding is not None:
-                paused = native_binding.paused_baseline()
+            airframe_binding = getattr(self, "_airframe_follow_binding", None)
+            if airframe_binding is not None:
+                paused = airframe_binding.paused_baseline()
                 if paused is not None:
                     nominal_intent = paused
             decision = self._get_target_continuity_supervisor().evaluate(
@@ -6244,7 +6389,7 @@ class AppController:
             publisher_healthy=publisher_healthy,
             vehicle_yaw_deg=(None if yaw is None else float(yaw)),
         )
-        binding = getattr(self, "_native_follow_binding", None)
+        binding = getattr(self, "_airframe_follow_binding", None)
         return binding.context(context) if binding is not None else context
 
     def _execute_target_continuity_handoff(self, reason: str):
@@ -6255,16 +6400,19 @@ class AppController:
         return self._continuity_cleanup(reason, require_active=False)
 
     @staticmethod
-    def _following_teardown_confirmation(result, preview, native_binding):
+    def _following_teardown_confirmation(result, preview, airframe_binding):
         """Confirm only this teardown's original native acquisition or MAVSDK outcome."""
         outcome = result.get("offboard_stop_action") or {}
         receipt = None
-        if isinstance(native_binding, NativeFollowBinding):
+        if isinstance(airframe_binding, NativeFollowBinding):
             try:
-                receipt = native_binding.release_receipt
+                receipt = airframe_binding.release_receipt
             except NativeGuidanceError:
                 pass
-        if native_binding is not None:
+        if isinstance(airframe_binding, MavlinkFollowBinding):
+            success = (not result.get("errors") and outcome.get("local_sender_quiesced") is True
+                       and airframe_binding.release_confirmed)
+        elif airframe_binding is not None:
             success = (not result.get("errors") and outcome.get("local_sender_quiesced") is True
                        and isinstance(receipt, NativeReleaseReceipt) and receipt.released)
         else:
@@ -6279,7 +6427,7 @@ class AppController:
         session = getattr(self, "_following_session_id", None)
         supervisor = self._get_target_continuity_supervisor()
         preview = self._is_command_preview_session()
-        native_binding = getattr(self, "_native_follow_binding", None)
+        airframe_binding = getattr(self, "_airframe_follow_binding", None)
 
         async def cleanup():
             async with self._follower_state_lock:
@@ -6295,7 +6443,7 @@ class AppController:
             if (getattr(self, "_following_session_id", None) not in (None, session)
                     or supervisor is not getattr(self, "target_continuity", None)):
                 return
-            success, detail = self._following_teardown_confirmation(result, preview, native_binding)
+            success, detail = self._following_teardown_confirmation(result, preview, airframe_binding)
             if require_active:
                 log = logging.info if success else logging.error
                 log("Target continuity handoff (%s): %s", reason, detail)
@@ -6394,6 +6542,16 @@ class AppController:
             frame_status=frame_status,
         )
         return await self._dispatch_tracker_output_to_follower(tracker_output)
+
+    async def handle_video_frame_no_new_capture(self, frame_status=None) -> bool:
+        """Pump control work without treating a display repeat as a measurement."""
+        self._capture_app_event_loop()
+        if not self._tracker_requires_video_for_following() and self.following_active:
+            return await self._run_on_flight_event_loop(self._dispatch_tracker_observation_after_video_stall)
+        if not self._tracker_requires_video_for_following():
+            self._refresh_non_video_tracker_output()
+        await asyncio.sleep(0)
+        return False
 
     async def handle_video_frame_unavailable(
         self,
@@ -6625,6 +6783,27 @@ class AppController:
     # ==================== Enhanced Tracker Schema Methods ====================
     
     def get_tracker_output(self) -> Optional[TrackerOutput]:
+        lock = getattr(self, '_tracker_model_state_lock', None)
+        if lock is not None and not lock.acquire(blocking=False):
+            return self._read_committed_tracker_output()
+        try:
+            return self._read_tracker_output()
+        finally:
+            if lock is not None:
+                lock.release()
+
+    def _read_committed_tracker_output(self) -> Optional[TrackerOutput]:
+        committed = getattr(self, '_committed_tracker_observation', None)
+        current = (getattr(self, 'smart_tracker', None) if getattr(self, 'smart_mode_active', False)
+                   and getattr(self, 'smart_tracker', None) else getattr(self, 'tracker', None))
+        if (committed is not None and committed[0] is current
+                and committed[1] == int(getattr(self, '_tracking_session_generation', 0))
+                and self._current_image_measurement(committed[2])):
+            return dataclasses.replace(committed[2], raw_data=dict(committed[2].raw_data or {}),
+                                       metadata=dict(committed[2].metadata or {}))
+        return None
+
+    def _read_tracker_output(self) -> Optional[TrackerOutput]:
         """
         Gets structured output from the current active tracker.
         
@@ -6791,6 +6970,11 @@ class AppController:
 
         reason = self._tracker_output_unusable_reason(tracker_output)
         frame_status = self._get_video_frame_status_for_following()
+        committed = (self._read_committed_tracker_output()
+                     if frame_status.get('retained_measurement_usable') is True else None)
+        retained_measurement = bool(committed is not None
+            and tracker_output.timestamp == committed.timestamp
+            and tracker_output.image_measurement == committed.image_measurement)
 
         # Replay retains its provenance. Owned SIH admission is resolved by
         # the shared frame helper; COMMAND_PREVIEW uses no network publisher.
@@ -6802,6 +6986,7 @@ class AppController:
             self._tracker_requires_video_for_following()
             and frame_status
             and not frame_status.get("usable_for_following", False)
+            and not retained_measurement
             and not replay_preview_active
         ):
             reason = reason or f"video_frame_{frame_status.get('source', 'unusable')}"
@@ -6910,7 +7095,15 @@ class AppController:
         if video_handler and hasattr(video_handler, "get_frame_status"):
             try:
                 from classes.sih_replay import following_video_frame_status
-                return following_video_frame_status(self, video_handler.get_frame_status())
+                status = following_video_frame_status(self, video_handler.get_frame_status())
+                status.pop('retained_measurement_usable', None)
+                if status.get('awaiting_new_capture') is True:
+                    output = self._read_committed_tracker_output()
+                    original = getattr(getattr(output, 'image_measurement', None), 'provenance', None)
+                    original = getattr(original, 'capture', None)
+                    status['retained_measurement_usable'] = bool(original is not None
+                        and str(status.get('frame_sequence')) == original.capture_id)
+                return status
             except Exception as e:
                 logging.error("Error reading video frame freshness status: %s", e)
 

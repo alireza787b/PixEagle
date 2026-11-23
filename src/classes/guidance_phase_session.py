@@ -9,8 +9,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from enum import Enum
+from typing import Protocol
 from classes.aircraft_state import AircraftLayout, AircraftState, AirframePhase, GuidanceSessionIdentity, finite_number
-from classes.native_guidance import NativeCapabilities
+
+
+class GuidanceCapabilities(Protocol):
+    """Strategy support, separate from each transport's authority receipts."""
+
+    runtime_id: str
+    fixed_wing_supported: bool
+    multicopter_supported: bool
+    multicopter_altitude_hold_supported: bool
+    unrestricted_speed_supported: bool
 
 
 class PhaseSessionState(str, Enum):
@@ -30,7 +40,7 @@ class PhaseDecision:
 
 
 class GuidancePhaseSession:
-    def __init__(self, identity: GuidanceSessionIdentity, capabilities: NativeCapabilities, *,
+    def __init__(self, identity: GuidanceSessionIdentity, capabilities: GuidanceCapabilities, *,
                  confirmation_s: float, observation_timeout_s: float,
                  expected_layout: AircraftLayout = AircraftLayout.AUTO, initial_phase: AirframePhase | None = None):
         if finite_number(confirmation_s, "phase_confirmation") < 0:

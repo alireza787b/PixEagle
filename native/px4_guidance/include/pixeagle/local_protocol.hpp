@@ -7,7 +7,7 @@
 namespace pixeagle {
 
 using Json = nlohmann::json;
-constexpr std::uint64_t kProtocolVersion = 3;
+constexpr std::uint64_t kProtocolVersion = 5;
 constexpr std::size_t kMaximumMessageBytes = 65536;
 
 inline void exactFields(const Json& object, const std::set<std::string>& names) {
@@ -34,6 +34,19 @@ inline std::string nonemptyString(const Json& value) {
     return result;
 }
 
+struct AltitudeReference {
+    double altitude_amsl;
+    std::uint64_t generation;
+};
+
+inline AltitudeReference decodeAltitudeReference(const Json& value) {
+    exactFields(value, {"altitude_amsl_m", "reference_generation"});
+    const auto altitude = finiteNumber(value.at("altitude_amsl_m"));
+    if (!nativeFloatRepresentable(altitude))
+        throw std::invalid_argument("native_value_not_representable");
+    return {altitude, unsignedInteger(value.at("reference_generation"))};
+}
+
 inline Identity decodeIdentity(const Json& value) {
     exactFields(value, {"follow_session_id", "binding", "guidance_generation"});
     const auto& binding = value.at("binding");
@@ -54,6 +67,13 @@ inline Objective decodeObjective(const Json& value, Phase phase) {
             value.at("altitude_amsl_m").is_null() ? std::nullopt : std::optional<double>{finiteNumber(value.at("altitude_amsl_m"))}};
     }
     if (phase == Phase::Multicopter) {
+        if (value.contains("altitude_amsl_m") || value.contains("altitude_reference_generation")) {
+            exactFields(value, {"velocity_north_m_s", "velocity_east_m_s", "altitude_amsl_m",
+                               "altitude_reference_generation", "yaw_rate_rad_s"});
+            return MulticopterObjective{finiteNumber(value.at("velocity_north_m_s")),
+                finiteNumber(value.at("velocity_east_m_s")), std::nullopt, finiteNumber(value.at("yaw_rate_rad_s")),
+                finiteNumber(value.at("altitude_amsl_m")), unsignedInteger(value.at("altitude_reference_generation"))};
+        }
         exactFields(value, {"velocity_north_m_s", "velocity_east_m_s", "velocity_down_m_s", "yaw_rate_rad_s"});
         return MulticopterObjective{finiteNumber(value.at("velocity_north_m_s")), finiteNumber(value.at("velocity_east_m_s")),
                                      finiteNumber(value.at("velocity_down_m_s")), finiteNumber(value.at("yaw_rate_rad_s"))};

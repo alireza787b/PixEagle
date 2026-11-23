@@ -50,8 +50,8 @@ import yaml
 from filterpy.kalman import ExtendedKalmanFilter
 from filterpy.common import Q_discrete_white_noise
 from simple_pid import PID
-from mavsdk import System
-from mavsdk.offboard import (
+from mavsdk_grpc import System
+from mavsdk_grpc.offboard import (
     OffboardError,
     PositionGlobalYaw,
     PositionNedYaw,

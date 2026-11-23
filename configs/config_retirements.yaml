@@ -3,13 +3,6 @@ registry_version: 1
 # Only exact paths listed here may be removed by config migration. Absence from
 # config_default.yaml or config_schema.yaml never makes an extension obsolete.
 retirements:
-  - id: remove-undefined-session-velocity-override-v1
-    path: [Safety, ALLOW_SESSION_VELOCITY_OVERRIDE]
-    action: remove
-    retired_in_schema_version: 1.11.0
-    reason: This saved key has no runtime reader or schema definition. Session controls are advertised by the active follower capability contract.
-    replacement: null
-
   - id: end-following-on-vtol-transition-v1
     path: [Follower, VTOL_TRANSITION_TIMEOUT_S]
     action: remove

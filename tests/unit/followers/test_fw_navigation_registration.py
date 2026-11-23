@@ -73,13 +73,14 @@ def test_missing_or_malformed_profile_geometry_has_no_constructor_fallback(publi
             FollowerFactory.create_follower(PROFILE, SimpleNamespace(is_command_preview=False), (0., 0.))
 
 
-def test_catalog_advertises_input_selection_separately_from_closed_live_gate():
+def test_catalog_separates_declared_phase_permission_from_native_vtol_and_input_gates():
     profile = get_follower_profile(PROFILE)
     assert profile.implementation_available
     assert profile.family == 'fixed_wing' and profile.visibility == 'experimental'
     assert profile.phase_command_contracts == {'fixed_wing': 'fixed_wing_external'}
-    assert profile.live_qualified_phases == ()
-    assert evaluate_aircraft(profile, 'fixed_wing').reason_code == 'profile_not_live_qualified'
+    assert profile.live_qualified_phases == ('fixed_wing',)
+    assert evaluate_aircraft(profile, 'fixed_wing').eligible
+    assert evaluate_aircraft(profile, 'vtol', observed_phase='fixed_wing', phase_owner_verified=True).eligible
     assert evaluate_aircraft(profile, 'multicopter').reason_code == 'follower_aircraft_incompatible'
     assert evaluate_aircraft(profile, 'vtol', observed_phase='fixed_wing').reason_code == 'vtol_transition_release_unqualified'
     assert evaluate_input(profile, get_schema_manager(), 'POSITION_2D', tracker_name='CSRTTracker').eligible
@@ -103,11 +104,11 @@ def test_registration_preserves_public_starter_settings(defaults):
 def test_registered_profile_uses_shared_altitude_permission_and_safety_identity(published):
     config = deepcopy(published)
     config['Follower']['FollowerOverrides'][SECTION] = {'ENABLE_ALTITUDE_CONTROL': True}
-    config['Safety']['FollowerOverrides'][SECTION] = {'MIN_ALTITUDE': 12.0}
+    config['Safety']['FollowerOverrides'][SECTION] = {'MIN_ALTITUDE': 40.0}
     Parameters.publish_config_mapping(config)
     follower = FollowerFactory.create_follower(PROFILE, SimpleNamespace(is_command_preview=False), (0., 0.))
     assert follower.enable_altitude_control is True
-    assert follower.altitude_limits.min_altitude == 12.0
+    assert follower.altitude_limits.min_altitude == 40.0
     assert follower.altitude_limits.safety_enabled is True
 
 

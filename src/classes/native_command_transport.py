@@ -11,9 +11,10 @@ import time
 from typing import Awaitable, Callable
 
 from classes.aircraft_state import AircraftState, AirframePhase, Vector3, heading_frame_to_ned
-from classes.command_intent import CommandIntent
+from classes.command_intent import AltitudeHoldReference, CommandIntent
 from classes.command_dispatch_guard import DispatchRefused, DispatchRefusalKind
 from classes.fixed_wing_vector_guidance import FixedWingCommand
+from classes.safety_types import AltitudeLimits
 from classes.native_guidance import (
     ExternalModeIntent, NativeAcquisitionContext, NativeBackendRefusal, NativeMulticopterCommand, NativeReleaseReceipt,
 )
@@ -22,14 +23,23 @@ from classes.native_guidance import (
 class NativeCommandTransport:
     publication_source = "px4_native_external_mode"
 
+    def _commit_observation(self, observation, state):
+        consumer = getattr(self.connection, 'commit_native_observation', None)
+        if callable(consumer):
+            return consumer(observation) is True
+        self.connection.commit_aircraft_state(state)
+        return self.connection.get_aircraft_state() == state
+
     def __init__(self, client, connection, identity, *, circuit_breaker, clock=time.monotonic,
-                 on_observation: Callable[[AircraftState | None, dict, CommandIntent], Awaitable[CommandIntent]] | None = None):
+                 on_observation: Callable[[AircraftState | None, dict, CommandIntent], Awaitable[CommandIntent]] | None = None,
+                 altitude_limits: AltitudeLimits | None = None):
         self.client = client
         self.connection = connection
         self.identity = identity
         self.circuit_breaker = circuit_breaker
         self.clock = clock
         self.on_observation = on_observation
+        self.altitude_limits = altitude_limits
         self._sequence = 0
         self._last_created = None
         self.last_feedback = None
@@ -106,7 +116,18 @@ class NativeCommandTransport:
                 raise ValueError("native_mc_command_contract_invalid")
             velocity = heading_frame_to_ned(Vector3(fields["vel_body_fwd"], fields["vel_body_right"],
                                                      fields["vel_body_down"]), state.navigation_heading_rad)
-            return NativeMulticopterCommand(velocity, math.radians(fields["yawspeed_deg_s"]))
+            hold = intent.altitude_hold
+            if hold is not None:
+                if (not isinstance(hold, AltitudeHoldReference)
+                        or not self.client.capabilities.multicopter_altitude_hold_supported
+                        or not isinstance(self.altitude_limits, AltitudeLimits)):
+                    raise ValueError("native_mc_altitude_hold_unavailable")
+                if hold.reference_generation != state.altitude_reference_generation:
+                    raise ValueError("altitude_reference_changed")
+                self.altitude_limits.require_hold_target(
+                    hold.altitude_amsl_m, current_amsl_m=state.altitude_amsl_m,
+                    current_relative_m=state.relative_altitude_m)
+            return NativeMulticopterCommand(velocity, math.radians(fields["yawspeed_deg_s"]), hold)
         raise ValueError("native_phase_contract_unavailable")
 
     def accept_intent(self, intent: CommandIntent) -> CommandIntent:
@@ -143,9 +164,9 @@ class NativeCommandTransport:
         state_rejected = False
         if (incoming is not None and self.client.matches_acquisition(
                 acquisition.identity, acquisition.runtime_id, acquisition.token, acquisition)):
-            self.connection.commit_aircraft_state(incoming)
-            state = self.connection.get_aircraft_state()
-            if state is not None and state != incoming:
+            accepted = self._commit_observation(observation, incoming)
+            state = self.connection.get_aircraft_state() if accepted else None
+            if not accepted or state is not None and state != incoming:
                 state, state_rejected = None, True
         if self.on_observation is not None:
             intent = await self.on_observation(state, observation, intent)
@@ -193,7 +214,8 @@ class NativeCommandTransport:
                     or not self.client.matches_acquisition(
                         acquisition.identity, acquisition.runtime_id, acquisition.token, acquisition)):
                 raise refusal
-            self.connection.commit_aircraft_state(incoming)
+            if not self._commit_observation(observation, incoming):
+                raise refusal
             state = self.connection.get_aircraft_state()
             if state is None or state != incoming:
                 raise refusal

@@ -11,7 +11,7 @@ import pytest
 
 from classes.aircraft_state import AircraftBinding, GuidanceSessionIdentity
 from classes.native_guidance import NativeGuidanceClient
-from tests.fixtures.native_ownership import TOKEN, acquisition
+from tests.fixtures.native_ownership import TOKEN, acquisition, start_context, project_recorded_acquisition
 from tests.unit.drone_interface import test_native_guidance as native_protocol_cases
 from tests.unit.drone_interface.test_native_guidance import identity
 from tests.unit.followers import test_fw_navigation_chase_follower as native_image_cases
@@ -158,7 +158,7 @@ async def test_wire_recorder_preserves_real_production_client_protocol_and_eof(n
     async with tool.WireRecorder(frontend, backend, log):
         client = NativeGuidanceClient(frontend, clock=lambda: 100.)
         await client.connect()
-        await client.engage(identity(), circuit_breaker_active=False, ownership_token=TOKEN)
+        await client.engage(identity(), circuit_breaker_active=False, ownership_token=TOKEN, altitude_reference=native_protocol_cases.ALTITUDE_REFERENCE, start_context=start_context(identity()))
         original = client.acquisition_context
         assert original is not None
         assert any(row.get('direction') == 'actual_backend_reply'
@@ -173,7 +173,7 @@ async def test_wire_recorder_preserves_real_production_client_protocol_and_eof(n
 
 async def test_reselection_rejects_incompatible_registered_mode_before_cli(monkeypatch):
     owner, _, _ = source_sample()
-    session = SimpleNamespace(acquisition=replace(owner, mode_id=24))
+    session = SimpleNamespace(acquisition=replace(owner, mode_id=24, start_context=replace(owner.start_context, mode_id=24)))
     cli = Mock(side_effect=AssertionError('must not inject into an assumed mode'))
     monkeypatch.setattr(tool, 'user_mode', cli)
     with pytest.raises(ValueError, match='ext1_registration_mismatch'):
@@ -227,16 +227,18 @@ async def test_baseline_uses_production_binding_and_only_publisher_without_a_tar
 
     mc = airframe == 'settled_vtol_mc'
     is_vtol = airframe != 'pure_fixed_wing'
-    capabilities = NativeCapabilities('test-adapter', 'synthetic-fixture', 2, True, is_vtol, False, True, 23)
+    capabilities = NativeCapabilities('test-adapter', 'synthetic-fixture', 2, True, is_vtol, False, True, 23,
+                                      multicopter_altitude_hold_supported=True)
     aircraft = identity().binding
-    client = SimpleNamespace(session_identity=None, acquisition_context=None, acquisition_token=None)
+    client = SimpleNamespace(session_identity=None, acquisition_context=None, acquisition_token=None,
+                             capabilities=capabilities)
     sequence = [0]
 
     async def engage(owner, **kwargs):
         validate_before_dispatch(kwargs['before_dispatch'])
         validate_before_dispatch(kwargs['on_mode_dispatch'])
         client.acquisition_token = kwargs['ownership_token']
-        client.acquisition_context = acquisition(owner, token=client.acquisition_token)
+        client.acquisition_context = acquisition(owner, token=client.acquisition_token, start=kwargs["start_context"])
         client.session_identity = owner
         return {'owner_confirmed': True, 'runtime_id': capabilities.runtime_id,
                 'acquisition': client.acquisition_context.wire_payload()}
@@ -262,7 +264,10 @@ async def test_baseline_uses_production_binding_and_only_publisher_without_a_tar
         and (known is None or known == client.acquisition_context))
     connection = tool.ObservationConnection(aircraft)
     first = await observe()
-    assert connection.commit_aircraft_state(tool.AircraftState.from_payload(first['aircraft_state']))
+    first['start_context'] = start_context(identity(), phase='multicopter' if mc else 'fixed_wing').wire_payload()
+    state = tool.AircraftState.from_payload(first['aircraft_state'])
+    assert connection.commit_aircraft_state(state)
+    connection.retain_packet(state, first)
     config = Parameters.get_runtime_config_snapshot()
     log = Mock()
     session = tool.create_session(client, connection, capabilities, identity(), config,
@@ -271,6 +276,10 @@ async def test_baseline_uses_production_binding_and_only_publisher_without_a_tar
     assert session.binding._target_evidence().state is TargetEvidenceState.ABSENT
     try:
         await tool.activate_session(session, log)
+        assert client.engage.call_args.kwargs['start_context'].wire_payload() == first['start_context']
+        reference = client.engage.call_args.kwargs['altitude_reference']
+        assert reference.altitude_amsl_m == first['aircraft_state']['altitude_amsl_m']
+        assert reference.reference_generation == first['aircraft_state']['altitude_reference_generation']
         await tool.drive(session, config['Follower']['AIRFRAME_PHASE_CONFIRMATION_S'] + .1, log)
         assert not session.guidance.phase_owner._decision().pursuit_allowed
         assert session.commander.successful_publishes > 0
@@ -451,6 +460,10 @@ def test_malformed_actual_wire_requests_are_never_silently_ignored(record, reaso
 def hold_arrival_packets():
     path = Path(__file__).parent / 'fixtures/native/same-mode-hold-arrival-subset.jsonl'
     packets = [json.loads(line) for line in path.read_text().splitlines()]
+    # Current helper regression only: original recorded files are not v5 authority.
+    for packet in packets:
+        receipt = packet['release_receipt']
+        receipt['acquisition'] = project_recorded_acquisition(receipt['acquisition'])
     context = tool.NativeAcquisitionContext.from_payload(packets[0]['release_receipt']['acquisition'])
     return context, packets
 
@@ -537,6 +550,8 @@ async def test_hold_wait_requires_a_valid_existing_status_budget(budget, age):
 def retired_hold_packets():
     path = Path(__file__).parent / 'fixtures/native/same-mode-retired-independent-hold-ten-packets.json'
     fixture = json.loads(path.read_text())
+    # Synthetic v5 receipt projection; preserve the original recorded packet timing.
+    fixture['original_receipt']['acquisition'] = project_recorded_acquisition(fixture['original_receipt']['acquisition'])
     receipt = tool.NativeReleaseReceipt.from_payload(fixture['original_receipt'])
     packets = [packet | {'release_receipt': deepcopy(fixture['original_receipt'])} for packet in fixture['packets']]
     return receipt.acquisition, receipt, packets
@@ -600,6 +615,8 @@ def test_independent_hold_rejects_replaced_original_context(location, field, val
     packet = packets[1]
     changed = deepcopy(packet['release_receipt'])
     changed['acquisition'][field] = value
+    if field == 'runtime_id':
+        changed['acquisition']['start_context']['runtime_id'] = value
     if location == 'packet':
         packet['release_receipt'] = changed
     else:
@@ -759,7 +776,7 @@ async def test_original_probes_use_real_client_runtime_fence_then_local_identity
     backend, requests, behavior = native_server
     client = NativeGuidanceClient(backend, clock=lambda: 100.)
     await client.connect()
-    await client.engage(identity(), circuit_breaker_active=False, ownership_token=TOKEN)
+    await client.engage(identity(), circuit_breaker_active=False, ownership_token=TOKEN, altitude_reference=native_protocol_cases.ALTITUDE_REFERENCE, start_context=start_context(identity()))
     actual = client.acquisition_context
     client.abort()
     behavior['capabilities'] = native_protocol_cases.CAPABILITIES | {'runtime_id': 'new-adapter'}
@@ -818,8 +835,10 @@ async def test_restart_separates_unknown_a_from_clean_backend_c_without_an_extra
 
     from tests.fixtures.native_ownership import release_receipt
     original = source_sample()[0]
+    replacement_binding = replace(original.identity.binding, connection_generation='clean-c')
     replacement = replace(original, runtime_id='new-runtime', token='c' * 32,
-        identity=replace(original.identity, binding=replace(original.identity.binding, connection_generation='clean-c')))
+        identity=replace(original.identity, binding=replacement_binding),
+        start_context=replace(original.start_context, runtime_id='new-runtime', binding=replacement_binding))
     client = SimpleNamespace(acquisition_context=original, close=AsyncMock())
     binding = SimpleNamespace(abort=Mock(), stop=AsyncMock(side_effect=tool.NativeGuidanceError('native_connection_unavailable')))
     session = SimpleNamespace(acquisition=original, client=client, binding=binding, run_started=10.,
@@ -1084,7 +1103,8 @@ async def test_replacement_run_keeps_selected_airframe_at_both_session_boundarie
 
     mc = airframe == 'settled_vtol_mc'
     is_vtol = airframe != 'pure_fixed_wing'
-    capabilities = NativeCapabilities('test-adapter', 'synthetic-fixture', 2, True, is_vtol, False, True, 23)
+    capabilities = NativeCapabilities('test-adapter', 'synthetic-fixture', 2, True, is_vtol, False, True, 23,
+                                      multicopter_altitude_hold_supported=True)
     client = SimpleNamespace(acquisition_context=None)
     client.connect = AsyncMock(return_value=capabilities)
 
@@ -1215,3 +1235,14 @@ def test_restart_cli_still_refuses_every_non_mc_airframe_before_external_operati
     assert error.value.code == 2
     assert 'adapter_process_restart requires --airframe settled_vtol_mc' in capsys.readouterr().err
     forbidden.assert_not_called()
+
+
+@pytest.mark.parametrize('payload', [None, {}, {'version': 1}])
+async def test_component_start_refuses_missing_original_passive_context_without_new_observation(payload):
+    from unittest.mock import AsyncMock
+    session = SimpleNamespace(connection=SimpleNamespace(last_packet={'start_context': payload}),
+        binding=SimpleNamespace(engage=AsyncMock()), client=SimpleNamespace(observe=AsyncMock()))
+    with pytest.raises(tool.NativeGuidanceError, match='native_start_context_invalid'):
+        await tool.activate_session(session, Mock())
+    session.binding.engage.assert_not_awaited()
+    session.client.observe.assert_not_awaited()

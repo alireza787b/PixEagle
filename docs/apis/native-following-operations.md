@@ -68,12 +68,32 @@ Start reports `vehicle_not_armed`, `vehicle_not_airborne` or
 `vehicle_flight_state_unavailable` until the aircraft is ready. It refuses
 replay video, active or incompatible followers, circuit-breaker inhibition and
 changed identities.
+For a native FW/VTOL Start, the following guard additionally carries an optional
+opaque SHA256 `start_context_id`. Clients copy the complete observed guard;
+they do not construct this ID or infer a native mode epoch. The backend captures
+the matching immutable passive native context before startup's first await and
+passes that original context through acquisition. Missing or changed context
+requires fresh status and a new explicit Start; startup never substitutes a
+newer observation after an await. Ordinary pure-MC MAVSDK starts retain their
+existing path and do not require this native field.
+Passive native observations are sampled by the connection owner, independently
+of browser/QGC polling. The same socket serializes reads and acquisition;
+passive reads yield while acquisition or command ownership is active. Sampling
+retains original source timestamps and does not relax observation freshness or
+image/attitude alignment. The existing bounded first-pair wait may accept a new
+measured frame from the unchanged source/target; it cannot refresh an old frame,
+renew its deadline or acquire control before a qualified pair exists.
+
 Each Start includes a random 32-hex `start_attempt_id`, which the backend
 exposes while startup is pending so Stop can cancel that exact attempt.
 The guard is checked before startup, before Offboard entry, after the Offboard
 acknowledgement and before following becomes active on PixEagle's flight-owner
 loop. These checks do not replace PX4 failsafes, target-continuity monitoring
 or the existing OffboardCommander cleanup.
+Once native acquisition consumes the passive context, the later checks retain
+its captured ID while still validating the current target, profile and aircraft
+guard. The native acquisition must echo the original context; a transition or
+native mode-intention change cannot be accepted as a fresh baseline implicitly.
 
 `POST /api/v1/actions/native-follow-stop` accepts the backend instance/runtime,
 the observed follow-session ID or pending Start ID and captured aircraft UID.
@@ -85,6 +105,14 @@ publication without sending
 an Offboard stop or final setpoint to another aircraft and reports that partial
 outcome. A stale session receives a conflict; QGC must refresh status before
 retrying. The Stop action is distinct from target Cancel and camera Stop.
+
+Completed execution failures return an action resource with `status: failure`,
+including the original readiness refusal in `result.outcome.precondition.code`
+when available. HTTP 202 reports completion of the attempted action, not Start
+success. Clients correlate the action type and idempotency key, show a vetted
+reason, then refresh status. Failure or inactivity alone does not confirm Hold.
+Shared Offboard preflight retains existing legacy refusal codes and preserves
+canonical guidance/source refusal codes as structured 409 errors before execution.
 
 All mutation responses are typed, actor-audited action resources. The client
 must treat a timeout or lost response as an unknown outcome and read the current

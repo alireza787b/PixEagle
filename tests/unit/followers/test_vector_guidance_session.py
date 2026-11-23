@@ -23,13 +23,23 @@ from tools.sitl_gimbal_geometry_fixture import camera_angles_for_world_target
 OBSERVATION_LIMITS = GimbalObservationLimits()
 
 
+@pytest.fixture
+def expert_velocity_policy(monkeypatch):
+    from classes.safety_manager import SafetyManager
+
+    manager = SafetyManager()
+    manager.load_from_config({'Safety': {'ALLOW_SESSION_VELOCITY_OVERRIDE': True, 'GlobalLimits': {}}})
+    monkeypatch.setattr(SafetyManager, '_instance', manager)
+
+
 def session(*, altitude=True, state=None, session_id="follow"):
     state = state or aircraft_state(is_vtol=True, is_tailsitter=True)
     now = [100.]
     identity = GuidanceSessionIdentity(session_id, state.binding, 1)
     owner = VectorGuidanceSession(
         identity,
-        NativeCapabilities("native", "test", 2, True, True, False, True, 23),
+        NativeCapabilities("native", "test", 2, True, True, False, True, 23,
+                           multicopter_altitude_hold_supported=True),
         profile_name="gm_velocity_vector",
         controls=AirframeSessionControls.from_multicopter_control(identity,
             SessionControl("requested_speed", "3D speed", "m/s", 0., None, .5, 0., configured_maximum=6.)),
@@ -345,9 +355,26 @@ def test_recovery_command_cannot_restore_a_speed_above_the_acknowledged_fw_reque
     assert owner.guard_native_fields(retained)["equivalent_airspeed_m_s"] == 18.
 
 
+@pytest.mark.parametrize('phase', [AirframePhase.MULTICOPTER, AirframePhase.FIXED_WING])
+@pytest.mark.parametrize('altitude', [False, True])
+def test_field_discovery_never_calculates_commands_after_teardown(phase, altitude):
+    from types import SimpleNamespace
+    from classes.follower import FollowerFactory
+    follower = FollowerFactory.create_follower('gm_velocity_vector', SimpleNamespace(current_altitude=50.), (0., 0.))
+    owner, now, state = session(altitude=altitude, state=aircraft_state(phase=phase, is_vtol=True, is_tailsitter=True))
+    settle(owner, now, state)
+    expected = list(owner.baseline().fields)
+    follower.bind_airframe_session(owner)
+    owner.end('operator_stop')
+    owner.baseline = Mock(side_effect=AssertionError('metadata must not generate a command'))
+    now[0] += 10.
+    assert follower.get_available_fields() == expected
+    owner.baseline.assert_not_called()
+
+
 @pytest.mark.parametrize("mount", ["HORIZONTAL", "VERTICAL"])
 @pytest.mark.parametrize("phase", [AirframePhase.MULTICOPTER, AirframePhase.FIXED_WING])
-def test_registered_vector_follower_uses_one_phase_session_and_correct_command_contract(mount, phase):
+def test_registered_vector_follower_uses_one_phase_session_and_correct_command_contract(mount, phase, expert_velocity_policy):
     import time
     from types import SimpleNamespace
     from classes.follower import FollowerFactory
@@ -405,7 +432,7 @@ def test_registered_vector_follower_uses_one_phase_session_and_correct_command_c
 
 
 @pytest.mark.parametrize("mount", ["HORIZONTAL", "VERTICAL"])
-def test_phase_change_retires_old_ray_and_command_contract(mount):
+def test_phase_change_retires_old_ray_and_command_contract(mount, expert_velocity_policy):
     import time
     from types import SimpleNamespace
     from classes.follower import FollowerFactory

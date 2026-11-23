@@ -84,8 +84,14 @@ intent, PX4-observed setpoints, vehicle response, Stop and pilot takeover.
 A fresh camera/SIH runtime can be prepared without starting camera, PX4 or
 PixEagle processes:
 
+The shared tools are now named `prepare_simulation_profile.py` and
+`simulation_stack_entry.sh`; the earlier gimbal-specific names were replaced.
+Gazebo camera profiles use the same preparer with `--udp-url`, local tracking
+and optional `--altitude-control on`. This selects normal video ingestion;
+recorded-video replay binding is enabled only by its explicit opt-in.
+
 ```bash
-python3 tools/prepare_sitl_gimbal_profile.py \
+python3 tools/prepare_simulation_profile.py \
   --directory /path/to/new-private-sih-runtime \
   --camera-host CAMERA_IP --rtsp-url rtsp://CAMERA_IP/stream=0 \
   --mount-type VERTICAL --follower-mode gm_velocity_chase
