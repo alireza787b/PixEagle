@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## Version 7.6.0-rc.4 (2026-11-23) - Configuration alignment candidate
+
+- Consolidate the development follower contracts, native guidance adapter and
+  observation/frame association work. Advanced native FW/VTOL admission and
+  physical installation qualification remain gated; this is a prerelease.
+- Keep public video-file/CSRT, constant-position following, altitude guidance
+  off and the circuit breaker on. Installation overrides remain local.
+- Add reviewed Settings batches, import previews and rollback, retaining category
+  browsing and search. Retire the undefined session-velocity override flag
+  through exact-path Config Sync; document one base plus private overrides.
+- Reuse camera Home after a fresh, settled tailsitter transition with operator,
+  tracking and lifecycle priority. Default-disabled camera providers stay off.
+  No saved-angle positioning policy or mount reconfiguration is introduced.
+- Retain submitted-command versus observed-motion replay diagnostics from 7.5.4
+  and align backend, Dashboard and installer version metadata.
+
 ## Version 7.5.4 (2026-11-22) - Flight replay diagnostics
 
 - Prefer recorded submitted command fields in read-only SIH replays and label

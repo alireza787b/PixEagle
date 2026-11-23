@@ -108,6 +108,17 @@ apply and requires a new preview.
 
 ## Bootstrap And Updates
 
+Schema 1.11 adds `GimbalTracker.HOME_AFTER_TRANSITION`, defaulting to true.
+It has no effect unless the gimbal provider and camera controls are enabled
+and fresh telemetry identifies a tailsitter transition. See
+[Camera Home after a tailsitter transition](trackers/02-reference/gimbal-tracker.md#camera-home-after-a-tailsitter-transition).
+
+`Safety.ALLOW_SESSION_VELOCITY_OVERRIDE` has no runtime reader or supported
+schema contract. Its exact path is now registered for removal. Config Sync
+shows it for explicit preview/apply; unrelated saves do not silently delete
+it. Supported temporary speed controls are advertised by the active follower,
+not enabled by this obsolete flag.
+
 Bootstrap and `make update` never apply config adoption/retirement operations
 automatically.
 

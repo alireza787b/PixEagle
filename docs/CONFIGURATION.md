@@ -46,6 +46,23 @@ A masked value in an exported file leaves the corresponding value on this
 device intact. If another client saves while you review, recheck the refreshed
 comparison before saving.
 
+### Public defaults and a private profile
+
+Keep `configs/config_default.yaml` as the public base. Store installation
+overrides outside the repository. A full private configuration is that exact
+base with the private mapping recursively merged over it: omitted mapping
+siblings inherit, while lists, `null`, `false` and zero replace their values.
+Do not maintain two independently edited full configurations.
+
+Pin the base commit and schema version beside an exported private profile.
+After updating PixEagle, review **Config Sync** before importing overrides.
+Remove only explicitly registered retirements and review new defaults; an
+unknown extension is not automatically evidence of an obsolete setting.
+Validate the resulting full configuration with the matching version of
+PixEagle. A file accepted by a newer schema is not necessarily compatible
+with an older installed release. Validation checks configuration contracts,
+not device availability or flight qualification.
+
 ### Example screens
 
 [Browse categories on desktop](assets/settings/browse-desktop.png) ·
@@ -65,11 +82,9 @@ an audit entry and backs up the prior settings file when it exists.
 ### Video Input
 
 ```yaml
-VIDEO_SOURCE: 0  # Webcam index, file path, or RTSP URL
-# Examples:
-# VIDEO_SOURCE: "/dev/video0"
-# VIDEO_SOURCE: "rtsp://192.168.1.100:8554/stream"
-# VIDEO_SOURCE: "test_video.mp4"
+VideoSource:
+  VIDEO_SOURCE_TYPE: VIDEO_FILE
+  VIDEO_FILE_PATH: resources/test4.mp4
 ```
 
 ### SmartTracker
@@ -105,7 +120,7 @@ OSD:
 ### Follower Modes
 
 Available modes:
-- `mc_velocity_position` - Position hold with altitude control
+- `mc_velocity_position` - Translation hold with yaw centering; altitude guidance is optional
 - `mc_velocity_chase` - Body velocity chase
 - `mc_velocity_distance` - Compatibility centering profile; no range hold
 - `gm_velocity_chase` - Gimbal velocity chase
@@ -116,22 +131,20 @@ Available modes:
 
 ```yaml
 PID:
-  KP_X: 1.0
-  KI_X: 0.0
-  KD_X: 0.1
-  KP_Y: 1.0
-  KI_Y: 0.0
-  KD_Y: 0.1
+  PID_GAINS:
+    mc_vel_body_right: {p: 1.5, i: 0.08, d: 0.2}
+    mc_vel_body_down: {p: 1.0, i: 0.08, d: 0.15}
 ```
 
 ### Safety Limits
 
 ```yaml
 Safety:
-  MAX_VELOCITY: 5.0
-  MIN_ALTITUDE: 2.0
-  MAX_ALTITUDE: 120.0
-  GEOFENCE_ENABLED: true
+  GlobalLimits:
+    MIN_ALTITUDE: 3.0
+    MAX_ALTITUDE: 120.0
+    ALTITUDE_SAFETY_ENABLED: true
+    MAX_VELOCITY: 1.0
 ```
 
 ### Operator Interface

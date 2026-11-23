@@ -1,11 +1,12 @@
 # ==============================================================================
-# PixEagle Configuration File - v4.0.0 (Schema-Ready Template)
+# PixEagle factory configuration (runtime defaults and schema value source)
 # ==============================================================================
 # 🛡️ CONSERVATIVE DEFAULTS - Safe for first-time testing and demos
 #    - Video: Local file (no network dependencies)
 #    - Tracker: CSRT (OpenCV short-term tracker with validation)
 #    - Follower: mc_velocity_position (stationary, yaw-only)
-#    - Velocities: Max 2 m/s (safe acceleration: 0.5 m/s²)
+#    - Command publication: blocked by FOLLOWER_CIRCUIT_BREAKER
+#    - Limits: see Safety.GlobalLimits; follower guidance may request less
 #
 # 📋 Priority parameters are at the top for quick access
 # 🔧 Clean unified configuration - deprecated params removed
