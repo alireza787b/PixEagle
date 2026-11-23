@@ -416,6 +416,66 @@ def test_evidence_loader_uses_existing_trace_contracts(tmp_path):
     assert loaded["published"][0]["publish_success"] is True
 
 
+def test_timeline_separates_proposed_submitted_px4_setpoint_and_observed_velocity(tmp_path):
+    scenario = VisualizationScenario.from_yaml(
+        ROOT / "tools/sih_visualization_scenarios/gimbal-vector-horizontal.yaml"
+    )
+    proposal = {"vel_body_fwd": 8, "vel_body_right": 0, "vel_body_down": 1}
+    submitted = {"vel_body_fwd": 4, "vel_body_right": 0, "vel_body_down": 0}
+    intent = {"reason": "normal_following", "fields": proposal}
+    traces = {
+        "trace/tracker_command_trace.jsonl": [
+            {"record_type": "tracker_command", "timestamp": 0.0, "requested_speed": 8,
+             "command_intent": intent},
+        ],
+        "trace/offboard_publish_trace.jsonl": [
+            {"record_type": "offboard_publish", "timestamp": 0.1, "publish_success": True,
+             "command_intent": intent, "submitted_fields": submitted},
+            {"record_type": "offboard_publish", "timestamp": 0.2, "publish_success": False,
+             "command_intent": intent, "submitted_fields": submitted},
+        ],
+        "px4/pose_trace.jsonl": [
+            {"timestamp": 0.0, "vehicle_ned": [2, 0, -10], "velocity_ned": [3.6, .1, .02]},
+            {"timestamp": 1.0, "vehicle_ned": [5, 0, -10]},
+        ],
+        "px4/velocity_setpoint_trace.jsonl": [
+            {"record_type": "px4_velocity_setpoint", "timestamp": 0.1,
+             "velocity_ned": [3.8, 0, 0]},
+        ],
+    }
+    for relative_path, records in traces.items():
+        path = tmp_path / relative_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("".join(json.dumps(record) + "\n" for record in records), encoding="utf-8")
+
+    proposed, published, failed, later = build_timeline(scenario, load_evidence(tmp_path))
+    assert proposed.command_source == "proposal"
+    assert proposed.command == proposal
+    assert proposed.px4_velocity_setpoint_ned is None
+    assert published.published
+    assert published.command_source == "submitted"
+    assert published.requested_speed == 8
+    assert published.effective_speed == 4
+    assert published.px4_velocity_setpoint_ned == (3.8, 0, 0)
+    assert published.vehicle_velocity_ned == (3.6, .1, .02)
+    assert published.limiting_reason is None
+    assert "normal_following" in published.events
+    assert not failed.published
+    assert failed.command_source == "proposal"
+    assert failed.command == proposal
+    assert "publish_failed" in failed.events
+    assert later.vehicle_ned == (5, 0, -10)
+    assert later.vehicle_velocity_ned is None
+    assert later.px4_velocity_setpoint_ned is None
+    csv_path = tmp_path / "trace.csv"
+    write_csv(csv_path, [published])
+    with csv_path.open() as source:
+        row = next(csv.DictReader(source))
+    assert row["command_source"] == "submitted"
+    assert float(row["px4_velocity_setpoint_n"]) == 3.8
+    assert float(row["observed_velocity_n"]) == 3.6
+
+
 def test_live_adapter_uses_get_only_and_writes_pose(monkeypatch, tmp_path):
     calls = []
 

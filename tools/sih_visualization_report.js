@@ -13,16 +13,18 @@ document.getElementById('scenario').textContent=`Purpose: ${PAYLOAD.scenario.fol
 document.getElementById('summary').textContent=JSON.stringify(PAYLOAD.summary,null,2);
 const coverage=document.getElementById('coverage'),evidenceKind=document.getElementById('evidenceKind');
 const synthetic=PAYLOAD.summary.evidence_kind==='synthetic_fixture',px4Sih=PAYLOAD.summary.evidence_kind==='px4_sih';
+const px4Gazebo=PAYLOAD.summary.evidence_kind==='px4_gazebo';
 const alignedPoseCount=Number(PAYLOAD.summary.pose_observed_samples||0),rawPoseCount=PAYLOAD.summary.evidence_counts?.pose;
 const hasRawPoseCount=!synthetic&&Number.isInteger(rawPoseCount)&&rawPoseCount>=0;
 const poseCount=hasRawPoseCount?rawPoseCount:alignedPoseCount;
-evidenceKind.textContent=synthetic?'Synthetic moving-target fixture':px4Sih?'PX4-observed SIH · component':'Imported trace · read-only';
-coverage.textContent=synthetic?`Synthetic pose: ${poseCount} samples`:hasRawPoseCount?`${px4Sih?'PX4 pose':'Pose'}: ${poseCount} records`:`Aligned pose samples: ${poseCount}`;
+evidenceKind.textContent=synthetic?'Synthetic moving-target fixture':px4Sih?'PX4-observed SIH · component':px4Gazebo?'PX4-observed Gazebo':'Imported trace · read-only';
+coverage.textContent=synthetic?`Synthetic pose: ${poseCount} samples`:hasRawPoseCount?`${px4Sih||px4Gazebo?'PX4 pose':'Pose'}: ${poseCount} records`:`Aligned pose samples: ${poseCount}`;
 if(!poseCount||synthetic)coverage.classList.add('warning');
 document.getElementById('scrub').max=Math.max(0,samples.length-1);
 const motion=PAYLOAD.summary.motion_summary||{},range=PAYLOAD.summary.target_range_m||{};
-const poseBasis=synthetic?'synthetic vehicle pose':px4Sih?'PX4-observed pose':'imported pose trace';
-document.getElementById('motionSummary').textContent=`Start range: ${range.start==null?'—':range.start.toFixed(2)+' m'} · End range: ${range.end==null?'—':range.end.toFixed(2)+' m'} · Change: ${range.start==null||range.end==null?'—':(range.end-range.start).toFixed(2)+' m'} · ${poseBasis}`;
+const poseBasis=synthetic?'synthetic vehicle pose':px4Sih||px4Gazebo?'PX4-observed pose':'imported pose trace';
+document.getElementById('motionSummary').textContent=range.start==null||range.end==null ? poseBasis
+    : `Start range: ${range.start.toFixed(2)} m · End range: ${range.end.toFixed(2)} m · Change: ${(range.end-range.start).toFixed(2)} m · ${poseBasis}`;
 function points(key){return samples.slice(0,i+1).map(s=>s[key]||null)}
 let orbitYaw=-0.65,orbitPitch=1.32,sceneScale=35,sceneOrigin=[scene.width/2,scene.height/2],autoScale=true,worldBounds=null;
 function oriented(p){if(!p)return null;const n=p[0],e=p[1],d=p[2];if(view!=='iso')return[n,e,d];const yawX=Math.cos(orbitYaw)*n-Math.sin(orbitYaw)*e;const depth=Math.sin(orbitYaw)*n+Math.cos(orbitYaw)*e;const pitchY=Math.cos(orbitPitch)*depth+Math.sin(orbitPitch)*d;const pitchDepth=-Math.sin(orbitPitch)*depth+Math.cos(orbitPitch)*d;return[yawX,pitchY,pitchDepth]}
@@ -56,9 +58,11 @@ function commandRows(sample) {
         'yaw rate': unit(c.yawspeed_deg_s, '°/s'), 'thrust': unit(c.thrust, '', 3),
     };
     if (sample.command_contract === 'velocity_body_offboard') return {
+        'command source': ({submitted: 'Submitted fields', published_intent: 'Published intent',
+                            proposal: 'Follower proposal'})[sample.command_source] || '—',
         'forward': unit(c.vel_body_fwd, 'm/s'), 'right': unit(c.vel_body_right, 'm/s'),
         'down': unit(c.vel_body_down, 'm/s'), 'yaw rate': unit(c.yawspeed_deg_s, '°/s'),
-        'submitted 3D speed': unit(sample.effective_speed, 'm/s'),
+        'command 3D speed': unit(sample.effective_speed, 'm/s'),
     };
     return {'command contract': 'unknown'};
 }
@@ -81,10 +85,17 @@ function drawCommand(drone, sample) {
         ctx.fillText('Intent direction unavailable', 14, scene.height - 16);
     }
 }
+const horizontalSpeed = ned => ned ? Math.hypot(ned[0], ned[1]) : null;
 const series = [
+    ['requested speed (m/s)', s => s.requested_speed, '#ffbd69'],
     ['forward (m/s)', s => s.command.vel_body_fwd, '#68b5ff'],
     ['right (m/s)', s => s.command.vel_body_right, '#ffbd69'],
-    ['down (m/s)', s => s.command.vel_body_down, '#6ee7a1'],
+    ['command down (m/s)', s => s.command.vel_body_down, '#6ee7a1'],
+    ['PX4 horiz. setpoint (m/s)', s => horizontalSpeed(s.px4_velocity_setpoint_ned), '#e28fff'],
+    ['ground speed (m/s)', s => horizontalSpeed(s.vehicle_velocity_ned), '#68b5ff'],
+    ['PX4 down setpoint (m/s)', s => s.px4_velocity_setpoint_ned?.[2], '#e28fff'],
+    ['observed down (m/s)', s => s.vehicle_velocity_ned?.[2], '#68b5ff'],
+    ['local altitude (m)', s => s.vehicle_ned ? -s.vehicle_ned[2] : null, '#6ee7a1'],
     ['yaw rate (°/s)', s => s.command.yawspeed_deg_s, '#c49cff'],
     ['roll rate (°/s)', s => s.command.rollspeed_deg_s, '#68b5ff'],
     ['pitch rate (°/s)', s => s.command.pitchspeed_deg_s, '#ffbd69'],
@@ -141,7 +152,12 @@ function update() {
         ...(s.speed_source ? {'speed source': s.speed_source} : {'speed policy': PAYLOAD.scenario.speed_source_policy || '—'}),
         'measurement age': s.measurement_age_s == null ? '—' : `${s.measurement_age_s.toFixed(3)} s`,
         [requestBasis(s.command_contract)]: s.requested_speed == null ? '—' : `${s.requested_speed.toFixed(2)} m/s`,
-        ...commandRows(s), 'limiting reason': s.limiting_reason || '—',
+        ...commandRows(s),
+        ...(s.px4_velocity_setpoint_ned ? {'PX4 horizontal setpoint': `${horizontalSpeed(s.px4_velocity_setpoint_ned).toFixed(2)} m/s`,
+                                          'PX4 down setpoint': `${s.px4_velocity_setpoint_ned[2].toFixed(2)} m/s`} : {}),
+        ...(s.vehicle_velocity_ned ? {'observed ground speed': `${horizontalSpeed(s.vehicle_velocity_ned).toFixed(2)} m/s`,
+                                      'observed down': `${s.vehicle_velocity_ned[2].toFixed(2)} m/s`} : {}),
+        'limiting reason': s.limiting_reason || '—',
     } : {};
     const table = document.getElementById('values'); table.replaceChildren();
     for (const [label, value] of Object.entries(values)) {
