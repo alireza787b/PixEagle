@@ -68,6 +68,8 @@ class CameraManualExecutor:
                     raise ValueError("Another camera command or lifecycle operation is active")
                 if getattr(self.runtime.app, "following_active", False):
                     raise ValueError("Stop following before moving the camera")
+                if not self.runtime.preempt_transition_view("operator_override"):
+                    raise ValueError("Retry camera Stop before starting another gesture")
                 self._serial += 1
                 self._actor, self._guard = actor, dict(guard)
                 self._prepared, self._dispatched = False, None
@@ -114,6 +116,7 @@ class CameraManualExecutor:
         except Exception:
             sent = False
             logging.getLogger(__name__).exception("Camera Stop transmission raised")
+        self.runtime.record_transition_stop(sent, reason)
         self._state.update(state=state if sent else "failed", reason=reason if sent else "stop_transmission_failed",
                            stopped_at_monotonic=time.monotonic())
         self._dispatched = None
@@ -151,6 +154,7 @@ class CameraManualExecutor:
             with self.runtime._lock:
                 if self._closed:
                     return
+                self.runtime.advance_transition_view(time.monotonic())
                 if self.active:
                     try:
                         self.runtime.validate_guard(self._guard)

@@ -113,6 +113,11 @@ class SipGimbalControl:
                     sent = False
         return sent
 
+    def send_home(self) -> bool:
+        """Send the same device Home command used by the operator control."""
+        self._send(b"#TPPG2wPTZ05")
+        return True
+
     async def prepare_manual(self, command_guard) -> None:
         """Take over camera tracking once per renewable manual gesture."""
         await self._disable_tracking(command_guard=command_guard)
@@ -264,7 +269,7 @@ class SipGimbalControl:
             self.owns_tracking = False
             if operation == "home":
                 with selection_guard() if selection_guard is not None else nullcontext():
-                    self._send(b"#TPPG2wPTZ05")
+                    self.send_home()
                 return {"success": True, "message": "Camera home command sent."}
             if operation == "zoom":
                 body = b"#TPPM2wZMC02" if direction == 1 else b"#TPPM2wZMC01"
@@ -351,6 +356,7 @@ def get_gimbal_control_status(app) -> dict:
                 following_active=following, capabilities=capabilities,
                 motion_settings=getattr(control, "motion_settings", None) if enabled else None,
                 manual=runtime.manual_snapshot() if runtime is not None else None,
+                transition_view=runtime.transition_view_status() if runtime is not None else None,
                 telemetry=telemetry, reason=reason)
 
 

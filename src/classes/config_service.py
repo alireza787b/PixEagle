@@ -2614,6 +2614,12 @@ class ConfigService:
                 canonical_guidance_restrictions(candidate)
             except (TypeError, ValueError) as exc:
                 errors.append(f"Gimbal guidance restriction validation failed: {exc}")
+            try:
+                from classes.gimbal_transition_view import transition_home_enabled
+
+                transition_home_enabled(candidate["GimbalTracker"])
+            except (AttributeError, TypeError, ValueError) as exc:
+                errors.append(f"Gimbal transition view validation failed: {exc}")
 
         if "FW_NAVIGATION_CHASE" in candidate:
             try:
@@ -2638,7 +2644,7 @@ class ConfigService:
                 from classes.config_validator import normalize_safety_config
 
                 normalize_safety_config(
-                    candidate,
+                    self._without_registered_retirements_locked(candidate),
                     require_safety=require_safety,
                 )
             except Exception as exc:

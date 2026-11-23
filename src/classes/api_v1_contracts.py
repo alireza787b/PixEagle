@@ -1095,6 +1095,12 @@ class APICameraTelemetry(BaseModel):
     zoom_available: bool = False
 
 
+class APICameraTransitionView(BaseModel):
+    state: Literal["waiting", "unavailable", "pending", "sent", "skipped", "unconfirmed"]
+    phase: Optional[Literal["multicopter", "fixed_wing"]] = None
+    reason: Optional[str] = None
+
+
 class APIGimbalControlStatus(BaseModel):
     """Optional external-camera controls and currently observed camera state."""
 
@@ -1120,6 +1126,7 @@ class APIGimbalControlStatus(BaseModel):
     motion_settings: Optional[APIGimbalMotionSettings] = None
     manual: Optional[APICameraManualState] = None
     telemetry: Optional[APICameraTelemetry] = None
+    transition_view: Optional[APICameraTransitionView] = None
     reason: Optional[str] = None
 
 

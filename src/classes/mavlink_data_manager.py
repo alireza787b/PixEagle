@@ -115,6 +115,7 @@ class MavlinkDataManager:
         self.last_flight_mode = None
         self.offboard_mode_code = 393216  # PX4 Offboard mode
         self._offboard_exit_callback = None  # Callback for app_controller
+        self.camera_phase_observer = None
 
         # Setup logging
         self.logger = logging.getLogger(__name__)
@@ -282,6 +283,8 @@ class MavlinkDataManager:
         """
         Fetch all MAVLink data in a single request and parse it into the data dictionary.
         """
+        phase_observer = self.camera_phase_observer
+        phase_sample = None
         try:
             # Update connection state
             with self._lock:
@@ -372,6 +375,13 @@ class MavlinkDataManager:
                 
                 self.logger.info(f"MAVLINK: Connected | Armed: {arm_status} | Alt: {altitude}m | {coord_str}")
                 self.last_status_log = current_time
+
+            if phase_observer is not None:
+                from classes.gimbal_transition_view import CameraPhaseSample
+
+                phase_sample = CameraPhaseSample.from_mavlink(
+                    json_data, self.get_aircraft_identity(), self._determine_arm_status,
+                )
                 
         except requests.exceptions.ConnectionError:
             self._record_aggregate_payload_failure("Connection refused - server not running")
@@ -385,6 +395,12 @@ class MavlinkDataManager:
         except Exception as e:
             self._record_aggregate_payload_failure(f"Unexpected error: {str(e)[:50]}...")
             self._handle_connection_error(f"Unexpected error: {str(e)[:50]}...")
+        finally:
+            if phase_observer is not None:
+                try:
+                    phase_observer(phase_sample)
+                except Exception:
+                    self.logger.exception("Camera phase observation failed")
     
     def _handle_connection_error(self, error_reason):
         """Handle connection errors with clean, throttled logging."""

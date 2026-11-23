@@ -31,7 +31,7 @@ from ruamel.yaml import YAML as RuamelYAML
 from ruamel.yaml.comments import CommentedMap as RuamelCommentedMap
 
 
-CONFIG_SCHEMA_VERSION = '1.10.0'
+CONFIG_SCHEMA_VERSION = '1.11.0'
 
 
 # Define categories for sections
@@ -1125,6 +1125,9 @@ SCHEMA_OVERRIDES = {
     'GimbalTracker.GEOMETRY_OVERRIDE': {
         'description': 'Expert-only corrections to the provider and installation preset; AUTO uses the tested preset',
     },
+    'GimbalTracker.HOME_AFTER_TRANSITION': {
+        'description': 'Use camera Home after fresh PX4 tailsitter phase confirmation; manual input and tracking take priority',
+    },
     'GimbalTracker.GUIDANCE': {
         'description': 'Advanced MC Vector direction policy and optional observed-ray restrictions; no mechanical qualification or second transform',
         'required': ['POLICY', 'VERTICAL_ENTER_HORIZONTAL_NORM', 'VERTICAL_EXIT_HORIZONTAL_NORM',
@@ -1621,6 +1624,7 @@ RELOAD_TIER_OVERRIDES = {
     # admitting aircraft commands after an installation change.
     'GimbalTracker.MOUNT_TYPE': 'system_restart',
     'GimbalTracker.GEOMETRY_OVERRIDE': 'system_restart',
+    'GimbalTracker.HOME_AFTER_TRANSITION': 'system_restart',
     'GimbalTracker.UDP_HOST': 'system_restart',
     'GimbalTracker.UDP_PORT': 'system_restart',
     'GimbalTracker.LISTEN_PORT': 'system_restart',

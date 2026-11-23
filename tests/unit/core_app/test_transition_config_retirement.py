@@ -39,7 +39,7 @@ def service(tmp_path, monkeypatch):
 
 def test_transition_timeout_is_inert_without_a_saved_config_rewrite(service):
     config, saved, before = service
-    assert config.get_schema()["schema_version"] == "1.10.0"
+    assert config.get_schema()["schema_version"] == "1.11.0"
     assert "VTOL_TRANSITION_TIMEOUT_S" not in config.get_schema("Follower")["parameters"]
     assert "VTOL_TRANSITION_TIMEOUT_S" not in config.get_effective_defaults()["Follower"]
     assert "VTOL_TRANSITION_TIMEOUT_S" not in config.get_config("Follower")
@@ -53,6 +53,18 @@ def test_transition_timeout_is_inert_without_a_saved_config_rewrite(service):
     assert build_defaults_sync_plan(config, [ConfigSyncOperation(op_type="REMOVE_RETIRED", path=RETIRED)])["valid"]
     assert (config._project_root / "configs/config.yaml").read_bytes() == before
     assert not config.get_backup_history()
+
+
+def test_undefined_velocity_switch_is_explicitly_retired_without_changing_input():
+    service = ConfigService.get_instance()
+    candidate = deepcopy(service.get_default())
+    candidate["Safety"]["ALLOW_SESSION_VELOCITY_OVERRIDE"] = False
+    retirement = service.get_registered_retirement(["Safety", "ALLOW_SESSION_VELOCITY_OVERRIDE"])
+    assert retirement["replacement"] is None
+    assert service.validate_config_mapping(candidate, require_safety=True).valid
+    normalized = service._normalize_effective_config_locked(candidate)
+    assert "ALLOW_SESSION_VELOCITY_OVERRIDE" not in normalized["Safety"]
+    assert candidate["Safety"]["ALLOW_SESSION_VELOCITY_OVERRIDE"] is False
 
 
 @pytest.mark.asyncio

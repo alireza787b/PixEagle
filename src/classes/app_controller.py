@@ -231,7 +231,14 @@ class AppController:
             )
 
         from classes.camera_runtime import CameraRuntime
-        self.camera_runtime = CameraRuntime(self, getattr(Parameters, "GimbalTracker", {}))
+        self.camera_runtime = CameraRuntime(
+            self, getattr(Parameters, "GimbalTracker", {}),
+            phase_stale_s=self.mavlink_data_manager.stale_timeout_s,
+        )
+        if self.camera_runtime.transition_views_enabled:
+            self.mavlink_data_manager.camera_phase_observer = lambda sample: self.camera_runtime.observe_camera_phase(
+                sample, confirmation_s=getattr(Parameters, "AIRFRAME_PHASE_CONFIRMATION_S", .5),
+            )
         if self.camera_runtime.settings.get("CONTROL_ENABLED") is True:
             try:
                 self.camera_runtime.start()

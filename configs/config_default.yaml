@@ -950,6 +950,7 @@ GimbalTracker:
   CONTROL_ENABLED: false       # Opt-in manual camera selection and bounded camera controls
   PROVIDER: "topotek_sip_udp"  # Provider implementation for external gimbal input
   MOUNT_TYPE: "HORIZONTAL"      # Options: "HORIZONTAL", "VERTICAL" — aircraft installation, not image rotation
+  HOME_AFTER_TRANSITION: true   # Send camera Home once after an observed tailsitter transition settles
   GEOMETRY_OVERRIDE:
     AZIMUTH_AXIS: "AUTO"          # Options: "AUTO", "YAW", "PITCH", "ROLL"
     AZIMUTH_SIGN: "AUTO"          # Options: "AUTO", "POSITIVE", "NEGATIVE"

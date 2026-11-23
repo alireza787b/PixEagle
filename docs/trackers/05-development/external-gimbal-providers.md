@@ -113,6 +113,13 @@ default steps. Never use a held browser button as an unbounded motor command:
 each request must stop on its own, and explicit Stop must interrupt pending
 work. Process death or network loss still requires a device-side solution.
 
+For automatic tailsitter framing, expose `home` and a bounded synchronous
+`send_home()` on the control adapter. Share that method with the manual Home
+action. The runtime serializes the write with operator Stop and checks the
+current phase and camera context before dispatch. Advertise it only when Home
+is appropriate after a phase change for the camera's firmware and mount.
+It reports dispatch and leaves leveling to the device.
+
 Preserve the coordinator's following guard, lifecycle lock, tracking-session
 generation change and immediate Stop path. Movement must not leave camera
 tracking active unintentionally. Distinguish successful transmission from

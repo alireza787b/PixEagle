@@ -1,4 +1,4 @@
-schema_version: 1.10.0
+schema_version: 1.11.0
 meta:
   project: PixEagle
   generated_from: configs/config_default.yaml
@@ -3344,6 +3344,12 @@ sections:
         - value: VERTICAL
           label: Vertical
           description: Camera base pitched upward by 90 degrees
+      HOME_AFTER_TRANSITION:
+        type: boolean
+        default: true
+        description: Use camera Home after fresh PX4 tailsitter phase confirmation; manual input and tracking take priority
+        reload_tier: system_restart
+        reboot_required: true
       GEOMETRY_OVERRIDE:
         type: object
         default:

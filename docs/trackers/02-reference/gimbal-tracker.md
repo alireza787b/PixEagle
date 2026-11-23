@@ -335,11 +335,34 @@ attempts. This is not a hardware disconnect watchdog: process death, network
 loss, camera firmware behavior, or an obstructed axis can prevent a stop from
 taking effect.
 
+### Camera Home after a tailsitter transition
+
+With `GimbalTracker.HOME_AFTER_TRANSITION: true`, PixEagle sends the camera's
+existing Home command once after a fresh, observed PX4 tailsitter transition
+settles. It applies in either direction and after an abort back to the original
+phase. Startup and reconnect establish a baseline without moving the camera.
+
+The default is true and requires an enabled provider and camera controls.
+Only a verified PX4 tailsitter heartbeat and advancing `EXTENDED_SYS_STATE`
+receipts can trigger it. Ordinary multicopter, fixed-wing and quadplane
+heartbeats produce no camera action. Set the option to false and restart
+PixEagle to opt out.
+
+The Topotek SIP adapter reuses the same Home packet as the Center camera
+button. The operator reports that this camera levels its view in hover and
+fixed-wing orientations. Other camera models and firmware need their own
+confirmation. The camera's own leveling handles the orientation.
+
+Manual input, Stop, tracking, following and rescue take priority. A skipped
+Home request expires with the transition. Following still requires a new Start.
+
 ### Typed API
 
 - `GET /api/v1/gimbal/control`: reads `enabled`, `available`, `connected`,
   `tracking_state`, `following_active`, `selection_mode`, `capabilities`, and `reason` without
   sending commands. Requires `control:read`.
+  The optional `transition_view` records automatic camera Home dispatch,
+  phase and reason. A `sent` outcome records transmission.
 - `POST /api/v1/actions/gimbal-control`: accepts `operation` (`select`, `cancel`,
   `pan`, `tilt`, `roll`, `zoom`, `home`, `stop`, or `set_mode`). Selection requires finite
   normalized `x`/`y`. For a Classic rectangle, these are its **center**; supply
