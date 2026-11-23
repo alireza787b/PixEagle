@@ -1,5 +1,6 @@
 """Deterministic tests for the read-only SIH visualization pipeline."""
 
+import csv
 import json
 import csv
 import math

@@ -444,11 +444,7 @@ def load_evidence(root: Path) -> dict[str, list[dict[str, Any]]]:
     }
 
 
-def _command_fields(record: Mapping[str, Any]) -> dict[str, float]:
-    intent = record.get("command_intent") or {}
-    fields = record.get("submitted_fields") if record.get("publish_success") is True else None
-    if not isinstance(fields, Mapping):
-        fields = intent.get("fields") if isinstance(intent, Mapping) else None
+def _command_fields(fields: Any) -> dict[str, float]:
     if not isinstance(fields, Mapping):
         return {}
     result: dict[str, float] = {}
@@ -473,6 +469,19 @@ def _command_fields(record: Mapping[str, Any]) -> dict[str, float]:
             if math.isfinite(value):
                 result[key] = value
     return result
+
+
+def _read_command(tracker, publication):
+    if publication.get("publish_success") is True:
+        if isinstance(publication.get("submitted_fields"), Mapping):
+            return _command_fields(publication["submitted_fields"]), "submitted", publication
+        intent = publication.get("command_intent")
+        if isinstance(intent, Mapping) and isinstance(intent.get("fields"), Mapping):
+            return _command_fields(intent["fields"]), "published_intent", publication
+    proposal = tracker or publication
+    intent = proposal.get("command_intent")
+    fields = _command_fields(intent.get("fields")) if isinstance(intent, Mapping) else {}
+    return fields, "proposal" if fields else None, proposal
 
 
 def _command_speed(command: Mapping[str, float]) -> Optional[float]:
@@ -507,16 +516,7 @@ def build_timeline(
         pose_record = _nearest_fresh(pose, timestamp, max_pose_age_s)
         state_record = _nearest_fresh(state, timestamp, max_command_age_s)
         px4_setpoint = _nearest_fresh(px4_setpoints, timestamp, max_command_age_s)
-        command_record = (publish_record if publish_record and publish_record.get("publish_success") is True
-                          and _command_fields(publish_record) else tracker_record or publish_record or {})
-        command = _command_fields(command_record)
-        command_source = None
-        if command:
-            if command_record.get("publish_success") is True:
-                command_source = ("submitted" if isinstance(command_record.get("submitted_fields"), Mapping)
-                                  else "published_intent")
-            else:
-                command_source = "proposal"
+        command, command_source, command_record = _read_command(tracker_record or {}, publish_record or {})
         # A fresh observed Hold plus a stopped publisher proves that no command
         # is expected. Absence alone never proves release of command authority.
         release = state_record or {}
