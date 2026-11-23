@@ -5,6 +5,7 @@ import json
 import socket
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import httpx
 import pytest
@@ -95,17 +96,31 @@ def test_authenticated_control_and_jpeg_stream_share_relay(tmp_path, monkeypatch
                 metadata = json.loads(websocket.recv(timeout=5))
                 jpeg = websocket.recv(timeout=5)
                 assert isinstance(metadata, dict) and isinstance(jpeg, bytes)
-                controls = []
-                for sequence in range(sample_count):
-                    operation = "manual_begin" if sequence == 0 else "manual_update"
-                    body["operation"] = operation
-                    body["sequence"] = sequence
-                    body["idempotency_key"] = f"shared-link-{operation}-{sequence}"
-                    control = client.post("/api/v1/actions/gimbal-control", json=body,
-                                          headers={"x-pixeagle-csrf": csrf})
-                    assert control.status_code == 202, control.text
-                    controls.append(control)
-                    if sequence < sample_count - 1:
+                from classes.camera_manual_executor import CameraManualExecutor
+
+                def renew_camera_input():
+                    controls = []
+                    interval = CameraManualExecutor.RENEW_INTERVAL_MS / 1000
+                    for sequence in range(sample_count):
+                        next_renewal = time.monotonic() + interval
+                        operation = "manual_begin" if sequence == 0 else "manual_update"
+                        request = {**body, "operation": operation, "sequence": sequence,
+                                   "idempotency_key": f"shared-link-{operation}-{sequence}"}
+                        control = client.post("/api/v1/actions/gimbal-control", json=request,
+                                              headers={"x-pixeagle-csrf": csrf})
+                        assert control.status_code == 202, control.text
+                        controls.append(control)
+                        if sequence < sample_count - 1:
+                            time.sleep(max(0, next_renewal - time.monotonic()))
+                    return controls
+
+                # Operator input renews independently of video delivery. A slow
+                # frame reader must not turn this into an expired-gesture test.
+                with ThreadPoolExecutor(max_workers=1) as executor:
+                    control_updates = executor.submit(renew_camera_input)
+                    for frame in range(sample_count - 1):
+                        if frame == 10:
+                            time.sleep(CameraManualExecutor.LEASE_TIMEOUT_MS / 1000 * 1.25)
                         websocket.send(json.dumps({
                             "type": "frame_ack", "frame_id": metadata["frame_id"],
                             "delivery_token": metadata.get("delivery_token", "shared-link-token"),
@@ -113,6 +128,7 @@ def test_authenticated_control_and_jpeg_stream_share_relay(tmp_path, monkeypatch
                         metadata = json.loads(websocket.recv(timeout=5))
                         jpeg = websocket.recv(timeout=5)
                         assert isinstance(metadata, dict) and isinstance(jpeg, bytes)
+                    controls = control_updates.result(timeout=10)
                 assert len(controls) == sample_count
                 assert relay.metrics.chunks_upstream_to_client >= 1
                 assert relay.metrics.chunks_client_to_upstream >= 1
