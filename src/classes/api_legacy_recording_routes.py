@@ -29,10 +29,42 @@ def _recording_source_dimensions(
     return source_fps, source_w, source_h
 
 
+def _recording_unavailable_detail(handler: Any, fallback: str) -> str:
+    app_controller = getattr(handler, "app_controller", None)
+    getter = getattr(app_controller, "get_recording_unavailable_reason", None)
+    if callable(getter):
+        try:
+            reason = getter()
+        except Exception:
+            reason = None
+        if reason:
+            return str(reason)[:500]
+    return fallback
+
+
+def _unavailable_storage_status(reason: Optional[str] = None) -> dict[str, Any]:
+    status: dict[str, Any] = {
+        "free_bytes": 0,
+        "free_mb": 0,
+        "free_gb": 0,
+        "total_bytes": 0,
+        "total_gb": 0,
+        "used_percent": 0,
+        "estimated_remaining_seconds": None,
+        "warning_level": "error",
+    }
+    if reason:
+        status["error"] = reason
+    return status
+
+
 def _get_recording_manager(handler: Any, detail: str = "Recording not available") -> Any:
     manager = getattr(handler.app_controller, "recording_manager", None)
     if manager is None:
-        raise HTTPException(status_code=503, detail=detail)
+        raise HTTPException(
+            status_code=503,
+            detail=_recording_unavailable_detail(handler, detail),
+        )
     return manager
 
 
@@ -97,11 +129,20 @@ async def get_recording_status(handler: Any) -> JSONResponse:
     try:
         manager = getattr(handler.app_controller, "recording_manager", None)
         storage = getattr(handler.app_controller, "storage_manager", None)
+        unavailable_reason = None
+        if manager is None:
+            unavailable_reason = _recording_unavailable_detail(
+                handler,
+                "Recording subsystem unavailable",
+            )
+        storage_reason = unavailable_reason if storage is None else None
         return JSONResponse(
             content={
                 "recording": manager.status if manager else {"state": "unavailable"},
-                "storage": storage.status if storage else {},
+                "storage": storage.status if storage else _unavailable_storage_status(storage_reason),
                 "available": manager is not None,
+                "storage_available": storage is not None,
+                "reason": unavailable_reason,
                 "timestamp": time.time(),
             }
         )
@@ -134,12 +175,28 @@ async def toggle_recording(handler: Any) -> JSONResponse:
 async def list_recordings(handler: Any) -> JSONResponse:
     """List all recordings with metadata."""
     try:
-        manager = _get_recording_manager(handler)
+        manager = getattr(handler.app_controller, "recording_manager", None)
+        if manager is None:
+            reason = _recording_unavailable_detail(
+                handler,
+                "Recording subsystem unavailable",
+            )
+            return JSONResponse(
+                content={
+                    "recordings": [],
+                    "count": 0,
+                    "available": False,
+                    "reason": reason,
+                    "timestamp": time.time(),
+                }
+            )
         recordings = manager.list_recordings()
         return JSONResponse(
             content={
                 "recordings": recordings,
                 "count": len(recordings),
+                "available": True,
+                "reason": None,
                 "timestamp": time.time(),
             }
         )
@@ -236,10 +293,17 @@ async def get_storage_status(handler: Any) -> JSONResponse:
     """Get disk space information."""
     try:
         storage = getattr(handler.app_controller, "storage_manager", None)
+        reason = None
+        if storage is None:
+            reason = _recording_unavailable_detail(
+                handler,
+                "Storage monitoring subsystem unavailable",
+            )
         return JSONResponse(
             content={
-                "storage": storage.status if storage else {},
+                "storage": storage.status if storage else _unavailable_storage_status(reason),
                 "available": storage is not None,
+                "reason": reason,
                 "timestamp": time.time(),
             }
         )

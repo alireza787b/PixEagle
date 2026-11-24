@@ -105,8 +105,21 @@ const parseTimestamp = (isoStr) => {
 };
 
 const RecordingsPage = () => {
-  const { recordingStatus, storageStatus } = useRecording(3000);
-  const { recordings, loading, error, refresh, deleteRecording } = useRecordingsList();
+  const {
+    recordingStatus,
+    storageStatus,
+    recordingAvailable,
+    recordingUnavailableReason,
+  } = useRecording(3000);
+  const {
+    recordings,
+    available: recordingsAvailable,
+    unavailableReason: recordingsUnavailableReason,
+    loading,
+    error,
+    refresh,
+    deleteRecording,
+  } = useRecordingsList();
 
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(25);
@@ -115,6 +128,11 @@ const RecordingsPage = () => {
   const [actionError, setActionError] = useState(null);
 
   const isRecording = recordingStatus?.is_active === true;
+  const recordingUnavailable = recordingAvailable === false || recordingsAvailable === false;
+  const recordingUnavailableDetail = (
+    recordingUnavailableReason || recordingsUnavailableReason || 'Recording subsystem unavailable'
+  );
+  const storageUnavailable = recordingUnavailable || storageStatus?.warning_level === 'error';
 
   const handleDelete = async () => {
     const { filename } = deleteDialog;
@@ -194,6 +212,12 @@ const RecordingsPage = () => {
         </Tooltip>
       </Box>
 
+      {recordingUnavailable && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          Recording subsystem unavailable: {recordingUnavailableDetail}
+        </Alert>
+      )}
+
       <Grid container spacing={3}>
         {/* Storage Summary Card */}
         <Grid item xs={12} md={4}>
@@ -214,12 +238,12 @@ const RecordingsPage = () => {
                         Disk Usage
                       </Typography>
                       <Typography variant="caption" fontWeight={600}>
-                        {storageStatus.used_percent?.toFixed(1) || 0}%
+                        {storageUnavailable ? '--' : `${storageStatus.used_percent?.toFixed(1) || 0}%`}
                       </Typography>
                     </Box>
                     <LinearProgress
                       variant="determinate"
-                      value={storageStatus.used_percent || 0}
+                      value={storageUnavailable ? 0 : storageStatus.used_percent || 0}
                       color={
                         storageStatus.warning_level === 'critical' ? 'error' :
                         storageStatus.warning_level === 'warning' ? 'warning' : 'primary'
@@ -231,18 +255,18 @@ const RecordingsPage = () => {
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
                     <Typography variant="caption" color="text.secondary">Free Space</Typography>
                     <Typography variant="caption" fontFamily="monospace" fontWeight={600}>
-                      {storageStatus.free_gb?.toFixed(1) || 0} GB
+                      {storageUnavailable ? '--' : `${storageStatus.free_gb?.toFixed(1) || 0} GB`}
                     </Typography>
                   </Box>
 
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
                     <Typography variant="caption" color="text.secondary">Total</Typography>
                     <Typography variant="caption" fontFamily="monospace">
-                      {storageStatus.total_gb?.toFixed(1) || 0} GB
+                      {storageUnavailable ? '--' : `${storageStatus.total_gb?.toFixed(1) || 0} GB`}
                     </Typography>
                   </Box>
 
-                  {storageStatus.estimated_remaining_seconds && (
+                  {!storageUnavailable && storageStatus.estimated_remaining_seconds && (
                     <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
                       <Typography variant="caption" color="text.secondary">Est. Remaining</Typography>
                       <Typography variant="caption" fontFamily="monospace">
@@ -253,12 +277,18 @@ const RecordingsPage = () => {
 
                   {storageStatus.warning_level && storageStatus.warning_level !== 'ok' && (
                     <Alert
-                      severity={storageStatus.warning_level === 'critical' ? 'error' : 'warning'}
+                      severity={
+                        storageStatus.warning_level === 'critical' || storageStatus.warning_level === 'error'
+                          ? 'error'
+                          : 'warning'
+                      }
                       sx={{ mt: 1.5, py: 0 }}
                     >
-                      {storageStatus.warning_level === 'critical'
-                        ? 'Critical: Very low disk space!'
-                        : 'Warning: Low disk space'}
+                      {storageStatus.warning_level === 'error'
+                        ? storageStatus.error || 'Storage monitoring unavailable'
+                        : storageStatus.warning_level === 'critical'
+                          ? 'Critical: Very low disk space!'
+                          : 'Warning: Low disk space'}
                     </Alert>
                   )}
                 </>
@@ -292,7 +322,7 @@ const RecordingsPage = () => {
                         console.error('Failed to toggle OSD recording:', err);
                       }
                     }}
-                    disabled={isRecording}
+                    disabled={isRecording || recordingUnavailable}
                   />
                 }
                 label={
@@ -352,7 +382,7 @@ const RecordingsPage = () => {
                 </Alert>
               )}
 
-              {error && (
+              {error && !recordingUnavailable && (
                 <Alert severity="error" sx={{ mb: 1 }}>
                   Failed to load recordings: {error}
                 </Alert>
@@ -374,7 +404,9 @@ const RecordingsPage = () => {
               <Box sx={{ p: 4, textAlign: 'center' }}>
                 <VideocamIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
                 <Typography color="text.secondary">
-                  No recordings yet. Press R or use the dashboard controls to start recording.
+                  {recordingUnavailable
+                    ? recordingUnavailableDetail
+                    : 'No recordings yet. Press R or use the dashboard controls to start recording.'}
                 </Typography>
               </Box>
             ) : (

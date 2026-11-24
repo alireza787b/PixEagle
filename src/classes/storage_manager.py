@@ -23,6 +23,7 @@ import time
 from typing import Any, Dict, Optional
 
 from classes.parameters import Parameters
+from classes.recording_manager import resolve_recording_output_dir
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,9 @@ class StorageManager:
 
     def __init__(self, recording_manager=None):
         self._recording_manager = recording_manager
-        self._output_dir = str(getattr(Parameters, 'RECORDING_OUTPUT_DIR', 'recordings'))
+        self._output_dir = resolve_recording_output_dir(
+            getattr(Parameters, 'RECORDING_OUTPUT_DIR', 'recordings')
+        )
         self._warning_threshold_mb = int(getattr(Parameters, 'STORAGE_WARNING_THRESHOLD_MB', 500))
         self._critical_threshold_mb = int(getattr(Parameters, 'STORAGE_CRITICAL_THRESHOLD_MB', 100))
         self._poll_interval = float(getattr(Parameters, 'STORAGE_POLL_INTERVAL', 10.0))

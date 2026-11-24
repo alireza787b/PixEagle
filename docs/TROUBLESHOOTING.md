@@ -320,6 +320,20 @@ running `scripts/setup/build-opencv.sh` directly is the explicit rebuild path.
 2. **Verify config**: Dashboard auto-detects host from browser URL
 3. **Check logs**: use `make attach` for a manual runtime or `pixeagle-service attach` for a managed runtime, then inspect the Python app pane
 
+### Recordings Page Reports HTTP 503
+
+Starting with 7.6.1, a failed recording subsystem startup no longer masquerades
+as an empty Recordings page with zero storage. The page shows the startup reason,
+disables recording controls, and reports unavailable storage as `--` instead of
+`0 GB`. Check the shown reason first, then confirm `ENABLE_RECORDING` and the
+configured recording output path before restarting the runtime.
+
+Storage monitoring failure alone no longer removes the recording manager. The
+Recordings page and quick controls show the storage error while leaving valid
+recording operations available. If the reason mentions an unwritable path,
+verify directory ownership and free space on the host; do not change recording
+policy while an aircraft session is active.
+
 ### Dashboard Restart Returns To Sign-In
 
 This is expected in `browser_session` mode. Dashboard sessions live only in the

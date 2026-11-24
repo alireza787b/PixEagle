@@ -39,6 +39,14 @@ from classes.parameters import Parameters
 logger = logging.getLogger(__name__)
 
 
+def resolve_recording_output_dir(raw_output_dir: Any) -> str:
+    candidate = Path(str(raw_output_dir or "recordings")).expanduser()
+    if candidate.is_absolute():
+        return str(candidate)
+    project_root = Path(__file__).resolve().parents[2]
+    return str((project_root / candidate).resolve())
+
+
 class RecordingState(Enum):
     """Recording state machine states."""
     IDLE = "idle"
@@ -100,7 +108,9 @@ class RecordingManager:
 
     def __init__(self):
         # Configuration from Parameters (loaded from Recording: YAML section)
-        self._output_dir = str(getattr(Parameters, 'RECORDING_OUTPUT_DIR', 'recordings'))
+        self._output_dir = resolve_recording_output_dir(
+            getattr(Parameters, 'RECORDING_OUTPUT_DIR', 'recordings')
+        )
         self._codec = str(getattr(Parameters, 'RECORDING_CODEC', 'mp4v'))
         self._container = str(getattr(Parameters, 'RECORDING_CONTAINER', 'mp4'))
         self._fps = float(getattr(Parameters, 'RECORDING_FPS', 0))
@@ -149,7 +159,13 @@ class RecordingManager:
         # Run crash recovery on initialization
         recovered = []
         if self._auto_recovery:
-            recovered = self._recover_incomplete_recordings()
+            try:
+                recovered = self._recover_incomplete_recordings()
+            except Exception as exc:
+                logger.warning(
+                    "Recording recovery failed; continuing with fresh sessions: %s",
+                    exc,
+                )
 
         logger.info(
             f"RecordingManager initialized: dir={self._output_dir}, "

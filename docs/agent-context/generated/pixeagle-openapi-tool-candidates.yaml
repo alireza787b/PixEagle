@@ -35,7 +35,7 @@ source:
   - file: src/classes/api_legacy_osd_routes.py
     sha256: 906c3b698069f60b58f677b1576e2ddea9fea64108410d3638b7e8b76f7a671f
   - file: src/classes/api_legacy_recording_routes.py
-    sha256: e37fde4147e81dcd8ecb91759e97b98aa896bcd9a1ab4e16f4c086610288878d
+    sha256: 8a118ec812e4c06b3461fced99fcfc1557e38eb03576d644214eca221da217d7
   - file: src/classes/api_legacy_safety_routes.py
     sha256: 1dd67d04b004bf3661d6f0222703edd210a29e456bd36a85abe216690aaf40a7
   - file: src/classes/api_legacy_tracker_routes.py

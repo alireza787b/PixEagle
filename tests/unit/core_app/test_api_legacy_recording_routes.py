@@ -75,7 +75,7 @@ class FakeRequest:
         self.headers = headers or {}
 
 
-def make_handler(tmp_path, *, manager=True, storage=True, video=True):
+def make_handler(tmp_path, *, manager=True, storage=True, video=True, unavailable_reason=None):
     recording_manager = FakeRecordingManager(tmp_path) if manager else None
     storage_manager = (
         SimpleNamespace(status={"free_bytes": 1024, "state": "ok"})
@@ -91,6 +91,7 @@ def make_handler(tmp_path, *, manager=True, storage=True, video=True):
         recording_manager=recording_manager,
         storage_manager=storage_manager,
         video_handler=video_handler,
+        get_recording_unavailable_reason=lambda: unavailable_reason,
     )
     return SimpleNamespace(
         app_controller=app_controller,
@@ -171,10 +172,53 @@ async def test_status_storage_pause_resume_stop_and_list_shapes(tmp_path):
         await routes.get_storage_status(make_handler(tmp_path, storage=False))
     )
     assert unavailable["recording"] == {"state": "unavailable"}
-    assert unavailable["storage"] == {}
+    assert unavailable["storage"]["warning_level"] == "error"
+    assert unavailable["storage"]["used_percent"] == 0
     assert unavailable["available"] is False
-    assert unavailable_storage["storage"] == {}
+    assert unavailable_storage["storage"]["warning_level"] == "error"
+    assert unavailable_storage["storage"]["used_percent"] == 0
     assert unavailable_storage["available"] is False
+
+
+@pytest.mark.asyncio
+async def test_read_routes_degrade_when_recording_is_unavailable(tmp_path):
+    reason = "ValueError: recording output directory is not writable"
+    handler = make_handler(
+        tmp_path,
+        manager=False,
+        storage=False,
+        unavailable_reason=reason,
+    )
+
+    status = response_body(await routes.get_recording_status(handler))
+    storage = response_body(await routes.get_storage_status(handler))
+    recordings = response_body(await routes.list_recordings(handler))
+
+    assert status["available"] is False
+    assert status["storage_available"] is False
+    assert status["reason"] == reason
+    assert status["recording"] == {"state": "unavailable"}
+    assert status["storage"]["warning_level"] == "error"
+    assert status["storage"]["error"] == reason
+    assert storage["available"] is False
+    assert storage["reason"] == reason
+    assert storage["storage"]["warning_level"] == "error"
+    assert recordings["available"] is False
+    assert recordings["reason"] == reason
+    assert recordings["recordings"] == []
+    assert recordings["count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_mutation_error_uses_startup_reason(tmp_path):
+    reason = "OSError: recordings path is not writable"
+    handler = make_handler(tmp_path, manager=False, unavailable_reason=reason)
+
+    with pytest.raises(HTTPException) as exc:
+        await routes.start_recording(handler)
+
+    assert exc.value.status_code == 503
+    assert exc.value.detail == reason
 
 
 @pytest.mark.asyncio

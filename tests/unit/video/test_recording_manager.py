@@ -63,6 +63,19 @@ def manager(mock_params, mock_video_writer):
         mgr.stop()
 
 
+@pytest.mark.unit
+def test_resolve_recording_output_dir_uses_project_root(tmp_path, monkeypatch):
+    from classes.recording_manager import resolve_recording_output_dir
+
+    monkeypatch.chdir(tmp_path)
+
+    expected = Path(__file__).resolve().parents[3] / "recordings"
+    assert Path(resolve_recording_output_dir("recordings")) == expected.resolve()
+
+    absolute = tmp_path / "absolute-recordings"
+    assert resolve_recording_output_dir(str(absolute)) == str(absolute)
+
+
 # =============================================================================
 # State Machine Tests
 # =============================================================================

@@ -463,17 +463,8 @@ class AppController:
         if getattr(Parameters, 'ENABLE_RECORDING', False):
             try:
                 self.recording_manager = RecordingManager()
-                self.storage_manager = StorageManager(self.recording_manager)
-                self.storage_manager.start_monitoring()
-                self._set_startup_component(
-                    "recording",
-                    "ready",
-                    "storage_monitor_started",
-                )
-                logging.info("Recording system initialized")
             except Exception as exc:
                 self.recording_manager = None
-                self.storage_manager = None
                 self._set_startup_component(
                     "recording",
                     "degraded",
@@ -482,6 +473,25 @@ class AppController:
                 logging.exception(
                     "Recording startup failed; live operation and settings remain available"
                 )
+            if self.recording_manager is not None:
+                try:
+                    self.storage_manager = StorageManager(self.recording_manager)
+                    self.storage_manager.start_monitoring()
+                    self._set_startup_component(
+                        "recording",
+                        "ready",
+                        "storage_monitor_started",
+                    )
+                    logging.info("Recording system initialized")
+                except Exception as exc:
+                    self._set_startup_component(
+                        "recording",
+                        "degraded",
+                        f"storage_monitor_failed:{type(exc).__name__}: {exc}",
+                    )
+                    logging.exception(
+                        "Storage monitoring failed; recording remains available"
+                    )
         else:
             self._set_startup_component(
                 "recording",
@@ -564,6 +574,17 @@ class AppController:
             "initializing_components": initializing,
             "components": components,
         }
+
+    def get_recording_unavailable_reason(self) -> Optional[str]:
+        with self._startup_component_lock:
+            state = self._startup_components.get("recording") or {}
+        if str(state.get("status") or "") == "ready":
+            return None
+        detail = str(state.get("detail") or "").strip()
+        if detail:
+            return detail
+        status = str(state.get("status") or "").strip()
+        return status or "recording_unavailable"
 
     def initialize_video_source(self) -> bool:
         """Activate media after the API control plane is accepting requests."""

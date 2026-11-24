@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## Version 7.6.1 (2026-11-24) - Recording availability patch
+
+- Fix the Recordings page showing `Failed to load recordings: HTTP 503` with
+  zero storage when recording startup failed. Read routes now return a bounded,
+  explicit unavailable reason instead of hiding it behind a generic HTTP error.
+- Keep recording available when only storage monitoring fails, and surface the
+  storage error in both the Recordings page and dashboard quick controls.
+- Resolve relative recording output paths from the project root consistently in
+  the recording and storage managers, and continue startup when crash recovery
+  fails.
+- Add backend and dashboard regressions for unavailable status, empty recording
+  lists, mutation error details, path resolution, and disabled quick controls.
+
 ## Version 7.6.0 (2026-11-24) - Stock guidance and configuration release
 
 - Align matched public defaults and private overlays with schema 1.11. Preserve

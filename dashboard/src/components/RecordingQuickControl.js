@@ -53,6 +53,8 @@ const RecordingQuickControl = () => {
   const {
     recordingStatus,
     storageStatus,
+    recordingAvailable,
+    recordingUnavailableReason,
     loading,
     error,
     startRecording,
@@ -67,6 +69,13 @@ const RecordingQuickControl = () => {
   const isPaused = recordingStatus?.state === 'paused';
   const isActive = recordingStatus?.is_active === true;
   const storageWarning = storageStatus?.warning_level;
+  const unavailable = recordingAvailable === false;
+  const unavailableReason = recordingUnavailableReason || 'Recording subsystem unavailable';
+  const showStorageWarning = Boolean(
+    storageWarning
+    && storageWarning !== 'ok'
+    && !(unavailable && storageStatus?.error === unavailableReason)
+  );
 
   const handleStart = async () => {
     setActionLoading(true);
@@ -171,7 +180,7 @@ const RecordingQuickControl = () => {
             variant="contained"
             color="error"
             onClick={handleStart}
-            disabled={actionLoading}
+            disabled={actionLoading || unavailable}
             startIcon={<FiberManualRecordIcon sx={{ fontSize: '14px !important' }} />}
             sx={{
               flex: 1,
@@ -190,7 +199,7 @@ const RecordingQuickControl = () => {
               <IconButton
                 size="small"
                 onClick={handlePause}
-                disabled={actionLoading}
+                disabled={actionLoading || unavailable}
                 color="warning"
                 sx={{ border: 1, borderColor: 'divider', borderRadius: 1, width: 28, height: 28 }}
               >
@@ -202,7 +211,7 @@ const RecordingQuickControl = () => {
               variant="contained"
               color="error"
               onClick={handleStop}
-              disabled={actionLoading}
+              disabled={actionLoading || unavailable}
               startIcon={<StopIcon sx={{ fontSize: '14px !important' }} />}
               sx={{
                 flex: 1,
@@ -219,19 +228,29 @@ const RecordingQuickControl = () => {
       </Box>
 
       {/* Storage Warning */}
-      {storageWarning && storageWarning !== 'ok' && (
+      {showStorageWarning && (
         <Alert
-          severity={storageWarning === 'critical' ? 'error' : 'warning'}
+          severity={storageWarning === 'critical' || storageWarning === 'error' ? 'error' : 'warning'}
           sx={{ mt: 1, py: 0, fontSize: 10, '& .MuiAlert-icon': { fontSize: 16 } }}
         >
-          {storageWarning === 'critical'
-            ? `Critical: ${storageStatus?.free_mb?.toFixed(0) || 0} MB free`
-            : `Low storage: ${storageStatus?.free_gb?.toFixed(1) || 0} GB free`}
+          {storageWarning === 'error'
+            ? storageStatus?.error || 'Storage monitoring unavailable'
+            : storageWarning === 'critical'
+              ? `Critical: ${storageStatus?.free_mb?.toFixed(0) || 0} MB free`
+              : `Low storage: ${storageStatus?.free_gb?.toFixed(1) || 0} GB free`}
         </Alert>
       )}
 
-      {/* Error display */}
-      {error && !isActive && (
+      {unavailable && (
+        <Alert
+          severity="warning"
+          sx={{ mt: 1, py: 0, fontSize: 10, '& .MuiAlert-icon': { fontSize: 16 } }}
+        >
+          {unavailableReason}
+        </Alert>
+      )}
+
+      {error && !unavailable && !isActive && (
         <Typography variant="caption" color="error" sx={{ mt: 0.5, display: 'block', fontSize: 10 }}>
           Connection error
         </Typography>
