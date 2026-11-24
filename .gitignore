@@ -58,7 +58,7 @@ coverage.xml
 pytest_debug.log
 
 
-#configs
+# Active installation settings and generated backups
 configs/config.yaml
 configs/config.yaml.backup.*
 configs/config.lock
@@ -74,6 +74,26 @@ configs/secrets/
 dashboard/.env
 dashboard/.env.backup.*
 dashboard/backups/
+
+# Operator exports and device credentials
+private-profile/
+PixEagle-profiles-*/
+pixeagle-backups/
+PixEagle-config-backup-*
+private-config.yaml
+private-overrides.yaml
+pixeagle_config_*.yaml
+credentials.json
+initial-credentials.json
+.env.local
+.env.*.local
+
+# Onboard captures and SD backups
+*.ulg
+*.tlog
+raspberry-pi-image/
+pixeagle-*.img
+pixeagle-*.img.*
 
 # Recordings (local media, large files)
 recordings/
@@ -230,8 +250,6 @@ $RECYCLE.BIN/
 
 models/
 
-dashboard/package.json  
-dashboard/package-lock.json  
 # Interceptor reports
 reports/
 

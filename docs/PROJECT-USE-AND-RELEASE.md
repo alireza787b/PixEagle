@@ -38,6 +38,26 @@ the Apache license. If the copyright holders require a legally binding
 field-of-use restriction, they must adopt a separately reviewed licensing
 model before changing the public license or publishing a restricted edition.
 
+## Releases and device settings
+
+Keep shared application changes in the official repository. Merge reviewed changes
+into `main`, then tag and publish the tested commit. An installation on a release
+candidate can be ahead of the latest stable tag even with a clean working tree.
+Record the commit as well as the version when comparing a board with GitHub.
+
+Track factory defaults in `configs/config_default.yaml`. The installer and
+Dashboard use the device’s ignored `configs/config.yaml` for saved settings.
+Keep named exports, credentials, recordings and raw flight logs on the device
+or in private backup storage. Use `private-profile/` for local files if they
+must sit inside a checkout. Preserve that data when updating. An ordinary Git
+pull fetches source and cannot upload files from the board.
+
+Before pushing, review `git diff --cached --name-only`. Use
+`git check-ignore -v -- <path>` to inspect an ignore rule and
+`git ls-files -- <path>` to see whether the file is already tracked.
+Previously committed files remain in Git history even after an ignore rule
+is added. Review and redact evidence separately before publishing it in docs.
+
 ## Customized QGroundControl integration
 
 The PixEagle-native QGroundControl work is a private/custom integration branch
