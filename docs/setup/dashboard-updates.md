@@ -31,3 +31,5 @@ The Debian/Ubuntu/Raspberry Pi installation must have a Git checkout, a working 
 Use `git status` and `git stash list` in the installation checkout. The page reports the saved stash ID. Inspect it with `git stash show --stat --include-untracked <stash-id>`. Reapply reviewed code edits in a developer checkout with `git stash apply --index <stash-id>`. An update never replays local code edits automatically.
 
 If host repair is needed, follow the [stopped-runtime repair procedure](../SERVICE_MANAGEMENT.md). Verify the intended source revision, settings, backend and Dashboard before resuming operation. After a manual recovery, archive the private `current.json` pointer outside the updates directory while the runtime is stopped to clear a **Recovery required** record. Keep the original job directory for diagnosis.
+
+For an unattended service update, the installation owner must be able to run the maintenance commands through sudo without a prompt. The installer and Dashboard share this check, including Raspberry Pi OS installations with mixed password and passwordless sudo rules.

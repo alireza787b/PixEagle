@@ -118,7 +118,13 @@ def worker_command(mode, job_id, path):
     if (
         mode == "service"
         and subprocess.run(
-            ["sudo", "-n", "-v"],
+            [
+                "bash",
+                "-c",
+                'source "$1" && PIXEAGLE_NONINTERACTIVE=1 pixeagle_sudo_validate',
+                "pixeagle-update",
+                str(ROOT / "scripts/lib/common.sh"),
+            ],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,

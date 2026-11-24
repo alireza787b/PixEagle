@@ -395,7 +395,8 @@ run_guided_command bash -c {shlex.quote(child)}
     assert "test-only-password" not in sudo_log.read_text(encoding="utf-8")
 
 
-def test_unattended_sudo_validation_fails_without_password_read(tmp_path: Path):
+@pytest.mark.parametrize("command_allowed", [False, True])
+def test_unattended_sudo_validates_passwordless_commands_without_prompt(tmp_path: Path, command_allowed):
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     sudo_log = tmp_path / "sudo-args.log"
@@ -403,7 +404,7 @@ def test_unattended_sudo_validation_fails_without_password_read(tmp_path: Path):
     fake_sudo.write_text(
         """#!/usr/bin/env bash
 printf '%s\\n' "$*" >> "$PIXEAGLE_FAKE_SUDO_LOG"
-exit 1
+[[ "$*" == "-n true" && "$COMMAND_ALLOWED" == 1 ]]
 """,
         encoding="utf-8",
     )
@@ -412,13 +413,15 @@ exit 1
     env["PATH"] = f"{fake_bin}{os.pathsep}{env['PATH']}"
     env["PIXEAGLE_FAKE_SUDO_LOG"] = str(sudo_log)
 
+    env["COMMAND_ALLOWED"] = str(int(command_allowed))
     result = _run_bash(
         f'''
 source "{COMMON_SCRIPT}"
 pixeagle_running_as_root() {{ return 1; }}
 PIXEAGLE_NONINTERACTIVE=1
 if pixeagle_sudo_validate; then
-    exit 31
+    echo SUDO_READY
+    exit 0
 fi
 printf 'SUDO_REASON=%s\\n' "$PIXEAGLE_SUDO_FAILURE_REASON"
 ''',
@@ -427,8 +430,9 @@ printf 'SUDO_REASON=%s\\n' "$PIXEAGLE_SUDO_FAILURE_REASON"
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "SUDO_REASON=authentication_required_noninteractive" in result.stdout
-    assert sudo_log.read_text(encoding="utf-8").splitlines() == ["-n -v"]
+    expected = "SUDO_READY" if command_allowed else "SUDO_REASON=authentication_required_noninteractive"
+    assert expected in result.stdout
+    assert sudo_log.read_text(encoding="utf-8").splitlines() == ["-n -v", "-n true"]
 
 
 def test_interactive_yes_no_prompt_retries_invalid_answer():
