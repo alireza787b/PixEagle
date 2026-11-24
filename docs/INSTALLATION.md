@@ -761,7 +761,9 @@ make status        # Show manual runtime status
 make help          # Show all commands
 ```
 
-`make update` is the only maintained existing-checkout update command. It owns
+For stable releases on a running installation, open **About → Software update** in the Dashboard. See the [illustrated update guide](setup/dashboard-updates.md).
+
+`make update` is the maintained existing-checkout branch update command. It owns
 the lifecycle, source, and selected virtual environment. If an interactive
 update finds a runtime provably owned by this checkout, it asks before stopping
 it through the canonical lifecycle controls. It never restarts PixEagle.

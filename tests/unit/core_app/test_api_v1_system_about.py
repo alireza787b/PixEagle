@@ -60,7 +60,7 @@ def test_system_about_snapshot_reports_typed_process_local_metadata(monkeypatch)
     assert payload["backend"]["video_available"] is True
     assert payload["runtime"]["python_version"]
     assert "cwd" not in payload["runtime"]
-    assert payload["update"]["supported"] is False
+    assert payload["update"]["supported"] is True
     assert payload["update"]["available"] is None
     assert "does not fetch" in payload["update"]["reason"]
     assert payload["update"]["safe_workflow"] == "Stopped-runtime host workflow: make update"

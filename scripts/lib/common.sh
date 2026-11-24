@@ -176,6 +176,11 @@ pixeagle_sudo_validate() {
         return 0
     fi
     if [[ "${PIXEAGLE_NONINTERACTIVE:-0}" == "1" ]]; then
+        # Mixed sudoers rules can require a password for -v even when commands
+        # run without one. Each privileged operation still checks its own rule.
+        if sudo -n true </dev/null 2>/dev/null; then
+            return 0
+        fi
         PIXEAGLE_SUDO_FAILURE_REASON="authentication_required_noninteractive"
         return 1
     fi

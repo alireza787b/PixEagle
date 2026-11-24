@@ -6,6 +6,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
+from contextlib import asynccontextmanager
 import cv2
 import numpy as np
 import logging
@@ -277,6 +278,8 @@ from classes.api_v1_paths import (
     is_api_v1_auth_path,
     uses_typed_api_error_envelope,
 )
+from classes import api_v1_software_update
+from classes.api_v1_contracts import APISoftwareUpdateRequest, APISoftwareUpdateResponse, APISoftwareUpdateJob
 from classes.api_v1_contracts import (
     APIIntegrationContextResponse,
     APINativeTargetState,
@@ -604,7 +607,7 @@ class FastAPIHandler:
         self._api_action_store = ApiActionStore()
 
         # FastAPI app
-        self.app = FastAPI(title="PixEagle API", version=PIXEAGLE_VERSION)
+        self.app = FastAPI(title="PixEagle API", version=PIXEAGLE_VERSION, lifespan=self._update_lifespan)
         self.app.add_exception_handler(
             RequestValidationError,
             self._handle_request_validation_error,
@@ -872,6 +875,14 @@ class FastAPIHandler:
                     headers=headers,
                 )
             request.state.api_principal = auth_result.principal
+            barrier = getattr(self, "_software_update_barrier", None)
+            if barrier and request.method.upper() not in {"HEAD", "GET", "OPTIONS"}:
+                job = api_v1_software_update.updates.current_job(api_v1_software_update.ROOT) or {}
+                if job.get("id") != barrier.name or job.get("stage") in api_v1_software_update.updates.TERMINAL:
+                    self._software_update_barrier = None
+                elif request_path not in {"/api/v1/actions/software-update", "/api/v1/actions/operator-abort"} and not request_path.endswith(("-stop", "/stop")):
+                    return self._api_v1_error_response(status_code=409, code="software_update_pending",
+                        detail={"message": "PixEagle is restarting for a software update."}, path=request_path)
 
         return await call_next(request)
 
@@ -2088,6 +2099,22 @@ class FastAPIHandler:
     ):
         from classes.api_v1_integration import integration_context
         return await integration_context(self, http_request, connect=True)
+
+    @asynccontextmanager
+    async def _update_lifespan(self, app):
+        try:
+            self._software_update_barrier = await asyncio.to_thread(
+                api_v1_software_update.updates.publish_ready, api_v1_software_update.ROOT
+            )
+        except Exception:
+            self.logger.exception("Could not acknowledge software update readiness")
+        yield
+
+    async def get_software_update(self, http_request: Request, refresh: bool = False):
+        return await asyncio.to_thread(api_v1_software_update.status_snapshot, self, http_request, refresh)
+
+    async def install_software_update(self, request: APISoftwareUpdateRequest, http_request: Request):
+        return await api_v1_software_update.install(self, request, http_request)
 
     async def get_system_about(self):
         return await dispatch_get_system_about(self)

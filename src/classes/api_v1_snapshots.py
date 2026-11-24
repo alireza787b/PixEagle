@@ -207,7 +207,8 @@ def get_system_about_snapshot(owner: Any) -> Dict[str, Any]:
             "run_id": runtime_run_id,
         },
         "update": {
-            "supported": False,
+            "supported": True,
+            "dashboard_path": "/software-update",
             "state": "not_checked",
             "available": None,
             "checked_at": None,

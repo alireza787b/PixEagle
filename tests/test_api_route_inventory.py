@@ -198,6 +198,8 @@ API_V1_CONTRACT_CLASS_NAMES = {
 
 
 EXPECTED_ROUTES = {
+    ("GET", "/api/v1/system/software-update"),
+    ("POST", "/api/v1/actions/software-update"),
     ("GET", "/api/v1/integration/models"),
     ("GET", "/api/v1/integration/models/{model_id}/labels"),
     ("POST", "/api/v1/actions/model-select"),
@@ -518,9 +520,9 @@ def test_current_route_inventory_counts_by_method():
 
     assert counts == {
         "DELETE": 3,
-        "GET": 84,
+        "GET": 85,
         "PATCH": 1,
-        "POST": 63,
+        "POST": 64,
         "PUT": 2,
         "WEBSOCKET": 2,
     }

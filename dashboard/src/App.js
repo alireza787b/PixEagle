@@ -7,6 +7,7 @@ import TrackerPage from './pages/TrackerPage';
 import FollowerPage from './pages/FollowerPage';
 import DashboardPage from './pages/DashboardPage';
 import LiveFeedPage from './pages/LiveFeedPage';
+import SoftwareUpdatePage from './pages/SoftwareUpdatePage';
 import SettingsPage from './pages/SettingsPage';
 import RecordingsPage from './pages/RecordingsPage';
 import ModelsPage from './pages/ModelsPage';
@@ -55,6 +56,7 @@ const AppContent = () => {
                 <Route path="models" element={<ModelsPage />} />
                 <Route path="logs" element={<LogsPage />} />
                 <Route path="validation" element={<ValidationPage />} />
+                <Route path="software-update" element={<SoftwareUpdatePage />} />
                 <Route path="settings" element={<SettingsPage />} />
               </Route>
             </Routes>

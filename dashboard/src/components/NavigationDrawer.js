@@ -159,6 +159,22 @@ const NavigationDrawer = ({ mobileOpen, handleDrawerToggle }) => {
   const [versionInfo, setVersionInfo] = useState(null);
   const [showVersionDialog, setShowVersionDialog] = useState(false);
 
+  const [stableSummary, setStableSummary] = useState('');
+  const updatePage = versionInfo?.update?.dashboard_path;
+  useEffect(() => {
+    if (!showVersionDialog || !updatePage) return undefined;
+    let open = true;
+    apiFetch(endpoints.softwareUpdate).then((response) => response.ok ? response.json() : null)
+      .then((result) => {
+        if (!open || !result) return;
+        setStableSummary(result.error || ({
+          ahead: 'Ahead of the latest stable release', current: 'Up to date',
+          available: result.release + ' is available',
+        }[result.state] || 'Release unconfirmed'));
+      }).catch(() => { if (open) setStableSummary('Could not check for updates'); });
+    return () => { open = false; };
+  }, [showVersionDialog, updatePage]);
+
   const currentPath = location.pathname === '/' ? '/dashboard' : location.pathname;
   const visibleSections = useMemo(() => (
     NAV_SECTIONS
@@ -421,6 +437,11 @@ const NavigationDrawer = ({ mobileOpen, handleDrawerToggle }) => {
             </Box>
           )}
           <Box>
+            {updatePage && <>
+              <Typography variant="body2">{stableSummary || 'Checking for updates…'}</Typography>
+              <Button component={Link} to="/software-update" onClick={() => setShowVersionDialog(false)}>Software update</Button>
+            </>}
+            {!versionInfo.update?.dashboard_path && <>
             <Typography variant="caption" color="text.secondary" display="block">
               Update Status
             </Typography>
@@ -431,7 +452,7 @@ const NavigationDrawer = ({ mobileOpen, handleDrawerToggle }) => {
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
                 {versionInfo.update.reason}
               </Typography>
-            )}
+            )}</>}
           </Box>
           <Divider />
           <Box>

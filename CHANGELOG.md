@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## Version 7.5.5 (2026-11-24) - Dashboard software updates
+
+- Check for official stable releases and install eligible updates from
+  **About → Software update**.
+- Preview required settings migrations, keep valid saved YAML on the device,
+  and recover the previous version if the upgraded runtime fails verification.
+- Support the Raspberry Pi OS sudo policy used for unattended service
+  maintenance. Keep local profiles, credentials, captures, and SD backups
+  outside Git.
+
+Use the [installation guide](docs/INSTALLATION.md) to move from an older
+release to 7.5.5. See the [Dashboard update guide](docs/setup/dashboard-updates.md)
+for later releases, configuration review, and recovery.
+
 ## Version 7.5.4 (2026-11-22) - Flight replay diagnostics
 
 - Prefer recorded submitted command fields in read-only SIH replays and label

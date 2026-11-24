@@ -774,6 +774,21 @@ class ConfigService:
         return {"_value": value}
 
     @staticmethod
+    def _set_mapping_path(mapping: Dict[str, Any], path: List[str], value: Any) -> None:
+        """Set one mapping value, creating only missing mapping ancestors."""
+        if not path:
+            raise ValueError("Config paths must contain at least one component")
+        cursor = mapping
+        for index, component in enumerate(path[:-1]):
+            if component not in cursor:
+                cursor[component] = {}
+            child = cursor[component]
+            if not isinstance(child, dict):
+                raise ValueError(f"Config shape conflict at {'.'.join(path[:index + 1])}")
+            cursor = child
+        cursor[path[-1]] = copy.deepcopy(value)
+
+    @staticmethod
     def _mapping_path_exists(mapping: Dict[str, Any], path: List[str]) -> bool:
         """Return whether an exact, arbitrarily nested mapping path exists."""
         cursor: Any = mapping
@@ -1517,6 +1532,11 @@ class ConfigService:
                 else {}
             )
         return schema if isinstance(schema, dict) else {}
+
+    def get_path_schema(self, path: List[str] | Tuple[str, ...]) -> Dict[str, Any]:
+        """Return the exact declared path contract, never an inherited default."""
+        with self._mutation_lock:
+            return copy.deepcopy(self._schema_for_path(path))
 
     @classmethod
     def _string_contains_credentials(cls, value: str) -> bool:

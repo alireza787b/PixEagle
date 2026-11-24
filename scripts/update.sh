@@ -34,6 +34,7 @@ fi
 show_help() {
     cat <<'USAGE'
 Usage: bash scripts/update.sh [--dry-run] [--remote NAME] [--branch NAME]
+       bash scripts/update.sh --release-tag vX.Y.Z --commit SHA
 
 Safely update and reconcile an existing PixEagle checkout:
   1. acquire exclusive lifecycle, source, and virtual-environment ownership;
@@ -87,6 +88,16 @@ parse_args() {
                 }
                 SYNC_BRANCH="$1"
                 ;;
+            --release-tag)
+                shift
+                [[ "${1:-}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || return 2
+                SYNC_RELEASE_TAG="$1"
+                ;;
+            --commit)
+                shift
+                [[ "${1:-}" =~ ^[0-9a-f]{40}$ ]] || return 2
+                SYNC_RELEASE_COMMIT="$1"
+                ;;
             --help|-h)
                 show_help
                 exit 0
@@ -99,6 +110,11 @@ parse_args() {
         esac
         shift
     done
+    if [[ -n "${SYNC_RELEASE_TAG:-}${SYNC_RELEASE_COMMIT:-}" ]]; then
+        [[ "${SYNC_RELEASE_TAG:-}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ && "${SYNC_RELEASE_COMMIT:-}" =~ ^[0-9a-f]{40}$ ]] || return 2
+        [[ -z "${SYNC_REMOTE:-}${SYNC_BRANCH:-}" ]] || return 2
+    fi
+    export SYNC_RELEASE_TAG="${SYNC_RELEASE_TAG:-}" SYNC_RELEASE_COMMIT="${SYNC_RELEASE_COMMIT:-}"
     export SYNC_REMOTE="${SYNC_REMOTE:-}" SYNC_BRANCH="${SYNC_BRANCH:-}"
 }
 

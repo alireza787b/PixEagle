@@ -295,37 +295,52 @@ do_sync() {
     fi
 
     # Resolve and validate the configured source authority.
-    local cur_branch
+    local cur_branch source_ref fetch_source
     cur_branch="$(git symbolic-ref --short HEAD 2>/dev/null || true)"
-    if [[ -z "$remote" ]]; then
-        remote="$(git config "branch.${cur_branch}.remote" 2>/dev/null || echo "origin")"
-    fi
-    if [[ -z "$branch" ]]; then
-        branch="$cur_branch"
-    fi
-    if [[ -z "$branch" ]]; then
-        log_error "Detached HEAD detected and SYNC_BRANCH was not provided"
-        log_detail "Run with SYNC_BRANCH=<branch> or check out a branch first."
-        return 2
-    fi
-    if [[ ! "$remote" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$ ]] \
-        || [[ "$remote" == *..* ]]; then
-        log_error "Configured update remote name is unsafe: $remote"
-        return 2
-    fi
-    if ! git check-ref-format --branch "$branch" >/dev/null 2>&1; then
-        log_error "Configured update branch is invalid: $branch"
-        return 2
-    fi
+    if [[ -n "${SYNC_RELEASE_TAG:-}" ]]; then
+        branch="$SYNC_RELEASE_TAG"
+        remote="official"
+        remote_url="https://github.com/alireza787b/PixEagle.git"
+        fetch_source="$remote_url"
+        source_ref="refs/tags/$branch"
+        if [[ "$(git ls-remote --get-url "$remote_url")" != "$remote_url" ]]; then
+            log_error "The official release URL is redirected by local Git configuration"
+            return 2
+        fi
+    else
+        if [[ -z "$remote" ]]; then
+            remote="$(git config "branch.${cur_branch}.remote" 2>/dev/null || echo "origin")"
+        fi
+        if [[ -z "$branch" ]]; then
+            branch="$cur_branch"
+        fi
+        if [[ -z "$branch" ]]; then
+            log_error "Detached HEAD detected and SYNC_BRANCH was not provided"
+            log_detail "Run with SYNC_BRANCH=<branch> or check out a branch first."
+            return 2
+        fi
+        if [[ ! "$remote" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$ ]] \
+            || [[ "$remote" == *..* ]]; then
+            log_error "Configured update remote name is unsafe: $remote"
+            return 2
+        fi
+        if ! git check-ref-format --branch "$branch" >/dev/null 2>&1; then
+            log_error "Configured update branch is invalid: $branch"
+            return 2
+        fi
 
-    remote_url="$(git remote get-url "$remote" 2>/dev/null)" || {
-        log_error "Configured update remote does not exist: $remote"
-        return 2
-    }
-    if ! _validate_update_remote_url "$remote_url"; then
-        log_error "Refusing unsupported update remote transport: $remote_url"
-        log_detail "Use HTTPS, SSH, or an explicit local/file remote; Git remote helpers are refused."
-        return 2
+        remote_url="$(git remote get-url "$remote" 2>/dev/null)" || {
+            log_error "Configured update remote does not exist: $remote"
+            return 2
+        }
+        if ! _validate_update_remote_url "$remote_url"; then
+            log_error "Refusing unsupported update remote transport: $remote_url"
+            log_detail "Use HTTPS, SSH, or an explicit local/file remote; Git remote helpers are refused."
+            return 2
+        fi
+
+        fetch_source="$remote"
+        source_ref="refs/heads/$branch"
     fi
 
     echo -e "  Remote:  ${BOLD:-}${remote}${NC:-} (${remote_url})"
@@ -341,7 +356,7 @@ do_sync() {
         log_error "Cannot inspect untracked files; refusing source update"
         return 2
     fi
-    if ! git diff --quiet 2>/dev/null || ! git diff --cached --quiet 2>/dev/null || [[ -n "$untracked" ]]; then
+    if ! git diff --quiet 2>/dev/null || ! git diff --cached --quiet 2>/dev/null || [[ -n "$untracked" && -z "${SYNC_RELEASE_TAG:-}" ]]; then
         log_error "Worktree has local changes; update requires a clean worktree"
         git status --short
         log_detail "Commit them, or run 'git stash push --include-untracked', then rerun make update."
@@ -379,8 +394,8 @@ do_sync() {
         -c protocol.ssh.allow=always \
         -c protocol.file.allow=always \
         -c protocol.ext.allow=never \
-        fetch --no-tags --no-recurse-submodules --force "$remote" \
-        "refs/heads/${branch}:${candidate_ref}" 2>&1)"; then
+        fetch --no-tags --no-recurse-submodules --force "$fetch_source" \
+        "${source_ref}:${candidate_ref}" 2>&1)"; then
         pixeagle_stop_heartbeat source_fetch_heartbeat_pid
     else
         pixeagle_stop_heartbeat source_fetch_heartbeat_pid
@@ -400,6 +415,11 @@ do_sync() {
         log_error "Fetched candidate is not a commit"
         return 1
     }
+    if [[ -n "${SYNC_RELEASE_COMMIT:-}" && "$candidate_head" != "$SYNC_RELEASE_COMMIT" ]]; then
+        git update-ref -d "$candidate_ref"
+        log_error "The release tag changed after review. Check for updates again."
+        return 1
+    fi
     if ! git merge-base --is-ancestor "$old_head" "$candidate_head"; then
         git update-ref -d "$candidate_ref" >/dev/null 2>&1 || true
         log_error "Update candidate is not a fast-forward descendant of the current HEAD"
@@ -433,7 +453,7 @@ do_sync() {
     if [[ "$old_head" == "$candidate_head" ]]; then
         log_success "Already up to date"
         PIXEAGLE_SYNC_CHANGED=false
-    elif git merge --ff-only --quiet "$candidate_ref"; then
+    elif git merge --ff-only --quiet "$candidate_head"; then
         diffstat="$(git diff --stat "$old_head"..HEAD 2>/dev/null | tail -1)"
         if [[ -n "$diffstat" && "$diffstat" != *"0 files"* ]]; then
             log_success "Applied fast-forward updates (${diffstat})"

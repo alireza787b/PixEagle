@@ -56,6 +56,8 @@ from classes.api_v1_paths import (
     API_V1_LOGS_STATUS_PATH,
     API_V1_RUNTIME_STATUS_PATH,
     API_V1_SYSTEM_ABOUT_PATH,
+    API_V1_SOFTWARE_UPDATE_PATH,
+    API_V1_ACTION_SOFTWARE_UPDATE_PATH,
     API_V1_STREAMING_CLIENT_CONFIG_PATH,
     API_V1_STREAMING_MEDIA_HEALTH_PATH,
     API_V1_TELEMETRY_HEALTH_PATH,
@@ -87,6 +89,12 @@ class ApiV1RouteSpec:
 
 
 API_V1_ROUTE_SPECS: tuple[ApiV1RouteSpec, ...] = (
+    ApiV1RouteSpec(method="GET", path=API_V1_SOFTWARE_UPDATE_PATH, handler="get_software_update",
+        response_model="APISoftwareUpdateResponse", responses="SYSTEM_ABOUT_ERROR_RESPONSES",
+        operation_id="get_software_update", tags=("system",)),
+    ApiV1RouteSpec(method="POST", path=API_V1_ACTION_SOFTWARE_UPDATE_PATH, handler="install_software_update",
+        response_model="APISoftwareUpdateJob", responses="ACTION_ROUTE_RESPONSES",
+        operation_id="install_software_update", tags=("system",), status_code="status.HTTP_202_ACCEPTED"),
     ApiV1RouteSpec(
         method="POST", path=API_V1_ACTION_FOLLOWING_CONTROL_PATH,
         handler="following_control_action", response_model="APIActionResponse",

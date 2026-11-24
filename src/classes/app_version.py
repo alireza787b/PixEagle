@@ -1,3 +1,3 @@
 """Central project version definition."""
 
-PIXEAGLE_VERSION = "7.5.4"
+PIXEAGLE_VERSION = "7.5.5"

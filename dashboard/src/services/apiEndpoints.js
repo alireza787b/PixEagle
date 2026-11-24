@@ -178,6 +178,8 @@ export const endpoints = {
   configRuntimeStatus: `${apiBaseUrl}/api/v1/config/runtime-status`,
 
   // System management endpoints (v4.0.0+)
+  softwareUpdate: `${apiBaseUrl}/api/v1/system/software-update`,
+  installSoftwareUpdate: `${apiBaseUrl}/api/v1/actions/software-update`,
   systemAbout: `${apiBaseUrl}/api/v1/system/about`,
   sitlValidationStatus: `${apiBaseUrl}/api/v1/sitl/status`,
   systemStatus: `${apiBaseUrl}/api/system/status`,

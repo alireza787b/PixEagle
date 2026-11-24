@@ -96,7 +96,9 @@ const SettingsPageContent = () => {
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info', persistent: false });
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [changesDrawerOpen, setChangesDrawerOpen] = useState(false);
-  const [syncDialogOpen, setSyncDialogOpen] = useState(false);
+  const [syncDialogOpen, setSyncDialogOpen] = useState(
+    () => new URLSearchParams(window.location.search).get('review') === 'defaults',
+  );
   const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
   const [videoHealth, setVideoHealth] = useState(null);
   const [reconnectingVideo, setReconnectingVideo] = useState(false);
