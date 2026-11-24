@@ -250,6 +250,8 @@ pixeagle-service update
 pixeagle-service update --remote upstream --branch develop
 ```
 
+For an administrator updating a running installation to an official stable release, see [Update PixEagle from the Dashboard](setup/dashboard-updates.md).
+
 `pixeagle-service update` and `make update` use the same updater. When an
 interactive update finds a runtime provably owned by this checkout, it asks
 before stopping it through the normal manual/service controls. It never
@@ -258,7 +260,7 @@ already stopped or `PIXEAGLE_UPDATE_STOP_RUNTIME=1` was explicitly set.
 Conflicting sessions, unrelated listeners, and unverified service ownership
 are never stopped automatically.
 
-The updater does not stash local work, delete ignored operator data, or create
+The host branch updater does not stash local work, delete ignored operator data, or create
 merge commits. If the checkout has local edits or the remote branch has
 diverged, the update stops with recovery guidance. Commit local edits or use
 `git stash push --include-untracked`, resolve divergence deliberately, then

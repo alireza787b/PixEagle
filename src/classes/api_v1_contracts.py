@@ -49,7 +49,7 @@ SYSTEM_ABOUT_CLAIM_BOUNDARY = (
 )
 SYSTEM_UPDATE_STATUS_REASON = (
     "Runtime About does not fetch, pull, restart, or check update availability. "
-    "Stop PixEagle and run make update on the host."
+    "Open Software update to check official stable releases."
 )
 SYSTEM_UPDATE_SAFE_WORKFLOW = "Stopped-runtime host workflow: make update"
 CONFIG_RUNTIME_STATUS_CLAIM_BOUNDARY = (
@@ -424,7 +424,44 @@ class APISystemUpdateStatus(BaseModel):
     available: Optional[bool] = None
     checked_at: Optional[str] = None
     reason: str = SYSTEM_UPDATE_STATUS_REASON
+    dashboard_path: Optional[str] = None
     safe_workflow: str = SYSTEM_UPDATE_SAFE_WORKFLOW
+
+
+class APISoftwareUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    commit: str = Field(pattern=r"^[0-9a-f]{40}$")
+    review: str = Field(pattern=r"^[0-9a-f]{64}$")
+    idempotency_key: str = Field(pattern=r"^[0-9a-f]{32}$")
+    migration: Optional[str] = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    save_edits: bool = False
+    confirm: Literal[True]
+
+
+class APISoftwareUpdateJob(BaseModel):
+    id: str
+    stage: Literal["queued", "downloading", "preparing", "updating", "restarting", "restoring", "updated", "restored", "failed", "recovery_required", "review_settings"]
+    started: float
+    release: str
+    message: Optional[str] = None
+    stash: Optional[str] = None
+    settings_pending: Optional[bool] = None
+    migration: Optional[str] = None
+    settings_changes: Optional[List[Dict[str, JsonValue]]] = None
+
+
+class APISoftwareUpdateResponse(BaseModel):
+    installed: str
+    state: Literal["current", "available", "ahead", "different", "unknown"]
+    release: Optional[str] = None
+    commit: Optional[str] = None
+    notes: Optional[str] = None
+    checked: Optional[float] = None
+    error: Optional[str] = None
+    changes: List[str]
+    review: Optional[str] = None
+    blocked: Optional[str] = None
+    job: Optional[APISoftwareUpdateJob] = None
 
 
 class APISystemAboutResponse(BaseModel):

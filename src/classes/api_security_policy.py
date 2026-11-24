@@ -725,7 +725,7 @@ API_ROUTE_SECURITY_RULES = (
     APIRouteSecurityRule(
         "typed_system_restart",
         frozenset({"POST"}),
-        ("/api/v1/actions/system-restart",),
+        ("/api/v1/actions/system-restart", "/api/v1/actions/software-update"),
         AUTH_SYSTEM_ADMIN,
     ),
     APIRouteSecurityRule(
@@ -735,6 +735,7 @@ API_ROUTE_SECURITY_RULES = (
             "/api/system/status",
             "/api/system/config",
             "/api/v1/system/about",
+            "/api/v1/system/software-update",
         ),
         AUTH_SYSTEM_READ,
     ),

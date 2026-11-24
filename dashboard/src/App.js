@@ -7,6 +7,7 @@ import TrackerPage from './pages/TrackerPage';
 import FollowerPage from './pages/FollowerPage';
 import DashboardPage from './pages/DashboardPage';
 import LiveFeedPage from './pages/LiveFeedPage';
+import SoftwareUpdatePage from './pages/SoftwareUpdatePage';
 import SettingsPage from './pages/SettingsPage';
 import RecordingsPage from './pages/RecordingsPage';
 import ModelsPage from './pages/ModelsPage';
@@ -38,6 +39,7 @@ const router = createBrowserRouter([
       { path: 'models', element: <ModelsPage /> },
       { path: 'logs', element: <LogsPage /> },
       { path: 'validation', element: <ValidationPage /> },
+      { path: 'software-update', element: <SoftwareUpdatePage /> },
       { path: 'settings', element: <SettingsPage /> },
     ],
   },

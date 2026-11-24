@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useBlocker, useBeforeUnload } from 'react-router-dom';
+import { Link, useBlocker, useBeforeUnload } from 'react-router-dom';
 import {
   Alert, Box, Button, Collapse, Container, Dialog, DialogActions, DialogContent, DialogTitle,
   Divider, List, ListItemButton, ListItemIcon, ListItemText, ListSubheader, Menu, MenuItem, Paper,
@@ -99,7 +99,7 @@ export default function SettingsPage() {
   const [imported, setImported] = useState(null);
   const fileInput = useRef(null);
   const [more, setMore] = useState(null);
-  const [dialog, setDialog] = useState(null);
+  const [dialog, setDialog] = useState(() => new URLSearchParams(window.location.search).get('review') === 'defaults' ? 'sync' : null);
   const [history, setHistory] = useState([]);
   const [applyStatus, setApplyStatus] = useState(null);
 
@@ -441,6 +441,7 @@ export default function SettingsPage() {
       </DialogActions>
     </Dialog>
     <Menu anchorEl={more} open={Boolean(more)} onClose={() => setMore(null)}>
+      <MenuItem component={Link} to="/software-update" onClick={() => setMore(null)}>Software update</MenuItem>
       <MenuItem onClick={() => openMore('export')} disabled={!configReady}><FileDownload sx={{ mr: 1 }} />Export saved YAML</MenuItem>
       <MenuItem onClick={() => openMore('history')} disabled={!configReady || !!count}><History sx={{ mr: 1 }} />Backup history</MenuItem>
       <MenuItem onClick={() => openMore('audit')} disabled={!configReady}>Audit log</MenuItem>

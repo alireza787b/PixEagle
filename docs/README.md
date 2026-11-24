@@ -20,6 +20,7 @@ Welcome to the PixEagle documentation. This guide will help you find the informa
 | [Detection Model Catalog](MODEL_CATALOG.md) | Supported baselines and reviewed aerial, maritime, aircraft, and small-object candidates |
 | [Model Setup](MODEL_SETUP.md) | Trusted local detect/OBB model setup and readiness proof |
 | [AI Accelerator Support](AI_ACCELERATOR_SUPPORT.md) | CUDA, Jetson, Raspberry Pi/ARM, and CPU/NCNN selection and verification |
+| [Dashboard software updates](setup/dashboard-updates.md) | Check for stable releases, preserve settings, and recover a previous installation |
 | [Setup Profiles](setup/setup-profiles.md) | Local dev, QGC field video, lab browser, and guarded production reverse-proxy profiles |
 | [Production Remote Runbook](setup/production-remote-reverse-proxy.md) | Linux credentials, nginx/TLS boundary, firewall, evidence, and rollback |
 | [Binary Download Policy](setup/binary-download-policy.md) | Pinned MAVSDK/MAVLink2REST assets, SHA-256 verification, overrides, and provenance |

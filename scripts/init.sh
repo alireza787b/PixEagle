@@ -2572,6 +2572,10 @@ raise SystemExit(0 if any(line.strip().startswith("GStreamer:") and "YES" in lin
         fi
     fi
 
+    if [[ "$final_status" -eq 0 ]]; then
+        printf '%s\n' "$INSTALL_PROFILE" > "$VENV_DIR/.pixeagle-install-profile.tmp" &&
+            mv "$VENV_DIR/.pixeagle-install-profile.tmp" "$VENV_DIR/.pixeagle-install-profile" || return 1
+    fi
     show_summary
     return "$final_status"
 }
