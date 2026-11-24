@@ -68,12 +68,32 @@ Start reports `vehicle_not_armed`, `vehicle_not_airborne` or
 `vehicle_flight_state_unavailable` until the aircraft is ready. It refuses
 replay video, active or incompatible followers, circuit-breaker inhibition and
 changed identities.
+For a native FW/VTOL Start, the following guard additionally carries an optional
+opaque SHA256 `start_context_id`. Clients copy the complete observed guard;
+they do not construct this ID or infer a native mode epoch. The backend captures
+the matching immutable passive native context before startup's first await and
+passes that original context through acquisition. Missing or changed context
+requires fresh status and a new explicit Start; startup never substitutes a
+newer observation after an await. Ordinary pure-MC MAVSDK starts retain their
+existing path and do not require this native field.
+Passive native observations are sampled by the connection owner, independently
+of browser/QGC polling. The same socket serializes reads and acquisition;
+passive reads yield while acquisition or command ownership is active. Sampling
+retains original source timestamps and does not relax observation freshness or
+image/attitude alignment. The existing bounded first-pair wait may accept a new
+measured frame from the unchanged source/target; it cannot refresh an old frame,
+renew its deadline or acquire control before a qualified pair exists.
+
 Each Start includes a random 32-hex `start_attempt_id`, which the backend
 exposes while startup is pending so Stop can cancel that exact attempt.
 The guard is checked before startup, before Offboard entry, after the Offboard
 acknowledgement and before following becomes active on PixEagle's flight-owner
 loop. These checks do not replace PX4 failsafes, target-continuity monitoring
 or the existing OffboardCommander cleanup.
+Once native acquisition consumes the passive context, the later checks retain
+its captured ID while still validating the current target, profile and aircraft
+guard. The native acquisition must echo the original context; a transition or
+native mode-intention change cannot be accepted as a fresh baseline implicitly.
 
 `POST /api/v1/actions/native-follow-stop` accepts the backend instance/runtime,
 the observed follow-session ID or pending Start ID and captured aircraft UID.
@@ -86,6 +106,14 @@ an Offboard stop or final setpoint to another aircraft and reports that partial
 outcome. A stale session receives a conflict; QGC must refresh status before
 retrying. The Stop action is distinct from target Cancel and camera Stop.
 
+Completed execution failures return an action resource with `status: failure`,
+including the original readiness refusal in `result.outcome.precondition.code`
+when available. HTTP 202 reports completion of the attempted action, not Start
+success. Clients correlate the action type and idempotency key, show a vetted
+reason, then refresh status. Failure or inactivity alone does not confirm Hold.
+Shared Offboard preflight retains existing legacy refusal codes and preserves
+canonical guidance/source refusal codes as structured 409 errors before execution.
+
 All mutation responses are typed, actor-audited action resources. The client
 must treat a timeout or lost response as an unknown outcome and read the current
 status rather than blindly retrying with a new key. The existing dashboard can
@@ -97,6 +125,20 @@ of slow model or target operations.
 
 ## Evidence boundary
 
+Development FW/VTOL sessions retain the existing publisher, but their command
+contract can change with actual phase. The optional
+`command_publication.dynamic_command_contract` flag identifies this case.
+Current telemetry `fields` then comes from the current adapter-accepted command
+(`field_source: command_publication`), with its guidance identity. An expired,
+retired or cross-phase publication is unknown; MC schema defaults and cached
+legacy telemetry cannot replace it.
+
+`observed_native_publications` is the native publisher's counter increase
+observed during the owned session. Adapter acknowledgements alone do not make
+this value positive. A missing/reset counter remains unknown; it does not add
+another control guard. Publications do not prove PX4 response or field safety;
+actual pose and mode evidence are still required separately.
+
 Recorded-video replay can qualify targeting and command preview only. It cannot
 qualify aircraft following. Unit and mocked connection tests exercise guards,
 profile filtering, Stop routing and API envelopes. The isolated pinned PX4 SIH
@@ -104,4 +146,5 @@ run recorded Offboard entry, sustained command publication, Stop, target-loss
 cleanup, pending-Start cancellation and an armed/takeoff/follow/land cycle. Its
 logs are identified in the paired slice-4a checkpoint. This is simulation
 evidence; it does not imply HIL, physical camera acceptance or field-flight
-safety. Gimbal-specific movement remains the next slice-4 gate.
+safety. Current FW/VTOL development and its remaining gates are recorded in the
+[airframe checkpoint](../reporting/agent-ops/codex-modernization/checkpoints/2026-11-06-gimbal-vector-airframes.md).

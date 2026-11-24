@@ -60,7 +60,7 @@ def _initialize_registry(cls):
     if cls._registry_initialized:
         return
 
-    # Primary registry (8 implementations)
+    # Explicit implementation registry; metadata/qualification come from the schema
     cls._follower_registry = {
         # Multicopter - Velocity Control
         'mc_velocity_chase': MCVelocityChaseFollower,
@@ -72,6 +72,7 @@ def _initialize_registry(cls):
         'mc_attitude_rate': MCAttitudeRateFollower,
 
         # Fixed-Wing
+        'fw_navigation_chase': FWNavigationChaseFollower,
         'fw_attitude_rate': FWAttitudeRateFollower,
 
         # Gimbal

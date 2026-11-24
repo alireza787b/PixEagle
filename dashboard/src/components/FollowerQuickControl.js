@@ -12,35 +12,24 @@ import {
   Chip
 } from '@mui/material';
 import { SwapHoriz, Speed, ControlCamera, PowerSettingsNew, PowerOff } from '@mui/icons-material';
-import { useFollowerProfiles, useCurrentFollowerProfile } from '../hooks/useFollowerSchema';
+import { useFollowerProfiles, useCurrentFollowerProfile, useFollowerProfileSelection } from '../hooks/useFollowerSchema';
 import DocumentationLink, { PIXEAGLE_DOCS } from './DocumentationLink';
 
 const FollowerQuickControl = () => {
   const { profiles, loading: profilesLoading } = useFollowerProfiles();
   const { currentProfile, switchProfile, loading: currentLoading, isTransitioning } = useCurrentFollowerProfile();
   
-  const [selectedProfile, setSelectedProfile] = useState('');
+  const { selectedProfile, setSelectedProfile, configuredMode } = useFollowerProfileSelection(currentProfile);
   const [switchResult, setSwitchResult] = useState(null);
 
-  // Pre-select current active profile in dropdown (always keep in sync)
-  React.useEffect(() => {
-    if (currentProfile && currentProfile.mode) {
-      setSelectedProfile(currentProfile.mode);
-    }
-  }, [currentProfile]);
-
   const handleQuickSwitch = async () => {
-    if (!selectedProfile) return;
+    if (!selectedProfile || selectedIsCurrent || isTransitioning || isEngaged) return;
 
     setSwitchResult(null);
 
     try {
       const result = await switchProfile(selectedProfile);
       setSwitchResult(result);
-      
-      if (result.success) {
-        setSelectedProfile('');
-      }
     } catch (error) {
       setSwitchResult({
         success: false,
@@ -71,8 +60,8 @@ const FollowerQuickControl = () => {
     return status === 'engaged' ? <PowerSettingsNew /> : <PowerOff />;
   };
 
-  const isEngaged = currentProfile?.status === 'engaged';
-  const selectedIsCurrent = selectedProfile === currentProfile?.mode;
+  const isEngaged = Boolean(currentProfile?.active || currentProfile?.status === 'engaged');
+  const selectedIsCurrent = selectedProfile === configuredMode;
 
   return (
     <>
@@ -108,7 +97,7 @@ const FollowerQuickControl = () => {
         <Select
           value={selectedProfile}
           onChange={(e) => setSelectedProfile(e.target.value)}
-          disabled={isTransitioning || availableProfiles.length === 0}
+          disabled={isTransitioning || isEngaged || availableProfiles.length === 0}
           displayEmpty
           renderValue={(selected) => {
             const profile = availableProfiles.find(([key]) => key === selected);

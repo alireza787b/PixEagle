@@ -1,6 +1,6 @@
 # Project use and release boundaries
 
-Updated 2026-10-04.
+Updated 2026-11-24.
 
 ## PixEagle public project
 
@@ -57,6 +57,30 @@ Before pushing, review `git diff --cached --name-only`. Use
 `git ls-files -- <path>` to see whether the file is already tracked.
 Previously committed files remain in Git history even after an ignore rule
 is added. Review and redact evidence separately before publishing it in docs.
+
+### Maintainer review of safety changes
+
+Review safety fixes on the official PixEagle pull request. Verify that the
+listed owner's approval is current and applies to the PR's latest commit.
+After a source change, request a fresh review. SSH access, a Git author name
+or a cached GitHub login cannot prove who reviewed the change. Never ask for
+a private key, token or one-time code in chat.
+
+The [code owners file](../.github/CODEOWNERS) routes changes in the listed
+paths to the maintainer once it is on the PR's base branch and the PR is ready
+for review. It also covers changes to the review policy. Safety changes in
+other paths still require owner review under the agent guide. These rules
+govern contributions to the official repository. A local clone and a live
+device need their own access controls.
+
+To enforce the review on GitHub, use a ruleset on `main` requiring a pull
+request, code-owner review, and dismissal of stale approvals. Give automation
+a separate, non-admin identity with no ruleset bypass. The maintainer reviews
+from their own account. GitHub prevents a PR author from approving their own
+PR, so agree on a separate author before activating this rule in a
+single-maintainer repository. Repository approval covers the source revision
+only. Device deployment is a separate authorization.
+[GitHub code owners](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners)
 
 ## Customized QGroundControl integration
 

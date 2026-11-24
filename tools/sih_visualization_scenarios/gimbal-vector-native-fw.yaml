@@ -1,0 +1,28 @@
+schema_version: 2
+name: gimbal-vector-native-fw-moving-target
+frame: local_ned
+rate_hz: 20
+mount_type: VERTICAL
+airframe: fixed_wing
+evidence_provenance: px4_sih
+stable_flight: {required: true, settle_samples: 7}
+follower:
+  profile: gm_velocity_vector
+  purpose: Native coordinated FW flight path toward an independently moving target
+  input_contract: gimbal_angles
+  command_contract: fixed_wing_external
+  speed_source_policy: native_auto
+  altitude_control: false
+constraints:
+  altitude: {min: 5.0, max: 120.0}
+continuity_policy:
+  mode: bounded_flight
+  max_coast_time_s: 8.0
+target:
+  waypoints:
+    - {time_s: 0.0, position_ned: [80.0, 0.0, -30.0]}
+    - {time_s: 30.0, position_ned: [260.0, 30.0, -30.0]}
+acceptance:
+  - independent PX4 pose and moving-target truth required
+  - course, airspeed reference and altitude hold must retain distinct semantics
+  - never integrate command intent into aircraft movement

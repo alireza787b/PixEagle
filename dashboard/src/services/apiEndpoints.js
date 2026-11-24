@@ -175,6 +175,10 @@ export const endpoints = {
   configImport: `${apiBaseUrl}/api/config/import`,
   configSearch: `${apiBaseUrl}/api/config/search`,
   configAudit: `${apiBaseUrl}/api/config/audit`,
+  configEditor: `${apiBaseUrl}/api/v1/config/editor`,
+  configSaveAction: `${apiBaseUrl}/api/v1/actions/config-save`,
+  nativeConfigStatus: `${apiBaseUrl}/api/v1/integration/config`,
+  configApplyAction: `${apiBaseUrl}/api/v1/actions/config-apply`,
   configRuntimeStatus: `${apiBaseUrl}/api/v1/config/runtime-status`,
 
   // System management endpoints (v4.0.0+)

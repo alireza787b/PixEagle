@@ -1,0 +1,624 @@
+diff --git a/src/modules/flight_mode_manager/tasks/Transition/CMakeLists.txt b/src/modules/flight_mode_manager/tasks/Transition/CMakeLists.txt
+--- a/src/modules/flight_mode_manager/tasks/Transition/CMakeLists.txt
++++ b/src/modules/flight_mode_manager/tasks/Transition/CMakeLists.txt
+@@ -37,3 +37,8 @@
+ 
+ target_link_libraries(FlightTaskTransition PUBLIC FlightTask FlightTaskUtility)
+ target_include_directories(FlightTaskTransition PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
++
++px4_add_functional_gtest(
++	SRC FlightTaskTransitionTest.cpp
++	LINKLIBS FlightTaskTransition FlightTaskAuto PositionControl
++)
+diff --git a/src/modules/flight_mode_manager/tasks/Transition/FlightTaskTransitionTest.cpp b/src/modules/flight_mode_manager/tasks/Transition/FlightTaskTransitionTest.cpp
+new file mode 100644
+--- /dev/null
++++ b/src/modules/flight_mode_manager/tasks/Transition/FlightTaskTransitionTest.cpp
+@@ -0,0 +1,607 @@
++/****************************************************************************
++ *
++ *   Copyright (C) 2019 PX4 Development Team. All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ *
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in
++ *    the documentation and/or other materials provided with the
++ *    distribution.
++ * 3. Neither the name PX4 nor the names of its contributors may be
++ *    used to endorse or promote products derived from this software
++ *    without specific prior written permission.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
++ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
++ * FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
++ * COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
++ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
++ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS
++ * OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED
++ * AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
++ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
++ * ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
++ * POSSIBILITY OF SUCH DAMAGE.
++ *
++ ****************************************************************************/
++
++// Offline native task component cases. No vehicle, mode request or external publisher.
++#include <gtest/gtest.h>
++#include <cfloat>
++#include <cmath>
++#include <cstdio>
++#include <cstdlib>
++#include <cstring>
++#include <drivers/drv_hrt.h>
++#include <uORB/Publication.hpp>
++#include "FlightTaskTransition.hpp"
++#include "FlightTaskAuto.hpp"
++#include <PositionControl.hpp>
++
++class TransitionTestTask : public FlightTaskTransition
++{
++public:
++	void setDeltaTime(float dt) { _deltatime = dt; }
++};
++
++class AutoTestTask : public FlightTaskAuto
++{
++public:
++	void setDeltaTime(float dt) { _deltatime = dt; }
++};
++
++class TransitionAccelerationTest : public ::testing::Test
++{
++protected:
++	void SetUp() override { param_control_autosave(false); }
++
++	uORB::Publication<vehicle_local_position_s> _local{ORB_ID(vehicle_local_position)};
++	uORB::Publication<vehicle_status_s> _status{ORB_ID(vehicle_status)};
++	uORB::Publication<home_position_s> _home{ORB_ID(home_position)};
++	uORB::Publication<position_setpoint_triplet_s> _triplet{ORB_ID(position_setpoint_triplet)};
++	uORB::Publication<takeoff_status_s> _takeoff{ORB_ID(takeoff_status)};
++	vehicle_local_position_s _position{};
++	vehicle_status_s _vehicle_status{};
++
++	void publish(bool to_fw, float measured_vz, bool valid_vz = true, bool stationary_hold = false)
++	{
++		const auto now = hrt_absolute_time();
++		_position.timestamp = now;
++		_position.timestamp_sample = now;
++		_position.xy_valid = true;
++		_position.z_valid = true;
++		_position.v_xy_valid = true;
++		_position.v_z_valid = valid_vz;
++		_position.xy_global = true;
++		_position.z_global = true;
++		_position.ref_timestamp = 1;
++		_position.ref_lat = 47.397742;
++		_position.ref_lon = 8.545594;
++		_position.ref_alt = 489.439f;
++		_position.x = 0.f;
++		_position.y = 0.f;
++		_position.z = -30.0585632f;
++		_position.vx = stationary_hold ? 0.f : 4.f;
++		_position.vy = stationary_hold ? 0.f : 1.f;
++		_position.vz = measured_vz;
++		_position.ax = 0.2f;
++		_position.ay = -0.1f;
++		_position.az = -4.75382137f;
++		_position.heading = 0.5f;
++		_position.heading_good_for_control = true;
++		_position.eph = 0.5f;
++		_local.publish(_position);
++		_vehicle_status.timestamp = now;
++		_vehicle_status.nav_state = vehicle_status_s::NAVIGATION_STATE_AUTO_LOITER;
++		_vehicle_status.vehicle_type = vehicle_status_s::VEHICLE_TYPE_ROTARY_WING;
++		_vehicle_status.in_transition_mode = true;
++		_vehicle_status.in_transition_to_fw = to_fw;
++		_status.publish(_vehicle_status);
++		home_position_s home{};
++		home.timestamp = now;
++		home.valid_alt = true;
++		home.alt = 489.439f;
++		_home.publish(home);
++		position_setpoint_triplet_s triplet{};
++		triplet.timestamp = now;
++		triplet.current.valid = true;
++		triplet.current.type = position_setpoint_s::SETPOINT_TYPE_LOITER;
++		triplet.current.lat = _position.ref_lat;
++		triplet.current.lon = _position.ref_lon;
++		triplet.current.alt = stationary_hold ? _position.ref_alt - _position.z : 519.6014f;
++		triplet.current.yaw = NAN;
++		triplet.current.cruising_speed = NAN;
++		triplet.current.cruising_throttle = NAN;
++		triplet.current.acceptance_radius = NAN;
++		_triplet.publish(triplet);
++		takeoff_status_s takeoff{};
++		takeoff.timestamp = now;
++		takeoff.takeoff_state = takeoff_status_s::TAKEOFF_STATE_FLIGHT;
++		_takeoff.publish(takeoff);
++	}
++
++	void publishAuto(bool to_fw, float measured_vz, bool stationary_hold = false)
++	{
++		publish(to_fw, measured_vz, true, stationary_hold);
++		_vehicle_status.in_transition_mode = false;
++		_vehicle_status.vehicle_type = to_fw ? vehicle_status_s::VEHICLE_TYPE_FIXED_WING :
++					       vehicle_status_s::VEHICLE_TYPE_ROTARY_WING;
++		_status.publish(_vehicle_status);
++	}
++
++	static constexpr float kMinimumThrust = 0.1f;
++	static constexpr float kMaximumThrust = 0.9f;
++	static constexpr float kHoverThrust = 0.5f;
++	static constexpr float kThrustTolerance = 1e-5f;
++	static constexpr float kControllerDt = 0.016f;
++
++	void configureController(PositionControl &controller, float velocity_gain = 2.f)
++	{
++		// Fixture gains expose native thrust limits; no firmware parameter is changed.
++		controller.setPositionGains(matrix::Vector3f(1.f, 1.f, 1.f));
++		controller.setVelocityGains(matrix::Vector3f(velocity_gain, velocity_gain, velocity_gain),
++					    matrix::Vector3f(0.2f, 0.2f, 0.2f), matrix::Vector3f());
++		float speed_up = 0.f;
++		float speed_down = 0.f;
++		ASSERT_EQ(param_get(param_find("MPC_Z_VEL_MAX_UP"), &speed_up), 0);
++		ASSERT_EQ(param_get(param_find("MPC_Z_VEL_MAX_DN"), &speed_down), 0);
++		controller.setVelocityLimits(12.f, speed_up, speed_down);
++		controller.setThrustLimits(kMinimumThrust, kMaximumThrust);
++		controller.setHorizontalThrustMargin(0.3f);
++		controller.setTiltLimit(1.f);
++		controller.setHoverThrust(kHoverThrust);
++	}
++
++	vehicle_local_position_setpoint_s runController(PositionControl &controller,
++			const trajectory_setpoint_s &setpoint, float dt = kControllerDt)
++	{
++		controller.setState({matrix::Vector3f(_position.x, _position.y, _position.z),
++				     matrix::Vector3f(_position.vx, _position.vy, _position.vz),
++				     matrix::Vector3f(_position.ax, _position.ay, _position.az), _position.heading});
++		controller.setInputSetpoint(setpoint);
++		EXPECT_TRUE(controller.update(dt));
++		vehicle_local_position_setpoint_s output{};
++		vehicle_attitude_setpoint_s attitude{};
++		controller.getLocalPositionSetpoint(output);
++		controller.getAttitudeSetpoint(attitude);
++
++		for (size_t axis = 0; axis < 3; ++axis) {
++			EXPECT_TRUE(std::isfinite(output.acceleration[axis]));
++			EXPECT_TRUE(std::isfinite(output.thrust[axis]));
++			EXPECT_TRUE(std::isfinite(attitude.thrust_body[axis]));
++		}
++
++		for (float value : attitude.q_d) { EXPECT_TRUE(std::isfinite(value)); }
++
++		EXPECT_NEAR(matrix::Quatf(attitude.q_d).norm(), 1.f, kThrustTolerance);
++		const float thrust = matrix::Vector3f(output.thrust).norm();
++		EXPECT_GE(thrust, kMinimumThrust - kThrustTolerance);
++		EXPECT_LE(thrust, kMaximumThrust + kThrustTolerance);
++		EXPECT_LT(output.thrust[2], 0.f);
++		return output;
++	}
++
++	trajectory_setpoint_s activate(TransitionTestTask &task, bool to_fw, float prior_vz,
++				       float measured_vz, bool valid_vz = true)
++	{
++		publish(to_fw, measured_vz, valid_vz);
++		auto prior = FlightTask::empty_trajectory_setpoint;
++		prior.velocity[2] = prior_vz;
++		EXPECT_TRUE(task.updateInitialize());
++		EXPECT_TRUE(task.activate(prior));
++		task.setDeltaTime(0.f);
++		EXPECT_TRUE(task.update());
++		return task.getTrajectorySetpoint();
++	}
++
++	void record(const char *name, bool to_fw, size_t step, const trajectory_setpoint_s &sp)
++	{
++		const char *path = std::getenv("TRANSITION_CHARACTERIZATION");
++
++		if (!path) { return; }
++
++		FILE *file = std::fopen(path, "a");
++		ASSERT_NE(file, nullptr);
++		std::fprintf(file, "%s,%d,%zu", name, to_fw, step);
++
++		for (float value : sp.position) { std::fprintf(file, ",%a", static_cast<double>(value)); }
++
++		for (float value : sp.velocity) { std::fprintf(file, ",%a", static_cast<double>(value)); }
++
++		for (float value : sp.acceleration) { std::fprintf(file, ",%a", static_cast<double>(value)); }
++
++		for (float value : sp.jerk) { std::fprintf(file, ",%a", static_cast<double>(value)); }
++
++		std::fprintf(file, ",%a,%a\n", static_cast<double>(sp.yaw), static_cast<double>(sp.yawspeed));
++		std::fclose(file);
++	}
++};
++
++TEST_F(TransitionAccelerationTest, VelocityAndOtherAxesCharacterization)
++{
++	struct Seed { const char *name; float prior; float measured; bool valid; };
++	const Seed seeds[] = {
++		{"positive", 0.9f, 0.3f, true}, {"negative", -0.9f, -0.3f, true},
++		{"zero", 0.f, 0.5f, true}, {"prior_nan_positive", NAN, 0.4f, true},
++		{"prior_nan_negative", NAN, -0.4f, true}, {"prior_nan_zero", NAN, 0.f, true},
++		{"invalid_state", NAN, NAN, false}, {"finite_prior_invalid_state", 0.9f, NAN, false},
++		{"large_positive", FLT_MAX, 0.f, true}, {"large_negative", -FLT_MAX, 0.f, true}
++	};
++	const float dts[] = {0.f, 0.008f, 0.024f, 0.016f, 0.f, 0.05f, 0.2f};
++
++	for (bool to_fw : {false, true}) {
++		for (const auto &seed : seeds) {
++			SCOPED_TRACE(seed.name);
++			TransitionTestTask task;
++			activate(task, to_fw, seed.prior, seed.measured, seed.valid);
++			AlphaFilter<float> expected{2.f};
++			expected.reset(std::isfinite(seed.prior) ? seed.prior : seed.measured);
++
++			for (size_t step = 0; step < sizeof(dts) / sizeof(dts[0]); ++step) {
++				publish(to_fw, seed.measured, seed.valid);
++				ASSERT_TRUE(task.updateInitialize());
++				task.setDeltaTime(dts[step]);
++				ASSERT_TRUE(task.update());
++				const auto sp = task.getTrajectorySetpoint();
++				const float expected_vz = expected.update(0.f, dts[step]);
++
++				if (std::isfinite(expected_vz)) { EXPECT_FLOAT_EQ(sp.velocity[2], expected_vz); }
++
++				else { EXPECT_TRUE(std::isnan(sp.velocity[2])); }
++
++				EXPECT_TRUE(std::isnan(sp.yaw));
++				EXPECT_FLOAT_EQ(sp.yawspeed, 0.f);
++				record(seed.name, to_fw, step, sp);
++			}
++		}
++	}
++}
++
++TEST_F(TransitionAccelerationTest, PlannedAccelerationBothDirectionsAndSeeds)
++{
++	for (bool to_fw : {false, true}) {
++		for (float seed : {-0.9f, 0.f, 0.9f, -FLT_MAX, FLT_MAX}) {
++			TransitionTestTask task;
++			auto sp = activate(task, to_fw, seed, 0.3f);
++
++			for (float dt : {0.f, 0.024f, 0.008f, 0.016f, 0.f}) {
++				publish(to_fw, 0.3f);
++				ASSERT_TRUE(task.updateInitialize());
++				task.setDeltaTime(dt);
++				ASSERT_TRUE(task.update());
++				sp = task.getTrajectorySetpoint();
++				EXPECT_TRUE(std::isfinite(sp.acceleration[2]));
++				EXPECT_FLOAT_EQ(sp.acceleration[2], -sp.velocity[2] / 2.f);
++				EXPECT_LE(std::fabs(sp.acceleration[2]), std::fabs(seed) / 2.f);
++			}
++		}
++	}
++}
++
++TEST_F(TransitionAccelerationTest, PriorNanUsesStateAndInvalidStateStaysAbsent)
++{
++	for (bool to_fw : {false, true}) {
++		for (float measured : {-0.4f, 0.f, 0.4f}) {
++			TransitionTestTask task;
++			const auto sp = activate(task, to_fw, NAN, measured);
++			EXPECT_FLOAT_EQ(sp.velocity[2], measured);
++			EXPECT_FLOAT_EQ(sp.acceleration[2], -measured / 2.f);
++		}
++		TransitionTestTask invalid;
++		const auto absent = activate(invalid, to_fw, NAN, NAN, false);
++		EXPECT_TRUE(std::isnan(absent.velocity[2]));
++		EXPECT_TRUE(std::isnan(absent.acceleration[2]));
++	}
++}
++
++TEST_F(TransitionAccelerationTest, AutoInheritsPlannedAccelerationInsteadOfMeasuredImpulse)
++{
++	for (bool to_fw : {false, true}) {
++		TransitionTestTask transition;
++		const auto last = activate(transition, to_fw, 0.0389174856f, 0.287803382f);
++		ASSERT_TRUE(std::isfinite(last.acceleration[2]));
++		AutoTestTask next;
++		ASSERT_TRUE(next.updateInitialize());
++		ASSERT_TRUE(next.activate(last));
++		ASSERT_TRUE(next.updateInitialize());
++		next.setDeltaTime(0.f);
++		ASSERT_TRUE(next.update());
++		const auto sp = next.getTrajectorySetpoint();
++		EXPECT_FLOAT_EQ(sp.velocity[2], last.velocity[2]);
++		EXPECT_FLOAT_EQ(sp.acceleration[2], last.acceleration[2]);
++		EXPECT_NE(sp.acceleration[2], _position.az);
++	}
++}
++
++
++TEST_F(TransitionAccelerationTest, ActivationAndReactivationResetPriorAxesAndGear)
++{
++	float speed_up = 0.f;
++	float speed_down = 0.f;
++	ASSERT_EQ(param_get(param_find("MPC_Z_VEL_MAX_UP"), &speed_up), 0);
++	ASSERT_EQ(param_get(param_find("MPC_Z_VEL_MAX_DN"), &speed_down), 0);
++
++	for (bool to_fw : {false, true}) {
++		TransitionTestTask task;
++
++		for (float seed : {0.9f, -0.9f, 0.f}) {
++			publish(to_fw, 0.3f);
++			auto prior = FlightTask::empty_trajectory_setpoint;
++
++			for (size_t axis = 0; axis < 3; ++axis) {
++				prior.position[axis] = 123.f;
++				prior.velocity[axis] = seed;
++				prior.acceleration[axis] = -99.f;
++				prior.jerk[axis] = 42.f;
++			}
++
++			prior.yaw = 1.f;
++			prior.yawspeed = 2.f;
++			ASSERT_TRUE(task.updateInitialize());
++			ASSERT_TRUE(task.activate(prior));
++			const auto activated = task.getTrajectorySetpoint();
++
++			for (size_t axis = 0; axis < 3; ++axis) {
++				EXPECT_TRUE(std::isnan(activated.position[axis]));
++				EXPECT_TRUE(std::isnan(activated.velocity[axis]));
++				EXPECT_TRUE(std::isnan(activated.acceleration[axis]));
++				EXPECT_TRUE(std::isnan(activated.jerk[axis]));
++			}
++
++			EXPECT_TRUE(std::isnan(activated.yaw));
++			EXPECT_TRUE(std::isnan(activated.yawspeed));
++			EXPECT_EQ(task.getGear().landing_gear, to_fw ? landing_gear_s::GEAR_UP : landing_gear_s::GEAR_DOWN);
++			EXPECT_FLOAT_EQ(task.getConstraints().speed_up, speed_up);
++			EXPECT_FLOAT_EQ(task.getConstraints().speed_down, speed_down);
++			EXPECT_FALSE(task.getConstraints().want_takeoff);
++			record("activated", to_fw, static_cast<size_t>(seed > 0.f ? 0 : seed < 0.f ? 1 : 2), activated);
++			task.setDeltaTime(0.f);
++			ASSERT_TRUE(task.update());
++			EXPECT_FLOAT_EQ(task.getTrajectorySetpoint().velocity[2], seed);
++		}
++	}
++}
++
++TEST_F(TransitionAccelerationTest, DerivativeAgreesWithNonzeroDtFilterStep)
++{
++	for (bool to_fw : {false, true}) {
++		for (float seed : {-0.9f, 0.f, 0.9f}) {
++			TransitionTestTask task;
++			auto previous = activate(task, to_fw, seed, 0.3f);
++
++			for (float dt : {0.008f, 0.024f, 0.016f, 0.05f, 0.2f, 0.f}) {
++				publish(to_fw, 0.3f);
++				ASSERT_TRUE(task.updateInitialize());
++				task.setDeltaTime(dt);
++				ASSERT_TRUE(task.update());
++				const auto current = task.getTrajectorySetpoint();
++
++				if (dt > 0.f) {
++					const float finite_difference = (current.velocity[2] - previous.velocity[2]) / dt;
++					EXPECT_NEAR(current.acceleration[2], finite_difference, 1e-5f);
++
++				} else {
++					EXPECT_FLOAT_EQ(current.velocity[2], previous.velocity[2]);
++					EXPECT_FLOAT_EQ(current.acceleration[2], previous.acceleration[2]);
++				}
++
++				previous = current;
++			}
++		}
++	}
++}
++
++TEST_F(TransitionAccelerationTest, AutoHandoverAcrossSignsStateFallbackAndVariableDt)
++{
++	struct Seed { float prior; float measured; };
++	const Seed seeds[] = {{-0.9f, 0.3f}, {0.f, 0.3f}, {0.9f, -0.3f},
++		{NAN, -0.4f}, {NAN, 0.f}, {NAN, 0.4f}
++	};
++	float acceleration_up = 0.f;
++	float acceleration_down = 0.f;
++	ASSERT_EQ(param_get(param_find("MPC_ACC_UP_MAX"), &acceleration_up), 0);
++	ASSERT_EQ(param_get(param_find("MPC_ACC_DOWN_MAX"), &acceleration_down), 0);
++	ASSERT_GT(acceleration_up, 0.f);
++	ASSERT_GT(acceleration_down, 0.f);
++
++	for (bool to_fw : {false, true}) {
++		for (const auto &seed : seeds) {
++			TransitionTestTask transition;
++			auto last = activate(transition, to_fw, seed.prior, seed.measured);
++
++			for (float dt : {0.f, 0.008f, 0.024f, 0.016f}) {
++				publish(to_fw, seed.measured);
++				ASSERT_TRUE(transition.updateInitialize());
++				transition.setDeltaTime(dt);
++				ASSERT_TRUE(transition.update());
++				last = transition.getTrajectorySetpoint();
++			}
++			ASSERT_TRUE(std::isfinite(last.acceleration[2]));
++			_vehicle_status.in_transition_mode = false;
++			_vehicle_status.vehicle_type = to_fw ? vehicle_status_s::VEHICLE_TYPE_FIXED_WING : vehicle_status_s::VEHICLE_TYPE_ROTARY_WING;
++			_status.publish(_vehicle_status);
++			AutoTestTask next;
++			ASSERT_TRUE(next.updateInitialize());
++			ASSERT_TRUE(next.activate(last));
++			ASSERT_TRUE(next.updateInitialize());
++			next.setDeltaTime(0.f);
++			ASSERT_TRUE(next.update());
++			auto sp = next.getTrajectorySetpoint();
++			EXPECT_FLOAT_EQ(sp.velocity[2], last.velocity[2]);
++			EXPECT_FLOAT_EQ(sp.acceleration[2], last.acceleration[2]);
++			EXPECT_NE(sp.acceleration[2], _position.az);
++
++			for (float dt : {0.008f, 0.024f, 0.016f, 0.f, 0.05f}) {
++				ASSERT_TRUE(next.updateInitialize());
++				next.setDeltaTime(dt);
++				ASSERT_TRUE(next.update());
++				sp = next.getTrajectorySetpoint();
++
++				for (size_t axis = 0; axis < 3; ++axis) {
++					EXPECT_TRUE(std::isfinite(sp.position[axis]));
++					EXPECT_TRUE(std::isfinite(sp.velocity[axis]));
++					EXPECT_TRUE(std::isfinite(sp.acceleration[axis]));
++				}
++
++				EXPECT_GE(sp.acceleration[2], -acceleration_up - 1e-5f);
++				EXPECT_LE(sp.acceleration[2], acceleration_down + 1e-5f);
++			}
++		}
++	}
++}
++
++TEST_F(TransitionAccelerationTest, InvalidMeasuredVelocityStillBlocksAutoInitialization)
++{
++	for (bool to_fw : {false, true}) {
++		for (float seed : {NAN, 0.9f}) {
++			TransitionTestTask task;
++			const auto last = activate(task, to_fw, seed, NAN, false);
++
++			if (std::isfinite(seed)) { EXPECT_FLOAT_EQ(last.velocity[2], seed); }
++
++			else { EXPECT_TRUE(std::isnan(last.velocity[2])); }
++
++			AutoTestTask next;
++			EXPECT_FALSE(next.updateInitialize());
++		}
++	}
++}
++
++TEST_F(TransitionAccelerationTest, HighSpeedHandoverPreservesPlannedReferenceThroughPositionControl)
++{
++	float acceleration_up = 0.f;
++	float acceleration_down = 0.f;
++	float speed_up = 0.f;
++	float speed_down = 0.f;
++	ASSERT_EQ(param_get(param_find("MPC_ACC_UP_MAX"), &acceleration_up), 0);
++	ASSERT_EQ(param_get(param_find("MPC_ACC_DOWN_MAX"), &acceleration_down), 0);
++	ASSERT_EQ(param_get(param_find("MPC_Z_VEL_MAX_UP"), &speed_up), 0);
++	ASSERT_EQ(param_get(param_find("MPC_Z_VEL_MAX_DN"), &speed_down), 0);
++	ASSERT_GT(acceleration_up, 0.f);
++	ASSERT_GT(acceleration_down, 0.f);
++	constexpr float kVelocityTimeConstant = 2.f;
++	constexpr float kBoundaryOffset = 0.1f;
++	// The current defaults give acceleration-boundary speeds of +8 and -6 m/s.
++	const float descending_boundary = kVelocityTimeConstant * acceleration_up;
++	const float ascending_boundary = -kVelocityTimeConstant * acceleration_down;
++	const float seeds[] = {-speed_up, speed_down,
++			       ascending_boundary - kBoundaryOffset, ascending_boundary, ascending_boundary + kBoundaryOffset,
++			       descending_boundary - kBoundaryOffset, descending_boundary, descending_boundary + kBoundaryOffset
++			      };
++
++	for (bool to_fw : {false, true}) {
++		for (bool state_fallback : {false, true}) {
++			for (float seed : seeds) {
++				SCOPED_TRACE(seed);
++				SCOPED_TRACE(to_fw);
++				SCOPED_TRACE(state_fallback);
++				TransitionTestTask transition;
++				const auto last = activate(transition, to_fw, state_fallback ? NAN : seed, seed);
++				EXPECT_TRUE(std::isfinite(last.acceleration[2]));
++				EXPECT_LE(last.acceleration[2] * last.velocity[2], 0.f);
++				publishAuto(to_fw, seed);
++				AutoTestTask next;
++				ASSERT_TRUE(next.updateInitialize());
++				ASSERT_TRUE(next.activate(last));
++				ASSERT_TRUE(next.updateInitialize());
++				next.setDeltaTime(0.f);
++				ASSERT_TRUE(next.update());
++				auto setpoint = next.getTrajectorySetpoint();
++				// Handover must retain the planned reference rather than the measured impulse.
++				EXPECT_FLOAT_EQ(setpoint.acceleration[2], last.acceleration[2]);
++				EXPECT_NE(setpoint.acceleration[2], _position.az);
++				PositionControl controller;
++				configureController(controller);
++				runController(controller, setpoint);
++
++				for (float dt : {0.f, 0.008f, 0.024f, 0.016f, 0.05f}) {
++					publishAuto(to_fw, seed);
++					ASSERT_TRUE(next.updateInitialize());
++					next.setDeltaTime(dt);
++					ASSERT_TRUE(next.update());
++					setpoint = next.getTrajectorySetpoint();
++
++					for (float value : setpoint.acceleration) { EXPECT_TRUE(std::isfinite(value)); }
++
++					runController(controller, setpoint, dt);
++				}
++			}
++		}
++	}
++}
++
++TEST_F(TransitionAccelerationTest, HighSpeedThrustSaturationRecoversWithFreshStationaryHold)
++{
++	float acceleration_up = 0.f;
++	float acceleration_down = 0.f;
++	ASSERT_EQ(param_get(param_find("MPC_ACC_UP_MAX"), &acceleration_up), 0);
++	ASSERT_EQ(param_get(param_find("MPC_ACC_DOWN_MAX"), &acceleration_down), 0);
++	ASSERT_GT(acceleration_up, 0.f);
++	ASSERT_GT(acceleration_down, 0.f);
++	constexpr float kVelocityTimeConstant = 2.f;
++	constexpr float kBoundaryOffset = 0.1f;
++	constexpr float kSaturationVelocityGain = 20.f;
++	constexpr size_t kMaximumRecoverySteps = 250;
++	constexpr size_t kRequiredRecoveredSamples = 10;
++	const float descending_boundary = kVelocityTimeConstant * acceleration_up;
++	const float ascending_boundary = -kVelocityTimeConstant * acceleration_down;
++	const float seeds[] = {ascending_boundary - kBoundaryOffset, ascending_boundary,
++			       ascending_boundary + kBoundaryOffset, descending_boundary - kBoundaryOffset,
++			       descending_boundary, descending_boundary + kBoundaryOffset
++			      };
++
++	for (bool to_fw : {false, true}) {
++		for (bool state_fallback : {false, true}) {
++			for (float seed : seeds) {
++				SCOPED_TRACE(seed);
++				SCOPED_TRACE(to_fw);
++				SCOPED_TRACE(state_fallback);
++				TransitionTestTask transition;
++				const auto last = activate(transition, to_fw, state_fallback ? NAN : seed, seed);
++				publishAuto(to_fw, seed);
++				AutoTestTask next;
++				ASSERT_TRUE(next.updateInitialize());
++				ASSERT_TRUE(next.activate(last));
++				ASSERT_TRUE(next.updateInitialize());
++				next.setDeltaTime(0.f);
++				ASSERT_TRUE(next.update());
++				PositionControl controller;
++				configureController(controller, kSaturationVelocityGain);
++				const auto saturated = runController(controller, next.getTrajectorySetpoint());
++				EXPECT_NEAR(matrix::Vector3f(saturated.thrust).norm(),
++					    seed > 0.f ? kMaximumThrust : kMinimumThrust, kThrustTolerance);
++				size_t recovered_samples = 0;
++
++				for (size_t step = 0; step < kMaximumRecoverySteps; ++step) {
++					// Deterministic fresh observations, not a plant model or integrated commands.
++					publishAuto(to_fw, 0.f, true);
++					ASSERT_TRUE(next.updateInitialize());
++					next.setDeltaTime(kControllerDt);
++					ASSERT_TRUE(next.update());
++					const auto setpoint = next.getTrajectorySetpoint();
++					const auto output = runController(controller, setpoint);
++					const float thrust = matrix::Vector3f(output.thrust).norm();
++					const bool ordinary_reference = std::isfinite(setpoint.velocity[2])
++									&& fabsf(setpoint.velocity[2]) < 0.2f
++									&& std::isfinite(setpoint.acceleration[2])
++									&& setpoint.acceleration[2] >= -acceleration_up - kThrustTolerance
++									&& setpoint.acceleration[2] <= acceleration_down + kThrustTolerance;
++					const bool interior_thrust = thrust > kMinimumThrust + kThrustTolerance
++								     && thrust < kMaximumThrust - kThrustTolerance;
++					recovered_samples = ordinary_reference && interior_thrust ? recovered_samples + 1 : 0;
++
++					if (recovered_samples == kRequiredRecoveredSamples) { break; }
++				}
++
++				// The same task, controller and integrator survive both saturation and recovery.
++				EXPECT_EQ(recovered_samples, kRequiredRecoveredSamples);
++			}
++		}
++	}
++}

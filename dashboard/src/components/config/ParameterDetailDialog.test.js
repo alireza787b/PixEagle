@@ -32,6 +32,28 @@ test('nullable startup speed can be cleared without becoming zero', () => {
   expect(save).toHaveBeenCalledWith('REQUESTED_SPEED', null);
 });
 
+test('keeps the null mission ceiling blank despite its numeric default', () => {
+  const save = jest.fn();
+  render(<ParameterDetailDialog open onClose={jest.fn()} param="MAX_ALTITUDE"
+    paramSchema={{ type: 'float', nullable: true, min: 1, max: 500 }}
+    currentValue={null} defaultValue={120} onSave={save} />);
+  expect(screen.getByRole('spinbutton')).toHaveValue(null);
+  fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '75' } });
+  fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '' } });
+  expect(screen.getByRole('spinbutton')).toHaveValue(null);
+  expect(save).not.toHaveBeenCalled();
+});
+
+test('saves an explicitly cleared mission ceiling as null', () => {
+  const save = jest.fn();
+  render(<ParameterDetailDialog open onClose={jest.fn()} param="MAX_ALTITUDE"
+    paramSchema={{ type: 'float', nullable: true, min: 1, max: 500 }}
+    currentValue={120} defaultValue={120} onSave={save} />);
+  fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '' } });
+  fireEvent.click(screen.getByRole('button', { name: /Save/ }));
+  expect(save).toHaveBeenCalledWith('MAX_ALTITUDE', null);
+});
+
 test('closed catalog options do not expose a custom-value bypass', async () => {
   renderDialog({
     type: 'string',

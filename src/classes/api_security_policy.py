@@ -364,11 +364,11 @@ DENY_UNCLASSIFIED = _policy(
 API_ROUTE_SECURITY_RULES = (
     APIRouteSecurityRule(
         "native_config_read", frozenset({"GET"}),
-        ("/api/v1/integration/config",), AUTH_CONFIG_READ,
+        ("/api/v1/integration/config", "/api/v1/config/editor"), AUTH_CONFIG_READ,
     ),
     APIRouteSecurityRule(
         "native_config_write", frozenset({"POST"}),
-        ("/api/v1/actions/config-apply",),
+        ("/api/v1/actions/config-apply", "/api/v1/actions/config-save"),
         _policy(APIAccessMode.AUTHENTICATED, APISensitivity.CONFIG,
                 {CONFIG_READ, CONFIG_WRITE}, APIAuditPolicy.MUTATION, csrf=True,
                 rationale="Generation-guarded configuration apply."),

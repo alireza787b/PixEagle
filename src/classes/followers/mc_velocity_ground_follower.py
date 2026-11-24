@@ -14,19 +14,17 @@ Project Information:
 
 Overview:
     The MCVelocityGroundFollower provides comprehensive 3-axis velocity control for tracking
-    ground targets. It implements advanced PID control with optional gain scheduling,
-    gimbal corrections, and altitude-based adjustments.
+    ground targets. Image coordinates enter the lateral and forward PID controllers
+    directly; optional descent uses the shared altitude permission and limits.
 
 Key Features:
     - Full body-FRD velocity control (forward, right, down)
-    - Advanced PID control with gain scheduling support
-    - Gimbal orientation compensation
-    - Altitude-based dynamic adjustments
+    - Axis-specific PID control from shared configured gains
     - Descent control with safety limits
     - Schema-aware command field management
 
 Control Strategy:
-    - X/Y axes: Target centering with gimbal and altitude corrections
+    - X/Y axes: Target centering around the configured image aim
     - Z axis: Descent control with configurable limits
     - Coordinate system: Body frame velocities
     - Safety: Altitude limits and descent protection
@@ -38,8 +36,7 @@ from classes.parameters import Parameters
 from classes.follower_config_manager import get_follower_config_manager
 from classes.tracker_output import TrackerOutput
 import logging
-import time
-from typing import Tuple, Dict, Optional, Any
+from typing import Tuple, Dict, Any
 from datetime import datetime
 
 # Configure module logger
@@ -50,14 +47,11 @@ class MCVelocityGroundFollower(BaseFollower):
     Advanced ground target follower with 3-axis velocity control.
     
     This follower implements sophisticated ground target tracking using body frame
-    velocity commands. It features advanced PID control with optional gain scheduling,
-    gimbal compensation, and altitude-based adjustments for optimal tracking performance.
+    velocity commands around the resolved image aim point.
     
     Control Architecture:
         - Uses three independent PID controllers for X, Y, and Z axes
         - Implements cross-coupling between axes for coordinate system differences
-        - Applies gimbal corrections for non-stabilized cameras
-        - Dynamically adjusts control parameters based on altitude
         
     Safety Features:
         - Descent altitude limits
@@ -107,14 +101,10 @@ class MCVelocityGroundFollower(BaseFollower):
         self.enable_descend_to_target = config.get('ENABLE_DESCEND_TO_TARGET', False)
         # Use base class cached limits (via SafetyManager)
         self.min_descent_height = self.altitude_limits.min_altitude
-        self.is_camera_gimbaled = config.get('IS_CAMERA_GIMBALED', False)
-        self.base_adjustment_factor_x = config.get('BASE_ADJUSTMENT_FACTOR_X', 0.1)
-        self.base_adjustment_factor_y = config.get('BASE_ADJUSTMENT_FACTOR_Y', 0.1)
-        self.altitude_factor = config.get('ALTITUDE_FACTOR', 0.005)
         # GainScheduling removed in v6.0 — all gains from PID.PID_GAINS
         fcm = get_follower_config_manager()
         self.control_update_rate = fcm.get_param('CONTROL_UPDATE_RATE', 'MC_VELOCITY_GROUND')
-        self.coordinate_corrections_enabled = config.get('COORDINATE_CORRECTIONS_ENABLED', True)
+        self.altitude_control_enabled = fcm.get_param('ENABLE_ALTITUDE_CONTROL', 'MC_VELOCITY_GROUND')
         
         # Initialize control system components
         self._initialize_pid_controllers()
@@ -128,6 +118,11 @@ class MCVelocityGroundFollower(BaseFollower):
                    f"Mode: {self.target_position_mode}, "
                    f"Target: {self.initial_target_coords}")
     
+    def reset_target_state(self, reason: str) -> bool:
+        for controller in (self.pid_x, self.pid_y, self.pid_z):
+            controller.reset()
+        return True
+
     def _initialize_pid_controllers(self) -> None:
         """
         Initialize PID controllers for all three axes with proper configuration.
@@ -138,7 +133,7 @@ class MCVelocityGroundFollower(BaseFollower):
         - Z-axis: Altitude/descent control
         
         Each controller is configured with:
-        - Axis-specific gains (with optional gain scheduling)
+        - Axis-specific gains from PID.PID_GAINS
         - Appropriate output limits from parameters
         - Initial setpoints based on target position mode
         
@@ -151,14 +146,14 @@ class MCVelocityGroundFollower(BaseFollower):
             
             # Initialize X-axis PID controller (lateral movement)
             self.pid_x = CustomPID(
-                *self._get_pid_gains('mc_vel_forward'),
+                *self._get_pid_gains('mc_vel_lateral'),
                 setpoint=setpoint_x,
                 output_limits=(-self.max_velocity_x, self.max_velocity_x)
             )
 
             # Initialize Y-axis PID controller (longitudinal movement)
             self.pid_y = CustomPID(
-                *self._get_pid_gains('mc_vel_lateral'),
+                *self._get_pid_gains('mc_vel_forward'),
                 setpoint=setpoint_y,
                 output_limits=(-self.max_velocity_y, self.max_velocity_y)
             )
@@ -215,8 +210,8 @@ class MCVelocityGroundFollower(BaseFollower):
             The method includes error handling to ensure system stability.
         """
         try:
-            self.pid_x.tunings = self._get_pid_gains('mc_vel_forward')
-            self.pid_y.tunings = self._get_pid_gains('mc_vel_lateral')
+            self.pid_x.tunings = self._get_pid_gains('mc_vel_lateral')
+            self.pid_y.tunings = self._get_pid_gains('mc_vel_forward')
             self.pid_z.tunings = self._get_pid_gains('mc_altitude')
             
             logger.debug("PID gains updated successfully for MCVelocityGroundFollower")
@@ -225,125 +220,25 @@ class MCVelocityGroundFollower(BaseFollower):
             logger.error(f"Failed to update PID gains: {e}")
             # Continue operation with existing gains rather than failing
     
-    def _apply_gimbal_corrections(self, target_coords: Tuple[float, float]) -> Tuple[float, float]:
-        """
-        Apply gimbal-based corrections for non-stabilized camera systems.
-        
-        When the camera is not gimbal-stabilized, drone orientation affects the
-        apparent target position. This method compensates for pitch and roll
-        movements to maintain accurate tracking.
-        
-        Args:
-            target_coords (Tuple[float, float]): Raw target coordinates from vision
-            
-        Returns:
-            Tuple[float, float]: Corrected target coordinates accounting for drone orientation
-            
-        Note:
-            - Correction is only applied when IS_CAMERA_GIMBALED is False
-            - Uses current drone orientation (pitch, roll) for compensation
-            - Correction factors are configurable via Parameters
-        """
-        # Skip correction for gimbaled cameras
-        if self.is_camera_gimbaled:
-            logger.debug("Camera is gimbaled - skipping gimbal corrections")
-            return target_coords
-        
-        try:
-            # Get current drone orientation
-            orientation = self.px4_controller.get_orientation()  # (yaw, pitch, roll)
-            if orientation is None or len(orientation) < 3:
-                logger.warning("Unable to get drone orientation - skipping gimbal corrections")
-                return target_coords
-            
-            yaw, pitch, roll = orientation
-            
-            # Apply orientation-based corrections
-            corrected_x = (target_coords[0] +
-                          self.base_adjustment_factor_x * roll)
-            corrected_y = (target_coords[1] -
-                          self.base_adjustment_factor_y * pitch)
-            
-            logger.debug(f"Applied gimbal corrections - "
-                        f"Roll: {roll:.3f}, Pitch: {pitch:.3f}, "
-                        f"Correction: ({corrected_x - target_coords[0]:.3f}, "
-                        f"{corrected_y - target_coords[1]:.3f})")
-            
-            return corrected_x, corrected_y
-            
-        except Exception as e:
-            logger.error(f"Error applying gimbal corrections: {e}")
-            return target_coords  # Return uncorrected coordinates as fallback
-    
-    def _apply_altitude_adjustments(self, error_x: float, error_y: float) -> Tuple[float, float]:
-        """
-        Apply altitude-based dynamic adjustments to normalized image errors.
-        
-        At different altitudes, the same pixel displacement corresponds to different
-        real-world distances. This method applies scaling factors based on current
-        altitude to maintain consistent control response.
-        
-        Args:
-            error_x (float): Horizontal error after gimbal corrections
-            error_y (float): Vertical error after gimbal corrections
-            
-        Returns:
-            Tuple[float, float]: Altitude-adjusted image errors
-            
-        Note:
-            - Adjustment factors decrease with altitude for consistent angular response
-            - Uses configurable base factors and altitude scaling parameters
-            - Provides altitude-invariant tracking behavior
-        """
-        try:
-            # Skip corrections if disabled
-            if not self.coordinate_corrections_enabled:
-                return error_x, error_y
-
-            current_altitude = self.px4_controller.current_altitude
-            if current_altitude is None or current_altitude < 0:
-                logger.warning(f"Invalid altitude reading: {current_altitude} - "
-                             f"skipping altitude adjustments")
-                return error_x, error_y
-            
-            # Calculate altitude-dependent adjustment factors
-            adj_factor_x = (self.base_adjustment_factor_x /
-                           (1 + self.altitude_factor * current_altitude))
-            adj_factor_y = (self.base_adjustment_factor_y /
-                           (1 + self.altitude_factor * current_altitude))
-            
-            # Scale error based on altitude (multiplicative, not additive)
-            adjusted_x = error_x * (1.0 + adj_factor_x)
-            adjusted_y = error_y * (1.0 + adj_factor_y)
-            
-            logger.debug(f"Applied altitude adjustments - "
-                        f"Altitude: {current_altitude:.1f}m, "
-                        f"Factors: ({adj_factor_x:.3f}, {adj_factor_y:.3f})")
-            
-            return adjusted_x, adjusted_y
-            
-        except Exception as e:
-            logger.error(f"Error applying altitude adjustments: {e}")
-            return error_x, error_y
-    
     def _control_descent(self) -> float:
         """
-        Calculate altitude control command with safety limits.
-        
-        This method implements safe descent control with configurable limits.
-        It prevents the drone from descending below a minimum safe altitude
-        while allowing controlled descent when appropriate.
+        Calculate a positive-body-down descent request above the relative altitude floor.
+
+        At or below the configured floor this helper requests zero descent.
+        That does not model braking, inertia, terrain clearance or guarantee
+        that the aircraft cannot travel below the floor.
         
         Returns:
-            float: Z-axis velocity command (negative for descent, positive for climb)
+            float: Positive-body-down descent velocity in m/s, or zero when disabled,
+                at the floor or missing the altitude observation.
             
         Note:
             - Returns 0 if descent is disabled or altitude limits are reached
             - Uses current altitude from PX4 controller for limit checking
-            - Integrates with PID controller for smooth altitude control
+            - The descent PID output remains bounded by the configured descent rate
         """
         # Check if descent is enabled
-        if not self.enable_descend_to_target:
+        if not self.altitude_control_enabled or not self.enable_descend_to_target:
             logger.debug("Descent to target is disabled")
             return 0.0
         
@@ -380,10 +275,8 @@ class MCVelocityGroundFollower(BaseFollower):
         This is the main control method that orchestrates the complete control pipeline:
         1. Input validation and tracker data extraction
         2. PID gain updates for adaptive control
-        3. Gimbal corrections for camera orientation
-        4. Altitude adjustments for scale invariance
-        5. Error calculation and PID control
-        6. Command field updates via schema-aware interface
+        3. Image aim error calculation and PID control
+        4. Command field updates via schema-aware interface
         
         Args:
             tracker_data (TrackerOutput): Structured tracker data with position and metadata
@@ -413,23 +306,15 @@ class MCVelocityGroundFollower(BaseFollower):
             # Update PID gains for adaptive control
             self._update_pid_gains()
             
-            # Apply coordinate corrections and adjustments
-            corrected_x, corrected_y = self._apply_gimbal_corrections(target_coords)
-            error_x = self.image_axis_error(corrected_x, self.pid_x.setpoint)
-            error_y = self.image_axis_error(corrected_y, self.pid_y.setpoint)
-            adjusted_error_x, adjusted_error_y = self._apply_altitude_adjustments(
-                error_x,
-                error_y,
-            )
-            effective_x = self.pid_x.setpoint + adjusted_error_x
-            effective_y = self.pid_y.setpoint + adjusted_error_y
+            error_x = self.image_axis_error(target_coords[0], self.pid_x.setpoint)
+            error_y = self.image_axis_error(target_coords[1], self.pid_y.setpoint)
             
             # Calculate velocity commands using PID controllers
             # Note: Cross-coupling between axes for body frame coordinate system
-            vel_body_fwd = self.pid_y(effective_y)
+            vel_body_fwd = self.pid_y(target_coords[1])
             vel_body_right = self.positive_image_axis_pid_command(
                 self.pid_x,
-                effective_x,
+                target_coords[0],
             )
             vel_body_down = self._control_descent()
             
@@ -448,7 +333,6 @@ class MCVelocityGroundFollower(BaseFollower):
             logger.debug(f"Control commands calculated - "
                         f"Target: {target_coords}, "
                         f"Errors: ({error_x:.3f}, {error_y:.3f}), "
-                        f"Adjusted errors: ({adjusted_error_x:.3f}, {adjusted_error_y:.3f}), "
                         f"Commands: fwd={vel_body_fwd:.3f}, "
                         f"right={vel_body_right:.3f}, down={vel_body_down:.3f}")
             
@@ -553,14 +437,12 @@ class MCVelocityGroundFollower(BaseFollower):
                 'configuration': {
                     'target_position_mode': self.target_position_mode,
                     'initial_target_coords': self.initial_target_coords,
-                    'gimbal_corrections_enabled': not self.is_camera_gimbaled,
                     'descent_enabled': self.enable_descend_to_target,
                     'velocity_limits': {
                         'max_velocity_x': self.max_velocity_x,
                         'max_velocity_y': self.max_velocity_y,
                         'max_rate_of_descent': self.max_rate_of_descent
                     },
-                    'coordinate_corrections_enabled': self.coordinate_corrections_enabled,
                     'control_update_rate': self.control_update_rate
                 },
                 'current_commands': self.get_all_command_fields(),

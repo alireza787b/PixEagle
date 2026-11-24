@@ -45,6 +45,14 @@ followers:
     evidence: synthetic_replay
     status: Synthetic attitude-rate replay
     note: PX4 SIH run pending; envelope gate remains open
+  - profile: fw_navigation_chase
+    input: image_position_2d
+    command: fixed_wing_external
+    purpose: Calibrated image pursuit through native PX4 navigation
+    behavior: A qualified measured image bearing becomes course, EAS and altitude or height-rate intent; PX4 retains coordinated turns and energy control.
+    evidence: contract_only
+    status: Registered experimental profile; live admission remains closed
+    note: Exact image/attitude association and observed airplane SIH qualification are separate gates
   - profile: fw_attitude_rate
     input: attitude_rate_image_position
     command: attitude_rate

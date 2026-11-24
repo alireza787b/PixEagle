@@ -75,6 +75,10 @@ class YawRateSmoother:
         """
         if not self.enabled:
             return raw_yaw_rate
+        if not math.isfinite(dt):
+            raise ValueError("Yaw filtering interval must be finite")
+        if dt <= 0.0:
+            return self.filtered_yaw_rate
 
         # 1. Apply deadzone (prevents jitter at low rates)
         yaw_rate = self._apply_deadzone(raw_yaw_rate)
@@ -112,7 +116,7 @@ class YawRateSmoother:
     def _apply_rate_limiting(self, target_rate: float, dt: float) -> float:
         """Limit rate-of-change for smooth yaw acceleration."""
         if dt <= 0:
-            return target_rate
+            return self.last_yaw_rate
         max_change = self.max_rate_change_deg_s2 * dt
         delta = target_rate - self.last_yaw_rate
         if abs(delta) > max_change:

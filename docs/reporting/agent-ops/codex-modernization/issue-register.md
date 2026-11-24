@@ -2,6 +2,23 @@
 
 Status values: `open`, `in_progress`, `blocked`, `done`, `deferred`.
 
+2026-11-16 stock-firmware direction (PXE-0181): hardware work is paused. The
+unmodified SIH build, production MC Position/vertical Vector components and the
+new stock-MAVLink FW moving-target component pass their scoped checks. The FW
+component accepts above-maximum speed and steep pitch requests without DDS;
+application ownership, continuity, VTOL and client integration remain open. The
+earlier direct-probe post-Stop speed undershoot is retained as a separate finding.
+See the [stock-MAVLink checkpoint](checkpoints/2026-11-16-stock-mavlink-vector.md).
+
+2026-11-14 tailsitter Stop: pursuit was operator-accepted, but native release
+remained unconfirmed. The shared frozen-request retransmission repair and
+separate fixed-camera/gimbal staging are tracked in the
+[Stop checkpoint](checkpoints/2026-11-14-tailsitter-stop-and-gimbal-staging.md).
+Do not mark the whole tailsitter case accepted from pursuit or component Hold
+alone; retain the independent FW altitude-response finding and pending GUI test.
+
+2026-11-14 native Start repair: passive sampling, typed refusal display and target-readiness notification are covered by the [offline repair checkpoint](checkpoints/2026-11-14-follow-start-readiness.md). Fresh operator acceptance and declarative VTOL recipe composition remain open under PXE-0181.
+
 PXE-0171 update (2026-09-19): automatic BGR/NV12 selection is implemented;
 explicit templates remain authoritative. See the
 [implementation and validation checkpoint](checkpoints/2026-09-19-csi-auto-capture.md).
@@ -9,6 +26,7 @@ Physical automatic fallback verification remains pending.
 
 | ID | Phase | Status | Issue | Acceptance Gate | References |
 | --- | --- | --- | --- | --- | --- |
+| PXE-0181 | Native airframes | in_progress | Gimbal Vector needs native FW/VTOL objectives, phase-bound ownership and delayed-handoff protection; MC body velocity is not a FW control contract. | Component/software foundations and scoped no-pitot FW loss/recovery evidence are retained. Complete request-time phase/intention fencing, MC vertical-command qualification, strict drain/boundary attribution, full application/fault matrix, native unrestricted policy and deployment gates before hardware. Preserve original failed captures and distinguish zero vertical velocity from altitude hold. | [Active checkpoint](checkpoints/2026-11-09-follower-consolidation.md), [native adapter](../../../../native/README.md) |
 | PXE-0180 | Session controls | in_progress | Temporary 3D speed override and restore must share canonical limits, session ownership and both operator interfaces. | Software and both-mount SIH gates pass, including actual override, reset, slew and Land/RTL preservation. Windows candidate and physical acceptance remain open. | [Session-speed checkpoint](checkpoints/2026-10-22-session-speed.md) |
 | PXE-0179 | QGC slice 4b.4 | in_progress | Camera retarget/loss continuity and fresh angle guidance need deterministic/SIH and physical acceptance. | V13 repairs selection admission, teardown, timing/filtering/slew and raw measurement freshness. Full gates: 3,304 Unit, 185 Integration, 489 Dashboard and 413 QGC; four gimbal follower/mount SIH cases recorded 2,210 successful publications. Camera unavailable: fresh v13 operator retest remains pending. Later software link/load gate adds 64 passes; full link/Pi/physical stopping gates remain open. | [V13 closeout](checkpoints/2026-10-02-qgc-4b4-v13-closeout.md); [camera-free continuation](checkpoints/2026-10-02-qgc-camera-free-qualification.md) |
 | PXE-0178 | QGC slice 4a | in_progress | Native normal following needs compatible selection, guarded Start/Stop and qualified publication/vehicle response. | Normal workflow locally accepted; extended five-MC camera-free SIH cases recorded 843 successful publications and confirmed Stop. MC measured-attitude guard and genuine receipt/progress freshness now pass a short SIH case; prolonged reversal still reaches 35.171° before confirmed Hold. FW startup-only fixture is repaired; live airspeed acquisition and qualified sensorless policy remain blockers. Final 3,391 Unit/195 Integration,490 Dashboard and nine focused QGC checks pass. Preserve dispatch success separately from full flight-mode qualification. | [Following checkpoint](checkpoints/2026-09-26-qgc-native-following.md); [current qualification](checkpoints/2026-10-02-qgc-camera-free-qualification.md); [boundary repair](checkpoints/2026-10-02-follower-boundary-repair.md) |
@@ -274,3 +292,246 @@ remain open. Integration work is unpublished.
   existing row on Follower with independent Stop; retain acknowledged values
   during transient read failures and clear replaced-session editors. Evidence:
   Dashboard 518-test gate and session-speed checkpoint.
+
+- **2026-11-07 — Native FW recovery / evidence timing:** native execution is
+  explicitly bound to the shared recovery registry; six actual-PX4 loss cases
+  and process-stall/takeover assertions passed. The read-only viewer now uses
+  target-source timestamps and retains imported truth gaps as unknown. Standard
+  VTOL altitude response, full application startup and unrestricted firmware
+  remain open. See the active [airframe checkpoint](checkpoints/2026-11-06-gimbal-vector-airframes.md#native-fw-recovery-and-source-timed-evidence--2026-11-07).
+
+- **2026-11-07 — Native Stop confirmation / retained FW request (fixed):**
+  immediate socket abort now receives read-only, UID/runtime/epoch-bound mode
+  confirmation without another Hold request. Retained recovery commands honor
+  an acknowledged EAS reduction before the canonical native envelope resolver.
+  Two actual application/SIH sessions and the 1,766-test gate passed. See the
+  [application checkpoint](checkpoints/2026-11-06-gimbal-vector-airframes.md#actual-applicationapi-checkpoint--2026-11-07).
+
+- **2026-11-09 — Follower consolidation, S0:** corrected the qualification
+  inventory and overview claims without changing runtime or local profiles.
+  Shared input/phase eligibility, nested retirement migration, direct-rate
+  altitude semantics and transition-preserving release remain open. Transition
+  now ends following and requires a new Start; older continuing-session evidence
+  does not qualify that policy. See the
+  [consolidation checkpoint](checkpoints/2026-11-09-follower-consolidation.md).
+
+- **2026-11-09 — Follower catalog, S1 (backend complete):** profile requirements
+  and tracker measurement semantics now derive one eligibility result; duplicate
+  class compatibility and stale descriptive geometry were removed. Typed status
+  separates selection from live/readiness and preserves existing clients. Typed
+  VTOL admission stays blocked pending transition-preserving release; legacy
+  owner admission and client migration remain S3/S9. See the same consolidation
+  checkpoint for tests, archive-render evidence and qualification boundaries.
+
+- **2026-11-09 — Nested configuration migration, S2 (complete):** one schema
+  resolver and exact leaf operations preserve sparse overrides/custom siblings,
+  distinguish null from absence, reject overlapping requests and retain
+  transactional rollback. Three inert GM Chase keys now have exact registered
+  retirements. Required General loading remains strict; source upgrades must
+  not assume preview can repair an incomplete required object. See the same
+  consolidation checkpoint and Config Sync guide for tested scope.
+
+- **2026-11-09 — Strategy boundary, S3 (complete):** explicit configuration
+  identity, target reset and authorized-command hooks replace class/name
+  discovery. The flight owner now converges typed/legacy admission; legacy VTOL
+  Start is intentionally blocked pending S7. Characterization/owner gates pass;
+  algorithms, gains and hardware are unchanged. Public MC altitude behavior and
+  the moving-target harness are S4 work, not covered by this structural pass.
+
+- **2026-11-09 — MC component qualification, S4 (component/software checkpoint closed 2026-11-11):** four ordinary velocity
+  profiles pass altitude-off/on moving-world-target scenarios on the verified
+  clean-source SIH build. Direct MC rates pass their declared image/rate and
+  height-hold component checks after unit and source-timed feedback repairs.
+  The wider fault matrix exposed Ground's uncalibrated attitude heuristic and
+  Visual Centering's continuity-frame leakage; both are repaired and unchanged
+  failed cases now have passing repeats. All five fresh takeover repeats pass,
+  including actual Hold, stopped publication and complete replay evidence.
+  Historical failures stay retained; whole-application/optical-tracker and
+  hardware acceptance are not implied. Renewed full software gates pass; see
+  the consolidation checkpoint and current evidence selector for exact scope.
+
+- **2026-11-11 — Calibrated image provenance, S5 (foundation implemented):**
+  optional source-bound calibration and immutable Classic/Smart mapping preserve
+  ordinary image tracking when unavailable. Five reproduced capture-mode/epoch
+  failures are fixed; 334 video/provenance tests pass. Command schema 2.5.0
+  separates native capability from explicit phase admission. Physical exposure/
+  attitude timing, full native image-FW qualification and VTOL release remain open;
+  see the consolidation checkpoint for revisions, evidence and next gates.
+
+- **2026-11-11 — Image-FW lifecycle and S6 review:** native-only preview is now
+  refused before component construction. A reproduced command-TTL mismatch is
+  repaired: real aircraft-source progress recalculates against a still-current
+  image, without refreshing its measurement time; frozen polling cannot renew
+  the command. Actual image-SIH startup exposed a separate harness packet-pair
+  handoff defect and safely returned to Hold; its failed evidence is retained.
+  Four actual image-input airplane cases now pass altitude off/on and loss/
+  reacquisition/expiry, with confirmed Hold and no later publication. No-op GM
+  target resets and shared PID reset/PoM/manual-start defects are also repaired.
+  S6's unqualified angle/attitude timing, misleading legacy image projections and
+  unverified provider capabilities remain explicit work, not new live permissions.
+  The native source-change comparison and full software renewal now close S5's
+  component/software gate; S6 source hygiene is in progress. Physical, application
+  input and hardware qualification remain open in the same checkpoint.
+- **2026-11-11 — External source lifecycle:** S6a removes synthetic gimbal pixels
+  and preserves independently timed angle/status receipts under one camera owner.
+  Review found and repaired a Stop lock wait and orphan-provider replacement;
+  476 final focused checks pass. The pure source-comparison foundation is tested,
+  but the active original-source pin and queued publication fence remain open.
+  Physical timing, target identity and capability qualification remain separate.
+- **2026-11-11 — Guidance frame and release review:** GM PID's physical-FRD
+  errors were incorrectly treated as heading-frame commands at aircraft tilt.
+  The canonical pre-PID conversion repairs both mounts; 251 component tests and
+  before/after evidence are retained. Original-source and queued pursuit fences
+  now have focused evidence; full renewal is in progress. A separate mocked
+  Python 3.10/3.11 pre-Stop scheduling race remains a required S7 release gate.
+  No field pass or SDK post-dispatch cancellation guarantee is claimed.
+
+- **2026-11-12 — Causal native acquisition, S7 foundation:** atomic optional
+  ownership receipts replace the raw compare-mode route. Same-ID takeover,
+  cancellation, lost ACK, deadline-crossing activation and reset-clock restart
+  have software regressions; removed source paths are verified absent. Full
+  backend gates pass. Transition-preserving release, actual VTOL fault evidence
+  and hardware remain open; see the [consolidation checkpoint](checkpoints/2026-11-09-follower-consolidation.md).
+
+- **2026-11-12 — S7 tailsitter altitude baseline (open):** the protocol-3 airplane
+  renewal passes three component cases, but the actual tailsitter transition
+  fails the original 2 m altitude gate. Completed native-only default/trim-speed
+  comparisons also fail (6.962/8.414 m); raising transition speed is not a fix.
+  Original-session termination works, while active MC timing remains unverified
+  in its decimated capture. The read-only replay orientation defect is repaired
+  separately. VTOL admission remains closed; details, negative evidence and next
+  gates are in the same consolidation checkpoint.
+
+- **2026-11-12 — S7 native terminal-release state (component repaired):** an actual standard-
+  VTOL capture meets its command/publication/altitude subchecks but archive
+  admission refuses a permanently latched `release_pending` despite the original
+  correlated Hold receipt. Separate permanent pursuit termination from unresolved
+  release using the existing acquisition context; retain exact historical proof,
+  not replacement-owner state. Commit `c2e053dac` and new standard-VTOL captures
+  resolve release without reviving old pursuit or adopting a new owner's proof.
+  Full software, native/sanitizer and actual source-backed checks pass at their
+  recorded scope. Future terminal capture now removes the replay gap; old sparse
+  recordings stay unknown. The new forward transition fails altitude at 2.124 m,
+  while the retained reverse case fails at 4.493 m. The new crash fixture proves
+  clock alignment before SIGKILL, then stops at an incorrect healthy-flight
+  prerequisite for passive registration after native failsafe. Corrected R10
+  passes functional recovery, but native rotation deletes the first ULog before
+  its second takeoff; complete evidence retention remains open. The earlier
+  missing clock offsets stay unknown.
+  These distinct open gates are recorded in the same checkpoint; VTOL stays
+  unavailable. No gains, saved profile or firmware behavior is changed to pass.
+
+- **2026-11-12 — S7 process-loss evidence renewed:** R11 preserves both flight
+  logs and passes the declared MC ownership component with independent native
+  corroboration. Post-crash silence is reported separately from normal active
+  publication timing. Policy 0, full application and transition acceptance remain
+  open. The native vertical-reference handover has an eight-test component
+  candidate, not an adopted flight fix; see the consolidation checkpoint.
+
+- **2026-11-12 — S7 observe/intent phase-exit race (software and MC→FW renewal supported):** actual R5 reverse
+  Start receives `native_pursuit_ended` after a fresh FW observation. Native
+  original-owner release is correct, but Python counts the correlated refusal
+  as publication failure before observing the transition. Commit `526775f60`
+  reconciles fresh original-acquisition evidence through the existing lifecycle;
+  it never retries the command, counts it as published, or infers transition from
+  an error string. Root's 608 focused checks and independent review pass.
+  Both clean source variants now pass 6,391/196/155 checks. Both actual forward
+  cases exercise correlated refusal reconciliation with zero failed publications;
+  reverse uses ordinary phase observation. Native altitude remains a separate
+  failed gate, including a 2.154724 m native-only standard-VTOL excursion. The
+  earlier failed ULogs remain unchanged. See the consolidation checkpoint.
+
+- **2026-11-12 — S7 native reference and airframe diagnostics:** all four latest
+  standard-VTOL directional component gates pass under the declared −2° SIH
+  trim profile. The candidate's reverse physical altitude error is larger;
+  no aircraft improvement or trim adoption is claimed. Fresh portable native
+  tests give the exact six-failure baseline and ten-pass candidate, including
+  PositionControl handover/recovery. Normal build/CI integration remains pending.
+  Tailsitter threshold 10 removes initial underspeed but still fails the 2 m
+  altitude gate at 7.303 m. Existing bank/attitude/actuator traces require review;
+  no further tuning, saved default or hardware change is justified yet.
+
+- **2026-11-12 — S7 canonical native regression and FW Stop:** `e312400a0`
+  integrates the reviewed reference fix/tests through one native build command.
+  Actual positive/negative outputs match the independent build; all six backend
+  gates pass on unchanged source. Settled VTOL FW Stop passes its target-free
+  ownership component, including full-log 1.786469 m altitude and 36 ms active
+  publication gap. The separate native transition-heading defect has a bounded
+  regression proposal; full tailsitter response and S7 admission remain open.
+
+- **2026-11-12 — S7 heading regression and FW ownership renewal:** canonical
+  ModeManager tests execute all ten cases, with the exact five-failure control
+  and ten-pass candidate. Both matched builds/captures are complete; heading
+  improves while altitude remains failed at 7.150879/7.135925 m. The sparse-axis
+  allocator normalization concern needs its own native regression; no authority
+  change is adopted. Frozen-source FW EOF and replacement
+  checks stay within 2 m/100 ms. The old owner's final publication shares its
+  retirement timestamp, so within-tick ordering remains unknown. Full S7 and
+  hardware qualification remain open; VTOL admission stays closed. No saved tuning changes.
+
+- **2026-11-13 — S9 Dashboard draft selection:** `e813d7b86` removes the polling
+  reset that discarded a new profile before Save. Both views share one draft
+  hook; failed saves/refreshes and competing configured values preserve the
+  choice without replay. Matching backend configuration acknowledges it.
+  All 550 Dashboard tests, build/lint and 74 API checks pass. VTOL admission,
+  actual deployment and remaining client work are unchanged.
+
+- **2026-11-15 — Reusable operator launcher and native FW ground setup:**
+  beginner menu exposes MC, conventional FW and standard quadplane; advanced
+  tailsitter profiles remain explicit. Stock Cessna resource admission, native
+  adapter startup, camera provenance and independent identity pass ground checks.
+  Standalone FW airborne operator acceptance remains pending. Shared dependency
+  recipes no longer opt pure MC into native FW/VTOL ownership. See the
+  [workflow recap](checkpoints/2026-11-15-training-workflow-recap.md) for evidence,
+  exact scope, visual-fidelity limits and remaining release gates.
+
+- **2026-11-15 — Native FW startup and speed editor:** corrected phase-status
+  cadence accounting and stale passive rediscovery churn; high-rate ownership
+  and command expiry stay unchanged. QGC/Dashboard editors round presentation
+  and keep detailed explanations collapsed. The renewed application has no
+  native refusals in 13,297 sampled observations and confirms operator Stop.
+  [Evidence, validation and real-link boundaries](checkpoints/2026-11-15-native-fw-startup-recovery.md).
+
+- **2026-11-16 — Stock MAVLink ownership component:** production source clocks,
+  shared phase/speed controls, Restore and one-shot command ownership pass stock
+  airplane SIH through the existing commander (396 submissions, zero failures,
+  Hold confirmed). Publication loss triggers PX4 Return while SDK autoresend stays
+  inactive. The stock binding reuses FW continuity without a second loss timer.
+  Received boresight timing remains explicitly unqualified, not relabeled as
+  exposure synchronization. Full regression gives 7,722 unit passes; API and
+  integration give 357. Application admission, telemetry cadence, public override
+  permission, VTOL/fault scenarios and hardware remain open. Latest requested
+  public/private values are recorded for the final adoption review in the
+  [ownership checkpoint](checkpoints/2026-11-16-stock-mavlink-session-ownership.md).
+
+- **2026-11-17 — Stock application integration:** stock airplane and tailsitter
+  MC/FW application runs pass Start, speed adjustment, brief-loss recovery and
+  observed Hold. A reproduced readiness/command-snapshot race is fixed without
+  weakening freshness checks. Pilot Return and transition end following without
+  cleanup mode replay; native PX4 Offboard-loss Return remains authoritative.
+  Both clients label ground-speed proxy feedback explicitly. See the
+  [application checkpoint](checkpoints/2026-11-17-stock-mavlink-application.md).
+
+- **2026-11-17 — Factory/expert authority and rc.4 candidate:** one explicit
+  permission bounds public session speed controls without duplicating the limit
+  resolver. Legacy absence remains visible in Config Sync. Factory altitude is
+  5–100 m with target guidance off; private profiles remain outside Git. Latest
+  unmodified PX4 tailsitter MC/FW application checks and renewed backend/client
+  gates pass. Hardware and exact-head cloud/package acceptance remain separate;
+  see the [candidate checkpoint](checkpoints/2026-11-17-stock-factory-release-candidate.md).
+
+- **2026-11-17 — Expectation audit follow-up:** stock Gazebo training no longer
+  requires the experimental native bundle. Template binding keeps verified
+  resources, historical descriptors and original provenance separate. Full-stack
+  startup reproduced an independent telemetry UID discovery gap; bounded metadata
+  requests repair it without granting authority or reconfiguring active following.
+  Disarmed video/association checks pass; operator flight and hardware remain pending.
+
+- **2026-11-17 — Follow Start identity/freshness repair:** a public operator run
+  refused Start after `telemetry_generation` changed. Recorded-packet replay
+  reproduces false identity replacement from late heartbeat polls. The shared
+  owner now separates freshness from identity; stale data still blocks Start,
+  while actual disconnect/reboot/identity changes retire queued bindings. All
+  520 selected identity/lifecycle checks and 163 API/configuration gates pass.
+  Fresh operator acceptance remains pending; see the
+  [candidate journal](journal/2026-11-17-stock-factory-release-candidate.md).

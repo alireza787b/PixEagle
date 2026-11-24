@@ -53,6 +53,7 @@ Technical Details:
 from classes.followers.base_follower import BaseFollower
 from classes.followers.custom_pid import CustomPID
 from classes.parameters import Parameters
+from classes.safety_types import AltitudeLimits
 from classes.follower_config_manager import get_follower_config_manager
 from classes.followers.yaw_rate_smoother import YawRateSmoother
 from classes.tracker_output import TrackerOutput
@@ -77,7 +78,7 @@ class MCVelocityPositionFollower(BaseFollower):
     - yawspeed_deg_s: Yaw speed for horizontal target centering (always enabled)
     
     Attributes:
-        yaw_control_enabled (bool): Always True - yaw control is core to this mode
+        yaw_control_enabled (bool): Whether image tracking may command yaw
         altitude_control_enabled (bool): Configurable altitude control enablement
         initial_target_coords (Tuple[float, float]): Initial target coordinates for PID setpoints
         pid_yaw_rate (CustomPID): PID controller for yaw rate commands
@@ -115,7 +116,7 @@ class MCVelocityPositionFollower(BaseFollower):
         config = getattr(Parameters, 'MC_VELOCITY_POSITION', {})
 
         # Control configuration
-        self.yaw_control_enabled = config.get('ENABLE_YAW_CONTROL', True)  # Always enabled for this mode
+        self.yaw_control_enabled = config.get('ENABLE_YAW_CONTROL', True)
 
         # Shared params from FollowerConfigManager (General → FollowerOverrides → Fallback)
         fcm = get_follower_config_manager()
@@ -140,7 +141,7 @@ class MCVelocityPositionFollower(BaseFollower):
         # Command smoothing state
         self._last_yaw_command = 0.0
         self._last_vertical_velocity_up_m_s = 0.0
-        self._last_update_time = time.time()
+        self._last_update_time = time.monotonic()
 
         # Performance tracking
         self._control_statistics = {
@@ -301,7 +302,7 @@ class MCVelocityPositionFollower(BaseFollower):
             yaw_error = self.image_axis_error(target_x, self.pid_yaw_rate.setpoint)
 
             # Apply yaw control with PID dead zone gating
-            if abs(yaw_error) > self.yaw_control_threshold:
+            if self.yaw_control_enabled and abs(yaw_error) > self.yaw_control_threshold:
                 yaw_rate_raw = self.positive_image_axis_pid_command(
                     self.pid_yaw_rate,
                     target_x,
@@ -316,10 +317,14 @@ class MCVelocityPositionFollower(BaseFollower):
             yaw_rate_raw_deg_s = degrees(yaw_rate_raw)
 
             # Apply YawRateSmoother (deadzone + rate-limiting + speed-scaling + EMA)
-            now = time.time()
-            dt = now - self._last_update_time
-            self._last_update_time = now
-            yawspeed_deg_s = self.yaw_smoother.apply(yaw_rate_raw_deg_s, dt)
+            self._last_update_time, dt = self.bounded_control_delta(
+                self._last_update_time, self.control_update_rate,
+            )
+            if self.yaw_control_enabled:
+                yawspeed_deg_s = self.yaw_smoother.apply(yaw_rate_raw_deg_s, dt)
+            else:
+                self.yaw_smoother.reset()
+                yawspeed_deg_s = 0.0
             self._last_yaw_command = yawspeed_deg_s
             logger.debug(
                 "Yaw command: raw=%.3f rad/s (%.3f deg/s), smoothed=%.3f deg/s",
@@ -397,7 +402,7 @@ class MCVelocityPositionFollower(BaseFollower):
             current_altitude = getattr(self.px4_controller, 'current_altitude', None)
 
             # Safety check: Ensure altitude data is available
-            if current_altitude is None:
+            if not AltitudeLimits.is_valid_altitude(current_altitude):
                 logger.warning("Unable to get current altitude - halting altitude control for safety")
                 return 0.0
 
@@ -409,7 +414,7 @@ class MCVelocityPositionFollower(BaseFollower):
                 logger.warning(f"Altitude safety limit reached: {current_altitude:.1f}m <= {self.min_descent_height:.1f}m")
                 return 0.0  # Stop descent
 
-            if current_altitude >= self.max_climb_height and vertical_velocity_up_raw_m_s > 0:
+            if AltitudeLimits.above(current_altitude, self.max_climb_height, inclusive=True) and vertical_velocity_up_raw_m_s > 0:
                 logger.warning(f"Altitude safety: Current {current_altitude:.1f}m at maximum, preventing climb")
                 return 0.0  # Stop climb
 
@@ -601,6 +606,15 @@ class MCVelocityPositionFollower(BaseFollower):
     
     # ==================== Utility and Debugging Methods ====================
     
+    def reset_target_state(self, reason: str) -> bool:
+        if self.reset_pid_controllers() is False:
+            return False
+        self.yaw_smoother.reset()
+        self._last_yaw_command = 0.0
+        self._last_vertical_velocity_up_m_s = 0.0
+        self._last_update_time = time.monotonic()
+        return True
+
     def reset_pid_controllers(self) -> bool:
         """
         Resets all PID controllers to initial state.

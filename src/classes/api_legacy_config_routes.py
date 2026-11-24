@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict
 from starlette.concurrency import run_in_threadpool
 
 from classes.api_execution import offload_blocking_route
+from classes.config_service import ConfigService
 from classes.config_sync import (
     ConfigSyncApplyRequest,
     ConfigSyncPlanRequest,
@@ -789,23 +790,10 @@ def apply_defaults_sync(
         return rate_limited
 
     def set_snapshot_value(snapshot: Dict[str, Any], path: List[str], value: Any) -> None:
-        if len(path) == 1:
-            snapshot[path[0]] = copy.deepcopy(value)
-            return
-        section = snapshot.setdefault(path[0], {})
-        if not isinstance(section, dict):
-            raise ValueError(f"Baseline shape conflict at {path[0]}")
-        section[path[1]] = copy.deepcopy(value)
+        ConfigService._set_mapping_path(snapshot, path, value)
 
     def remove_snapshot_value(snapshot: Dict[str, Any], path: List[str]) -> None:
-        if len(path) == 1:
-            snapshot.pop(path[0], None)
-            return
-        section = snapshot.get(path[0])
-        if isinstance(section, dict):
-            section.pop(path[1], None)
-            if not section:
-                snapshot.pop(path[0], None)
+        ConfigService._remove_mapping_path(snapshot, path)
 
     try:
         with _config_mutation_transaction(handler) as (service, transaction):
@@ -868,9 +856,10 @@ def apply_defaults_sync(
 
             if plan["source_state_digests"] != transaction.source_digests:
                 raise RuntimeError("Config migration sources changed during apply")
+            saved_config = service.get_sync_config()
             old_values = {
                 tuple(op["path"]): copy.deepcopy(
-                    service.get_path_value(op["path"], default=None)
+                    ConfigService._get_mapping_path(saved_config, op["path"])
                 )
                 for op in applicable_ops
             }
@@ -896,8 +885,11 @@ def apply_defaults_sync(
                         raise ValueError(
                             f"Validation failed for {path_label}: {result.errors}"
                         )
-                    if len(path) == 2:
-                        op["reload_tier"] = service.get_reload_tier(path[0], path[1])
+                    if len(path) >= 2:
+                        schema = service.get_path_schema(path)
+                        op["reload_tier"] = schema.get("reload_tier") or service.get_reload_tier(
+                            path[0], path[1]
+                        )
                     else:
                         op["reload_tier"] = "system_restart"
                 elif op["op_type"] == "REMOVE_RETIRED":
@@ -922,14 +914,10 @@ def apply_defaults_sync(
             for op in applied_ops:
                 path = list(op["path"])
                 if op["op_type"] in {"ADD_NEW", "ADOPT_DEFAULT"}:
-                    default_value = current_defaults
-                    for part in path:
-                        if not isinstance(default_value, dict) or part not in default_value:
-                            raise ValueError(
-                                f"Default disappeared while applying {'.'.join(path)}"
-                            )
-                        default_value = default_value[part]
-                    set_snapshot_value(defaults_snapshot, path, default_value)
+                    marker = object()
+                    default_value = ConfigService._get_mapping_path(current_defaults, path, marker)
+                    if default_value is not marker:
+                        set_snapshot_value(defaults_snapshot, path, default_value)
                 else:
                     remove_snapshot_value(defaults_snapshot, path)
 
@@ -971,9 +959,11 @@ def apply_defaults_sync(
                     transaction,
                     action=f"config_sync_{op['op_type'].lower()}",
                     section=path[0],
-                    parameter=path[1] if len(path) == 2 else None,
-                    old_value=old_values[tuple(path)],
-                    new_value=service.get_path_value(path, default=None),
+                    parameter=".".join(path[1:]) if len(path) >= 2 else None,
+                    old_value=service.redact_value(old_values[tuple(path)], path),
+                    new_value=service.redact_value(
+                        service.get_path_value(path, default=None), path
+                    ),
                     source="config_sync",
                 )
             _publish_runtime_config(service)

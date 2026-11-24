@@ -22,9 +22,14 @@ only finite/profile-specific coordinate and command validation.
 |---|---|
 | `INACTIVE` | No follow-session authority has been established |
 | `ACTIVE` | Confirmed identity and fresh evidence authorize the nominal intent |
-| `COASTING` | A qualified bounded-decay intent is authorized |
+| `COASTING` | A qualified recovery intent is authorized |
 | `REACQUIRING` | Identity is confirmed again while authority is restored |
 | `HANDOFF_PENDING` | Command authority is surrendered and PX4 handoff confirmation is pending |
+
+Retargeting is available only in `ACTIVE`, `COASTING` or `REACQUIRING` with no
+pending handoff. Once a handoff starts, selecting another target cannot cancel
+it, submit carryover guidance or mutate the current target. A completed handoff
+requires a new follow session; a failed handoff remains pending.
 
 Identity ambiguity, operator abort, stale vehicle state, unhealthy publication,
 an unconfirmed Offboard state, or exhausted loss budgets request an immediate
@@ -38,7 +43,7 @@ the new direction. The half-authority cap applies to new, unconfirmed guidance;
 retained previously authorized motion decays toward it through the submitted-command
 slew limiter. It requires 0.5 seconds of stable confirmation,
 then ramps from the last provisional command to full guidance over another
-0.5 seconds. During ordinary loss, yaw and vertical
+0.5 seconds. During ordinary MC loss, yaw and vertical
 velocity are zero; horizontal motion decays. Stale angles, a manual camera
 takeover, Stop, or failed flight prerequisites cannot authorize provisional
 commands. The flight-loop watchdog advances the original budget and refreshes
@@ -56,8 +61,21 @@ command publication and requests the configured terminal action, currently `hold
 `velocity_body_offboard` commands. It decays the last confirmed
 horizontal intent under independent elapsed-time and integrated-distance
 budgets, then requires stable identity confirmation before restoring authority.
-SIH and physical response remain qualification gates. Attitude-rate,
-fixed-wing, and VTOL-transition combinations fail closed to handoff.
+SIH and physical response remain qualification gates. Native FW uses
+`bounded_flight`: retain the last feasible course and airspeed, request level
+flight (or retain the existing absolute altitude hold), and expire at eight
+seconds. No MC distance budget or horizontal decay applies to FW. Recovery
+requires the native command owner; the MAVSDK attitude-rate FW path remains
+unsupported. Unknown execution contracts fail closed.
+
+An observed PX4 transition ends following. Tracking and video may remain active,
+but a new Start requires settled phase and fresh target checks, with a new
+session and recovery budget. Safe native publication during authority release
+does not continue pursuit. The [standard VTOL application checkpoint](../../reporting/agent-ops/codex-modernization/checkpoints/2026-11-13-vtol-training-app.md) records this bounded Gazebo workflow;
+physical-camera timing, other installations and the complete fault matrix remain
+separate qualification work.
+See the [current plan](../05-development/follower-consolidation-plan.md) and
+[shared FW policy](../04-configuration/fixed-wing-guidance-policy.md).
 
 Both fresh gimbal profiles use 8 seconds and 4 m of commanded horizontal
 travel for loss and retarget. Explicit existing configurations are preserved:
@@ -70,7 +88,7 @@ and real-aircraft claims require separately recorded PX4 response evidence.
 
 ~~~yaml
 TargetContinuity:
-  MODE: immediate_handoff        # immediate_handoff | bounded_decay
+  MODE: immediate_handoff        # immediate_handoff | bounded_decay | bounded_flight
   MAX_COAST_TIME_S: 1.0          # hard time budget; increase only for a qualified profile
   MAX_COAST_DISTANCE_M: 2.0      # integrated commanded travel budget
   MAX_RETARGET_TIME_S: 3.0       # replacement-target deadline; camera SIH uses 8.0
@@ -80,6 +98,12 @@ TargetContinuity:
   RETARGET_PROVISIONAL_AUTHORITY_FRACTION: 0.5
   RETARGET_RESTORE_TIME_S: 0.5
   TERMINAL_ACTION: hold
+  PhaseOverrides:
+    fixed_wing:
+      MODE: bounded_flight
+      MAX_COAST_TIME_S: 8.0
+      MAX_RETARGET_TIME_S: 8.0
+      AUTHORITY_RESTORE_TIME_S: 0.5
   FollowerOverrides:
     GM_VELOCITY_CHASE:
       MODE: bounded_decay

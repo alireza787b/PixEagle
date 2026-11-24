@@ -126,16 +126,17 @@ class TestRateLimiting:
         result = s.apply(1.0, 0.05)  # max_change = 4.5, step = 1.0 → no limit
         assert result == pytest.approx(1.0, abs=0.1)
 
-    def test_zero_dt_returns_target(self):
-        """Zero dt should not divide by zero — return target directly."""
+    @pytest.mark.parametrize("dt", [0.0, -0.1])
+    def test_nonprogressing_clock_preserves_presented_rate(self, dt):
         s = YawRateSmoother(
             deadzone_deg_s=0.0,
             max_rate_change_deg_s2=90.0,
             smoothing_alpha=1.0,
             enable_speed_scaling=False,
         )
-        result = s.apply(5.0, 0.0)
-        assert math.isfinite(result)
+        assert s.apply(5.0, 0.05) == pytest.approx(4.5)
+        assert s.apply(-40.0, dt) == pytest.approx(4.5)
+        assert s.apply(-40.0, 0.05) == pytest.approx(0.0)
 
 
 # =============================================================================

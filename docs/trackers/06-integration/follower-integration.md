@@ -231,6 +231,17 @@ def follow_target(self, tracker_output):
 
 ## AppController Integration
 
+Live and preview Start resolve the optional image aim from the selected profile's
+canonical `required_tracker_data`. A `POSITION_2D` consumer uses the current typed
+`TrackerOutput.position_2d` when `TARGET_POSITION_MODE` is `initial`, or
+`Tracking.DESIRE_AIM` when it is `center`. The selected pair must contain two
+finite numeric values; a missing initial measurement never falls back to center.
+The wrapper and direct factory enforce the same validation.
+
+Angle-only consumers receive no image aim in either mode. They still require
+their normal typed gimbal observation, source identity and freshness checks;
+initialization neither fabricates an image center nor grants following authority.
+
 AppController coordinates tracker-follower interaction:
 
 ```python

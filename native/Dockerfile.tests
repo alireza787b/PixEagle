@@ -1,0 +1,34 @@
+ARG ROS_IMAGE
+FROM ${ROS_IMAGE}
+ARG PX4_REVISION
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+RUN apt-get update -qq && apt-get install -y --no-install-recommends \
+    build-essential cmake libeigen3-dev nlohmann-json3-dev ros-jazzy-eigen3-cmake-module \
+    ros-jazzy-ament-cmake-gtest && rm -rf /var/lib/apt/lists/*
+COPY dependencies/ /work/dependencies/
+RUN cmake -S /work/dependencies/spdlog-* -B /work/spdlog-build \
+      -DCMAKE_INSTALL_PREFIX=/opt/pixeagle/logger -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+      -DSPDLOG_FMT_EXTERNAL=OFF -DSPDLOG_BUILD_TESTS=OFF -DSPDLOG_BUILD_EXAMPLE=OFF && \
+    cmake --build /work/spdlog-build -j2 && cmake --install /work/spdlog-build && \
+    source /opt/ros/jazzy/setup.bash && \
+    cmake -S /work/dependencies/Micro-XRCE-DDS-Agent-* -B /work/agent-build \
+      -DCMAKE_PREFIX_PATH=/opt/pixeagle/logger -DCMAKE_INSTALL_PREFIX=/opt/pixeagle/agent \
+      -DUAGENT_USE_SYSTEM_FASTDDS=ON -DUAGENT_USE_SYSTEM_FASTCDR=ON -DUAGENT_USE_SYSTEM_LOGGER=ON && \
+    cmake --build /work/agent-build -j2 && cmake --install /work/agent-build
+RUN mkdir -p /work/ws/src && \
+    ln -s /work/dependencies/px4_msgs-* /work/ws/src/px4_msgs && \
+    ln -s /work/dependencies/px4-ros2-interface-lib-*/px4_ros2_cpp /work/ws/src/px4_ros2_cpp && \
+    source /opt/ros/jazzy/setup.bash && cd /work/ws && \
+    CMAKE_BUILD_PARALLEL_LEVEL=4 MAKEFLAGS=-j4 colcon build \
+      --packages-up-to px4_ros2_cpp --parallel-workers 2 --cmake-args -DBUILD_TESTING=OFF
+COPY px4_guidance/ /work/px4_guidance/
+RUN source /work/ws/install/setup.bash && \
+    cmake -S /work/px4_guidance -B /work/build -DPIXEAGLE_BUILD_PX4_MODE=ON \
+      -DPIXEAGLE_EXPECTED_PX4_REVISION="${PX4_REVISION}" -DCMAKE_BUILD_TYPE=Debug && \
+    cmake --build /work/build -j2 && ctest --test-dir /work/build --output-on-failure && \
+    cmake -S /work/px4_guidance -B /work/sanitizers -DCMAKE_BUILD_TYPE=Debug \
+      -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" && \
+    cmake --build /work/sanitizers -j2 && ctest --test-dir /work/sanitizers --output-on-failure && \
+    dpkg-query -W > /work/build/debian-packages.txt
+ENV ROS_LOCALHOST_ONLY=1
+CMD ["/bin/bash", "-c", "echo 'Native contracts only. No aircraft runtime is installed by this image.'"]

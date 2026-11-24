@@ -66,6 +66,7 @@ ActionType = Literal[
     "model_select",
     "osd_set",
     "config_apply",
+    "config_save",
     "gimbal_control",
     "circuit_breaker_set",
     "offboard_start",
@@ -2438,6 +2439,9 @@ async def get_action_resource(owner: Any, action_id: str) -> Any:
             detail={"action_id": action_id},
             path=f"{API_V1_ACTION_RESOURCE_PREFIX}/{action_id}",
         )
+    if record["action_type"] == "config_save":
+        # The editor returns full reviews only on its config-scoped route.
+        record = {**record, "result": {"change_count": len(record["result"]["changes"])}}
     return record
 
 

@@ -8,6 +8,8 @@ from typing import Any, Literal
 
 from classes.api_v1_paths import (
     API_V1_ACTION_FOLLOWING_CONTROL_PATH,
+    API_V1_CONFIG_EDITOR_PATH,
+    API_V1_ACTION_CONFIG_SAVE_PATH,
     API_V1_NATIVE_CONFIG_PATH,
     API_V1_ACTION_CONFIG_APPLY_PATH,
     API_V1_ACTION_OSD_SET_PATH,
@@ -100,6 +102,18 @@ API_V1_ROUTE_SPECS: tuple[ApiV1RouteSpec, ...] = (
         handler="following_control_action", response_model="APIActionResponse",
         responses="ACTION_ROUTE_RESPONSES", operation_id="following_control_action",
         tags=("actions", "following"), status_code="status.HTTP_202_ACCEPTED",
+    ),
+    ApiV1RouteSpec(
+        method="GET", path=API_V1_CONFIG_EDITOR_PATH,
+        handler="get_config_editor", response_model="APIConfigEditorSnapshot",
+        responses="NATIVE_MODEL_READ_ERROR_RESPONSES", operation_id="get_config_editor",
+        tags=("config",),
+    ),
+    ApiV1RouteSpec(
+        method="POST", path=API_V1_ACTION_CONFIG_SAVE_PATH,
+        handler="config_save_action", response_model="APIConfigSaveResponse",
+        responses="ACTION_ROUTE_RESPONSES", operation_id="config_save_action",
+        tags=("actions", "config"),
     ),
     ApiV1RouteSpec(
         method="GET", path=API_V1_NATIVE_CONFIG_PATH,

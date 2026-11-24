@@ -3,8 +3,26 @@
 `GimbalTracker.GUIDANCE` is the single configuration group for the
 `gm_velocity_vector` rearward and vertical state policy. It is a follower
 restart change and does not create a second camera transform or SafetyManager.
-The provider supplies capabilities; the policy only chooses how an already
-validated body ray is commanded.
+The Vector MC implementation declares its supported manoeuvres; optional
+operator restrictions can narrow them. Providers supply observations, not
+aircraft manoeuvre permissions or mechanical qualification.
+
+`GimbalAngleObservation` retains immutable GAC receipt identity and independent
+TRC status under the camera owner's `source_generation`, separately from video
+epochs and command-cancellation generations. Actual provider lifecycle changes
+retire the source; manual movement Stop and tracker detach preserve it.
+A bound provider belongs to one `CameraRuntime` lifetime; replacement requires
+a new owner. Future normalized providers implement the canonical
+`GimbalInputProvider` lifecycle-observer contract; a provider without those
+notifications has no qualified source incarnation.
+Its target generation is local App selection context; TRC has no physical target
+ID. Angles describe camera boresight, with unqualified physical identity and
+timing. Standalone ownership remains unknown. Gimbal output supplies no synthetic
+image position or `ImageMeasurement`; ordinary image trackers are unchanged.
+Physical attitude association still requires separately established timing and
+installation evidence. Start pins the original observation source for the
+session. Source replacement terminates pursuit; missing evidence uses the
+existing bounded continuity policy. Retargeting does not replace this source.
 
 | Setting | Default | Meaning |
 | --- | ---: | --- |
@@ -15,11 +33,25 @@ validated body ray is commanded.
 | `FORWARD_REENTRY_BEARING_DEG` | `80` | Resume direct pursuit after yaw brings the target inside this bearing. |
 | `TRANSITION_DWELL_MS` | `300` | Fresh-observation dwell before a geometry state changes. |
 | `REARWARD_GRACE_MS` | `500` | Maximum direct reverse grace before yaw-first. |
+| `ALLOWED_MANOEUVRES` | `null` | Keep implemented MC states. A subset of `vertical`, `reverse_translation`, `yaw_recovery` restricts them; `[]` permits forward only. |
+| `OBSERVATION_LIMITS.AZIMUTH_LIMITS_DEG` | `null` | Optional ordered physical-FRD observed-ray bearing window within −180°…180°. |
+| `OBSERVATION_LIMITS.DEPRESSION_LIMITS_DEG` | `null` | Optional ordered physical-FRD observed-ray depression window within −90°…90°. |
 
-`CAPABILITIES` is an optional explicit fallback for a provider that cannot
-advertise metadata. Leave `KNOWN: false` until the provider is qualified. When
-runtime provider metadata exists, it always takes precedence over this
-fallback; there is no second set of live limits.
+Null windows impose no additional observed-ray restriction. They do **not**
+claim full-sphere joint reachability or authorize aiming at an unobserved
+direction. These bounds are measured body-ray acceptance windows, not raw
+vendor joint limits. Validate vendor-to-body conversion before choosing them.
+Unknown mechanics alone do not cancel a fresh observed MC ray with qualified
+source/frame semantics; unknown geometry, stale evidence and unsupported phases
+still refuse. Target-centre alignment and exposure timing remain separate.
+
+The retired `CAPABILITIES` object is retained only for Config Sync review.
+The known historical Topotek factory placeholder preserves existing MC
+behaviour. A custom or unknown legacy declaration blocks only Vector Start
+until explicit canonical choices and exact retirement cleanup are applied
+atomically. The preview identifies historical provider masking and intersects
+saved restrictions; it never treats that masking as physical qualification.
+See [Config Sync](../../CONFIG_SYNC.md#gimbal-guidance-migration).
 
 When altitude guidance is enabled, the requested session speed scales the full
 normalized body ray. A target ahead and below therefore produces forward and
@@ -29,17 +61,17 @@ projection is left at its natural magnitude. The system never hides this by
 redistributing speed.
 
 The body ray uses the canonical `GimbalTracker.MOUNT_TYPE` and
-`GEOMETRY_OVERRIDE`. A provider must advertise `guidance_capabilities` with
-`known`, `supports_vertical`, `supports_reverse`, `supports_yaw_fallback`, and
-any azimuth/depression limits. Missing capabilities fail closed for the special
-state rather than guessing from raw axis names. `sideslip` has no yaw fallback;
+`GEOMETRY_OVERRIDE`. Provider metadata cannot grant manoeuvres, widen the
+configured observed-ray windows or retain permissions from an earlier sample.
+`sideslip` has no yaw fallback;
 use `coordinated_turn` when yaw-first behavior is required.
 
 These settings are not a target-loss supervisor. Stale tracker evidence,
 Stop, circuit breaker, pilot takeover, invalid telemetry, and Offboard authority
 remain governed by the existing continuity and safety owners. Ordinary 2D
-camera followers do not expose session speed or this policy until their own
-direction and capability contracts are qualified.
+camera followers do not use this gimbal geometry policy. MC Chase and FW
+Navigation Chase advertise their own qualified speed controls through the same
+capability/action contract; clients must not infer support from profile names.
 
 Existing configurations keep their explicit values. A deployment that has no
 `GimbalTracker.GUIDANCE` group receives the documented defaults through config

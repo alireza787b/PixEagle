@@ -138,12 +138,14 @@ def test_tracker_data_processing():
     """Test 6: Verify tracker data can be processed."""
     try:
         from classes.followers.gm_velocity_vector_follower import GMVelocityVectorFollower
+        from classes.aircraft_state import Quaternion
         from classes.tracker_output import TrackerOutput, TrackerDataType
         from unittest.mock import Mock
         import time
 
         mock_px4 = Mock()
         mock_px4.current_altitude = 10.0
+        mock_px4.get_guidance_attitude.return_value = (Quaternion(1., 0., 0., 0.), 0.)
 
         follower = GMVelocityVectorFollower(mock_px4, (0.5, 0.5))
 
@@ -154,18 +156,7 @@ def test_tracker_data_processing():
             tracking_active=True,
             tracker_id="test_gimbal",
             angular=(10.0, 85.0, -5.0),  # yaw, pitch, roll in degrees
-            metadata={
-                "test": True,
-                # This smoke fixture exercises the explicit qualified 3D
-                # gimbal contract; production providers must advertise the
-                # same capabilities in their normalized sample metadata.
-                "guidance_capabilities": {
-                    "known": True,
-                    "supports_vertical": True,
-                    "supports_reverse": True,
-                    "supports_yaw_fallback": True,
-                },
-            }
+            metadata={"test": True},
         )
 
         # Process tracker data

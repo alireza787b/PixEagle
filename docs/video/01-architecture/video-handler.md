@@ -6,7 +6,7 @@
 
 ## Overview
 
-The `VideoHandler` class provides a unified interface for video input from 7 different source types. It handles capture initialization, frame acquisition, error recovery, and connection health monitoring.
+The `VideoHandler` class provides a unified interface for eight configured source types. It handles capture initialization, frame acquisition, error recovery, and connection health monitoring. See [frame lifecycle and provenance](frame-state-management.md) for the analysis/display split and immutable tracker/media context.
 
 ### Backend Selection Notes
 
@@ -31,6 +31,7 @@ class VideoHandler:
     - VIDEO_FILE: Video files (mp4, avi, etc.)
     - USB_CAMERA: USB webcams and cameras
     - RTSP_STREAM: RTSP network streams
+    - RTSP_OPENCV: RTSP through the OpenCV/FFmpeg path
     - UDP_STREAM: UDP network streams
     - HTTP_STREAM: HTTP/HTTPS streams
     - CSI_CAMERA: MIPI CSI cameras (Raspberry Pi, Jetson)
@@ -171,12 +172,29 @@ Read frame with aggressive buffer clearing for low latency.
 **Behavior:**
 - For GStreamer RTSP: Uses standard `get_frame()` (already optimized)
 - For OpenCV: Clears buffer with `grab()` before `retrieve()`
+- At least one successful grab is required; retrieving retained pixels alone
+  cannot establish a fresh receipt. Async UDP delegates to its existing reader.
+- Results from a replaced capture handle are discarded.
 
 **Example:**
 ```python
 # For real-time tracking where latency matters
 frame = handler.get_frame_fast()
 ```
+
+#### `get_capture_context(frame) -> tuple`
+
+Returns the exact returned pixels' `CaptureStamp`, geometry and opaque capture
+source signature in one snapshot. Geometry contains oriented decoder width,
+height, rotation and flip. The signature hashes the actual opening path,
+including backend/fallback and mode, without storing source credentials in the
+identity. An unknown backend yields no signature rather than a guessed one.
+Neither the signature nor backend receipt proves physical camera identity or
+exposure timing.
+
+Optional `FIXED_CAMERA_CALIBRATION` is parsed once at startup; missing/null
+preserves uncalibrated image tracking. Binding requires this exact source and
+decoder grid. See [frame lifecycle](frame-state-management.md#optional-fixed-camera-calibration).
 
 #### `get_last_frames() -> list`
 
@@ -209,6 +227,14 @@ Dynamically change capture resolution.
 - `height`: New capture height
 
 **Returns:** True if successful
+
+This operation revokes source/calibration identity before changing capture
+properties, including failed or partial changes. Reopen the source to establish
+the new exact capture specification; old calibration is never reused merely
+because width/height happen to match.
+Async UDP/GStreamer refuses direct property mutation without changing the
+current source. Apply source configuration through Config Sync and reopen
+instead; its background reader remains the sole capture owner.
 
 #### `clear_frame_history() -> None`
 

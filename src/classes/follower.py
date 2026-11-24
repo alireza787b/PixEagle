@@ -1,10 +1,53 @@
 # src/classes/follower.py
 import logging
+import math
 from typing import Tuple, Dict, Any, List, Type, Optional
 from classes.parameters import Parameters
 from classes.setpoint_handler import SetpointHandler
+from classes.tracker_output import TrackerOutput
 
 logger = logging.getLogger(__name__)
+
+
+def _requires_image_aim(profile_name: str) -> bool:
+    return "POSITION_2D" in SetpointHandler.get_profile_info(profile_name)["required_tracker_data"]
+
+
+def _validated_image_aim(coords) -> Tuple[float, float]:
+    if not isinstance(coords, (tuple, list)) or len(coords) != 2:
+        raise ValueError("initial_target_coords must be a finite numeric (x, y) pair")
+    try:
+        valid = all(isinstance(value, (int, float)) and not isinstance(value, bool)
+                    and math.isfinite(value) for value in coords)
+    except OverflowError:
+        valid = False
+    if not valid:
+        raise ValueError("initial_target_coords must be a finite numeric (x, y) pair")
+    return tuple(coords)
+
+
+def _initial_target_coords(profile_name: str, coords) -> Optional[Tuple[float, float]]:
+    return _validated_image_aim(coords) if _requires_image_aim(profile_name) else None
+
+
+def resolve_initial_target_coords(
+    profile_name: str, tracker_output: Optional[TrackerOutput], *,
+    target_position_mode: str, desired_aim,
+) -> Optional[Tuple[float, float]]:
+    """Resolve an image aim only when the declared follower input requires one.
+
+    This does not replace target/source readiness or create tracker evidence.
+    """
+    if not _requires_image_aim(profile_name):
+        return None
+    if target_position_mode == "initial":
+        if not isinstance(tracker_output, TrackerOutput):
+            raise ValueError("initial_target_coords requires typed tracker output")
+        return _validated_image_aim(tracker_output.position_2d)
+    if target_position_mode == "center":
+        return _validated_image_aim(desired_aim)
+    raise ValueError("target_position_mode must be initial or center")
+
 
 class FollowerFactory:
     """
@@ -30,7 +73,7 @@ class FollowerFactory:
 
         Naming Convention: {vehicle}_{control}_{behavior}
         - vehicle: mc_ (multicopter), fw_ (fixed-wing), gm_ (gimbal)
-        - control: velocity, attitude_rate
+        - control: velocity, navigation, attitude_rate
         - behavior: optional descriptor (chase, ground, distance, position, vector, unified)
         """
         if cls._registry_initialized:
@@ -46,6 +89,7 @@ class FollowerFactory:
             from classes.followers.gm_velocity_chase_follower import GMVelocityChaseFollower
             from classes.followers.gm_velocity_vector_follower import GMVelocityVectorFollower
             from classes.followers.fw_attitude_rate_follower import FWAttitudeRateFollower
+            from classes.followers.fw_navigation_chase_follower import FWNavigationChaseFollower
 
             # Primary registry with new naming convention
             cls._follower_registry = {
@@ -58,7 +102,8 @@ class FollowerFactory:
                 # Multicopter - Attitude Rate Control
                 'mc_attitude_rate': MCAttitudeRateFollower,
 
-                # Fixed-Wing - Attitude Rate Control (L1/TECS)
+                # Fixed-Wing - Native Navigation and research direct rates
+                'fw_navigation_chase': FWNavigationChaseFollower,
                 'fw_attitude_rate': FWAttitudeRateFollower,
 
                 # Gimbal - Velocity Control
@@ -154,14 +199,14 @@ class FollowerFactory:
             return {}
     
     @classmethod
-    def create_follower(cls, profile_name: str, px4_controller, initial_target_coords: Tuple[float, float]):
+    def create_follower(cls, profile_name: str, px4_controller, initial_target_coords: Optional[Tuple[float, float]]):
         """
         Creates and returns a follower instance for the specified profile.
 
         Args:
             profile_name (str): The follower profile name.
             px4_controller: The PX4 controller instance.
-            initial_target_coords (Tuple[float, float]): Initial target coordinates.
+            initial_target_coords: Image aim; None for non-image input contracts.
 
         Returns:
             BaseFollower: An instance of the appropriate follower class.
@@ -195,6 +240,7 @@ class FollowerFactory:
                            f"Available implementations: {list(cls._follower_registry.keys())}")
         
         # Create the follower instance
+        initial_target_coords = _initial_target_coords(normalized_name, initial_target_coords)
         follower_class = cls._follower_registry[normalized_name]
         try:
             logger.debug(f"Creating follower instance: {follower_class.__name__} for profile '{profile_name}'")
@@ -214,23 +260,20 @@ class Follower:
     the next start; live handler replacement would split command ownership.
     """
 
-    def __init__(self, px4_controller, initial_target_coords: Tuple[float, float]):
+    def __init__(self, px4_controller, initial_target_coords: Optional[Tuple[float, float]]):
         """
         Initializes the Follower with the PX4 controller and initial target coordinates.
 
         Args:
             px4_controller: The PX4 controller instance for controlling the drone.
-            initial_target_coords (Tuple[float, float]): Initial target coordinates for the follower.
+            initial_target_coords: Image aim; None for non-image input contracts.
 
         Raises:
             ValueError: If the initial_target_coords are not valid or follower mode is invalid.
         """
-        # Validate initial target coordinates
-        self._validate_target_coordinates(initial_target_coords)
-        
         self.px4_controller = px4_controller
         self.mode = Parameters.FOLLOWER_MODE
-        self.initial_target_coords = initial_target_coords
+        self.initial_target_coords = _initial_target_coords(self.mode, initial_target_coords)
         
         # Create the follower instance using the factory
         try:
@@ -245,25 +288,6 @@ class Follower:
         except Exception as e:
             logger.error(f"Failed to initialize follower with mode '{self.mode}': {e}")
             raise
-    
-    def _validate_target_coordinates(self, target_coords: Tuple[float, float]) -> None:
-        """
-        Validates initial target coordinates.
-        
-        Args:
-            target_coords (Tuple[float, float]): Target coordinates to validate.
-            
-        Raises:
-            ValueError: If coordinates are invalid.
-        """
-        if not isinstance(target_coords, tuple) or len(target_coords) != 2:
-            raise ValueError(f"Invalid initial_target_coords: {target_coords}. "
-                           f"Must be a tuple of (x, y) coordinates.")
-        
-        x, y = target_coords
-        if not all(isinstance(coord, (int, float)) for coord in [x, y]):
-            raise ValueError(f"Invalid coordinate types: {target_coords}. "
-                           f"Expected numeric values.")
     
     # ==================== Core Follower Interface ====================
     
@@ -344,9 +368,9 @@ class Follower:
             ) from e
 
     def get_airframe_phase(self) -> str:
-        """Return the schema-declared airframe phase for this command profile."""
+        """Return the active strategy phase, or the static profile's phase."""
         try:
-            return self.follower.setpoint_handler.get_airframe_phase()
+            return self.follower.get_airframe_phase()
         except Exception as e:
             logger.error(f"Error getting airframe phase: {e}")
             raise RuntimeError(

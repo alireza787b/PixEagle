@@ -1,0 +1,182 @@
+{
+  "scope": "Only exact configure_file outputs of pinned normal POSIX test CMake; no blanket ignored-file allowance",
+  "outputs": {
+    ".vscode/c_cpp_properties.json": {
+      "template": "platforms/common/c_cpp_properties.json.in",
+      "callsite": "platforms/common/CMakeLists.txt:73",
+      "mode": "@ONLY",
+      "template_sha256": "455c4cffe6665db3f73490e5e8eac5974bfd85898f807f506b725c8150cb0c23"
+    },
+    ".vscode/launch.json": {
+      "template": "platforms/posix/Debug/launch_sitl.json.in",
+      "callsite": "platforms/posix/CMakeLists.txt:154",
+      "mode": "COPYONLY",
+      "template_sha256": "8acdd5eaffc8b658bb05d1426173e7e0ae79155f079e35fd29e03f6fc5f236f6"
+    },
+    "posix-configs/SITL/init/test/test_atomic_bitset_generated": {
+      "template": "posix-configs/SITL/init/test/test_template.in",
+      "callsite": "platforms/posix/cmake/sitl_tests.cmake:30",
+      "mode": "configure_file",
+      "template_sha256": "62854305f33dbb0ad9ad6220891a31cd0f0ea1b020a5bc618d52f0485cbafbff"
+    },
+    "posix-configs/SITL/init/test/test_bitset_generated": {
+      "template": "posix-configs/SITL/init/test/test_template.in",
+      "callsite": "platforms/posix/cmake/sitl_tests.cmake:30",
+      "mode": "configure_file",
+      "template_sha256": "62854305f33dbb0ad9ad6220891a31cd0f0ea1b020a5bc618d52f0485cbafbff"
+    },
+    "posix-configs/SITL/init/test/test_bson_generated": {
+      "template": "posix-configs/SITL/init/test/test_template.in",
+      "callsite": "platforms/posix/cmake/sitl_tests.cmake:30",
+      "mode": "configure_file",
+      "template_sha256": "62854305f33dbb0ad9ad6220891a31cd0f0ea1b020a5bc618d52f0485cbafbff"
+    },
+    "posix-configs/SITL/init/test/test_dataman_generated": {
+      "template": "posix-configs/SITL/init/test/test_template.in",
+      "callsite": "platforms/posix/cmake/sitl_tests.cmake:30",
+      "mode": "configure_file",
+      "template_sha256": "62854305f33dbb0ad9ad6220891a31cd0f0ea1b020a5bc618d52f0485cbafbff"
+    },
+    "posix-configs/SITL/init/test/test_file2_generated": {
+      "template": "posix-configs/SITL/init/test/test_template.in",
+      "callsite": "platforms/posix/cmake/sitl_tests.cmake:30",
+      "mode": "configure_file",
+      "template_sha256": "62854305f33dbb0ad9ad6220891a31cd0f0ea1b020a5bc618d52f0485cbafbff"
+    },
+    "posix-configs/SITL/init/test/test_float_generated": {
+      "template": "posix-configs/SITL/init/test/test_template.in",
+      "callsite": "platforms/posix/cmake/sitl_tests.cmake:30",
+      "mode": "configure_file",
+      "template_sha256": "62854305f33dbb0ad9ad6220891a31cd0f0ea1b020a5bc618d52f0485cbafbff"
+    },
+    "posix-configs/SITL/init/test/test_hrt_generated": {
+      "template": "posix-configs/SITL/init/test/test_template.in",
+      "callsite": "platforms/posix/cmake/sitl_tests.cmake:30",
+      "mode": "configure_file",
+      "template_sha256": "62854305f33dbb0ad9ad6220891a31cd0f0ea1b020a5bc618d52f0485cbafbff"
+    },
+    "posix-configs/SITL/init/test/test_int_generated": {
+      "template": "posix-configs/SITL/init/test/test_template.in",
+      "callsite": "platforms/posix/cmake/sitl_tests.cmake:30",
+      "mode": "configure_file",
+      "template_sha256": "62854305f33dbb0ad9ad6220891a31cd0f0ea1b020a5bc618d52f0485cbafbff"
+    },
+    "posix-configs/SITL/init/test/test_IntrusiveQueue_generated": {
+      "template": "posix-configs/SITL/init/test/test_template.in",
+      "callsite": "platforms/posix/cmake/sitl_tests.cmake:30",
+      "mode": "configure_file",
+      "template_sha256": "62854305f33dbb0ad9ad6220891a31cd0f0ea1b020a5bc618d52f0485cbafbff"
+    },
+    "posix-configs/SITL/init/test/test_IntrusiveSortedList_generated": {
+      "template": "posix-configs/SITL/init/test/test_template.in",
+      "callsite": "platforms/posix/cmake/sitl_tests.cmake:30",
+      "mode": "configure_file",
+      "template_sha256": "62854305f33dbb0ad9ad6220891a31cd0f0ea1b020a5bc618d52f0485cbafbff"
+    },
+    "posix-configs/SITL/init/test/test_List_generated": {
+      "template": "posix-configs/SITL/init/test/test_template.in",
+      "callsite": "platforms/posix/cmake/sitl_tests.cmake:30",
+      "mode": "configure_file",
+      "template_sha256": "62854305f33dbb0ad9ad6220891a31cd0f0ea1b020a5bc618d52f0485cbafbff"
+    },
+    "posix-configs/SITL/init/test/test_mathlib_generated": {
+      "template": "posix-configs/SITL/init/test/test_template.in",
+      "callsite": "platforms/posix/cmake/sitl_tests.cmake:30",
+      "mode": "configure_file",
+      "template_sha256": "62854305f33dbb0ad9ad6220891a31cd0f0ea1b020a5bc618d52f0485cbafbff"
+    },
+    "posix-configs/SITL/init/test/test_matrix_generated": {
+      "template": "posix-configs/SITL/init/test/test_template.in",
+      "callsite": "platforms/posix/cmake/sitl_tests.cmake:30",
+      "mode": "configure_file",
+      "template_sha256": "62854305f33dbb0ad9ad6220891a31cd0f0ea1b020a5bc618d52f0485cbafbff"
+    },
+    "posix-configs/SITL/init/test/test_param_generated": {
+      "template": "posix-configs/SITL/init/test/test_template.in",
+      "callsite": "platforms/posix/cmake/sitl_tests.cmake:30",
+      "mode": "configure_file",
+      "template_sha256": "62854305f33dbb0ad9ad6220891a31cd0f0ea1b020a5bc618d52f0485cbafbff"
+    },
+    "posix-configs/SITL/init/test/test_parameters_generated": {
+      "template": "posix-configs/SITL/init/test/test_template.in",
+      "callsite": "platforms/posix/cmake/sitl_tests.cmake:30",
+      "mode": "configure_file",
+      "template_sha256": "62854305f33dbb0ad9ad6220891a31cd0f0ea1b020a5bc618d52f0485cbafbff"
+    },
+    "posix-configs/SITL/init/test/test_perf_generated": {
+      "template": "posix-configs/SITL/init/test/test_template.in",
+      "callsite": "platforms/posix/cmake/sitl_tests.cmake:30",
+      "mode": "configure_file",
+      "template_sha256": "62854305f33dbb0ad9ad6220891a31cd0f0ea1b020a5bc618d52f0485cbafbff"
+    },
+    "posix-configs/SITL/init/test/test_search_min_generated": {
+      "template": "posix-configs/SITL/init/test/test_template.in",
+      "callsite": "platforms/posix/cmake/sitl_tests.cmake:30",
+      "mode": "configure_file",
+      "template_sha256": "62854305f33dbb0ad9ad6220891a31cd0f0ea1b020a5bc618d52f0485cbafbff"
+    },
+    "posix-configs/SITL/init/test/test_sleep_generated": {
+      "template": "posix-configs/SITL/init/test/test_template.in",
+      "callsite": "platforms/posix/cmake/sitl_tests.cmake:30",
+      "mode": "configure_file",
+      "template_sha256": "62854305f33dbb0ad9ad6220891a31cd0f0ea1b020a5bc618d52f0485cbafbff"
+    },
+    "posix-configs/SITL/init/test/test_versioning_generated": {
+      "template": "posix-configs/SITL/init/test/test_template.in",
+      "callsite": "platforms/posix/cmake/sitl_tests.cmake:30",
+      "mode": "configure_file",
+      "template_sha256": "62854305f33dbb0ad9ad6220891a31cd0f0ea1b020a5bc618d52f0485cbafbff"
+    },
+    "posix-configs/SITL/init/test/test_controllib_test_generated": {
+      "template": "posix-configs/SITL/init/test/test_cmd_template.in",
+      "callsite": "platforms/posix/cmake/sitl_tests.cmake:57",
+      "mode": "configure_file",
+      "template_sha256": "fcc222b1d746678654db0b2d128e06b9eaa77cfe7bb81233fd8acc87cbf3f764"
+    },
+    "posix-configs/SITL/init/test/test_lightware_laser_test_generated": {
+      "template": "posix-configs/SITL/init/test/test_cmd_template.in",
+      "callsite": "platforms/posix/cmake/sitl_tests.cmake:57",
+      "mode": "configure_file",
+      "template_sha256": "fcc222b1d746678654db0b2d128e06b9eaa77cfe7bb81233fd8acc87cbf3f764"
+    },
+    "posix-configs/SITL/init/test/test_rc_tests_generated": {
+      "template": "posix-configs/SITL/init/test/test_cmd_template.in",
+      "callsite": "platforms/posix/cmake/sitl_tests.cmake:57",
+      "mode": "configure_file",
+      "template_sha256": "fcc222b1d746678654db0b2d128e06b9eaa77cfe7bb81233fd8acc87cbf3f764"
+    },
+    "posix-configs/SITL/init/test/test_uorb_tests_generated": {
+      "template": "posix-configs/SITL/init/test/test_cmd_template.in",
+      "callsite": "platforms/posix/cmake/sitl_tests.cmake:57",
+      "mode": "configure_file",
+      "template_sha256": "fcc222b1d746678654db0b2d128e06b9eaa77cfe7bb81233fd8acc87cbf3f764"
+    },
+    "posix-configs/SITL/init/test/cmd_hrt_test_generated": {
+      "template": "posix-configs/SITL/init/test/cmd_template.in",
+      "callsite": "platforms/posix/cmake/sitl_tests.cmake:122",
+      "mode": "configure_file",
+      "template_sha256": "7160cefedad60ba30ace4187410bd86f70afddf339b2ea94014323298df30140"
+    },
+    "posix-configs/SITL/init/test/cmd_cdev_test_generated": {
+      "template": "posix-configs/SITL/init/test/cmd_template.in",
+      "callsite": "platforms/posix/cmake/sitl_tests.cmake:122",
+      "mode": "configure_file",
+      "template_sha256": "7160cefedad60ba30ace4187410bd86f70afddf339b2ea94014323298df30140"
+    },
+    "posix-configs/SITL/init/test/cmd_wqueue_test_generated": {
+      "template": "posix-configs/SITL/init/test/cmd_template.in",
+      "callsite": "platforms/posix/cmake/sitl_tests.cmake:122",
+      "mode": "configure_file",
+      "template_sha256": "7160cefedad60ba30ace4187410bd86f70afddf339b2ea94014323298df30140"
+    }
+  },
+  "source_pins": {
+    "platforms/common/CMakeLists.txt": "504478a37b6768f62b270dcb89f45a424c5d87c846eafea4655e4b4c826f0ef2",
+    "platforms/posix/CMakeLists.txt": "6041fb40023375c7a58c9da7105d608a283c0cd125532a09b9ae033d4e539dca",
+    "platforms/posix/cmake/sitl_tests.cmake": "f1ceb3cfb370abbf444ea85002e1e2b55fce090c0ad95d4495d0cdc38f2210bc",
+    ".vscode/.gitignore": "6faeccd67cb244150cd9c4118e125236bc311be8dd1643655f19fcc98390d91e",
+    ".gitignore": "26c15d62a5c8e08c40f1d5834de2bb3a8ec2acf320b1aaff2a4353759021e5aa"
+  },
+  "expected_output_paths": 28,
+  "currently_generated_files": []
+}

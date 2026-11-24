@@ -84,6 +84,10 @@ def test_api_tool_candidate_inventory_is_non_callable():
         "src/classes/api_v1_integration.py",
         "src/classes/api_v1_native_targets.py",
         "src/classes/api_v1_following_controls.py",
+        "src/classes/api_v1_native_following.py",
+        "src/classes/follower_catalog.py",
+        "configs/follower_commands.yaml",
+        "configs/tracker_schemas.yaml",
         "src/classes/api_v1_native_models.py",
         "src/classes/api_v1_native_config.py",
         "src/classes/api_v1_native_camera.py",
@@ -109,6 +113,10 @@ def test_api_tool_candidate_inventory_is_non_callable():
         "src/classes/api_v1_paths.py": 64,
         "src/classes/api_v1_actions.py": 64,
         "src/classes/api_v1_following_controls.py": 64,
+        "src/classes/api_v1_native_following.py": 64,
+        "src/classes/follower_catalog.py": 64,
+        "configs/follower_commands.yaml": 64,
+        "configs/tracker_schemas.yaml": 64,
         "src/classes/api_v1_auth_routes.py": 64,
         "src/classes/api_v1_log_routes.py": 64,
         "src/classes/api_legacy_control_routes.py": 64,
@@ -167,7 +175,7 @@ def test_api_tool_candidate_inventory_is_non_callable():
     assert inventory["summary"]["disposition_coverage_complete"] is True
     assert disposition["complete"] is True
     assert disposition["approved_for_review_only"] == 8
-    assert disposition["blocked"] == 52
+    assert disposition["blocked"] == 54
     assert disposition["deferred"] == 5
     assert (
         disposition["valid_disposition_count"]
@@ -441,10 +449,11 @@ def test_api_tool_candidate_summary_matches_current_api_v1_inventory():
     inventory = _load_inventory()
     expected_routes = {
         ("GET", "/api/v1/system/software-update"),
-        ("POST", "/api/v1/actions/software-update"),
-        ("GET", "/api/v1/integration/models"),
+        ("POST", "/api/v1/actions/software-update"),        ("GET", "/api/v1/integration/models"),
         ("GET", "/api/v1/integration/models/{model_id}/labels"),
         ("POST", "/api/v1/actions/model-select"),
+        ("GET", "/api/v1/config/editor"),
+        ("POST", "/api/v1/actions/config-save"),
         ("GET", "/api/v1/integration/config"),
         ("POST", "/api/v1/actions/config-apply"),
         ("POST", "/api/v1/actions/osd-set"),
@@ -511,10 +520,10 @@ def test_api_tool_candidate_summary_matches_current_api_v1_inventory():
         for candidate in inventory["candidates"]
     }
 
-    assert inventory["summary"]["api_v1_routes"] == 65
-    assert inventory["summary"]["candidate_count"] == 65
-    assert len(inventory["candidates"]) == 65
-    assert inventory["summary"]["blocked_or_guarded_candidates"] == 57
+    assert inventory["summary"]["api_v1_routes"] == 67
+    assert inventory["summary"]["candidate_count"] == 67
+    assert len(inventory["candidates"]) == 67
+    assert inventory["summary"]["blocked_or_guarded_candidates"] == 59
     assert candidate_routes == expected_routes
     assert all(path.startswith("/api/v1/") for _method, path in candidate_routes)
     assert inventory["promotion_path"][-1] == "MCP tools/list and tools/call exposure"

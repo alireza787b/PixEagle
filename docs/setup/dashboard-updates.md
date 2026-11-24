@@ -1,6 +1,6 @@
 # Update PixEagle from the Dashboard
 
-Open **About → Software update**. The page shows the installed version, the latest official stable release, its release notes and the time of the last successful check. Opening the page checks at most once a day after a successful lookup. **Check now** refreshes it. Checking leaves the installation running.
+Open **About → Software update**, or **Settings → More → Software update**. The page shows the installed version, the latest official stable release, its release notes and the time of the last successful check. Opening the page checks at most once a day after a successful lookup. **Check now** refreshes it. Checking leaves the installation running.
 
 ![Dashboard update review showing a local source edit and the Back up edits and update button](images/software-update.png)
 

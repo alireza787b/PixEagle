@@ -341,7 +341,7 @@ display_banner() {
         pixeagle_has_interactive_input && clear
         display_pixeagle_banner "Setup" "Vision tracking and PX4 companion runtime"
     fi
-    get_version_info "7.5.5"
+    get_version_info "7.6.0-rc.4"
     if pixeagle_has_interactive_input; then
         echo -e "  ${DIM}10 guided steps; press Enter to accept a displayed default.${NC}"
     else
@@ -1000,9 +1000,11 @@ verify_core_python_environment() {
         "${requirement_args[@]}" >/dev/null 2>&1 || return 1
     "$VENV_PYTHON" "$SCRIPTS_DIR/setup/pip_check_policy.py" \
         >/dev/null 2>&1 || return 1
+    "$VENV_PYTHON" "$SCRIPTS_DIR/setup/mavsdk_client_policy.py" \
+        >/dev/null 2>&1 || return 1
     "$VENV_PYTHON" - <<'PY' >/dev/null 2>&1
 import fastapi
-import mavsdk
+import mavsdk_grpc
 import numpy
 import uvicorn
 import yaml
@@ -1164,6 +1166,8 @@ install_python_deps() {
         exit 1
     fi
     [[ "$core_req_temp" == true ]] && rm -f "$core_req_file"
+
+    "$VENV_PYTHON" "$SCRIPTS_DIR/setup/mavsdk_client_policy.py" --migrate || return 1
 
     # Verify core dependencies
     local OPENCV_AFTER=""

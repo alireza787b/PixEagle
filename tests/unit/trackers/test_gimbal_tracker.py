@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'sr
 
 from tests.fixtures.mock_gimbal import (
     MockGimbalInterface, MockGimbalData, MockGimbalAngles,
-    MockTrackingStatus, MockTrackingState, MockCoordinateTransformer,
+    MockTrackingStatus, MockTrackingState,
     create_mock_gimbal_data, create_tracking_active_data,
     create_target_lost_data, create_disabled_data
 )
@@ -34,12 +34,6 @@ def mock_gimbal_interface():
 
 
 @pytest.fixture
-def mock_coordinate_transformer():
-    """Fixture for mock coordinate transformer."""
-    return MockCoordinateTransformer()
-
-
-@pytest.fixture
 def mock_dependencies():
     """Fixture for common mock dependencies."""
     app_controller = MockAppController()
@@ -51,11 +45,9 @@ class TestGimbalInitialization:
     """Tests for GimbalTracker initialization."""
 
     @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
-    @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
-    def test_initialization_sets_tracker_name(self, mock_transformer, mock_interface, mock_dependencies):
+    def test_initialization_sets_tracker_name(self, mock_interface, mock_dependencies):
         """Tracker name should be set to 'GimbalTracker'."""
         mock_interface.return_value = MockGimbalInterface()
-        mock_transformer.return_value = MockCoordinateTransformer()
 
         from classes.trackers.gimbal_tracker import GimbalTracker
         video_handler, detector, app_controller = mock_dependencies
@@ -65,11 +57,9 @@ class TestGimbalInitialization:
         assert tracker.tracker_name == "GimbalTracker"
 
     @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
-    @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
-    def test_initialization_is_external_tracker(self, mock_transformer, mock_interface, mock_dependencies):
+    def test_initialization_is_external_tracker(self, mock_interface, mock_dependencies):
         """GimbalTracker should be marked as external tracker."""
         mock_interface.return_value = MockGimbalInterface()
-        mock_transformer.return_value = MockCoordinateTransformer()
 
         from classes.trackers.gimbal_tracker import GimbalTracker
         video_handler, detector, app_controller = mock_dependencies
@@ -79,11 +69,9 @@ class TestGimbalInitialization:
         assert tracker.is_external_tracker is True
 
     @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
-    @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
-    def test_initialization_monitoring_inactive(self, mock_transformer, mock_interface, mock_dependencies):
+    def test_initialization_monitoring_inactive(self, mock_interface, mock_dependencies):
         """Monitoring should be inactive initially."""
         mock_interface.return_value = MockGimbalInterface()
-        mock_transformer.return_value = MockCoordinateTransformer()
 
         from classes.trackers.gimbal_tracker import GimbalTracker
         video_handler, detector, app_controller = mock_dependencies
@@ -93,11 +81,9 @@ class TestGimbalInitialization:
         assert tracker.monitoring_active is False
 
     @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
-    @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
-    def test_initialization_creates_gimbal_interface(self, mock_transformer, mock_interface, mock_dependencies):
+    def test_initialization_creates_gimbal_interface(self, mock_interface, mock_dependencies):
         """Should create a gimbal input provider on initialization."""
         mock_interface.return_value = MockGimbalInterface()
-        mock_transformer.return_value = MockCoordinateTransformer()
 
         from classes.trackers.gimbal_tracker import GimbalTracker
         video_handler, detector, app_controller = mock_dependencies
@@ -107,12 +93,10 @@ class TestGimbalInitialization:
         mock_interface.assert_called()
 
     @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
-    @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
-    def test_initialization_exposes_provider_metadata(self, mock_transformer, mock_provider, mock_dependencies):
+    def test_initialization_exposes_provider_metadata(self, mock_provider, mock_dependencies):
         """Provider identity should be visible in capabilities."""
         mock_gi = MockGimbalInterface()
         mock_provider.return_value = mock_gi
-        mock_transformer.return_value = MockCoordinateTransformer()
 
         from classes.trackers.gimbal_tracker import GimbalTracker
         video_handler, detector, app_controller = mock_dependencies
@@ -123,8 +107,7 @@ class TestGimbalInitialization:
         assert capabilities['gimbal_provider'] == 'topotek_sip_udp'
         assert 'topotek_sip_udp' in capabilities['supported_gimbal_providers']
 
-    @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
-    def test_initialization_rejects_unknown_provider(self, mock_transformer, mock_dependencies, monkeypatch):
+    def test_initialization_rejects_unknown_provider(self, mock_dependencies, monkeypatch):
         """Unsupported gimbal providers should fail before runtime IO starts."""
         from classes.gimbal_provider import UnknownGimbalProviderError
         from classes.parameters import Parameters
@@ -136,7 +119,6 @@ class TestGimbalInitialization:
             {'PROVIDER': 'mavlink_gimbal_v2'},
             raising=False,
         )
-        mock_transformer.return_value = MockCoordinateTransformer()
         video_handler, detector, app_controller = mock_dependencies
 
         with pytest.raises(UnknownGimbalProviderError):
@@ -148,12 +130,10 @@ class TestGimbalStartTracking:
     """Tests for GimbalTracker.start_tracking method."""
 
     @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
-    @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
-    def test_start_tracking_starts_listening(self, mock_transformer, mock_interface, mock_dependencies):
+    def test_start_tracking_starts_listening(self, mock_interface, mock_dependencies):
         """start_tracking should start UDP listening."""
         mock_gi = MockGimbalInterface()
         mock_interface.return_value = mock_gi
-        mock_transformer.return_value = MockCoordinateTransformer()
 
         from classes.trackers.gimbal_tracker import GimbalTracker
         video_handler, detector, app_controller = mock_dependencies
@@ -168,12 +148,10 @@ class TestGimbalStartTracking:
         assert tracker.monitoring_active is True
 
     @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
-    @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
-    def test_start_tracking_does_not_set_tracking_started(self, mock_transformer, mock_interface, mock_dependencies):
+    def test_start_tracking_does_not_set_tracking_started(self, mock_interface, mock_dependencies):
         """start_tracking should not immediately set tracking_started."""
         mock_gi = MockGimbalInterface()
         mock_interface.return_value = mock_gi
-        mock_transformer.return_value = MockCoordinateTransformer()
 
         from classes.trackers.gimbal_tracker import GimbalTracker
         video_handler, detector, app_controller = mock_dependencies
@@ -189,12 +167,10 @@ class TestGimbalStartTracking:
         assert tracker.tracking_started is False
 
     @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
-    @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
-    def test_start_tracking_resets_statistics(self, mock_transformer, mock_interface, mock_dependencies):
+    def test_start_tracking_resets_statistics(self, mock_interface, mock_dependencies):
         """start_tracking should reset tracking statistics."""
         mock_gi = MockGimbalInterface()
         mock_interface.return_value = mock_gi
-        mock_transformer.return_value = MockCoordinateTransformer()
 
         from classes.trackers.gimbal_tracker import GimbalTracker
         video_handler, detector, app_controller = mock_dependencies
@@ -217,16 +193,13 @@ class TestGimbalUpdate:
     """Tests for GimbalTracker.update method."""
 
     @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
-    @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
     def test_update_reports_inactive_monitoring_without_null_output(
         self,
-        mock_transformer,
         mock_interface,
         mock_dependencies,
     ):
         """An unstarted provider should remain visible without warning-loop nulls."""
         mock_interface.return_value = MockGimbalInterface()
-        mock_transformer.return_value = MockCoordinateTransformer()
 
         from classes.trackers.gimbal_tracker import GimbalTracker
         video_handler, detector, app_controller = mock_dependencies
@@ -241,12 +214,10 @@ class TestGimbalUpdate:
         assert output.raw_data['inactive_reason'] == 'monitoring_not_active'
 
     @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
-    @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
-    def test_update_returns_tuple(self, mock_transformer, mock_interface, mock_dependencies):
+    def test_update_returns_tuple(self, mock_interface, mock_dependencies):
         """update should return (bool, TrackerOutput) tuple."""
         mock_gi = MockGimbalInterface()
         mock_interface.return_value = mock_gi
-        mock_transformer.return_value = MockCoordinateTransformer()
 
         from classes.trackers.gimbal_tracker import GimbalTracker
         video_handler, detector, app_controller = mock_dependencies
@@ -265,12 +236,10 @@ class TestGimbalUpdate:
         assert len(result) == 2
 
     @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
-    @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
-    def test_update_not_monitoring_returns_false(self, mock_transformer, mock_interface, mock_dependencies):
+    def test_update_not_monitoring_returns_false(self, mock_interface, mock_dependencies):
         """update without monitoring should return False."""
         mock_gi = MockGimbalInterface()
         mock_interface.return_value = mock_gi
-        mock_transformer.return_value = MockCoordinateTransformer()
 
         from classes.trackers.gimbal_tracker import GimbalTracker
         video_handler, detector, app_controller = mock_dependencies
@@ -284,12 +253,10 @@ class TestGimbalUpdate:
         assert success is False
 
     @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
-    @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
-    def test_update_increments_total_updates(self, mock_transformer, mock_interface, mock_dependencies):
+    def test_update_increments_total_updates(self, mock_interface, mock_dependencies):
         """update should increment total_updates counter."""
         mock_gi = MockGimbalInterface()
         mock_interface.return_value = mock_gi
-        mock_transformer.return_value = MockCoordinateTransformer()
 
         from classes.trackers.gimbal_tracker import GimbalTracker
         video_handler, detector, app_controller = mock_dependencies
@@ -305,12 +272,10 @@ class TestGimbalUpdate:
         assert tracker.total_updates == initial_updates + 1
 
     @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
-    @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
-    def test_update_with_active_tracking_data(self, mock_transformer, mock_interface, mock_dependencies):
+    def test_update_with_active_tracking_data(self, mock_interface, mock_dependencies):
         """update with active tracking data should succeed."""
         mock_gi = MockGimbalInterface()
         mock_interface.return_value = mock_gi
-        mock_transformer.return_value = MockCoordinateTransformer()
 
         from classes.trackers.gimbal_tracker import GimbalTracker
         video_handler, detector, app_controller = mock_dependencies
@@ -334,12 +299,10 @@ class TestGimbalUpdate:
         assert output.raw_data['has_output'] is True
 
     @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
-    @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
-    def test_update_no_data_returns_cached(self, mock_transformer, mock_interface, mock_dependencies):
+    def test_update_no_data_returns_cached(self, mock_interface, mock_dependencies):
         """update with no data should try to return cached data."""
         mock_gi = MockGimbalInterface()
         mock_interface.return_value = mock_gi
-        mock_transformer.return_value = MockCoordinateTransformer()
 
         from classes.trackers.gimbal_tracker import GimbalTracker
         video_handler, detector, app_controller = mock_dependencies
@@ -363,12 +326,10 @@ class TestGimbalStateTransitions:
     """Tests for gimbal tracking state transitions."""
 
     @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
-    @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
-    def test_state_disabled_to_tracking_active(self, mock_transformer, mock_interface, mock_dependencies):
+    def test_state_disabled_to_tracking_active(self, mock_interface, mock_dependencies):
         """Should detect transition from DISABLED to TRACKING_ACTIVE."""
         mock_gi = MockGimbalInterface()
         mock_interface.return_value = mock_gi
-        mock_transformer.return_value = MockCoordinateTransformer()
 
         from classes.trackers.gimbal_tracker import GimbalTracker
         video_handler, detector, app_controller = mock_dependencies
@@ -391,12 +352,10 @@ class TestGimbalStateTransitions:
         assert tracker.tracking_activations >= 0  # May or may not increment
 
     @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
-    @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
-    def test_state_tracking_to_lost(self, mock_transformer, mock_interface, mock_dependencies):
+    def test_state_tracking_to_lost(self, mock_interface, mock_dependencies):
         """Should detect transition from TRACKING_ACTIVE to TARGET_LOST."""
         mock_gi = MockGimbalInterface()
         mock_interface.return_value = mock_gi
-        mock_transformer.return_value = MockCoordinateTransformer()
 
         from classes.trackers.gimbal_tracker import GimbalTracker
         video_handler, detector, app_controller = mock_dependencies
@@ -423,12 +382,10 @@ class TestGimbalStateTransitions:
         assert tracker.tracking_deactivations >= initial_deactivations
 
     @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
-    @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
-    def test_state_change_logged(self, mock_transformer, mock_interface, mock_dependencies):
+    def test_state_change_logged(self, mock_interface, mock_dependencies):
         """State changes should be tracked."""
         mock_gi = MockGimbalInterface()
         mock_interface.return_value = mock_gi
-        mock_transformer.return_value = MockCoordinateTransformer()
 
         from classes.trackers.gimbal_tracker import GimbalTracker
         video_handler, detector, app_controller = mock_dependencies
@@ -447,12 +404,10 @@ class TestGimbalStateTransitions:
         assert tracker.last_tracking_state == MockTrackingState.TRACKING_ACTIVE
 
     @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
-    @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
-    def test_missing_tracking_status_clears_active_state(self, mock_transformer, mock_interface, mock_dependencies):
+    def test_missing_tracking_status_clears_active_state(self, mock_interface, mock_dependencies):
         """Fresh angle packets without fresh status must not leave internal state active."""
         mock_gi = MockGimbalInterface()
         mock_interface.return_value = mock_gi
-        mock_transformer.return_value = MockCoordinateTransformer()
 
         from classes.gimbal_types import TrackingState
         from classes.trackers.gimbal_tracker import GimbalTracker
@@ -488,12 +443,10 @@ class TestGimbalAngleValidation:
     """Tests for gimbal angle validation."""
 
     @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
-    @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
-    def test_valid_angles_accepted(self, mock_transformer, mock_interface, mock_dependencies):
+    def test_valid_angles_accepted(self, mock_interface, mock_dependencies):
         """Valid angles should be accepted."""
         mock_gi = MockGimbalInterface()
         mock_interface.return_value = mock_gi
-        mock_transformer.return_value = MockCoordinateTransformer()
 
         from classes.trackers.gimbal_tracker import GimbalTracker
         video_handler, detector, app_controller = mock_dependencies
@@ -513,12 +466,10 @@ class TestGimbalAngleValidation:
             assert len(output.angular) == 3
 
     @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
-    @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
-    def test_output_contains_yaw_pitch_roll(self, mock_transformer, mock_interface, mock_dependencies):
+    def test_output_contains_yaw_pitch_roll(self, mock_interface, mock_dependencies):
         """Output should contain yaw, pitch, roll angles."""
         mock_gi = MockGimbalInterface()
         mock_interface.return_value = mock_gi
-        mock_transformer.return_value = MockCoordinateTransformer()
 
         from classes.trackers.gimbal_tracker import GimbalTracker
         video_handler, detector, app_controller = mock_dependencies
@@ -543,12 +494,10 @@ class TestGimbalConfidence:
     """Tests for confidence calculation."""
 
     @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
-    @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
-    def test_active_tracking_has_confidence(self, mock_transformer, mock_interface, mock_dependencies):
+    def test_active_tracking_has_confidence(self, mock_interface, mock_dependencies):
         """Active tracking should have non-zero confidence."""
         mock_gi = MockGimbalInterface()
         mock_interface.return_value = mock_gi
-        mock_transformer.return_value = MockCoordinateTransformer()
 
         from classes.trackers.gimbal_tracker import GimbalTracker
         video_handler, detector, app_controller = mock_dependencies
@@ -569,12 +518,10 @@ class TestGimbalConfidence:
             assert output.confidence >= 0.0  # Valid confidence value
 
     @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
-    @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
-    def test_target_lost_low_confidence(self, mock_transformer, mock_interface, mock_dependencies):
+    def test_target_lost_low_confidence(self, mock_interface, mock_dependencies):
         """Target lost should have lower confidence."""
         mock_gi = MockGimbalInterface()
         mock_interface.return_value = mock_gi
-        mock_transformer.return_value = MockCoordinateTransformer()
 
         from classes.trackers.gimbal_tracker import GimbalTracker
         video_handler, detector, app_controller = mock_dependencies
@@ -597,12 +544,10 @@ class TestGimbalConfidence:
             assert output.raw_data['has_output'] is True
 
     @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
-    @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
-    def test_stale_cached_data_is_not_active_for_following(self, mock_transformer, mock_interface, mock_dependencies):
+    def test_stale_cached_data_is_not_active_for_following(self, mock_interface, mock_dependencies):
         """Cached gimbal angles may be displayed, but must fail closed for following."""
         mock_gi = MockGimbalInterface()
         mock_interface.return_value = mock_gi
-        mock_transformer.return_value = MockCoordinateTransformer()
 
         from classes.trackers.gimbal_tracker import GimbalTracker
         video_handler, detector, app_controller = mock_dependencies
@@ -631,12 +576,10 @@ class TestGimbalGetOutput:
     """Tests for get_output method."""
 
     @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
-    @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
-    def test_get_output_returns_tracker_output(self, mock_transformer, mock_interface, mock_dependencies):
+    def test_get_output_returns_tracker_output(self, mock_interface, mock_dependencies):
         """get_output should return TrackerOutput."""
         mock_gi = MockGimbalInterface()
         mock_interface.return_value = mock_gi
-        mock_transformer.return_value = MockCoordinateTransformer()
 
         from classes.trackers.gimbal_tracker import GimbalTracker
         from classes.tracker_output import TrackerOutput
@@ -652,12 +595,10 @@ class TestGimbalGetOutput:
         assert isinstance(output, TrackerOutput)
 
     @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
-    @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
-    def test_get_output_data_type_gimbal_angles(self, mock_transformer, mock_interface, mock_dependencies):
+    def test_get_output_data_type_gimbal_angles(self, mock_interface, mock_dependencies):
         """get_output should have GIMBAL_ANGLES data type."""
         mock_gi = MockGimbalInterface()
         mock_interface.return_value = mock_gi
-        mock_transformer.return_value = MockCoordinateTransformer()
 
         from classes.trackers.gimbal_tracker import GimbalTracker
         from classes.tracker_output import TrackerDataType
@@ -673,17 +614,14 @@ class TestGimbalGetOutput:
         assert output.data_type == TrackerDataType.GIMBAL_ANGLES
 
     @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
-    @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
     def test_get_output_does_not_run_another_provider_update(
         self,
-        mock_transformer,
         mock_interface,
         mock_dependencies,
     ):
         """Status reads return the published sample without mutating update state."""
         mock_gi = MockGimbalInterface()
         mock_interface.return_value = mock_gi
-        mock_transformer.return_value = MockCoordinateTransformer()
 
         from classes.trackers.gimbal_tracker import GimbalTracker
         video_handler, detector, app_controller = mock_dependencies
@@ -711,12 +649,10 @@ class TestGimbalGetCapabilities:
     """Tests for get_capabilities method."""
 
     @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
-    @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
-    def test_get_capabilities_external_data_source(self, mock_transformer, mock_interface, mock_dependencies):
+    def test_get_capabilities_external_data_source(self, mock_interface, mock_dependencies):
         """Should indicate external data source."""
         mock_gi = MockGimbalInterface()
         mock_interface.return_value = mock_gi
-        mock_transformer.return_value = MockCoordinateTransformer()
 
         from classes.trackers.gimbal_tracker import GimbalTracker
         video_handler, detector, app_controller = mock_dependencies
@@ -727,12 +663,10 @@ class TestGimbalGetCapabilities:
         assert capabilities['external_data_source'] is True
 
     @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
-    @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
-    def test_get_capabilities_requires_no_video(self, mock_transformer, mock_interface, mock_dependencies):
+    def test_get_capabilities_requires_no_video(self, mock_interface, mock_dependencies):
         """Should indicate no video requirement."""
         mock_gi = MockGimbalInterface()
         mock_interface.return_value = mock_gi
-        mock_transformer.return_value = MockCoordinateTransformer()
 
         from classes.trackers.gimbal_tracker import GimbalTracker
         video_handler, detector, app_controller = mock_dependencies
@@ -743,12 +677,10 @@ class TestGimbalGetCapabilities:
         assert capabilities['requires_video'] is False
 
     @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
-    @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
-    def test_get_capabilities_angular_data_type(self, mock_transformer, mock_interface, mock_dependencies):
+    def test_get_capabilities_angular_data_type(self, mock_interface, mock_dependencies):
         """Should support ANGULAR data type."""
         mock_gi = MockGimbalInterface()
         mock_interface.return_value = mock_gi
-        mock_transformer.return_value = MockCoordinateTransformer()
 
         from classes.trackers.gimbal_tracker import GimbalTracker
         from classes.tracker_output import TrackerDataType
@@ -766,12 +698,10 @@ class TestGimbalStopTracking:
     """Tests for stop_tracking method."""
 
     @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
-    @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
-    def test_stop_tracking_disables_monitoring(self, mock_transformer, mock_interface, mock_dependencies):
+    def test_stop_tracking_disables_monitoring(self, mock_interface, mock_dependencies):
         """stop_tracking should disable monitoring."""
         mock_gi = MockGimbalInterface()
         mock_interface.return_value = mock_gi
-        mock_transformer.return_value = MockCoordinateTransformer()
 
         from classes.trackers.gimbal_tracker import GimbalTracker
         video_handler, detector, app_controller = mock_dependencies
@@ -785,12 +715,10 @@ class TestGimbalStopTracking:
         assert tracker.monitoring_active is False
 
     @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
-    @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
-    def test_stop_tracking_clears_tracking_started(self, mock_transformer, mock_interface, mock_dependencies):
+    def test_stop_tracking_clears_tracking_started(self, mock_interface, mock_dependencies):
         """stop_tracking should clear tracking_started."""
         mock_gi = MockGimbalInterface()
         mock_interface.return_value = mock_gi
-        mock_transformer.return_value = MockCoordinateTransformer()
 
         from classes.trackers.gimbal_tracker import GimbalTracker
         video_handler, detector, app_controller = mock_dependencies
@@ -811,12 +739,10 @@ class TestGimbalStatistics:
     """Tests for gimbal statistics."""
 
     @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
-    @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
-    def test_get_gimbal_statistics(self, mock_transformer, mock_interface, mock_dependencies):
+    def test_get_gimbal_statistics(self, mock_interface, mock_dependencies):
         """Should return gimbal statistics dictionary."""
         mock_gi = MockGimbalInterface()
         mock_interface.return_value = mock_gi
-        mock_transformer.return_value = MockCoordinateTransformer()
 
         from classes.trackers.gimbal_tracker import GimbalTracker
         video_handler, detector, app_controller = mock_dependencies
@@ -830,12 +756,10 @@ class TestGimbalStatistics:
         assert 'gimbal_interface_stats' in stats
 
     @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
-    @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
-    def test_statistics_include_activations(self, mock_transformer, mock_interface, mock_dependencies):
+    def test_statistics_include_activations(self, mock_interface, mock_dependencies):
         """Statistics should include activation counts."""
         mock_gi = MockGimbalInterface()
         mock_interface.return_value = mock_gi
-        mock_transformer.return_value = MockCoordinateTransformer()
 
         from classes.trackers.gimbal_tracker import GimbalTracker
         video_handler, detector, app_controller = mock_dependencies
@@ -853,9 +777,7 @@ def test_video_processing_preserves_camera_measurement_identity(mock_dependencie
     from classes.trackers.gimbal_tracker import GimbalTracker
 
     provider = MockGimbalInterface()
-    with patch('classes.trackers.gimbal_tracker.create_gimbal_provider', return_value=provider), patch(
-        'classes.trackers.gimbal_tracker.CoordinateTransformer', return_value=MockCoordinateTransformer(),
-    ):
+    with patch('classes.trackers.gimbal_tracker.create_gimbal_provider', return_value=provider):
         tracker = GimbalTracker(*mock_dependencies)
     data = create_tracking_active_data()
     data.angles.timestamp = datetime.fromtimestamp(1000.0)

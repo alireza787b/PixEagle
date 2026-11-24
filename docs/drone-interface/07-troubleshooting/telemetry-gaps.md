@@ -189,6 +189,13 @@ active manual or managed PixEagle runtime.
 
 ### 4. Missing Specific Fields
 
+An unseen message can return HTTP 404, JSON `null`, or the older bridge's
+literal `None`. This marks that measurement unavailable; it does not disconnect
+an otherwise fresh heartbeat/aircraft identity. Malformed message payloads are
+also unusable and reported separately. Bridge transport failures and invalid
+aggregate responses still invalidate the link. Missing altitude/home data is
+never replaced by a guessed altitude or used to authorize following.
+
 **Symptoms:**
 - Most data present
 - Specific fields (e.g., altitude) missing
@@ -205,13 +212,12 @@ curl http://127.0.0.1:8088/v1/mavlink/vehicles/1/components/1/messages/ALTITUDE
 # If 404, PX4 might not be sending it
 ```
 
-**Fix:** Configure PX4 to send message:
-
-```bash
-# In QGroundControl or via MAVLink
-# Set message rate
-param set MAV_0_RATE 50  # Hz for main telemetry
-```
+**Fix:** Verify which PX4 MAVLink instance feeds the companion and whether that
+message is available in the current aircraft state. HOME_POSITION may be absent
+before the aircraft establishes its home reference. Use the configured stream
+profile and supported message-interval requests when a required message is
+missing. `MAV_x_RATE` is a link budget in bytes/second, not a message rate in Hz;
+do not change an arbitrary MAVLink instance to repair a missing measurement.
 
 #### Parsing Error
 

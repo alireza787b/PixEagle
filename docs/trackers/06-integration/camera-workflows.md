@@ -90,13 +90,12 @@ geometry or motor/image rotation. Raw camera telemetry remains unchanged.
 
 For ordinary cameras, `VideoSource.FRAME_ROTATION_DEG` and `FRAME_FLIP_MODE`
 orient the video, while each normal follower declares its viewing assumptions.
-For example, Ground is intended for downward/oblique views; Chase assumes a
-forward fixed camera. Ground's existing `IS_CAMERA_GIMBALED` correction describes
-stabilization, not the camera-owned tracker engine. There is no universal
-fixed-camera horizontal/vertical installation transform equivalent to the
-gimbal angle presets. `Setpoint.CAMERA_YAW_OFFSET` is not a replacement for a
-complete installation rotation. Do not guess an axis swap for unsupported
-mounts; arbitrary mounting geometry remains later scope.
+Ground is intended for downward/oblique views; Chase assumes a forward fixed
+camera. Native FW image guidance separately uses the source-bound
+`VideoSource.FIXED_CAMERA_CALIBRATION`; it does not silently change legacy MC
+image-error semantics. See [camera mounting](camera-mounting.md) for the setting
+matrix, tilted cameras and tailsitter frame handling. Ground's existing
+`IS_CAMERA_GIMBALED` correction describes stabilization, not tracker ownership.
 
 ## Qualification boundaries
 
@@ -150,7 +149,7 @@ become fresh commands. QGC labels authorized operation **SIH following**.
 Prepare an explicit test profile with the existing tool:
 
 ```bash
-python tools/prepare_sitl_gimbal_profile.py --directory /path/to/new-private-profile \
+python tools/prepare_simulation_profile.py --directory /path/to/new-private-profile \
   --tracking-engine local --recorded-video test11.mp4 \
   --follower-mode mc_velocity_position --allow-recorded-sih-following
 bash tools/run_gimbal_sih_probe.sh --hold /path/to/new-private-profile

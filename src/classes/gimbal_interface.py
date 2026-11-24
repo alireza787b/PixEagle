@@ -56,6 +56,9 @@ import logging
 from datetime import datetime
 from typing import Optional, Tuple, Dict, Any, Union
 from enum import Enum
+from dataclasses import dataclass
+from classes.capture_timing import SourceSampleStamp
+from classes.aircraft_state import finite_number
 from classes.gimbal_types import (
     CoordinateSystem,
     GimbalAngles,
@@ -65,6 +68,31 @@ from classes.gimbal_types import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ReceivedGimbalPacket:
+    """One packet's original receipt, independent of parsing/cache time."""
+
+    data: bytes
+    source_ip: str
+    received_at_monotonic_s: float
+    source_sample: SourceSampleStamp | None = None
+
+    def __post_init__(self):
+        if not isinstance(self.data, bytes) or not 1 <= len(self.data) <= 4096:
+            raise ValueError('gimbal_packet_invalid')
+        if not isinstance(self.source_ip, str) or not self.source_ip:
+            raise ValueError('gimbal_packet_source_invalid')
+        if finite_number(self.received_at_monotonic_s, 'gimbal_packet_receipt') < 0:
+            raise ValueError('gimbal_packet_receipt_invalid')
+        if self.source_sample is not None and not isinstance(self.source_sample, SourceSampleStamp):
+            raise ValueError('gimbal_packet_source_sample_invalid')
+
+
+class GimbalSourceError(ConnectionError):
+    """The input source must be retired, rather than restamped or retried."""
+
 
 class ConnectionStatus(Enum):
     """Connection status states"""
@@ -82,6 +110,8 @@ class GimbalInterface:
     - Parse validated GAC/TRC responses and retain spatial diagnostics
     - Provide real-time gimbal data to PixEagle tracking system
     """
+
+    requires_queries = True
 
     def __init__(
         self,
@@ -113,6 +143,8 @@ class GimbalInterface:
         self.listener_thread: Optional[threading.Thread] = None
         self.query_thread: Optional[threading.Thread] = None
         self.lock = threading.RLock()
+        self._lifecycle_lock = threading.RLock()
+        self._lifecycle_observer = None
 
         # Current state
         self.current_data: Optional[GimbalData] = None
@@ -120,6 +152,7 @@ class GimbalInterface:
         self.connection_status = ConnectionStatus.DISCONNECTED
         self.last_data_time: Optional[float] = None
         self.last_angle_sample_monotonic: Optional[float] = None
+        self.last_source_sample: SourceSampleStamp | None = None
         self.angle_sample_sequence = 0
         self.last_tracking_sample_monotonic: Optional[float] = None
         self.last_raw_packet = ""
@@ -209,6 +242,22 @@ class GimbalInterface:
             return False
 
     def start_listening(self) -> bool:
+        with self._lifecycle_lock:
+            return self._start_listening()
+
+    def set_lifecycle_observer(self, observer):
+        if observer is not None and not callable(observer):
+            raise ValueError('gimbal_lifecycle_observer_invalid')
+        with self.lock:
+            if observer is not None and self._lifecycle_observer is not None and observer is not self._lifecycle_observer:
+                raise ValueError('gimbal_transport_already_owned')
+            self._lifecycle_observer = observer
+
+    def _notify_lifecycle(self, event, token=None):
+        observer = self._lifecycle_observer
+        return observer(event, token) if observer is not None else None
+
+    def _start_listening(self) -> bool:
         """
         Start UDP command/query and response handling for gimbal data.
 
@@ -219,11 +268,22 @@ class GimbalInterface:
             logger.warning("GimbalInterface already listening")
             return True
 
+        token = self._notify_lifecycle('starting')
+        if self._lifecycle_observer is not None and token is None:
+            return False
+        with self.lock:
+            self._clear_observations_locked()
+        if any(worker is not None and worker.is_alive() for worker in (self.listener_thread, self.query_thread)):
+            logger.error('Gimbal restart refused while previous workers are still alive')
+            self._notify_lifecycle('failed', token)
+            return False
+
         try:
             logger.info("Starting active gimbal SIP interface...")
 
             # Initialize both listen and control sockets
             if not self._init_listening_socket():
+                self._notify_lifecycle('failed', token)
                 return False
 
             # Start background threads
@@ -234,8 +294,9 @@ class GimbalInterface:
             self.listener_thread.start()
 
             # Start query thread for active polling
-            self.query_thread = threading.Thread(target=self._query_loop, daemon=True)
-            self.query_thread.start()
+            if self.requires_queries:
+                self.query_thread = threading.Thread(target=self._query_loop, daemon=True)
+                self.query_thread.start()
 
             # Allow threads to start
             time.sleep(0.1)
@@ -246,16 +307,26 @@ class GimbalInterface:
             logger.info(f"Gimbal interface ready - listening on port {self.listen_port}, expecting data from {self.gimbal_ip}:{self.control_port}")
 
             logger.info("Optimized gimbal SIP interface started successfully - ready for continuous data reception")
+            if self._notify_lifecycle('started', token) is False:
+                self.stop_listening()
+                return False
             return True
 
         except Exception as e:
             logger.error(f"Failed to start gimbal listener: {e}")
+            self._notify_lifecycle('failed', token)
             self.stop_listening()
             return False
 
     def stop_listening(self) -> None:
+        with self._lifecycle_lock:
+            self._stop_listening()
+
+    def _stop_listening(self) -> None:
         """Stop gimbal data reception and cleanup resources."""
         logger.info("Stopping gimbal interface...")
+        if self.running:
+            self._notify_lifecycle('stopping')
         self.running = False
 
         # Wait for both threads to finish
@@ -269,20 +340,18 @@ class GimbalInterface:
 
         # Reset state
         with self.lock:
-            self.connection_status = ConnectionStatus.DISCONNECTED
-            self.current_data = None
-            self.current_angles = None
-            self.last_data_time = None
-            self.last_angle_sample_monotonic = None
-            self.last_tracking_sample_monotonic = None
-            self.last_raw_packet = ""
-            self.last_spatial_packet = ""
-            self.last_spatial_update_time = None
-            self.current_tracking_status = None
-            self.last_tracking_update_time = None
-            self.last_tracking_state = TrackingState.DISABLED
+            self._clear_observations_locked()
 
         logger.info("Gimbal listener stopped")
+
+    def _clear_observations_locked(self):
+        self.connection_status = ConnectionStatus.DISCONNECTED
+        self.current_data = self.current_angles = self.current_tracking_status = None
+        self.last_data_time = self.last_angle_sample_monotonic = self.last_tracking_sample_monotonic = None
+        self.last_source_sample = None
+        self.last_tracking_update_time = self.last_spatial_update_time = None
+        self.last_raw_packet = self.last_spatial_packet = ''
+        self.last_tracking_state = TrackingState.DISABLED
 
     def get_current_data(self) -> Optional[GimbalData]:
         """
@@ -478,6 +547,10 @@ class GimbalInterface:
         except Exception as e:
             logger.debug(f"Error closing control socket: {e}")
 
+    def _receive_packet(self) -> ReceivedGimbalPacket:
+        data, address = self.listen_socket.recvfrom(4096)
+        return ReceivedGimbalPacket(data, address[0], time.monotonic())
+
     def _listener_loop(self) -> None:
         """Background thread to receive gimbal data packets."""
         logger.debug("Gimbal passive listener thread started")
@@ -489,25 +562,29 @@ class GimbalInterface:
                     continue
 
                 # Receive UDP packet from response/broadcast stream
-                data, addr = self.listen_socket.recvfrom(4096)
+                received = self._receive_packet()
+                data = received.data
                 packet = data.hex()
 
                 # Log packet details only for debugging when needed
                 if logger.isEnabledFor(logging.DEBUG) and self.total_packets_received <= 3:
-                    logger.debug(f"Received gimbal packet from {addr}: {packet[:60]}...")
+                    logger.debug(f"Received gimbal packet from {received.source_ip}: {packet[:60]}...")
 
                 # Update statistics
                 with self.lock:
                     self.total_packets_received += 1
                 # Source ports change across restarts; validate the configured IP.
-                gimbal_data = self._parse_gimbal_packet(data, source_ip=addr[0])
+                gimbal_data = self._parse_gimbal_packet(data, source_ip=received.source_ip)
                 if gimbal_data:
                     with self.lock:
+                        if not self.running:
+                            continue
                         self.connection_status = ConnectionStatus.RECEIVING
                         self._ingest_parsed_data_locked(
                             gimbal_data,
                             gimbal_data.raw_packet,
                             now=time.time(),
+                            received=received,
                         )
 
                     # Log data updates much less frequently to reduce log noise
@@ -522,6 +599,13 @@ class GimbalInterface:
 
             except socket.timeout:
                 continue
+            except GimbalSourceError as error:
+                self.running = False
+                with self.lock:
+                    self._clear_observations_locked()
+                    self.connection_status = ConnectionStatus.ERROR
+                self._notify_lifecycle('stopping')
+                logger.error('Gimbal input source retired: %s', error)
             except Exception as e:
                 logger.debug(f"Listener error: {e}")
 
@@ -647,6 +731,7 @@ class GimbalInterface:
             angle_sample_monotonic=self.last_angle_sample_monotonic if angles else None,
             angle_sample_sequence=self.angle_sample_sequence if angles else None,
             tracking_sample_monotonic=self.last_tracking_sample_monotonic if tracking_fresh else None,
+            source_sample=self.last_source_sample if angles else None,
         )
 
     def _ingest_parsed_data_locked(
@@ -655,9 +740,15 @@ class GimbalInterface:
         packet: str,
         *,
         now: Optional[float] = None,
+        received: ReceivedGimbalPacket | None = None,
     ) -> Optional[GimbalData]:
         """Merge one partial protocol packet into the coherent provider state."""
         current_time = time.time() if now is None else now
+        if received is not None and not isinstance(received, ReceivedGimbalPacket):
+            raise ValueError('gimbal_packet_receipt_invalid')
+        receipt = time.monotonic() if received is None else received.received_at_monotonic_s
+        if receipt > time.monotonic():
+            raise ValueError('gimbal_packet_receipt_invalid')
         if gimbal_data.raw_packet[7:10] in ('GIC', 'GIA'):
             self.last_spatial_packet = gimbal_data.raw_packet
             self.last_spatial_update_time = current_time
@@ -667,13 +758,14 @@ class GimbalInterface:
                 and gimbal_data.angles.coordinate_system == CoordinateSystem.GIMBAL_BODY):
             self.current_angles = gimbal_data.angles
             self.last_data_time = current_time
-            self.last_angle_sample_monotonic = time.monotonic()
+            self.last_angle_sample_monotonic = receipt
+            self.last_source_sample = None if received is None else received.source_sample
             self.angle_sample_sequence += 1
 
         if gimbal_data.tracking_status is not None:
             self.current_tracking_status = gimbal_data.tracking_status
             self.last_tracking_update_time = current_time
-            self.last_tracking_sample_monotonic = time.monotonic()
+            self.last_tracking_sample_monotonic = receipt
 
         if (
             self.current_tracking_status

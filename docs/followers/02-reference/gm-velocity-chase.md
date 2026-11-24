@@ -10,7 +10,7 @@
 Evidence and animation: [follower evidence gallery](follower-visual-guide.md).
 
 `gm_velocity_chase` converts provider-normalized gimbal angles into a complete
-body-FRD velocity intent:
+MAVLink `MAV_FRAME_BODY_NED` velocity intent:
 
 - `vel_body_fwd` in m/s;
 - `vel_body_right` in m/s;
@@ -18,6 +18,8 @@ body-FRD velocity intent:
 - `yawspeed_deg_s` in degrees/s, positive clockwise.
 
 It does not emit local-NED commands and does not infer target range.
+Forward/right velocities follow heading-only axes; down stays NED down rather
+than rotating with aircraft pitch or roll.
 
 ## Angle Contract
 
@@ -37,6 +39,13 @@ while forward motion continues. Installation corrections belong in the camera
 configuration, not duplicated follower inversion settings. See the
 [mounting audit](../../reporting/agent-ops/codex-modernization/checkpoints/2026-09-19-gimbal-mounting-audit.md).
 
+After physical-ray validation, the existing aircraft attitude owner supplies a
+fresh physical quaternion and heading. The canonical full-attitude-to-NED then
+heading-only conversion runs before lateral/vertical PID errors are extracted.
+PID additionally rejects a ray outside the heading-frame forward hemisphere;
+this does not widen its physical forward-only support. This accepted MC boundary
+does not establish camera exposure-to-attitude alignment or native FW timing.
+
 ## Guidance Modes
 
 `Follower.General.LATERAL_GUIDANCE_MODE` selects one horizontal command owner:
@@ -51,6 +60,9 @@ configuration.
 Forward speed is documented in [Gimbal Chase Forward
 Speed](../03-gnc-concepts/gimbal-forward-speed.md). Only `CONSTANT` and
 `PITCH_BASED` exist.
+`PITCH_BASED` retains its raw camera-pitch compatibility law for forward speed;
+the heading-frame correction applies to lateral/vertical errors. Disabled
+altitude control still commands zero down without redistributing that component.
 
 ## Minimal Configuration
 

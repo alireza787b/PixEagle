@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -35,8 +38,8 @@ def _read_manifest() -> dict[str, str]:
 def test_binary_manifest_pins_versions_assets_and_sha256s():
     values = _read_manifest()
 
-    assert values["PIXEAGLE_BINARY_MAVSDK_VERSION"] == "v3.12.0"
-    assert values["PIXEAGLE_BINARY_MAVLINK2REST_VERSION"] == "1.0.0"
+    assert values["PIXEAGLE_BINARY_MAVSDK_VERSION"] == "v4.2.0"
+    assert values["PIXEAGLE_BINARY_MAVLINK2REST_VERSION"] == "1.1.1"
 
     for prefix in ["PIXEAGLE_BINARY_MAVSDK", "PIXEAGLE_BINARY_MAVLINK2REST"]:
         assert values[f"{prefix}_BASE_URL"].startswith("https://github.com/mavlink/")
@@ -68,7 +71,7 @@ def test_binary_manifest_pins_versions_assets_and_sha256s():
 def test_python_mavsdk_is_reproducibly_pinned():
     requirements = CORE_REQUIREMENTS.read_text(encoding="utf-8")
 
-    assert "mavsdk == 3.15.3" in requirements
+    assert "mavsdk-grpc == 4.0.5" in requirements
     policy = POLICY_DOC.read_text(encoding="utf-8")
     assert "separate, exact dependency" in policy
     assert "client and standalone server upgrades" in policy
@@ -199,3 +202,45 @@ def test_init_scripts_do_not_bypass_binary_manifest_verification():
     assert "scripts\\windows\\setup.py" in windows_init
     assert "download-binaries.ps1" in windows_setup
     assert '"-All"' in windows_setup
+
+
+@pytest.mark.skipif(os.name == "nt", reason="native POSIX shell contract")
+@pytest.mark.parametrize("component", ["mavsdk", "mavlink2rest"])
+@pytest.mark.parametrize("unattended,valid_download", [(True, True), (True, False), (False, True)])
+def test_existing_binary_replacement_is_unattended_and_checksum_guarded(
+    tmp_path, component, unattended, valid_download
+):
+    setup = tmp_path / "scripts" / "setup"
+    setup.mkdir(parents=True)
+    script = setup / LINUX_SCRIPT.name
+    shutil.copy2(LINUX_SCRIPT, script)
+    shutil.copy2(MANIFEST, setup / MANIFEST.name)
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    payload = tmp_path / "payload"
+    payload.write_bytes(b"fixture executable\n" * 70000)
+    curl = fake_bin / "curl"
+    curl.write_text('#!/bin/bash\nwhile [[ "$1" != "-o" ]]; do shift; done\ncp "$TEST_BINARY_PAYLOAD" "$2"\n')
+    curl.chmod(0o755)
+    name = "mavsdk_server_bin" if component == "mavsdk" else "mavlink2rest"
+    destination = tmp_path / "bin" / name
+    destination.parent.mkdir()
+    destination.write_bytes(b"previous installation")
+    destination.chmod(0o755)
+    digest = hashlib.sha256(payload.read_bytes()).hexdigest()
+    prefix = "MAVSDK" if component == "mavsdk" else "MAVLINK2REST"
+    env = dict(os.environ, PATH=f"{fake_bin}:{os.environ['PATH']}",
+               PIXEAGLE_NONINTERACTIVE="1" if unattended else "0",
+               TEST_BINARY_PAYLOAD=str(payload))
+    env[f"PIXEAGLE_{prefix}_SHA256"] = digest if valid_download else "0" * 64
+    result = subprocess.run(["bash", str(script), f"--{component}"], env=env,
+                            stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=10)
+    if unattended and valid_download:
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert destination.read_bytes() == payload.read_bytes()
+        evidence = json.loads((destination.parent / "binary-provenance.jsonl").read_text())
+        assert evidence["actual_sha256"] == digest
+    else:
+        assert result.returncode != 0
+        assert destination.read_bytes() == b"previous installation"
+        assert not (destination.parent / "binary-provenance.jsonl").exists()

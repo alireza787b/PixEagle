@@ -16,9 +16,9 @@ import asyncio
 import math
 import time
 import numpy as np
-from mavsdk import System
-from mavsdk.offboard import OffboardError, VelocityBodyYawspeed, PositionNedYaw
-from mavsdk.telemetry import PositionVelocityNed, EulerAngle
+from mavsdk_grpc import System
+from mavsdk_grpc.offboard import OffboardError, VelocityBodyYawspeed, PositionNedYaw
+from mavsdk_grpc.telemetry import PositionVelocityNed, EulerAngle
 
 # =============================================================================
 #                             USER-CONFIGURABLE ZONE

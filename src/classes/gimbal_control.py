@@ -55,6 +55,14 @@ def inverse_video_point(x: float, y: float, rotation: int, flip: str) -> tuple[f
     return {0: (x, y), 90: (y, 1-x), 180: (1-x, 1-y), 270: (1-y, x)}[rotation]
 
 
+def validate_camera_rectangle(x, y, width, height):
+    if not all(isinstance(v, (float, int)) and not isinstance(v, bool) and math.isfinite(v) and 0 < v <= 1
+               for v in (width, height)):
+        raise ValueError("Rectangle width and height must be finite positive image fractions")
+    if width/2 > min(x, 1-x) + 1e-12 or height/2 > min(y, 1-y) + 1e-12:
+        raise ValueError("Selection rectangle must be inside the image")
+
+
 def selection_region(x, y, width, height, mode):
     """Validate before any camera mutation; encode native normalized LOC fields."""
     x, y = inverse_video_point(x, y, 0, "none")
@@ -62,11 +70,7 @@ def selection_region(x, y, width, height, mode):
     if width is not None or height is not None:
         if mode != "classic":
             raise ValueError("Rectangle selection requires Classic Tracker")
-        if not all(isinstance(v, (float, int)) and math.isfinite(v) and 0 < v <= 1
-                   for v in (width, height)):
-            raise ValueError("Rectangle width and height must be finite positive image fractions")
-        if width/2 > min(x, 1-x) + 1e-12 or height/2 > min(y, 1-y) + 1e-12:
-            raise ValueError("Selection rectangle must be inside the image")
+        validate_camera_rectangle(x, y, width, height)
         w, h, descriptor = round(width*2000), round(height*2000), 1
         if min(w, h) < 1:
             raise ValueError("Selection rectangle is too small for the camera protocol")
@@ -112,6 +116,11 @@ class SipGimbalControl:
                 except RuntimeError:
                     sent = False
         return sent
+
+    def send_home(self) -> bool:
+        """Send the same device Home command used by the operator control."""
+        self._send(b"#TPPG2wPTZ05")
+        return True
 
     async def prepare_manual(self, command_guard) -> None:
         """Take over camera tracking once per renewable manual gesture."""
@@ -264,7 +273,7 @@ class SipGimbalControl:
             self.owns_tracking = False
             if operation == "home":
                 with selection_guard() if selection_guard is not None else nullcontext():
-                    self._send(b"#TPPG2wPTZ05")
+                    self.send_home()
                 return {"success": True, "message": "Camera home command sent."}
             if operation == "zoom":
                 body = b"#TPPM2wZMC02" if direction == 1 else b"#TPPM2wZMC01"
@@ -298,7 +307,7 @@ class SipGimbalControl:
 def _provider(app):
     runtime = getattr(app, "camera_runtime", None)
     if runtime is not None:
-        return runtime.provider
+        return getattr(runtime, "provider", None)
     tracker = getattr(app, "tracker", None)
     if not getattr(tracker, "is_external_tracker", False):
         return None
@@ -351,7 +360,28 @@ def get_gimbal_control_status(app) -> dict:
                 following_active=following, capabilities=capabilities,
                 motion_settings=getattr(control, "motion_settings", None) if enabled else None,
                 manual=runtime.manual_snapshot() if runtime is not None else None,
+                transition_view=runtime.transition_view_status() if runtime is not None else None,
                 telemetry=telemetry, reason=reason)
+
+
+def is_camera_video_live(video, *, max_age_s=2.):
+    """Recent capture, independent of whether the consumer is between frames.
+
+    This admits camera selection, not fresh tracker measurements. A retained
+    displayed-frame token and source identity remain independently required.
+    """
+    frame = video.get_frame_status()
+    if frame.get('source') != 'fresh' and not (
+            frame.get('awaiting_new_capture') is True and frame.get('connection_open') is True):
+        return False
+    capture = getattr(video, 'get_capture_stamp', None)
+    if callable(capture):
+        stamp = capture().captured_at
+        return (isinstance(stamp, (int, float)) and math.isfinite(stamp)
+                and 0 <= time.monotonic() - stamp <= max_age_s)
+    stamp = frame.get('last_successful_frame_time')
+    return (isinstance(stamp, (int, float)) and math.isfinite(stamp)
+            and 0 <= time.time() - stamp <= max_age_s)
 
 
 def _camera_point(app, provider, x, y):
@@ -362,16 +392,13 @@ def _camera_point(app, provider, x, y):
                source.get("type") in ("RTSP_OPENCV", "RTSP_STREAM")
                and urlsplit(source.get("url", "")).hostname == provider.gimbal_ip)
     if not matches:
-        raise ValueError("Manual camera selection requires this gimbal's RTSP video")
-    frame = video.get_frame_status()
-    stamp = frame.get("last_successful_frame_time")
-    if (frame.get("source") != "fresh" or not isinstance(stamp, (int, float)) or
-            not 0 <= time.time()-stamp <= 2):
+        raise ValueError("Selection requires video from this camera")
+    if not is_camera_video_live(video):
         raise ValueError("A fresh camera video frame is required")
     return inverse_video_point(x, y, video._frame_rotation_deg, video._frame_flip_mode)
 
 
-def prepare_gimbal_selection(app, request, *, selection_orientation=None):
+def prepare_gimbal_selection(app, request, *, selection_orientation=None, source_sample=None):
     """Validate adapter geometry before lifecycle or target ownership changes."""
     provider = _provider(app)
     control = getattr(provider, "manual_control", None)
@@ -388,6 +415,9 @@ def prepare_gimbal_selection(app, request, *, selection_orientation=None):
     width, height = request.width, request.height
     if rotation in (90, 270):
         width, height = height, width
+    frame_prepare = getattr(control, "prepare_selection_from_frame", None)
+    if callable(frame_prepare):
+        return frame_prepare(x=x, y=y, width=width, height=height, source_sample=source_sample)
     return prepare(x=x, y=y, width=width, height=height)
 
 

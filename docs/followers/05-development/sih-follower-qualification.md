@@ -13,36 +13,413 @@ evidence; PX4 acceptance requires separate observed pose and publication traces.
 | `mc_velocity_chase`, `mc_velocity_ground`, `mc_velocity_distance`, `mc_velocity_position` | `sihsim_quadx` | image position | body velocity | off |
 | `mc_attitude_rate` | `sihsim_quadx` | image position + airframe state | attitude rate/thrust | off |
 | `fw_attitude_rate` | `sihsim_airplane` | image position + airframe state | attitude rate/L1-TECS intent | off |
+| `fw_navigation_chase` | `sihsim_airplane` | calibrated image + qualified attitude association | native FW course/EAS/vertical objective | off |
 | `gm_velocity_chase`, `gm_velocity_vector` | `sihsim_quadx` | gimbal angles | gimbal-derived body velocity | off |
 
 The private vertical-gimbal profile is an explicit configuration overlay; it may
 enable altitude guidance without changing the public factory configuration.
 Horizontal and vertical mounts use the shared mounting-geometry contract.
 
-## Safe command
+The viewer distinguishes the physical forward axis from MAVLink's heading-only
+velocity frame. Command arrows use canonical NED vectors computed by the trace
+reader, without another JavaScript quaternion rotation. Missing heading or
+command components leave direction unknown. CSV includes `command_n/e/d` beside
+the original submitted fields; neither vector is integrated into aircraft pose.
 
-The dry-run validates every checked-in scenario and never starts a process:
+Native FW/VTOL reports use scenario version 2. The registered follower's phase
+capabilities determine whether `fixed_wing_external` or `vtol_external` is
+compatible; the viewer does not maintain another follower-name matrix. Each
+sample retains its actual command contract. FW shows course, EAS request,
+native EAS reference, observed EAS, and height rate or AMSL altitude hold.
+EAS is not ground velocity or a 3D command magnitude. The course arrow is
+horizontal direction only, while observed PX4 pose supplies the flight path.
+PX4's native FW forward axis is required for the FW glyph, including tailsitters;
+the renderer never substitutes or rotates the physical mount a second time.
+For native scenarios, actual settled phase selects that axis even after commands
+have stopped. A retained MC/FW command cannot select the aircraft's displayed
+orientation. Missing native FW-axis evidence remains unknown.
+
+The reusable template is
+`tools/sih_visualization_scenarios/gimbal-vector-native-fw.yaml`. Record the
+actual independent target trajectory in `trace/target_truth.jsonl` and native
+fields in the existing publication/state traces. Successful submitted commands
+take precedence over proposed tracker commands. Timeline strips have separate
+units and ranges; gaps remain unknown. Playback uses recorded timestamp spacing.
+HTML is self-contained and works offline; CSV and PNG preserve the same command
+semantics. This format support is not evidence that native FW/VTOL qualification
+has passed.
+The replay stacks panels on narrow screens and wraps long diagnostic values.
+Regenerated presentations must preserve the original samples and verdict;
+retain historical reports separately rather than rewriting their evidence.
+Imported target truth retains its own `target_timestamp_s` in JSON/CSV. Target
+speed is differentiated at those source times, not at interleaved publication
+times. A gap in an imported truth trace stays unknown; it is not replaced by
+the scenario trajectory. Continuity events/reasons retain their authoritative
+state-trace values separately from tracker classification.
+
+For native guidance component checks, `tools/run_native_vector_sih.py` verifies an
+already-running isolated Docker SIH or verified Gazebo instance and its UID before control. It
+requires Docker network mode `none`, no devices, no privilege and no published
+ports. With `--simulation-build-manifest PATH`, it verifies the reviewed packaged build
+and hashes the actual running executable through `/proc`; a relocated firmware
+bundle need not imitate a compiler checkout path. The runtime image and firmware
+build identities are recorded separately. A mismatch refuses before control. Gazebo additionally requires the exact packaged
+runtime image, model/world/plugin resources and read-only scene/topic/airframe
+witnesses; see the [runtime contract](../../../native/gazebo-build.md#runtime-verification).
+Without that argument, the historical compiler-path check remains compatibility
+verification, not source-build attestation. It
+defaults to read-only verification; `--execute` waits for seven stable airborne
+FW Hold samples near `--test-altitude`, then joins the production follower, phase binding, continuity
+supervisor and existing command publisher. It never arms or takes off. The
+temporary simulator configuration, independent target path, observed pose,
+commands, handoff and source revision are retained in its output directory.
+This component runner does not qualify the HTTP/App startup path or VTOL
+transitions; those remain separate gates. The normal read-only visualizer can
+render its `scenario.yaml` and trace directory directly.
+The runner also accepts stable native VTOL MC hover without demanding FW
+airspeed. `--mc-request` is an explicit simulated operator speed adjustment;
+it is not written to the saved configuration. A simulator-pilot transition requires
+an explicit version-2 fault
+`{kind: pilot_transition, at_s: 8, requested_phase: fixed_wing}` and
+`--expect-handoff aircraft_transition_observed`. The runner verifies the source-built
+isolated SIH and actual opposite settled phase before invoking its transition CLI
+once. It never retries or reverses that request. This altitude-off checkpoint keeps
+the 2 m altitude gate and requires a separate ULog audit of the 100 ms native active
+setpoint-gap ceiling. A successful CLI exit is not transition or ownership proof.
+Backend termination, the original-token release receipt, stopped publication and
+the requested settled phase require observed evidence. Read-only post-session
+polling retains actual pose/target truth and cannot restart following. A fresh Start
+requires a new session/acquisition; missing backend termination remains failed even
+if native PX4 release succeeded.
+
+For future captures, the existing final and five post-stop confirmation packets
+also feed that same read-only projection before phase-settling polling resumes.
+Only successful publisher join and the original validated release receipt permit
+a no-command marker; pose rows retain their actual source sample ID and receipt, while duplicate, missing
+or stale pose cannot refresh movement evidence. Independent target truth uses
+the existing scenario/world clock; no tracker output or aircraft path is invented.
+This recording repair does not backfill older reports or relax replay validation.
+
+Mixed-phase traces retain the actual contract for each publication.
+An optional `--scenario PATH` supplies the independent world-target trajectory
+through the same version-2 YAML contract. Mount, altitude mode and actual
+airframe must agree. The runner rejects unsupported fault injection and saved
+scenario speed edits rather than pretending to execute them; `--mc-request`
+remains an explicit simulated operator action. Actual limits and continuity
+policy come from the loaded configuration and appear in the retained scenario
+and per-phase state trace. Target coordinates are never reanchored to the drone.
+Each run retains exact configuration/schema copies and SHA-256 identities, plus
+read-only PX4 parameter snapshots before engagement and after cleanup.
+Native captures also archive the exact runner/shared transparent recorder source
+and hashes, with one host monotonic origin. `follow-clock.json` binds the offset
+of follow-relative traces. The relay records actual requests, replies and refusals
+on the existing single connection and creates no command or reply.
+For serial explicit Starts, `--target-clock FILE` binds one immutable original
+scenario YAML to a shared target ID, NED frame, host monotonic origin and boot ID.
+The JSON artifact requires exactly `schema_version: 1`, `target_id`,
+`frame: local_ned`, `host_monotonic_origin_s`, `host_boot_id`, `scenario_yaml`
+(relative to the artifact or absolute) and `scenario_sha256`. Create it once
+before the first Start; reuse its original bytes and original target YAML for
+later Starts. Each invocation still supplies its own `--scenario` with matching
+target data and the appropriate declared event. Missing coverage, changed bytes
+or a changed host boot refuses engagement. Measurement receipts select target
+truth on the original global clock. Each report retains the originals and a
+local timeline slice; targets are never reset or reanchored to the aircraft.
+After a transition reply appears on the wire, the runner submits no new intent
+and waits within the existing publish budget for that attempt's real lifecycle
+completion. Missing or wrong terminal completion fails; the recorder cannot
+manufacture completion or authorize another phase.
+The separate `tools/run_native_ownership_sih.py` tests causal ownership with
+phase-safe baseline commands, not a tracker or moving target. Its default remains
+pure FW. The explicit `--airframe settled_vtol_mc` option permits settled native
+VTOL MC component tests; `--airframe settled_vtol_fw` requires actual settled
+VTOL FW state rather than treating it as an ordinary fixed-wing aircraft.
+The selected kind/phase contract applies at both original and replacement
+session boundaries. These options do not enable production VTOL admission.
+`--case adapter_process_restart` remains MC-only and additionally requires
+a reviewed, hash-bound `--restart-plan`; it is not an installation restart command.
+The plan identifies one isolated simulator, one owned adapter process and its
+private endpoint. A live accepted intent must extend across the verified crash
+signal. The original owner remains unresolved; a replacement cannot supply its
+receipt. Only a separate explicit Start in a clean backend may acquire a new
+session after observed landing/disarm and native registration recovery. Never
+force disarm, alter armed-registration policy or reuse an old intent timestamp
+to make this case pass. Keep actual-policy and full-App qualification separate.
+Phase spans report actual range/altitude changes without replacing the overall
+response checks. In particular, a 6 m/s target can outrun the public 0.25 m/s²
+MC startup ramp in a short transition test. Successful ownership transitions
+alone do not prove target closure or altitude acceptance.
+
+For native publication-gap qualification, retain source-rate ULog topics rather
+than inferring gaps from decimated logger output. On the pinned S7 PX4 build,
+`fs/etc/logging/logger_topics.txt` augments the normal profile; it does not replace
+`SDLOG_PROFILE`. Stage the reviewed topic file before PX4 starts and retain its
+hash, subscription/status output and flushed ULog. An inactive-owner native-only
+comparison validates capture and plant behavior, not active external publication.
+Observed native source rates differ by topic; interval zero does not make a
+slow status source publish at control-loop rate. The current S7 runs and retained
+failures are summarized in the [consolidation checkpoint](../../reporting/agent-ops/codex-modernization/checkpoints/2026-11-09-follower-consolidation.md#s7-protocol-3-observed-renewal-and-tailsitter-baseline).
+
+Native component scenarios support `target_loss` stimuli using the existing
+fault shape: `{kind: target_loss, at_s: 4, duration_s: 2}`. Target truth continues
+independently while the tracker supplies no angle or usable measurement.
+Fresh reacquisition returns through the production continuity supervisor.
+Other fault kinds beyond the separately described pilot-transition and airspeed
+cases remain unsupported by this runner.
+For an expiry test, pass `--expect-handoff maximum_coast_time_reached`; a missing
+or different handoff fails the test. Without that option, every early handoff
+fails. The result still requires observed aircraft response, publication,
+altitude limits and confirmed Hold with no later publication. Fault declarations
+never change recovery budgets or follower tuning.
+
+The component result separately checks observed range reduction, altitude hold
+or vertical response, altitude floor, successful handoff and stopped publication.
+Completing all command submissions alone cannot mark the run passed. The hold
+tolerance is a test acceptance value, not another flight-control limit.
+
+The native runner defaults to `--follower gm_velocity_vector`. Selecting
+`--follower fw_navigation_chase --mount HORIZONTAL` uses the same publisher,
+continuity supervisor and native owner with the profile's declared image input.
+Its template, `tools/sih_visualization_scenarios/fw-navigation-native-image.yaml`,
+defines both the synthetic fixed-camera axes/FOV and explicit pinhole calibration;
+neither is inferred from real hardware. Each image is projected from retained
+PX4 pose and attitude samples, with the original pose receipt and exact
+association preserved. A partial pose/attitude update retains the previous frame
+and its original target truth until expiry. Pose traces use source receipt times,
+not repeated poll times; pre-start pose baselines may have negative run timestamps.
+Reordered observations remain in the raw log, but only a packet matching the
+accepted aircraft state can replace the projection input or advance readiness.
+The production read-only input qualifier must pass before
+mode engagement and before nominal guidance. An unavailable association enters
+the existing bounded recovery; polling cannot refresh the image timestamp.
+This remains a component experiment with synthetic image pixels and actual
+PX4-observed motion, not optical tracking or live-profile qualification.
+The gimbal variant uses `GimbalBearingFixture` with the same strict
+`NativePoseFixture` packet/progress checks. It retains typed simulated boresight
+observations and their original pose/angle/status receipts, with an explicit
+provider, source generation and mapping revision. No synthetic pixels, image
+calibration, provider manoeuvre grants or latest-attitude fallback are used.
+Only the independent fixture's canonical horizontal/vertical mappings are
+supported; a custom mapping needs its own independent oracle before qualification.
+Read-only qualification precedes acquisition. Calculation remains unavailable
+until the prepared native session is bound to its observed owner.
+Native acceptance reports use `validate_px4_evidence` followed by the existing
+`write_visualization` in `tools/run_sih_follower_validation.py`. The validator
+requires the successful component verdict, matching captured scenario/manifest,
+configuration/schema checksums, and complete pose/target/publication evidence.
+Failed or inconsistent results retain a failed animation; raw replay export alone
+does not grant response acceptance or physical-aircraft qualification.
+
+Regenerate a captured run's validated report without starting any simulator or
+control process:
 
 ```bash
 PYTHONPATH=src .venv/bin/python tools/run_sih_follower_validation.py \
-  --follower gm_velocity_vector
+  --validate-existing --evidence-root reports/sitl/<run>
 ```
 
-An isolated run is explicit. It delegates to the reviewed QGC SIH harness,
-which starts only a pinned PX4 simulator and loopback sidecars. It must not be
-used with a real aircraft or motor-enabled hardware:
+This reads `scenario.yaml` and its profile from the capture, including native
+image profiles. An optional `--follower` must agree. Raw results, manifests,
+configuration, scenarios and traces remain unchanged; derived reports are refreshed.
+
+### Native ownership checks
+
+`tools/run_native_ownership_sih.py` separately tests acquisition and cleanup on
+an already airborne, stable, isolated SIH airplane. It reuses the production
+binding and publisher with phase-confirmation baselines and absent target
+evidence. It does not qualify tracking, camera geometry, VTOL or hardware, and
+never arms, takes off or transitions. The exact source-built firmware manifest,
+running executable, container isolation and aircraft UID must agree.
+
+```bash
+PYTHONPATH=src .venv/bin/python tools/run_native_ownership_sih.py \
+  --container <isolated-container> --instance 0 \
+  --socket <private-guidance.sock> \
+  --simulation-build-manifest <build>/sih-build-manifest.json \
+  --case same_mode_reselection --output reports/sitl/<new-run>
+```
+
+This is read-only preflight until `--execute` is added. Cases are `normal_stop`,
+`confirmed_owner_eof`, `same_mode_reselection` and
+`stale_cleanup_new_acquisition`. Reselection uses the first external-mode CLI
+fixture only when the actual registered ID matches the verified source
+constant; it refuses other slots. The replacement case deliberately reuses
+semantic session IDs with a different acquisition token. Lost engagement ACK
+and registration-slot replacement are separate, unqualified cases.
+
+Keep raw requests/replies, source publications, original ACK context, pose,
+parameters and the pre-cleanup verdict. Independent simulator-operator cleanup
+is labeled separately from backend Hold. Final confirmation waits within the
+existing status freshness allowance for coherent owner-false Hold, then checks
+that publication remains stopped; read-only polling never renews that allowance.
+An eventual cleanup cannot turn a failed fault witness into a pass.
+For same-mode reselection, the original terminal receipt stays immutable.
+The later independent pilot Hold requires fresh matching aircraft/runtime state,
+a newer live mode epoch, no active owner/drain, and stopped publication. Other
+cases still require their original acquisition's correlated Hold receipt.
+
+Native source-change scenarios use `airspeed_loss` with `at_s` and `duration_s`.
+Only one fault family is allowed per run. The harness requires an attested isolated
+source build and already-enabled `SYS_FAILURE_EN=1`; it never changes parameters
+to enable injection. PX4's own failure command runs off the control loop, and
+cleanup quiesces publication/releases ownership before restoring the sensor.
+The result requires observed degradation and sensor reacceptance, not just a
+successful CLI command. PX4's default `ASPD_FS_T_START=-1` disables in-flight
+reacceptance and therefore cannot pass that assertion. Keep its failed comparison;
+an explicitly documented simulator-only recovery overlay is a separate case and
+must restore the baseline afterward. See the [shared FW policy](../04-configuration/fixed-wing-guidance-policy.md#airspeed-sensor-recovery).
+
+## Safe command
+
+The dry-run validates the selected checked-in scenario and never starts a process:
+
+```bash
+PYTHONPATH=src .venv/bin/python tools/run_sih_follower_validation.py \
+  --follower mc_velocity_position
+```
+
+MC image profiles now use the PixEagle-owned worker with a physically projected
+moving world target, not fixed image coordinates. The worker waits for seven
+fresh airborne Hold observations before engaging, retains actual PX4 pose and
+ULog, and verifies production dispatch, publication, response and Stop. Its
+fixed-camera axes/FOV describe a simulated sensor, not a calibrated real camera.
+
+An isolated run is explicit and needs Docker plus the repository's configured
+Python environment and pinned sidecars. No host port or hardware is exposed:
 
 ```bash
 PYTHONPATH=src .venv/bin/python tools/run_sih_follower_validation.py \
   --execute \
-  --follower gm_velocity_vector \
-  --evidence-root reports/sitl/gm-vector-vertical-$(date +%Y%m%d-%H%M%S) \
-  --qgc-repo "$HOME/qgroundcontrol-pixeagle"
+  --follower mc_velocity_position \
+  --evidence-root reports/sitl/mc-position-$(date +%Y%m%d-%H%M%S)
 ```
 
-Use `--follower` once for each profile and choose the mount explicitly for
-gimbal profiles through the scenario or the delegated harness. The runner
-rejects an acceptance result unless it has:
+Use `--follower` for each MC image profile. `--enable-altitude-control` explicitly
+changes the staged test configuration, never the saved installation. `--scenario`
+accepts a validated MC world-target YAML; unsupported faults are rejected.
+The four altitude-enabled velocity scenarios declare a vertical target stimulus
+and a minimum 0.1 m observed vertical response. Response is measured toward the
+independent target height with its height frozen between each observed pair;
+target motion or camera pitch alone cannot earn credit. This is a direction/
+response gate, not a claim of interception or stable range keeping. An explicit
+altitude-off scenario cannot silently become an altitude-on test through a flag.
+The retained scenario records actual resolved limits/policy and the once-frozen
+target anchor. Separate Chase scenarios have `-loss`, `-retarget`, `-takeover`
+and `-stale` suffixes. The same validated fault shapes apply to the other MC
+image profiles. `target_loss` checks their default immediate handoff; `retarget` supplies
+explicit cumulative world-target offsets and uses production target preparation/
+generation changes, without renewing an active recovery episode. Live rate/thrust
+retarget is explicitly unsupported and requires Stop. `pilot_takeover` represents
+an independent simulator pilot selecting Hold; the backend must observe it and
+quiesce without requesting another Hold. `stale_telemetry` uses the existing
+bounded local client-timeout validation hook. Fault families are qualified
+separately; declaring a fault does not silently change continuity policy.
+Rate-mode qualification still
+requires its observed attitude and thrust envelope; successful commands alone
+cannot pass it.
+
+`--telemetry-source mavsdk` stages the existing telemetry setting for a comparison
+without REST control feedback. The read-only evidence client remains independent
+and unaffected by injected control-client outages; pose and relative height come
+from actual PX4 messages, not the controller cache. No extra flight-control owner
+or real network outage is introduced. These runs remain component tests with
+simulated image measurements, not HTTP/App startup or optical-tracker acceptance.
+
+Publication traces distinguish pre-submission refusals, attempted sends and
+successful sends. During a declared telemetry outage, an explicitly recorded
+readiness refusal after the injection is expected; a failed concrete send or an
+unexplained refusal still fails. Default setpoint fields are captured before the
+send is awaited, separately from a fresh guidance intent. The replay must show
+those actual submitted defaults rather than retain an older proposed command.
+Canonical capture traces are counted and never overwritten by legacy aliases.
+
+During Stop or takeover cleanup, the independent pose observer keeps recording.
+Only a fresh observed Hold together with a stopped publication task marks commands
+as no longer expected. The replay then shows measured aircraft movement without
+inventing zero commands or treating the deliberate shutdown as a publication gap.
+Missing active commands or pose remain failures, as does any successful publication
+after the recorded owner release.
+
+For a separately verified source build, pass `--simulation-build-manifest PATH` to the
+MC runner. The host verifies the manifest, packaged executable/ROMFS and immutable
+image binding before staging an experiment. See the [native build guide](../../../native/README.md).
+Omitting it retains the historical compatibility image; it is not evidence that
+the source-built baseline has been adopted. Keep baseline comparisons separate
+from follower tuning and never relax response tolerances to conceal simulator
+drift. Failed runs with actual pose retain an explicitly failed animation;
+missing pose cannot produce an observed-aircraft animation.
+
+GM MC scenarios now use the same isolated host and stable-flight gate. The
+declared `GIMBAL_ANGLES` input selects a SIH-only in-memory normalized provider,
+with real `CameraRuntime` and `GimbalTracker` source/geometry binding. Independent
+NED truth and actual PX4 physical attitude generate simulated boresight angles;
+there are no synthesized pixels, device exposure timestamps or mechanical-limit
+claims. Only progressing position/attitude source samples create a new angle/TRC
+pair. Cached or partial polls retain the original measurement target and receipts;
+reordered/rewritten components retire that simulated source. The scenario truth
+continues independently. Current source pin/startup and final dispatch hooks run
+through the production helpers, but this component setup does not qualify HTTP/App
+startup, optical acquisition or physical timing.
+
+The eight `gm_velocity_{chase,vector}-qualification-{horizontal,vertical}-{off,on}.yaml`
+cases declare 24 seconds at 20 Hz after a stable 20 m Hold. They use the saved
+gains/limits, both mounts and explicit altitude modes. Off checks zero down and
+observed altitude hold; on requires at least 0.1 m target-directed vertical work.
+Both require observed bearing response, range closure and confirmed Hold without
+later publication. The ordinary level hold does not prove a 30-degree tilt case;
+retain observed roll/pitch and keep deterministic component geometry evidence
+separate. Saved speed edits and GM `stale_telemetry` injection remain unsupported.
+
+Reviewed GM scenarios may use the existing `target_loss`, `retarget` and
+`pilot_takeover` fault shapes through `--scenario`. A short loss explicitly sets
+`qualification.expected_handoff: false` and must show received typed TARGET_LOST,
+fresh TRACKING_ACTIVE, REACQUIRING and restored ACTIVE under the saved policy.
+A longer loss sets it true and must cause budget handoff before final operator
+cleanup. Its terminal trace must match the captured configured policy and actual
+time/travel exhaustion; an immediate compatibility handoff cannot pass a bounded
+GM test. Scheduled windows or cached polls cannot establish loss/recovery. The
+worker retains `fault-outcome-before-cleanup.json`; a failed fault verdict remains
+failed even when subsequent cleanup reaches Hold.
+
+GM retarget tests exercise **simulated target-generation lifecycle**, using the
+original source pin/session and canonical App preparation/generation hooks. They
+record a simulated dispatch boundary, then require actually progressed
+post-boundary GAC/TRC receipts. No candidate angle packet, pixel/ROI, physical
+camera selection API or frame-token acceptance is fabricated. Rapid requests
+preserve the existing episode's deadline and travel budget. Waypoint motion
+alone remains the same independent target, without a generation change.
+Read-only snapshots of the sole supervisor's original start/deadline establish
+that repeated selections did not renew it. Takeover observes actual SDK
+Hold/Offboard-Stop calls; only the independent
+pilot's Hold is permitted during release. Retained-evidence validation also
+requires fault-specific raw witnesses, accepting older valid trace formats
+without treating `operator_stop`-only cleanup as fault success. Derive reviewed
+fault variants from the existing nominal files and retain their source hashes
+and exact preparation script with the new capture; no fault changes gains,
+limits or recovery policy.
+
+Synthetic image samples preserve the existing tracker normalization:
+`normalized = (pixel - dimension/2) / (dimension/2)`. The inverse uses
+`(normalized + 1) * dimension/2`, while typed pixel centres remain within
+`[0, dimension-1]`. A projection outside that grid is refused without clamping;
+this convention does not infer optical calibration.
+
+After the coherent software gate, freeze and review the source revision, scenario,
+verified SIH build and a fresh output directory before approving `--execute`.
+For example, this command remains read-only until that flag is added:
+
+```bash
+PYTHONPATH=src .venv/bin/python tools/run_sih_follower_validation.py \
+  --follower gm_velocity_chase \
+  --scenario tools/sih_visualization_scenarios/gm_velocity_chase-qualification-vertical-off.yaml \
+  --simulation-build-manifest reports/native-guidance/sih-canonical-build-20261109-r1/sih-build-manifest.json
+```
+
+FW direct-rate legacy infrastructure remains separate. Use the native component
+runner described above for native FW evidence. Remaining host-launcher
+consolidation is recorded as S10 debt.
+
+The runner rejects an acceptance result unless it has:
 
 - a target-truth trace independent of PixEagle's transforms;
 - synchronized PX4 position and attitude observations;

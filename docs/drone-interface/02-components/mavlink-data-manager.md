@@ -17,6 +17,15 @@ Key responsibilities:
   diagnostics exposed as `mavlink_telemetry`, and typed
   `/api/v1/telemetry/health` request/payload health
 
+Authenticated connection discovery can request `AUTOPILOT_VERSION` on the
+configured telemetry route when its identity is missing. MAVSDK's identity reply
+on another link does not establish MAVLink2REST's route. The request is fixed
+read-only metadata, uses the existing timeout/freshness budget, is shared between
+viewers and runs off the flight event loop. It never requests a mode, arms,
+publishes setpoints or marks identity verified. Only the existing poller's
+received UID and advancing heartbeat can do that. Active following skips this
+discovery step; it cannot reconfigure a running command owner.
+
 ## Architecture
 
 ```

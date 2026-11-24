@@ -65,6 +65,13 @@ test('requires every section before enabling global configuration mutations', ()
   });
 });
 
+test('accepts generated scalar root settings alongside parameter sections', () => {
+  expect(validateFullConfigSchema({ sections: {
+    Streaming: { parameters: { STREAM_FPS: { type: 'integer' } } },
+    FOLLOWER_CIRCUIT_BREAKER: { type: 'boolean', default: true },
+  } }).valid).toBe(true);
+});
+
 test('keeps closed enums closed unless custom values are explicitly allowed', () => {
   const closed = normalizePropertySchema('MODE', {
     type: 'string',
@@ -78,6 +85,15 @@ test('keeps closed enums closed unless custom values are explicitly allowed', ()
 
   expect(closed.allowCustomValues).toBe(false);
   expect(open.allowCustomValues).toBe(true);
+});
+
+test('preserves the explicit nullable ceiling contract without changing the numeric default', () => {
+  expect(normalizePropertySchema('MAX_ALTITUDE', {
+    type: 'float', nullable: true, null_label: 'No mission ceiling', default: 120,
+  })).toEqual(expect.objectContaining({
+    type: 'number', nullable: true, nullLabel: 'No mission ceiling', default: 120,
+  }));
+  expect(normalizePropertySchema('MAX_ALTITUDE', { type: 'float' }).nullable).not.toBe(true);
 });
 
 test('catalogues undeclared current followers as migration entries', () => {

@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from classes.aircraft_state import Quaternion
 from classes.followers.mc_attitude_rate_follower import MCAttitudeRateFollower
 from classes.followers.base_follower import BaseFollower
 from classes.followers.fw_attitude_rate_follower import FWAttitudeRateFollower
@@ -30,6 +31,7 @@ def _attach_fresh_safe_altitude(follower):
     follower.px4_controller = SimpleNamespace(
         current_altitude=20.0,
         is_command_connection_ready=lambda **_: True,
+        get_guidance_attitude=lambda: (Quaternion(1., 0., 0., 0.), 0.),
     )
     follower._follower_config_name = "GM_VELOCITY_CHASE"
     follower.safety_manager = SimpleNamespace(
@@ -260,6 +262,9 @@ def test_gimbal_chase_disables_vertical_command_with_shared_altitude_setting(mou
     follower.pid_right = _unit_pid()
     follower.pid_down = _unit_pid()
     follower.enable_altitude_control = False
+    follower.px4_controller = SimpleNamespace(
+        get_guidance_attitude=lambda: (Quaternion(1., 0., 0., 0.), 0.),
+    )
     follower.set_command_fields = MagicMock(return_value=True)
     follower._log_velocity_changes = MagicMock()
     tracker_data = MagicMock(
@@ -320,18 +325,13 @@ def test_chase_pid_initialization_honors_resolved_aim_point():
     assert follower.pid_down.setpoint == pytest.approx(-0.3)
 
 
-def test_ground_altitude_scaling_preserves_nonzero_aim_equilibrium():
+def test_ground_raw_image_mapping_preserves_nonzero_aim_equilibrium():
     follower = MCVelocityGroundFollower.__new__(MCVelocityGroundFollower)
     follower.pid_x = _unit_pid(setpoint=0.2)
     follower.pid_y = _unit_pid(setpoint=-0.3)
     follower.extract_target_coordinates = MagicMock(return_value=(0.2, -0.3))
     follower.validate_target_coordinates = MagicMock(return_value=True)
     follower._update_pid_gains = MagicMock()
-    follower._apply_gimbal_corrections = MagicMock(return_value=(0.2, -0.3))
-    follower.coordinate_corrections_enabled = True
-    follower.base_adjustment_factor_x = 0.1
-    follower.base_adjustment_factor_y = 0.1
-    follower.altitude_factor = 0.005
     follower.px4_controller = type('PX4', (), {'current_altitude': 50.0})()
     follower._control_descent = MagicMock(return_value=0.0)
     follower.set_command_fields = MagicMock(return_value=True)
@@ -438,6 +438,7 @@ def test_attitude_yaw_gate_uses_error_from_resolved_aim_point():
 
 def test_chase_emergency_stop_bypasses_yaw_smoothing_history():
     follower = MCVelocityChaseFollower.__new__(MCVelocityChaseFollower)
+    follower.enable_altitude_control = True
     follower.last_ramp_update_time = 99.9
     follower.ramp_update_rate = 10.0
     follower.extract_target_coordinates = MagicMock(return_value=(0.4, 0.0))
@@ -476,6 +477,7 @@ def test_chase_emergency_stop_bypasses_yaw_smoothing_history():
 
 def test_chase_uses_prequalified_evidence_and_preserves_yaw_direction():
     follower = MCVelocityChaseFollower.__new__(MCVelocityChaseFollower)
+    follower.enable_altitude_control = True
     follower.last_ramp_update_time = 99.0
     follower.ramp_update_rate = 10.0
     follower.extract_target_coordinates = MagicMock(return_value=(0.4, 0.0))

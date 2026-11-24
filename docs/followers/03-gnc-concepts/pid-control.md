@@ -131,7 +131,7 @@ p_term = Kp * (setpoint - measurement)
 
 **Proportional on Measurement**:
 ```python
-p_term = -Kp * (measurement - last_measurement)
+p_term -= Kp * (measurement - last_measurement)
 # Setpoint change doesn't cause spike
 ```
 
@@ -139,6 +139,12 @@ Enable in CustomPID:
 ```python
 pid = CustomPID(1.0, 0.1, 0.05, proportional_on_measurement=True)
 ```
+
+`PID.PROPORTIONAL_ON_MEASUREMENT` enables the same `simple_pid` implementation
+for ordinary followers. An explicit constructor `True` also remains enabled
+when the config flag is false; otherwise the current config flag selects the
+mode. The library owns measurement history across first samples, reset and
+auto-mode changes, while the configured setpoint remains unchanged.
 
 ---
 

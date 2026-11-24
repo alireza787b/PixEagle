@@ -17,6 +17,7 @@ import classes.model_manager as model_manager_module
 from classes.model_artifact_policy import (
     ModelArtifactPolicyError,
     ModelRegistryCorruptionError,
+    ModelStoreBusyError,
     sha256_file,
 )
 
@@ -104,6 +105,8 @@ def test_discovery_reuses_unchanged_inventory_and_invalidates_on_file_change(
 
 def test_concurrent_same_name_commits_never_overwrite(tmp_path, monkeypatch):
     manager = ModelManager(models_folder=str(tmp_path))
+    # Test serialization independently of the production fail-fast lease budget.
+    monkeypatch.setattr(model_manager_module, "MODEL_MUTATION_LEASE_TIMEOUT_SECONDS", 5)
     monkeypatch.setattr(manager, "_inspect_trusted_checkpoint", lambda _: _valid_detect_model())
     staged = [manager._stage_bytes(b"first"), manager._stage_bytes(b"second")]
     barrier = threading.Barrier(2)
@@ -131,6 +134,47 @@ def test_concurrent_same_name_commits_never_overwrite(tmp_path, monkeypatch):
         assert sum(isinstance(item, dict) for item in outcomes) == 1
         assert sum(isinstance(item, FileExistsError) for item in outcomes) == 1
         assert (tmp_path / "demo.pt").read_bytes() in {b"first", b"second"}
+        manager.provenance.verify_pt(tmp_path / "demo.pt")
+    finally:
+        for path in staged:
+            path.unlink(missing_ok=True)
+
+
+def test_busy_model_commit_preserves_staging_and_allows_explicit_retry(tmp_path, monkeypatch):
+    manager = ModelManager(models_folder=str(tmp_path))
+    monkeypatch.setattr(model_manager_module, "MODEL_MUTATION_LEASE_TIMEOUT_SECONDS", 0)
+    inspection_started = threading.Event()
+    permit_inspection = threading.Event()
+
+    def inspect(_):
+        inspection_started.set()
+        assert permit_inspection.wait(timeout=5)
+        return _valid_detect_model()
+
+    monkeypatch.setattr(manager, "_inspect_trusted_checkpoint", inspect)
+    staged = [manager._stage_bytes(b"first"), manager._stage_bytes(b"second")]
+
+    def commit(path):
+        return manager._commit_staged_model(
+            path, filename="demo.pt", expected_sha256=None,
+            trust_model=True, source="concurrency_test",
+        )
+
+    try:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            first = executor.submit(commit, staged[0])
+            try:
+                assert inspection_started.wait(timeout=5)
+                with pytest.raises(ModelStoreBusyError):
+                    commit(staged[1])
+                assert staged[1].read_bytes() == b"second"
+            finally:
+                permit_inspection.set()
+            assert first.result(timeout=10)["success"] is True
+
+        with pytest.raises(FileExistsError):
+            commit(staged[1])
+        assert (tmp_path / "demo.pt").read_bytes() == b"first"
         manager.provenance.verify_pt(tmp_path / "demo.pt")
     finally:
         for path in staged:

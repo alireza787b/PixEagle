@@ -8,6 +8,7 @@ let mockCurrentProfile;
 let mockSwitchProfile;
 
 jest.mock('../hooks/useFollowerSchema', () => ({
+  ...jest.requireActual('../hooks/useFollowerSchema'),
   useFollowerProfiles: () => ({
     profiles: mockProfiles,
     loading: false,

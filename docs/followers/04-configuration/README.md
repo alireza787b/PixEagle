@@ -25,6 +25,7 @@ Configuration for followers is managed through YAML files with schema validation
 | [Schema System](schema-system.md) | Profile and field definitions |
 | [Tuning Guide](tuning-guide.md) | Practical tuning advice |
 | [Gimbal Guidance](gimbal-guidance.md) | Vertical, rearward, and yaw-first Vector policy |
+| [Stock PX4 MC/VTOL workflow](../07-integration/stock-px4-gimbal-vtol.md) | Mount, phase, supported transports and qualification status |
 
 ---
 
@@ -34,7 +35,8 @@ Configuration for followers is managed through YAML files with schema validation
 
 ```yaml
 # In configs/config.yaml
-FOLLOWER_MODE: "mc_velocity_chase"
+Follower:
+  FOLLOWER_MODE: "mc_velocity_position"
 ```
 
 ### 2. Set Safety Limits
@@ -59,19 +61,20 @@ changing configuration. Altitude and rate protections remain in force.
 
 ```yaml
 MC_VELOCITY_CHASE:
-  FORWARD_RAMP_RATE: 2.0
-  LATERAL_GUIDANCE_MODE: "coordinated_turn"
+  FORWARD_RAMP_RATE: 0.5
+
+Follower:
+  FollowerOverrides:
+    MC_VELOCITY_CHASE:
+      LATERAL_GUIDANCE_MODE: coordinated_turn
 ```
 
-### 4. Set PID Gains
+### 4. Tune profile gains only when needed
 
-```yaml
-PID_GAINS:
-  vel_body_fwd:
-    p: 2.0
-    i: 0.1
-    d: 0.3
-```
+Use the selected profile's schema-backed Dashboard fields and the
+[Tuning Guide](tuning-guide.md). There is no universal root-level `PID_GAINS`
+block to copy across followers. Preserve the factory baseline until its
+recorded/simulated behavior is understood.
 
 ---
 
@@ -107,14 +110,12 @@ Most settings are configurable via the Dashboard UI:
 
 ---
 
-## Hot-Reload vs Restart
+## Saved versus running settings
 
-| Change Type | Effect |
-|-------------|--------|
-| Safety limits | Hot-reload (immediate) |
-| PID gains | Hot-reload |
-| Follower mode | Restart required |
-| Control type | Restart required |
+The configuration service reports each field's reload tier and pending state.
+A successful save does not necessarily mean the new value is running. Apply
+changes while following is inactive, then perform the reported follower or
+backend restart. Do not infer the reload tier from the category alone.
 
 ---
 
@@ -127,4 +128,7 @@ Parameters are validated at multiple levels:
 3. **SetpointHandler** - Field clamping
 4. **Runtime checks** - Safety monitoring
 
-Invalid configurations are logged with warnings and fall back to defaults.
+Invalid required configuration is rejected; required safety values do not
+silently fall back. Optional compatibility behavior applies only where the
+individual contract documents it. Edit the existing complete safety object
+rather than replacing it with the partial examples above.

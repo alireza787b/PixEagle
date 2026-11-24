@@ -170,6 +170,7 @@ class APINativeTargetGuard(BaseModel):
     stream_id: Optional[str] = None
     stream_epoch: Optional[str] = None
     source_epoch: Optional[str] = None
+    start_context_id: Optional[str] = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
 
 class APINativeTargetFrame(BaseModel):
@@ -224,6 +225,18 @@ class APINativeFollowingProfile(BaseModel):
     airframe_phase: str
     compatible: bool
     reason_code: Optional[str] = None
+    description: str = ""
+    family: Literal["multicopter", "fixed_wing", "external", "vtol"] = "multicopter"
+    visibility: Literal["basic", "advanced", "experimental"] = "advanced"
+    required_tracker_data: List[str] = Field(default_factory=list)
+    phase_command_contracts: Dict[str, str] = Field(default_factory=dict)
+    live_qualified_phases: List[Literal["multicopter", "fixed_wing", "vtol_transition"]] = Field(default_factory=list)
+    selection_eligible: bool = False
+    selection_reason_code: Optional[str] = None
+    live_eligible: bool = False
+    live_reason_code: Optional[str] = None
+    preview_eligible: bool = False
+    preview_reason_code: Optional[str] = None
 
 
 class APIFollowingSessionControl(BaseModel):
@@ -243,6 +256,12 @@ class APIFollowingSessionControl(BaseModel):
     configured_maximum: Optional[float] = None
     override_active: bool = False
     reset_supported: bool = False
+    description: Optional[str] = None
+    guidance_generation: Optional[int] = Field(default=None, strict=True, ge=0)
+    aircraft_phase: Optional[Literal["multicopter", "fixed_wing", "vtol_transition"]] = None
+    speed_basis: Literal["translation_3d", "equivalent_airspeed"] = "translation_3d"
+    observed_speed_m_s: Optional[float] = None
+    observed_speed_source: Optional[Literal["sensor", "ground_minus_wind", "ground_speed_proxy", "native_airspeedless"]] = None
 
 
 class APINativeFollowingHandoff(BaseModel):
@@ -918,6 +937,46 @@ class APIActionRequest(BaseModel):
         extra = "forbid"
 
 
+class APIConfigEditorPendingChange(BaseModel):
+    path: str
+    reload_tier: Literal["immediate", "follower_restart", "tracker_restart", "system_restart"]
+
+
+class APIConfigEditorSnapshot(BaseModel):
+    revision: str
+    config: dict[str, Any]
+    writable: bool
+    pending_changes: list[APIConfigEditorPendingChange]
+
+
+class APIConfigEdit(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    path: list[str] = Field(min_length=1, max_length=16)
+    value: JsonValue = None
+    unset: bool = False
+
+
+class APIConfigSaveRequest(APIActionRequest):
+    revision: str = Field(pattern=r"^[a-f0-9]{64}$")
+    edits: list[APIConfigEdit] = Field(default_factory=list, max_length=1500)
+    backup_id: str | None = Field(default=None, min_length=1, max_length=128)
+    import_values: dict[str, JsonValue] | None = None
+    excluded_paths: list[list[str]] = Field(default_factory=list, max_length=1500)
+    preview_token: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+
+    @model_validator(mode="after")
+    def validate_input(self):
+        sources = (bool(self.edits), self.backup_id is not None, self.import_values is not None)
+        if sum(sources) != 1:
+            raise ValueError("Supply edits, a YAML mapping, or a backup to restore")
+        if self.excluded_paths and self.import_values is None:
+            raise ValueError("Only imports support excluded paths")
+        if not self.dry_run and not (self.confirm and self.preview_token and self.idempotency_key):
+            raise ValueError("Review changes before confirming a save")
+        return self
+
+
 class APINativeRestartContext(BaseModel):
     model_config = {"extra": "forbid", "strict": True}
 
@@ -959,6 +1018,7 @@ class APIFollowingControlRequest(APIActionRequest):
     control_id: str = Field(pattern=r"^[a-z][a-z0-9_]{0,79}$")
     value: Optional[float] = Field(..., strict=True, allow_inf_nan=False, ge=0)
     expected_revision: int = Field(strict=True, ge=0)
+    guidance_generation: Optional[int] = Field(default=None, strict=True, ge=0)
 
 
 class APINativeConfigChange(BaseModel):
@@ -1074,6 +1134,12 @@ class APICameraTelemetry(BaseModel):
     zoom_available: bool = False
 
 
+class APICameraTransitionView(BaseModel):
+    state: Literal["waiting", "unavailable", "pending", "sent", "skipped", "unconfirmed"]
+    phase: Optional[Literal["multicopter", "fixed_wing"]] = None
+    reason: Optional[str] = None
+
+
 class APIGimbalControlStatus(BaseModel):
     """Optional external-camera controls and currently observed camera state."""
 
@@ -1099,6 +1165,7 @@ class APIGimbalControlStatus(BaseModel):
     motion_settings: Optional[APIGimbalMotionSettings] = None
     manual: Optional[APICameraManualState] = None
     telemetry: Optional[APICameraTelemetry] = None
+    transition_view: Optional[APICameraTransitionView] = None
     reason: Optional[str] = None
 
 
@@ -1307,6 +1374,7 @@ class APIActionResponse(BaseModel):
         "model_select",
         "osd_set",
         "config_apply",
+        "config_save",
         "gimbal_control",
         "circuit_breaker_set",
         "offboard_start",
@@ -1340,6 +1408,25 @@ class APIActionResponse(BaseModel):
     claim_boundary: str
     audit_event: APIActionAuditEvent
     timestamp: float
+
+
+class APIConfigReviewChange(BaseModel):
+    path: list[str]
+    old_value: Any = None
+    new_value: Any = None
+    kind: Literal["added", "removed", "changed"]
+    reload_tier: Literal["immediate", "follower_restart", "tracker_restart", "system_restart"]
+
+
+class APIConfigSaveResult(BaseModel):
+    revision: str
+    preview_token: str | None = None
+    backup_id: str | None = None
+    changes: list[APIConfigReviewChange]
+
+
+class APIConfigSaveResponse(APIActionResponse):
+    result: APIConfigSaveResult
 
 
 class APITelemetryTransportHealth(BaseModel):
@@ -1610,6 +1697,7 @@ class APICommandPreviewReadiness(BaseModel):
     finite_validation_required: bool = True
     warnings: List[str] = Field(default_factory=list)
     reason: Optional[str] = None
+    reason_code: Optional[str] = None
     circuit_breaker: Optional[Dict[str, Any]] = None
     video_frame_status: Dict[str, Any] = Field(default_factory=dict)
 
@@ -1625,6 +1713,8 @@ class APIFollowingCommandPublicationStatus(BaseModel):
     health_state: Optional[str] = None
     command_publication_source: Optional[str] = None
     sends_mavsdk_commands: Optional[bool] = None
+    dynamic_command_contract: bool = False
+    observed_native_publications: Optional[int] = Field(default=None, ge=0)
     commands_sent_to_px4: bool = False
     last_intent_fresh: Optional[bool] = None
     failsafe_defaults_active: Optional[bool] = None
@@ -1690,7 +1780,14 @@ class APITargetContinuityStatus(BaseModel):
         "REACQUIRING",
         "HANDOFF_PENDING",
     ]
-    policy_mode: Literal["immediate_handoff", "bounded_decay"]
+    policy_mode: Literal["immediate_handoff", "bounded_decay", "bounded_flight"]
+    effective_policy: Optional[Dict[str, Any]] = None
+    configuration_origin: Optional[str] = None
+    distance_budget_applies: Optional[bool] = None
+    pursuit_paused: bool = False
+    target_transition_pending: bool = False
+    transition_phase: Optional[Literal["none", "loss", "retarget"]] = None
+    effective_command_fields: Optional[Dict[str, float]] = None
     terminal_action: Literal["hold"]
     session_epoch: int
     episode_id: int
@@ -1726,6 +1823,7 @@ class APIFollowingTelemetryResponse(BaseModel):
     fields: Dict[str, Any] = Field(default_factory=dict)
     field_source: Literal[
         "active_follower",
+        "command_publication",
         "legacy_telemetry",
         "schema_profile",
         "unavailable",

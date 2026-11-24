@@ -17,12 +17,14 @@ The Gimbal Tracker adapts external gimbal angle/status data into PixEagle's stan
 **Key Features:**
 - Status-driven external gimbal operation
 - Topotek SIP-over-UDP angle/status ingestion
-- Coordinate transformation (gimbal → body → NED)
+- Shared mount geometry in the follower; tracker preserves received angles
 - Always-on angle display
 - External-app control by default; optional manual controls in the PixEagle dashboard
 
 **Not image-based:**
 Unlike other trackers, GimbalTracker doesn't process video frames. It receives angles directly from external gimbal hardware.
+It does not synthesize `position_2d` or an `ImageMeasurement` from those angles.
+Image followers require actual image measurements.
 
 ---
 
@@ -86,13 +88,10 @@ GimbalTracker:
     FORWARD_REENTRY_BEARING_DEG: 80.0
     TRANSITION_DWELL_MS: 300.0
     REARWARD_GRACE_MS: 500.0
-    CAPABILITIES:
-      KNOWN: false
-      SUPPORTS_VERTICAL: false
-      SUPPORTS_REVERSE: false
-      SUPPORTS_YAW_FALLBACK: false
-      AZIMUTH_LIMITS_DEG: [-180.0, 180.0]
-      DEPRESSION_LIMITS_DEG: [-90.0, 90.0]
+    ALLOWED_MANOEUVRES: null     # implemented MC states; optional restricting subset
+    OBSERVATION_LIMITS:
+      AZIMUTH_LIMITS_DEG: null   # optional physical-FRD observed-ray window
+      DEPRESSION_LIMITS_DEG: null
   data_timeout_seconds: 5.0
   max_consecutive_failures: 10
 ```
@@ -111,12 +110,13 @@ components inside their configured freshness windows, and never treats a fresh
 angle packet as proof of a fresh target lock. This keeps the operator display
 useful during packet jitter while keeping follower readiness fail-closed.
 
-`GUIDANCE` is consumed only by `gm_velocity_vector`. The provider advertises a
-normalized body-ray capability contract for vertical guidance, bounded reverse
-grace, yaw fallback, and known azimuth/depression limits. A provider that does
-not advertise these capabilities can still feed forward vector guidance, but
-PixEagle will not guess whether a special state is safe. The active Vector
-session reports its state and effective policy in existing follower telemetry.
+`GUIDANCE` is consumed only by `gm_velocity_vector`. The active Vector session
+reports its state and effective policy in existing follower telemetry. The
+current provider's normalized ray-domain flags do not establish measured
+mechanical limits or target-centre/exposure alignment. Their reviewed separation
+from installation restrictions remains part of
+[S6](../../followers/05-development/follower-consolidation-plan.md#4-observation-mount-and-px4-frames);
+receipt metadata alone grants no new physical qualification.
 Two-dimensional camera followers keep their existing guidance until they
 explicitly advertise a tested session-speed capability.
 
@@ -335,11 +335,34 @@ attempts. This is not a hardware disconnect watchdog: process death, network
 loss, camera firmware behavior, or an obstructed axis can prevent a stop from
 taking effect.
 
+### Camera Home after a tailsitter transition
+
+With `GimbalTracker.HOME_AFTER_TRANSITION: true`, PixEagle sends the camera's
+existing Home command once after a fresh, observed PX4 tailsitter transition
+settles. It applies in either direction and after an abort back to the original
+phase. Startup and reconnect establish a baseline without moving the camera.
+
+The default is true and requires an enabled provider and camera controls.
+Only a verified PX4 tailsitter heartbeat and advancing `EXTENDED_SYS_STATE`
+receipts can trigger it. Ordinary multicopter, fixed-wing and quadplane
+heartbeats produce no camera action. Set the option to false and restart
+PixEagle to opt out.
+
+The Topotek SIP adapter reuses the same Home packet as the Center camera
+button. The operator reports that this camera levels its view in hover and
+fixed-wing orientations. Other camera models and firmware need their own
+confirmation. The camera's own leveling handles the orientation.
+
+Manual input, Stop, tracking, following and rescue take priority. A skipped
+Home request expires with the transition. Following still requires a new Start.
+
 ### Typed API
 
 - `GET /api/v1/gimbal/control`: reads `enabled`, `available`, `connected`,
   `tracking_state`, `following_active`, `selection_mode`, `capabilities`, and `reason` without
   sending commands. Requires `control:read`.
+  The optional `transition_view` records automatic camera Home dispatch,
+  phase and reason. A `sent` outcome records transmission.
 - `POST /api/v1/actions/gimbal-control`: accepts `operation` (`select`, `cancel`,
   `pan`, `tilt`, `roll`, `zoom`, `home`, `stop`, or `set_mode`). Selection requires finite
   normalized `x`/`y`. For a Classic rectangle, these are its **center**; supply
@@ -411,9 +434,6 @@ TrackerOutput(
     # Primary gimbal angle data
     angular=(45.0, -10.0, 0.0),  # yaw, pitch, roll (degrees)
 
-    # Converted for follower compatibility
-    position_2d=(0.12, -0.08),   # Normalized from angles
-
     confidence=0.95,
 
     raw_data={
@@ -441,6 +461,14 @@ TrackerOutput(
     }
 )
 ```
+
+The application-owned producer also attaches immutable `gimbal_observation`:
+camera source generation, local selection generation, provider/mount revision,
+original angle receipt sequence/time and independent tracking-status receipt.
+These identify received **boresight** data; local selection generation is not a
+physical object ID, and backend receipt time is not camera exposure time.
+Repeated reads cannot refresh either receipt. Standalone outputs have no
+invented application owner. See [provider development](../05-development/external-gimbal-providers.md).
 
 Fresh gimbal angles are not enough to keep following active by themselves. If a
 provider packet lacks a fresh tracking status, `GimbalTracker` clears its active
@@ -493,7 +521,10 @@ source_info = tracker.get_tracking_source_info()
 
 ## Coordinate Transformation
 
-Gimbal angles are transformed through multiple frames:
+The tracker preserves angles. Followers use the canonical mount mapping in
+`gimbal_geometry.py`; native world-frame guidance additionally requires a
+qualified attitude association. Do not repeat the transform in a tracker,
+client or report:
 
 ```
 GIMBAL_BODY → AIRCRAFT_BODY → NED (world)
@@ -614,8 +645,7 @@ stats = tracker.get_gimbal_statistics()
 #         'tracking_duration': 120.5
 #     },
 #     'gimbal_interface_stats': {...},      # Provider runtime counters
-#     'gimbal_provider_metadata': {...},
-#     'coordinate_transformer_stats': {...}
+#     'gimbal_provider_metadata': {...}
 # }
 ```
 
@@ -626,15 +656,16 @@ stats = tracker.get_gimbal_statistics()
 ```python
 tracker.get_capabilities()
 # {
-#     'data_types': ['ANGULAR'],
+#     'data_types': ['gimbal_angles', 'angular'],
 #     'supports_confidence': True,
 #     'supports_velocity': False,
 #     'supports_bbox': False,
+#     'supports_normalization': False,
 #     'tracker_algorithm': 'Topotek SIP UDP Gimbal',
 #     'gimbal_provider': 'topotek_sip_udp',
 #     'provider_protocol': 'topotek_sip_udp',
 #     'supported_gimbal_providers': ['topotek_sip_udp'],
-#     'coordinate_systems': ['GIMBAL_BODY', 'SPATIAL_FIXED'],  # Contract metadata; see note below
+#     'coordinate_systems': ['GIMBAL_BODY'],
 #     'requires_video': False,
 #     'requires_detector': False,
 #     'external_data_source': True,
@@ -646,9 +677,9 @@ tracker.get_capabilities()
 
 ---
 
-The coordinate-system capability list describes the general tracker contract.
-For the current Topotek provider, follower angles come from validated `GAC`
-body-angle packets; spatial replies are not promoted to follower input.
+The coordinate-system list comes from the selected provider. For Topotek,
+follower angles come from validated `GAC` body-angle packets; spatial replies
+are diagnostic and are not promoted to follower input.
 
 ## Compatible Followers
 

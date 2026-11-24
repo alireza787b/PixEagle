@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "model": "sihsim_standard_vtol",
+  "parameters": {
+    "MIS_TAKEOFF_ALT": 30
+  },
+  "forward": {
+    "request_at_s": 8,
+    "capture_s": 48
+  },
+  "back": {
+    "request_at_s": 8,
+    "capture_s": 48
+  }
+}

@@ -2,6 +2,8 @@
 
 import csv
 import json
+import csv
+import math
 import os
 import sys
 from pathlib import Path
@@ -28,6 +30,42 @@ from tools.sih_visualization_catchup_fixture import write_catchup_evidence  # no
 
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_sampled_control_request_stays_distinct_from_command_and_expires_with_state():
+    scenario = VisualizationScenario.from_yaml(ROOT / "tools/sih_visualization_scenarios/gimbal-vector-vertical.yaml")
+    rows = build_timeline(scenario, dict(
+        pose=[{"timestamp": stamp, "vehicle_ned": [0., 0., -20.]} for stamp in (100., 101.)],
+        state=[{"timestamp": 100., "requested_speed": 6., "measured_translation_speed_m_s": 1.5, "state": "ACTIVE"}],
+        tracker=[{"timestamp": 100., "command_intent": {"fields": {
+            "vel_body_fwd": 2., "vel_body_right": 0., "vel_body_down": 0., "yawspeed_deg_s": 0.}}}],
+        published=[], target=[]))
+    assert rows[0].requested_speed == 6. and rows[0].effective_speed == 2.
+    assert rows[0].measured_translation_speed_m_s == 1.5
+    assert rows[-1].requested_speed is None
+    assert rows[-1].measured_translation_speed_m_s is None
+
+
+def test_vtol_mc_png_uses_observed_command_contract_and_elapsed_clock(tmp_path, monkeypatch):
+    from dataclasses import replace
+    from matplotlib.figure import Figure
+    from tools.sih_visualizer import write_png
+
+    scenario = replace(VisualizationScenario.from_yaml(
+        ROOT / "tools/sih_visualization_scenarios/gimbal-vector-native-fw.yaml"),
+        airframe="vtol", command_contract="vtol_external")
+    sample = VisualizationSample(timestamp=1000., command_contract="velocity_body_offboard",
+        command={"vel_body_fwd": 2., "vel_body_right": 0., "vel_body_down": .2},
+        requested_speed=6., measured_translation_speed_m_s=1.5,
+        target_ned=(10., 0., -20.), vehicle_ned=(0., 0., -20.))
+    figures = []
+    monkeypatch.setattr(Figure, "savefig", lambda figure, *args, **kwargs: figures.append(figure))
+    write_png(tmp_path / "summary.png", scenario, [sample])
+    axes = figures[0].axes
+    assert axes[0].get_ylabel() == "heading-frame velocity (m/s)"
+    assert list(axes[0].lines[0].get_xdata()) == [0.]
+    assert {line.get_label() for line in axes[1].lines} == {
+        "acknowledged 3D request", "PX4 3D velocity magnitude"}
 
 
 def test_scenarios_validate_and_interpolate_target_truth():
@@ -180,6 +218,133 @@ def test_build_timeline_keeps_pose_gaps_unknown_and_never_predicts_pose(tmp_path
     assert samples[-1].stale is True
     assert samples[-1].target_ned is not None
     assert samples[-1].command["vel_body_down"] == 2
+    assert samples[-1].command_ned is None
+    assert samples[-1].vehicle_forward_ned is None
+
+
+@pytest.mark.parametrize("quaternion,forward,command_ned", [
+    ([math.sqrt(.5), 0., 0., math.sqrt(.5)], (0., 1., 0.), (0., 2., 0.)),
+    ([math.cos(math.pi / 8), 0., math.sin(math.pi / 8), 0.],
+     (math.sqrt(.5), 0., -math.sqrt(.5)), (2., 0., 0.)),
+])
+def test_report_distinguishes_physical_body_heading_from_mavlink_velocity_frame(
+        quaternion, forward, command_ned, tmp_path):
+    scenario = VisualizationScenario.from_yaml(ROOT / "tools/sih_visualization_scenarios/gimbal-vector-horizontal.yaml")
+    evidence = {
+        "pose": [{"timestamp": 0., "vehicle_ned": [0., 0., -20.], "vehicle_quaternion": quaternion}],
+        "tracker": [{"timestamp": 0., "command_intent": {"fields": {
+            "vel_body_fwd": 2., "vel_body_right": 0., "vel_body_down": 0., "yawspeed_deg_s": 0.,
+        }}}],
+    }
+    samples = build_timeline(scenario, evidence)
+    assert samples[0].vehicle_forward_ned == pytest.approx(forward, abs=1e-12)
+    assert samples[0].command_ned == pytest.approx(command_ned, abs=1e-12)
+    assert samples[0].vehicle_ned == (0., 0., -20.)
+    output = tmp_path / "trace.csv"
+    write_csv(output, samples)
+    with output.open() as stream:
+        row = next(csv.DictReader(stream))
+    assert tuple(float(row[key]) for key in ("command_n", "command_e", "command_d")) == pytest.approx(command_ned, abs=1e-12)
+
+
+@pytest.mark.parametrize("heading,expected", [(None, None), (math.pi / 2, (0., 2., 0.))])
+def test_vertical_body_axis_cannot_invent_heading_for_the_command_arrow(heading, expected):
+    scenario = VisualizationScenario.from_yaml(ROOT / "tools/sih_visualization_scenarios/gimbal-vector-horizontal.yaml")
+    pose = {"timestamp": 0., "vehicle_ned": [0., 0., -20.],
+            "vehicle_quaternion": [math.sqrt(.5), 0., math.sqrt(.5), 0.]}
+    if heading is not None:
+        pose["vehicle_heading_rad"] = heading
+    samples = build_timeline(scenario, {"pose": [pose], "tracker": [{
+        "timestamp": 0., "command_intent": {"fields": {
+            "vel_body_fwd": 2., "vel_body_right": 0., "vel_body_down": 0.,
+        }},
+    }]})
+    if expected is None:
+        assert samples[0].command_ned is None
+    else:
+        assert samples[0].command_ned == pytest.approx(expected, abs=1e-12)
+    assert samples[0].vehicle_forward_ned == pytest.approx((0., 0., -1.), abs=1e-12)
+
+
+def test_submitted_defaults_replace_old_guidance_in_replay_without_fabricating_a_target_lock():
+    scenario = VisualizationScenario.from_yaml(ROOT / "tools/sih_visualization_scenarios/camera-chase-2d.yaml")
+    defaults = dict(vel_body_fwd=0., vel_body_right=0., vel_body_down=0., yawspeed_deg_s=0.)
+    evidence = {
+        "pose": [{"timestamp": 0., "vehicle_ned": [0., 0., -20.],
+                  "vehicle_quaternion": [1., 0., 0., 0.]}],
+        "tracker": [{"timestamp": 0., "command_intent": {"fields": {**defaults, "vel_body_fwd": 3.}}}],
+        "published": [{"timestamp": 0., "publish_success": True, "command_intent": None,
+                       "submitted_fields": defaults, "publish_status": {"failsafe_defaults_active": True}}],
+    }
+    sample = build_timeline(scenario, evidence)[0]
+    assert sample.command == defaults
+    assert "fallback_defaults" in sample.events
+
+
+def released_owner_evidence():
+    return {
+        "pose": [{"timestamp": t, "vehicle_ned": [0., 0., -20.], "vehicle_quaternion": [1., 0., 0., 0.]}
+                 for t in (0., .5, 1., 1.5)],
+        "published": [{"timestamp": 0., "publish_success": True, "submitted_fields": {
+            "vel_body_fwd": 1., "vel_body_right": 0., "vel_body_down": 0., "yawspeed_deg_s": 0.,
+        }}],
+        "state": [{"timestamp": t, "state": "INACTIVE", "authority_state": "INACTIVE",
+                   "command_expected": False, "observed_hold": True, "publisher_running": False,
+                   "publisher_task_active": False, "command_owner_released_at": .5}
+                  for t in (.5, 1., 1.5)],
+    }
+
+
+def test_observed_hold_after_publisher_release_keeps_pose_without_fabricating_commands(tmp_path):
+    scenario = VisualizationScenario.from_yaml(ROOT / "tools/sih_visualization_scenarios/camera-chase-2d.yaml")
+    samples = build_timeline(scenario, released_owner_evidence())
+    assert samples[0].command["vel_body_fwd"] == 1.
+    for sample in samples[1:]:
+        assert sample.command_expected is False
+        assert sample.command == {}
+        assert sample.command_ned is None
+        assert sample.effective_speed is None
+        assert not sample.published
+        assert not sample.stale
+        assert sample.vehicle_ned == (0., 0., -20.)
+    assert analyze_timeline(scenario, samples)["stale_after_fresh_samples"] == 0
+    write_csv(tmp_path / "trace.csv", samples)
+    with (tmp_path / "trace.csv").open() as stream:
+        assert list(csv.DictReader(stream))[-1]["command_expected"] == "False"
+
+
+@pytest.mark.parametrize("changed_field,value", [
+    ("observed_hold", False), ("publisher_running", True), ("publisher_task_active", True),
+    ("authority_state", "ACTIVE"), ("command_expected", True), ("command_owner_released_at", None),
+])
+def test_missing_active_command_remains_a_failure_without_complete_release_evidence(changed_field, value):
+    scenario = VisualizationScenario.from_yaml(ROOT / "tools/sih_visualization_scenarios/camera-chase-2d.yaml")
+    evidence = released_owner_evidence()
+    for row in evidence["state"]:
+        row[changed_field] = value
+    assert analyze_timeline(scenario, build_timeline(scenario, evidence))["stale_after_fresh_samples"] > 0
+
+
+def test_old_release_cannot_hide_missing_pose_new_active_session_or_late_publication():
+    scenario = VisualizationScenario.from_yaml(ROOT / "tools/sih_visualization_scenarios/camera-chase-2d.yaml")
+    evidence = released_owner_evidence()
+    evidence["pose"] = evidence["pose"][:2]
+    assert build_timeline(scenario, evidence)[-1].stale
+    evidence = released_owner_evidence()
+    evidence["state"][-1] = {"timestamp": 1.5, "state": "ACTIVE", "command_expected": True}
+    assert build_timeline(scenario, evidence)[-1].stale
+    evidence = released_owner_evidence()
+    evidence["published"].append({**evidence["published"][0], "timestamp": 1.})
+    samples = build_timeline(scenario, evidence)
+    late = next(sample for sample in samples if sample.timestamp == 1.)
+    assert late.published
+    assert late.command["vel_body_fwd"] == 1.
+    assert any(flag["type"] == "publication_after_authority_release"
+               for flag in analyze_timeline(scenario, samples)["flags"])
+    evidence["pose"].append({**evidence["pose"][-1], "timestamp": 3.})
+    evidence["published"].append({**evidence["published"][0], "timestamp": 3.})
+    late = build_timeline(scenario, evidence)[-1]
+    assert "publication_after_authority_release" in late.events
 
 
 def test_analysis_flags_altitude_disabled_and_constraint_violation():
@@ -390,3 +555,16 @@ def test_html_report_contains_read_only_claim_labels():
     assert "3D orbit" in html
     assert "history opacity" not in html
     assert "Follower:" in html
+    assert "quatRotate" not in html
+    assert "native ? sample.course_direction_ned : sample.command_ned" in html
+    assert "sample.vehicle_forward_ned" in html
+
+
+@pytest.mark.parametrize("passed,label", [(True, "Scenario passed"), (False, "Scenario failed")])
+def test_report_verdict_requires_an_explicit_qualification_result(passed, label):
+    scenario = VisualizationScenario.from_yaml(ROOT / "tools/sih_visualization_scenarios/camera-chase-2d.yaml")
+    summary = {"qualification_result": {"passed": passed}, "flags": []}
+    html = build_html(scenario, [VisualizationSample(timestamp=0.)], summary)
+    assert f'id="qualification">{label}' in html
+    replay = build_html(scenario, [VisualizationSample(timestamp=0.)], {"flags": []})
+    assert 'id="qualification">Replay only' in replay

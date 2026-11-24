@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "repository": "Auterion/px4-ros2-interface-lib",
+  "baseline_commit": "912868fe2597bac4cf3115a54ac813a97eee4dbb",
+  "patches": {
+    "patches/0001-registration-identity-and-teardown.patch": "ecf966a9e905a5ba0429e7a73e7de5490e373dad7c50a1d67d2fade21040e974"
+  },
+  "original_files": {
+    "px4_ros2_cpp/src/components/registration.hpp": "cc46a29b48af9e06b665b43a2ff2e190a18b02d0e0548bd1878f694d752b0616",
+    "px4_ros2_cpp/src/components/registration.cpp": "dc1518882cc9ceac399a1cd303ba7e8a829197b80733c514b602d7e344fc432a",
+    "px4_ros2_cpp/include/px4_ros2/components/mode.hpp": "d39ca40d5878501160c2645d2feb93dc9e1e96b9bc427083c8eb5ce011512489",
+    "px4_ros2_cpp/src/components/mode.cpp": "5cb4651182ab3b8402cb0a7b285b7aef2b8b6c9aa6db7a4877957690d4ac2543",
+    "px4_ros2_cpp/test/unit/registration.cpp": "7f973e42c7a0e48df5073484eac0301bc02e8e99fc4cc65333a1b01997f3a76e"
+  },
+  "files": {
+    "px4_ros2_cpp/src/components/registration.hpp": "c9fcf0b69a772dba304a33321652ac608ac9b64a2b95b81fdb2c179dad8dc80f",
+    "px4_ros2_cpp/src/components/registration.cpp": "f0079d6268c2d07b30817c979c4d762911f26cc33f26d8edf673dce567d026f6",
+    "px4_ros2_cpp/include/px4_ros2/components/mode.hpp": "8207ede24ce79ebd081a58414832630c3ad4172293cc7a3fb1c0a8bdce735fa2",
+    "px4_ros2_cpp/src/components/mode.cpp": "23e50bf0fbd3ea2cb1950f7efbe0911ec5d8ea692a57e5413d681d6f8fbe2f65",
+    "px4_ros2_cpp/test/unit/registration.cpp": "34a05aac73548595f575b0162d0d3707038f7b3cae83733ce21b4faf4abc2fef"
+  }
+}

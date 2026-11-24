@@ -1,333 +1,101 @@
 # AppController
 
-The main application orchestrator that manages all PixEagle subsystems.
-
-## Overview
-
-`AppController` (`src/classes/app_controller.py`) is the central coordinator that:
-
-- Initializes all subsystems (video, tracker, follower, telemetry)
-- Manages the frame processing pipeline
-- Handles user commands and state transitions
-- Coordinates between tracker output and follower input
-
-## Class Definition
-
-```python
-class AppController:
-    """
-    Central controller that orchestrates all PixEagle components.
-
-    Manages:
-    - Video capture and processing
-    - Tracker initialization and updates
-    - Follower command generation
-    - Telemetry handling
-    - API handler integration
-    """
-```
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      AppController                           │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │  Subsystems                                           │   │
-│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐   │   │
-│  │  │VideoHandler │  │SmartTracker │  │  Follower   │   │   │
-│  │  └─────────────┘  └─────────────┘  └─────────────┘   │   │
-│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐   │   │
-│  │  │ OSDHandler  │  │TelemetryHndl│  │FastAPIHndlr │   │   │
-│  │  └─────────────┘  └─────────────┘  └─────────────┘   │   │
-│  └──────────────────────────────────────────────────────┘   │
-│                                                              │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │  State                                                │   │
-│  │  - tracking_active: bool                              │   │
-│  │  - offboard_active: bool                              │   │
-│  │  - shutdown_flag: bool                                │   │
-│  │  - current_frame: np.ndarray                          │   │
-│  └──────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────┘
-```
-
-## Key Methods
-
-### Initialization
-
-```python
-def __init__(self):
-    """Initialize all subsystems."""
-    # Video source
-    self.video_handler = VideoHandler()
-
-    # Tracker (SmartTracker with YOLO or classic tracker)
-    self.tracker = TrackerFactory.create(Parameters.TRACKER_TYPE)
-
-    # Follower for drone control
-    self.follower = FollowerFactory.create(Parameters.FOLLOWER_TYPE)
-
-    # Telemetry handler
-    self.telemetry_handler = TelemetryHandler()
-
-    # OSD rendering
-    self.osd_handler = OSDHandler()
-
-    # API handler (FastAPI)
-    self.api_handler = FastAPIHandler(self)
-```
-
-### Main Update Loop
-
-```python
-async def update_loop(self, frame: np.ndarray) -> np.ndarray:
-    """
-    Main frame processing loop.
-
-    Args:
-        frame: Current video frame
-
-    Returns:
-        Processed frame with OSD overlays
-    """
-    # Update tracker
-    tracker_output = self.tracker.update(frame)
-
-    # Update telemetry
-    await self.telemetry_handler.update()
-
-    # Update follower if following is active.
-    # Tracker evidence is normalized centrally. Followers calculate only a
-    # nominal command; TargetContinuitySupervisor owns loss/recovery authority.
-    if self.following_active:
-        await self.follow_target()
-
-    # Render OSD
-    frame = self.osd_handler.render(frame, tracker_output)
-
-    # Store for streaming
-    self.current_frame = frame
-
-    return frame
-```
-
-### Command Handlers
-
-```python
-async def start_tracking(self, bbox: tuple = None):
-    """Start tracking with optional initial bounding box."""
-    if bbox:
-        self.tracker.init_track(self.current_frame, bbox)
-    self.tracking_active = True
-
-async def stop_tracking(self):
-    """Stop tracking and reset state."""
-    self.tracking_active = False
-    self.tracker.reset()
-
-async def start_offboard_mode(self):
-    """Enable offboard mode for drone control."""
-    if not self.tracking_active:
-        raise ValueError("Must be tracking to enable offboard")
-    self.offboard_active = True
-    await self.follower.start()
-
-async def stop_offboard_mode(self):
-    """Disable offboard mode."""
-    self.offboard_active = False
-    await self.follower.stop()
-```
-
-### Shutdown
-
-```python
-async def shutdown(self):
-    """Graceful shutdown of all subsystems."""
-    self.shutdown_flag = True
-
-    # Stop offboard if active
-    if self.offboard_active:
-        await self.stop_offboard_mode()
-
-    # Stop tracking
-    await self.stop_tracking()
-
-    # Cleanup subsystems
-    await self.telemetry_handler.stop()
-    self.video_handler.release()
-```
-
-## State Management
-
-### Tracking States
-
-| State | Description |
-|-------|-------------|
-| `tracking_active` | Tracker is following a target |
-| `offboard_active` | Drone is in offboard mode |
-| `smart_mode` | Using SmartTracker (YOLO-based) |
-| `segmentation_enabled` | Instance segmentation active |
-
-### State Transitions
-
-```
-        ┌─────────────┐
-        │    IDLE     │
-        └──────┬──────┘
-               │ start_tracking()
-               ▼
-        ┌─────────────┐
-        │  TRACKING   │◄─────────┐
-        └──────┬──────┘          │
-               │ start_offboard()│ stop_offboard()
-               ▼                 │
-        ┌─────────────┐          │
-        │  OFFBOARD   │──────────┘
-        └──────┬──────┘
-               │ stop_tracking()
-               ▼
-        ┌─────────────┐
-        │    IDLE     │
-        └─────────────┘
-```
-
-## Integration Points
-
-### With FastAPIHandler
-
-```python
-# FastAPIHandler receives typed tracking actions via REST.
-@app.post("/api/v1/actions/tracking-start")
-async def tracking_start_action(request: APITrackingStartRequest):
-    # The action layer handles confirmation, idempotency, and audit records.
-    await app_controller.start_tracking(request.bbox)
-```
-
-### With Tracker
-
-```python
-# Tracker provides standardized output
-tracker_output = self.tracker.update(frame)
-
-# TrackerOutput contains:
-# - position_2d: (x, y) normalized
-# - bbox: (x1, y1, x2, y2)
-# - confidence: float
-# - tracking_active: bool
-# - raw_data / metadata freshness fields:
-#   usable_for_following, data_is_stale, freshness_reason
-# - BaseTracker continuity fields:
-#   continuity_state, failure_count, failure_threshold,
-#   recovery_recommended
-```
-
-### With Follower
-
-```python
-# AppController first normalizes target evidence.
-tracker_output = self._apply_command_freshness_contract(tracker_output)
-
-# Confirmed evidence may produce a follower nominal intent. The shared
-# TargetContinuitySupervisor alone decides whether that intent is authorized.
-await self._dispatch_tracker_output_to_follower(tracker_output)
-```
-
-External trackers bypass video-frame freshness only when their explicit
-capabilities declare `requires_video: false`. External trackers without that
-capability are treated as vision-dependent by default.
-
-For classic visual trackers, AppController keeps tracker recovery and command
-authority separate. A rejected measurement is immediately blocked from follower
-math. The provider's `recovery_recommended` contract controls when the
-bounded detector-recovery window starts; it does not grant command authority.
-
-### Validation Injection Hook
-
-SITL and tracker-in-loop validation may call
-`inject_tracker_output_for_validation()` with a typed `TrackerOutput`. The hook
-is not a separate follower implementation: it refuses to dispatch when
-`following_active` is false, applies the same command-freshness contract, then
-uses the normal follower and `OffboardCommander` path. Runtime API access to
-this hook is disabled unless PixEagle is started with
-`PIXEAGLE_ENABLE_SITL_INJECTIONS=1`.
-
-Validation may also call `inject_video_stall_for_validation()` with frame-status
-metadata. That hook does not stop a camera or stream; it reuses
-`handle_video_frame_unavailable()` so video-stall evidence follows the same
-fail-closed path as the main frame loop.
-
-Validation may also call
-`inject_commander_publish_failure_for_validation()` while follow mode and
-`OffboardCommander` are active. That hook records bounded synthetic publish
-failures inside the commander, crosses the configured local failure threshold,
-and awaits `_handle_offboard_commander_failure()` so the response can prove the
-same fail-closed follow-mode cleanup used for real commander publish failures.
-It does not synthesize MAVSDK setpoint publishes, replace PX4 interfaces, stop
-services, or mutate MAVLink routing; cleanup still uses the normal Offboard
-stop path.
-
-Validation may also call `inject_mavsdk_disconnect_for_validation()` while
-follow mode and `OffboardCommander` are active. That hook first marks
-`PX4InterfaceManager`'s local MAVSDK command path validation-disconnected, then
-records bounded commander failures and awaits the same fail-closed cleanup
-handler. The response includes before/after PX4 command-path state, commander
-failure evidence, and the failed Offboard stop error. It does not stop PX4,
-Docker, MavlinkAnywhere, MAVLink2REST, a MAVSDK server, network interfaces, or
-MAVLink routes, so it must be reported as local PixEagle behavior only.
-
-Validation may also call
-`inject_mavlink2rest_timeout_for_validation()` to drive MAVLink2REST telemetry
-freshness/error handling in PixEagle's local client. That hook delegates to
-`MavlinkDataManager.inject_timeout_for_validation()`, records stale/error
-`mavlink_telemetry`, and leaves MAVLink2REST, PX4, Docker, MavlinkAnywhere,
-routing, and network interfaces running.
-
-## Configuration
-
-```yaml
-# config_default.yaml
-
-tracker:
-  type: "smart"  # or "csrt", "kcf", etc.
-
-follower:
-  type: "mc_velocity_offboard"
-
-video:
-  source: 0  # Camera index or URL
-
-Streaming:
-  HTTP_STREAM_PORT: 5077
-  STREAM_FPS: 30
-```
-
-## Error Handling
-
-```python
-async def update_loop(self, frame):
-    try:
-        # Normal processing
-        tracker_output = self.tracker.update(frame)
-
-    except TrackerError as e:
-        logging.error(f"Tracker error: {e}")
-        self.tracking_active = False
-
-    except Exception as e:
-        logging.error(f"Update loop error: {e}")
-        # Continue running - don't crash on single frame error
-```
-
-## Thread Safety
-
-- Frame access protected by `asyncio.Lock`
-- State changes are atomic
-- Subsystem interactions use async/await
-
-## Related Components
-
-- [FlowController](flow-controller.md) - Manages AppController lifecycle
-- [FastAPIHandler](fastapi-handler.md) - Exposes API endpoints
-- [VideoHandler](../../video/01-architecture/video-handler.md) - Video capture
-- [SmartTracker](../../trackers/02-reference/smart-tracker.md) - YOLO tracking
+[`AppController`](../../../src/classes/app_controller.py) joins capture, tracking,
+following, telemetry and the authenticated API. It owns lifecycle decisions;
+trackers produce observations and followers produce command intent. Neither
+starts a second aircraft publisher or implements its own recovery supervisor.
+
+## Lifecycle and ownership
+
+Construction initializes synchronous components before starting degradable
+workers. Optional video, detector or model failures remain visible in startup
+status without taking away configuration and recovery access. Camera/provider
+ownership stays in `CameraRuntime`; source and tracking generations invalidate
+work created for an older target or installation.
+
+Aircraft mutations run on the existing flight-owner event loop. API and camera
+callbacks dispatch to that owner; they cannot replace it with their own loop.
+The follower lock serializes explicit startup and teardown. Source/guidance
+generations protect asynchronous target and phase changes.
+
+| Entry point | Responsibility |
+| --- | --- |
+| `observe_native_connection()` | Connect/read aircraft identity without starting a follower or acquiring flight authority |
+| `start_tracking()` / `stop_tracking()` | Tracking lifecycle and target ownership |
+| `connect_px4()` | Guarded following startup, including connection/readiness, follower creation and one command owner |
+| `disconnect_px4()` | Join publication, release the captured owner and retain the observed handoff result |
+| `shutdown()` | Join owned operations and workers without replaying earlier actions |
+| `get_tracker_output()` | Current typed tracker observation; not flight authority |
+
+Do not confuse observational discovery with `connect_px4()`: the latter starts
+following. External clients use the authenticated
+[native following actions](../../apis/native-following-operations.md), rather
+than calling controller internals or driving MAVSDK directly.
+
+## Following path
+
+The controller normalizes `TrackerOutput` through its command-freshness contract.
+Confirmed usable evidence can reach follower math. The shared
+`TargetContinuitySupervisor` then decides whether the resulting nominal intent
+is authorized, recovering or requires handoff. The existing `OffboardCommander`
+publishes the current authorized contract; command submission alone does not
+prove aircraft response.
+
+External trackers bypass video-frame freshness only when their capabilities
+explicitly declare `requires_video: false`. Their actual target/angle receipt
+and provider-session evidence must still be fresh. Classic/Smart image trackers
+retain frame provenance and geometry. A new video frame cannot refresh old
+camera angles or aircraft telemetry.
+
+The registered Vector follower selects its command strategy from observed
+MC/FW/VTOL state. Pure MC retains MAVSDK Offboard. FW and VTOL use one qualified
+native owner; phase changes invalidate old command generations while preserving
+the session's phase-specific controls and monotonic recovery budget. MAVLink
+body velocity is not a FW command contract. See the
+[native adapter](../../../native/README.md) and
+[FW guidance policy](../../followers/04-configuration/fixed-wing-guidance-policy.md).
+
+Stop joins the publisher before handoff. Pilot takeover or changed aircraft
+identity prevents cleanup from issuing a new mode command to an unowned or
+replacement aircraft. Failed cleanup remains visible and blocks another Start.
+A confirmed Hold result is retained separately from a request or local teardown.
+
+## Configuration and diagnostics
+
+[`configs/config_default.yaml`](../../../configs/config_default.yaml) and its
+generated schema are the canonical settings. Use the existing configuration
+service and Config Sync; do not add controller-local copies of defaults.
+Public defaults keep VIDEO_FILE, PixEagle CSRT, constant-position following,
+altitude guidance off, altitude safeguards on and the circuit breaker on.
+
+Read readiness, effective session controls, publication fields and the retained
+handoff through the existing API snapshots. Aircraft association requires
+matching observed identities and fresh telemetry; a configured system ID,
+server address or airframe label cannot supply those observations. See
+[connection and aircraft association](../../apis/native-integration-context.md).
+
+## Simulation injection
+
+The existing validation hooks exercise the same control path:
+
+- `inject_tracker_output_for_validation()` accepts typed tracker observations
+  only during active following, then applies normal freshness and dispatch.
+- `inject_video_stall_for_validation()` reuses normal unavailable-frame handling.
+- `inject_commander_publish_failure_for_validation()` exercises publisher-failure
+  teardown without inventing successful publications.
+- `inject_mavsdk_disconnect_for_validation()` and
+  `inject_mavlink2rest_timeout_for_validation()` affect the named local client
+  boundary; they do not stop PX4, a router, camera or network interface.
+
+Runtime API injection is disabled unless `PIXEAGLE_ENABLE_SITL_INJECTIONS=1`.
+Injected observations/faults must be labelled in evidence. Aircraft movement
+truth comes from actual PX4 pose, never from integrating command intent. Use the
+[SIH qualification workflow](../../followers/05-development/sih-follower-qualification.md)
+for retained traces and read-only interactive reports.
+
+## Related components
+
+- [FlowController](flow-controller.md) owns the processing lifecycle.
+- [FastAPIHandler](fastapi-handler.md) exposes the authenticated contracts.
+- [VideoHandler](../../video/01-architecture/video-handler.md) owns capture.
+- [Native following](../../apis/native-following-operations.md) defines client actions.

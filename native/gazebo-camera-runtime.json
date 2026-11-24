@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "clock_source": "src/modules/simulation/gz_bridge/GZBridge.cpp",
+  "clock_source_sha256": "52a04b8e31c0463589150c1115d68160670bb29e9a401c108bf34a844c03a908",
+  "clock_topic": "/world/{world}/clock",
+  "clock_field": "sim",
+  "image_stamp": "gz.msgs.Image.header.stamp",
+  "qualification": "Gazebo image simulation time and PX4 source clock only; DDS adjustment and attitude alignment separately required"
+}

@@ -37,6 +37,11 @@ to the follower.
 
 ## Configuration
 
+The zero-forward contract also applies after continuity rotates a retained
+command during retargeting. The strategy projects only forward velocity to zero;
+it does not redistribute that component into lateral speed or reset recovery
+time/travel budgets. Physical PX4 motion remains separate from command intent.
+
 ```yaml
 Follower:
   FOLLOWER_MODE: mc_velocity_distance
@@ -54,6 +59,10 @@ Shared altitude-control and smoothing settings live under `Follower`;
 limits live under `Safety`; command authority after evidence loss lives
 under `TargetContinuity`. See
 [Parameter Reference](../04-configuration/parameter-reference.md).
+
+When resolved `ENABLE_ALTITUDE_CONTROL` is false, down velocity is exactly zero,
+including retained smoothing state. With it enabled, image-Y controls the
+bounded climb/descent component; it is not a measured height or range error.
 
 ## Limitations
 

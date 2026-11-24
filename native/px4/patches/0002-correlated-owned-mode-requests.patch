@@ -1,0 +1,1399 @@
+diff --git a/msg/CMakeLists.txt b/msg/CMakeLists.txt
+index 71e308f9..162d5392 100644
+--- a/msg/CMakeLists.txt
++++ b/msg/CMakeLists.txt
+@@ -269,6 +269,8 @@ set(msg_files
+ 	versioned/FixedWingLateralSetpoint.msg
+ 	versioned/FixedWingLongitudinalSetpoint.msg
+ 	versioned/FixedWingGuidanceStatus.msg
++	versioned/OwnedModeRequest.msg
++	versioned/OwnedModeStatus.msg
+ 	versioned/GotoSetpoint.msg
+ 	versioned/HomePosition.msg
+ 	versioned/LateralControlConfiguration.msg
+diff --git a/msg/versioned/FixedWingGuidanceStatus.msg b/msg/versioned/FixedWingGuidanceStatus.msg
+index ccdff322..f7c7dca9 100644
+--- a/msg/versioned/FixedWingGuidanceStatus.msg
++++ b/msg/versioned/FixedWingGuidanceStatus.msg
+@@ -34,4 +34,3 @@ float32 observed_equivalent_airspeed # [m/s] Qualified observation, NaN in nativ
+ float32 underspeed_ratio # [-] Native underspeed response, NaN while inactive
+ bool controller_active
+ bool airspeed_control_enabled # Fresh qualified input and native airspeed control enabled
+-bool owner_bound_mode_changes_supported # SET_NAV_STATE accepts expected mode/activation-time guard
+diff --git a/msg/versioned/OwnedModeRequest.msg b/msg/versioned/OwnedModeRequest.msg
+new file mode 100644
+index 00000000..dccef244
+--- /dev/null
++++ b/msg/versioned/OwnedModeRequest.msg
+@@ -0,0 +1,23 @@
++# Optional atomic external-mode ownership request. This never arms or requests a VTOL transition.
++uint32 MESSAGE_VERSION = 0
++uint8 CONTRACT_VERSION = 1
++uint8 OPERATION_ACQUIRE = 1
++uint8 OPERATION_RELEASE = 2
++
++uint64 timestamp # Publication metadata; not the ownership deadline clock
++uint8 contract_version
++uint8 operation
++uint64[2] incarnation # Firmware Commander instance, copied from OwnedModeStatus
++uint64[2] token # Opaque acquisition token, bound to the companion's runtime/session
++uint64 source_revision # Original acquisition source intention revision
++uint64 source_nav_state_timestamp # Original acquisition source mode epoch, raw PX4 time
++uint8 source_nav_state
++uint8 mode_id # Registered external mode to acquire/release
++uint64 registration_id # Original request ID of that current external-mode registration
++uint64 acquired_nav_state_timestamp # Zero only when acquisition acknowledgement is unavailable
++uint64 source_clock_us # Actual raw PX4 clock publication, never a query-created sample
++uint64 expires_at_us # Absolute raw PX4 deadline, frozen for this operation
++uint32 target_system
++uint8 target_component
++
++uint8 ORB_QUEUE_LENGTH = 4
+diff --git a/msg/versioned/OwnedModeStatus.msg b/msg/versioned/OwnedModeStatus.msg
+new file mode 100644
+index 00000000..11ffd1a0
+--- /dev/null
++++ b/msg/versioned/OwnedModeStatus.msg
+@@ -0,0 +1,38 @@
++# Optional ownership receipt, published by Commander. A receipt is not command authority.
++uint32 MESSAGE_VERSION = 0
++uint8 CONTRACT_VERSION = 1
++uint8 STATE_IDLE = 0
++uint8 STATE_PENDING = 1
++uint8 STATE_ACQUIRED = 2
++uint8 STATE_RELEASING = 3
++uint8 STATE_RELEASED = 4
++uint8 STATE_CANCELLED = 5
++uint8 STATE_REJECTED = 6
++uint8 STATE_EXPIRED = 7
++uint8 STATE_SUPERSEDED = 8
++
++uint64 timestamp # Publication metadata, adjusted by DDS as usual
++uint8 contract_version
++bool available
++uint64 autopilot_uid
++uint32 system_id
++uint8 component_id
++uint64[2] incarnation
++uint64 source_clock_us # Raw firmware clock at this actual publication; DDS does not adjust this field
++uint64 intention_revision
++uint64[8] registration_ids # Current registration request IDs for EXTERNAL1..EXTERNAL8, zero when absent
++uint8 state
++uint64[2] token
++uint64 source_revision
++uint64 source_nav_state_timestamp
++uint8 source_nav_state
++uint8 mode_id
++uint64 registration_id # Original registration retained with this receipt
++uint64 acquired_nav_state_timestamp # Original resulting activation; never replaced by a later epoch
++bool owner_active
++uint8 nav_state
++uint64 nav_state_timestamp
++bool armed
++bool rescue_active
++
++uint8 ORB_QUEUE_LENGTH = 4
+diff --git a/platforms/posix/src/px4/common/CMakeLists.txt b/platforms/posix/src/px4/common/CMakeLists.txt
+index e99ac9ca..d8ad16b5 100644
+--- a/platforms/posix/src/px4/common/CMakeLists.txt
++++ b/platforms/posix/src/px4/common/CMakeLists.txt
+@@ -39,6 +39,7 @@ set(EXTRA_DEPENDS)
+ 
+ add_library(px4_layer
+ 	px4_posix_impl.cpp
++	posix_random.c
+ 	tasks.cpp
+ 	${PX4_SOURCE_DIR}/platforms/common/module_base.cpp
+ 	px4_sem.cpp
+diff --git a/platforms/posix/src/px4/common/posix_random.c b/platforms/posix/src/px4/common/posix_random.c
+new file mode 100644
+index 00000000..92a86f99
+--- /dev/null
++++ b/platforms/posix/src/px4/common/posix_random.c
+@@ -0,0 +1,34 @@
++// SPDX-License-Identifier: BSD-3-Clause
++#include <stddef.h>
++#include <px4_random.h>
++#include <errno.h>
++#include <fcntl.h>
++#include <unistd.h>
++
++size_t px4_get_secure_random(uint8_t *out, size_t outlen)
++{
++	if (!out || outlen == 0) { return 0; }
++
++	const int descriptor = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
++
++	if (descriptor < 0) { return 0; }
++
++	size_t received = 0;
++
++	while (received < outlen) {
++		const ssize_t count = read(descriptor, out + received, outlen - received);
++
++		if (count > 0) {
++			received += (size_t)count;
++
++		} else if (count < 0 && errno == EINTR) {
++			continue;
++
++		} else {
++			break;
++		}
++	}
++
++	close(descriptor);
++	return received;
++}
+diff --git a/src/modules/commander/CMakeLists.txt b/src/modules/commander/CMakeLists.txt
+index 1290a5f3..957699bd 100644
+--- a/src/modules/commander/CMakeLists.txt
++++ b/src/modules/commander/CMakeLists.txt
+@@ -91,6 +91,14 @@ px4_add_module(
+ if(CONFIG_SENSORS_VEHICLE_MAGNETOMETER)
+ 	px4_add_unit_gtest(SRC mag_calibration_test.cpp LINKLIBS modules__commander)
+ endif()
++if(TARGET px4_random)
++	target_link_libraries(modules__commander PRIVATE px4_random)
++	target_compile_definitions(modules__commander PRIVATE PIXEAGLE_OWNED_MODE_ENTROPY_LINKED=1)
++endif()
+ px4_add_functional_gtest(SRC ModeManagementTest.cpp LINKLIBS modules__commander)
+ px4_add_functional_gtest(SRC HomePositionTest.cpp LINKLIBS modules__commander)
+-px4_add_unit_gtest(SRC ExpectedModeGuardTest.cpp)
++
++px4_add_unit_gtest(SRC OwnedModeGuardTest.cpp)
++px4_add_functional_gtest(SRC UserModeIntentionOwnedTest.cpp
++	LINKLIBS modules__commander health_and_arming_checks ArmAuthorization
++	)
+diff --git a/src/modules/commander/Commander.cpp b/src/modules/commander/Commander.cpp
+index 5228058f..e0014607 100644
+--- a/src/modules/commander/Commander.cpp
++++ b/src/modules/commander/Commander.cpp
+@@ -39,7 +39,8 @@
+  */
+ 
+ #include "Commander.hpp"
+-#include "ExpectedModeGuard.hpp"
++#include <px4_random.h>
++#include <px4_platform_common/board_common.h>
+ 
+ /* commander module headers */
+ #include "Arming/ArmAuthorization/ArmAuthorization.h"
+@@ -814,6 +815,11 @@ transition_result_t Commander::disarm(arm_disarm_reason_t calling_reason, bool f
+ Commander::Commander() :
+ 	ModuleParams(nullptr)
+ {
++	static_assert(px4::OwnedModeGuard::FirstExternalMode == vehicle_status_s::NAVIGATION_STATE_EXTERNAL1, "External-mode range changed");
++	static_assert(px4::OwnedModeGuard::LastExternalMode == vehicle_status_s::NAVIGATION_STATE_EXTERNAL8, "External-mode range changed");
++#if defined(__PX4_POSIX) || (defined(PIXEAGLE_OWNED_MODE_ENTROPY_LINKED) && defined(CONFIG_CRYPTO_RANDOM_POOL))
++	_owned_mode_guard.initialize(px4::makeOwnedModeIncarnation(px4_get_secure_random));
++#endif
+ 	_vehicle_land_detected.landed = true;
+ 
+ 	_vehicle_status.arming_state = vehicle_status_s::ARMING_STATE_DISARMED;
+@@ -1089,15 +1095,6 @@ Commander::handle_command(const vehicle_command_s &cmd)
+ 	case vehicle_command_s::VEHICLE_CMD_SET_NAV_STATE: { // Used from ROS
+ 			uint8_t desired_nav_state = static_cast<uint8_t>(lroundf(cmd.param1));
+ 
+-			// Optional compare-and-change for external-mode handoff. A queued
+-			// companion command must not overwrite a newer pilot/failsafe mode.
+-			// param2 is the observed mode; param5 is its activation time in us.
+-			if (!px4::matchesExpectedMode(_vehicle_status.nav_state, _vehicle_status.nav_state_timestamp,
+-						      cmd.param2, cmd.param5)) {
+-				cmd_result = vehicle_command_ack_s::VEHICLE_CMD_RESULT_TEMPORARILY_REJECTED;
+-				break;
+-			}
+-
+ 			if (_user_mode_intention.change(desired_nav_state, getSourceFromCommand(cmd))) {
+ 				cmd_result = vehicle_command_ack_s::VEHICLE_CMD_RESULT_ACCEPTED;
+ 
+@@ -2094,7 +2091,9 @@ void Commander::run()
+ 
+ 		const hrt_abstime now = hrt_absolute_time();
+ 
++		updateOwnedModeReceipt();
+ 		const bool nav_state_or_failsafe_changed = handleModeIntentionAndFailsafe();
++		updateOwnedModeReceipt();
+ 
+ 		// Run arming checks @ 10Hz
+ 		if ((now >= _last_health_and_arming_check + 100_ms) || _status_changed || nav_state_or_failsafe_changed) {
+@@ -2159,6 +2158,10 @@ void Commander::run()
+ 			}
+ 		}
+ 
++		handleOwnedModeRequest();
++		updateOwnedModeReceipt();
++		publishOwnedModeStatus();
++
+ 		// update actuator_armed
+ 		_actuator_armed.armed = isArmed();
+ 		_actuator_armed.prearmed = getPrearmState();
+@@ -2554,6 +2557,128 @@ void Commander::handleAutoDisarm()
+ 	}
+ }
+ 
++px4::OwnedModeObservation Commander::ownedModeObservation(uint8_t mode_id) const
++{
++	return {_vehicle_status.nav_state, _vehicle_status.nav_state_timestamp, isArmed(),
++		_vehicle_status.failsafe || _vehicle_status.failsafe_and_user_took_over
++		|| (_vehicle_status.is_vtol &&_vtol_vehicle_status.fixed_wing_system_failure),
++		_mode_management.externalModeRegistrationId(mode_id)};
++}
++
++void Commander::updateOwnedModeReceipt()
++{
++	auto &intention = _user_mode_intention.ownedModeIntention();
++	const auto previous_state = _owned_mode_guard.state();
++	const auto action = _owned_mode_guard.observe(ownedModeObservation(_owned_mode_guard.acquisition().mode), intention, hrt_absolute_time());
++
++	if (action == px4::OwnedModeAction::RestoreSource && intention.token() == _owned_mode_guard.acquisition().token) {
++		_user_mode_intention.cancelOwnedChange(_owned_mode_guard.acquisition().token, _owned_mode_guard.acceptedRevision());
++
++	} else if (action == px4::OwnedModeAction::Hold) {
++		// A deadline crossing may activate our exact tagged request between the two observations.
++		const bool accepted = _user_mode_intention.change(vehicle_status_s::NAVIGATION_STATE_AUTO_LOITER);
++		_owned_mode_guard.releaseRequested(accepted, intention);
++	}
++
++	if (_owned_mode_guard.state() != previous_state) { _last_owned_mode_status = 0; }
++}
++
++void Commander::handleOwnedModeRequest()
++{
++	owned_mode_request_s message{};
++
++	if (!_owned_mode_request_sub.update(&message)
++	    || message.contract_version != owned_mode_request_s::CONTRACT_VERSION
++	    || message.target_system != _vehicle_status.system_id || message.target_component != _vehicle_status.component_id) { return; }
++
++	px4::OwnedModeRequest request{};
++	request.operation = static_cast<px4::OwnedModeOperation>(message.operation);
++	request.incarnation = {message.incarnation[0], message.incarnation[1]};
++	request.token = {message.token[0], message.token[1]};
++	request.source_revision = message.source_revision;
++	request.source_epoch = message.source_nav_state_timestamp;
++	request.source_mode = message.source_nav_state;
++	request.mode = message.mode_id;
++	request.registration_id = message.registration_id;
++	request.acquired_epoch = message.acquired_nav_state_timestamp;
++	request.source_clock = message.source_clock_us;
++	request.expires = message.expires_at_us;
++
++	if (request.operation == px4::OwnedModeOperation::Acquire
++	    && !px4::ownedModeSourceSettled(_vehicle_status.nav_state,
++					    _mode_management.getNavStateReplacementIfValid(_user_mode_intention.get(), false),
++					    _mode_management.modeExecutorInCharge() == ModeExecutors::AUTOPILOT_EXECUTOR_ID)) { return; }
++
++	auto &intention = _user_mode_intention.ownedModeIntention();
++	const auto action = _owned_mode_guard.request(request, ownedModeObservation(request.mode), intention,
++			    hrt_absolute_time(), vehicle_status_s::NAVIGATION_STATE_AUTO_LOITER);
++
++	if (action == px4::OwnedModeAction::Acquire) {
++		// The canonical PX4 eligibility check remains authoritative; no forced mode entry.
++		const bool accepted = _user_mode_intention.change(request.mode, ModeChangeSource::User, false, false, request.token);
++		_owned_mode_guard.acquisitionRequested(accepted, intention);
++
++	} else if (action == px4::OwnedModeAction::Hold) {
++		const bool accepted = _user_mode_intention.change(vehicle_status_s::NAVIGATION_STATE_AUTO_LOITER);
++		_owned_mode_guard.releaseRequested(accepted, intention);
++
++	} else if (action == px4::OwnedModeAction::RestoreSource && intention.token() == request.token) {
++		_user_mode_intention.cancelOwnedChange(request.token, _owned_mode_guard.acceptedRevision());
++	}
++
++	_last_owned_mode_status = 0;
++}
++
++void Commander::publishOwnedModeStatus()
++{
++	const hrt_abstime now = hrt_absolute_time();
++
++	// A real source-clock heartbeat in the existing loop, not a new timer or query stamp.
++	if (_last_owned_mode_status != 0 && now - _last_owned_mode_status < 100_ms) { return; }
++
++	owned_mode_status_s message{};
++	message.timestamp = now;
++	message.contract_version = owned_mode_status_s::CONTRACT_VERSION;
++	auto &intention = _user_mode_intention.ownedModeIntention();
++	message.available = _owned_mode_guard.available(intention);
++	uuid_uint32_t uid;
++	board_get_uuid32(uid);
++	message.autopilot_uid = (static_cast<uint64_t>(uid[PX4_CPU_UUID_WORD32_UNIQUE_M]) << 32) | uid[PX4_CPU_UUID_WORD32_UNIQUE_H];
++#ifdef CONFIG_ARCH_BOARD_PX4_SITL
++	message.autopilot_uid += _vehicle_status.system_id - 1;
++#endif
++	message.system_id = _vehicle_status.system_id;
++	message.component_id = _vehicle_status.component_id;
++	const auto &incarnation = _owned_mode_guard.incarnation();
++	message.incarnation[0] = incarnation[0];
++	message.incarnation[1] = incarnation[1];
++	message.source_clock_us = now;
++	message.intention_revision = intention.revision();
++
++	for (uint8_t index = 0; index < px4::OwnedModeGuard::ExternalModeCount; ++index) {
++		message.registration_ids[index] = _mode_management.externalModeRegistrationId(px4::OwnedModeGuard::FirstExternalMode + index);
++	}
++
++	message.state = static_cast<uint8_t>(_owned_mode_guard.state());
++	const auto &acquisition = _owned_mode_guard.acquisition();
++	message.token[0] = acquisition.token[0];
++	message.token[1] = acquisition.token[1];
++	message.source_revision = acquisition.source_revision;
++	message.source_nav_state = acquisition.source_mode;
++	message.source_nav_state_timestamp = acquisition.source_epoch;
++	message.mode_id = acquisition.mode;
++	message.registration_id = acquisition.registration_id;
++	message.acquired_nav_state_timestamp = _owned_mode_guard.acquiredEpoch();
++	const auto observation = ownedModeObservation(acquisition.mode);
++	message.owner_active = _owned_mode_guard.ownerActive(observation, intention);
++	message.nav_state = observation.mode;
++	message.nav_state_timestamp = observation.epoch;
++	message.armed = observation.armed;
++	message.rescue_active = observation.rescue;
++	_owned_mode_status_pub.publish(message);
++	_last_owned_mode_status = now;
++}
++
+ bool Commander::handleModeIntentionAndFailsafe()
+ {
+ 	const uint8_t prev_nav_state = _vehicle_status.nav_state;
+diff --git a/src/modules/commander/Commander.hpp b/src/modules/commander/Commander.hpp
+index 46d0063e..3a198b5a 100644
+--- a/src/modules/commander/Commander.hpp
++++ b/src/modules/commander/Commander.hpp
+@@ -57,6 +57,8 @@
+ #include <uORB/topics/vehicle_command_ack.h>
+ #include <uORB/topics/vehicle_control_mode.h>
+ #include <uORB/topics/vehicle_status.h>
++#include <uORB/topics/owned_mode_request.h>
++#include <uORB/topics/owned_mode_status.h>
+ 
+ // subscriptions
+ #include <uORB/Subscription.hpp>
+@@ -237,6 +239,12 @@ private:
+ #endif
+ 	};
+ 	UserModeIntention _user_mode_intention {_vehicle_status, _health_and_arming_checks, &_mode_management};
++	px4::OwnedModeGuard _owned_mode_guard;
++	hrt_abstime _last_owned_mode_status{};
++	void handleOwnedModeRequest();
++	void updateOwnedModeReceipt();
++	void publishOwnedModeStatus();
++	px4::OwnedModeObservation ownedModeObservation(uint8_t mode_id) const;
+ 
+ 	const failsafe_flags_s &_failsafe_flags{_health_and_arming_checks.failsafeFlags()};
+ 	HomePosition 		_home_position{_failsafe_flags};
+@@ -322,6 +330,8 @@ private:
+ 	uORB::SubscriptionData<offboard_control_mode_s>		_offboard_control_mode_sub{ORB_ID(offboard_control_mode)};
+ 
+ 	// Publications
++	uORB::Subscription _owned_mode_request_sub{ORB_ID(owned_mode_request)};
++	uORB::Publication<owned_mode_status_s> _owned_mode_status_pub{ORB_ID(owned_mode_status)};
+ 	uORB::Publication<actuator_armed_s>			_actuator_armed_pub{ORB_ID(actuator_armed)};
+ 	uORB::Publication<actuator_test_s>			_actuator_test_pub{ORB_ID(actuator_test)};
+ 	uORB::Publication<vehicle_command_ack_s>		_vehicle_command_ack_pub{ORB_ID(vehicle_command_ack)};
+diff --git a/src/modules/commander/ExpectedModeGuard.hpp b/src/modules/commander/ExpectedModeGuard.hpp
+deleted file mode 100644
+index ce92c78a..00000000
+--- a/src/modules/commander/ExpectedModeGuard.hpp
++++ /dev/null
+@@ -1,28 +0,0 @@
+-// SPDX-License-Identifier: BSD-3-Clause
+-#pragma once
+-
+-#include <cmath>
+-#include <cstdint>
+-
+-namespace px4
+-{
+-
+-inline bool matchesExpectedMode(uint8_t mode, uint64_t activated_at, float expected_mode, double expected_activation)
+-{
+-	if (!std::isfinite(expected_activation) || expected_activation <= 0.) {
+-		return true;
+-	}
+-
+-	// The command's double field represents integer microseconds exactly here.
+-	constexpr double maximum_exact_integer = static_cast<double>(uint64_t{1} << 53);
+-
+-	if (!std::isfinite(expected_mode) || expected_mode < 0.f || expected_mode > UINT8_MAX
+-	    || expected_activation > maximum_exact_integer) {
+-		return false;
+-	}
+-
+-	return static_cast<uint8_t>(lroundf(expected_mode)) == mode
+-	       && static_cast<uint64_t>(llround(expected_activation)) == activated_at;
+-}
+-
+-} // namespace px4
+diff --git a/src/modules/commander/ExpectedModeGuardTest.cpp b/src/modules/commander/ExpectedModeGuardTest.cpp
+deleted file mode 100644
+index c9675f06..00000000
+--- a/src/modules/commander/ExpectedModeGuardTest.cpp
++++ /dev/null
+@@ -1,26 +0,0 @@
+-// SPDX-License-Identifier: BSD-3-Clause
+-#include "ExpectedModeGuard.hpp"
+-#include <gtest/gtest.h>
+-#include <limits>
+-
+-TEST(ExpectedModeGuard, RetainsOrdinaryNativeModeRequests)
+-{
+-	EXPECT_TRUE(px4::matchesExpectedMode(23, 1000000, 0.f, 0.));
+-	EXPECT_TRUE(px4::matchesExpectedMode(23, 1000000, NAN, NAN));
+-}
+-
+-TEST(ExpectedModeGuard, RejectsDelayedHandoffAfterTakeoverOrModeReentry)
+-{
+-	EXPECT_TRUE(px4::matchesExpectedMode(23, 1000000, 23.f, 1000000.));
+-	EXPECT_FALSE(px4::matchesExpectedMode(5, 1000000, 23.f, 1000000.));
+-	EXPECT_FALSE(px4::matchesExpectedMode(23, 2000000, 23.f, 1000000.));
+-	EXPECT_FALSE(px4::matchesExpectedMode(23, 1000000, NAN, 1000000.));
+-	EXPECT_FALSE(px4::matchesExpectedMode(23, 1000000, 256.f, 1000000.));
+-	EXPECT_FALSE(px4::matchesExpectedMode(23, 1000000, 23.f, std::numeric_limits<double>::max()));
+-}
+-
+-TEST(ExpectedModeGuard, SupportsManualModeZeroAsAnExpectedState)
+-{
+-	EXPECT_TRUE(px4::matchesExpectedMode(0, 1000000, 0.f, 1000000.));
+-	EXPECT_FALSE(px4::matchesExpectedMode(0, 1000001, 0.f, 1000000.));
+-}
+diff --git a/src/modules/commander/ModeManagement.cpp b/src/modules/commander/ModeManagement.cpp
+index 4e2f37b5..c88158bb 100644
+--- a/src/modules/commander/ModeManagement.cpp
++++ b/src/modules/commander/ModeManagement.cpp
+@@ -335,6 +335,7 @@ void ModeManagement::checkNewRegistrations(UpdateRequest &update_request)
+ 
+ 				if (request.register_mode) {
+ 					Modes::Mode mode{};
++					mode.registration_request_id = request.request_id;
+ 					strncpy(mode.name, request.name, sizeof(mode.name));
+ 
+ 					if (request.enable_replace_internal_mode) {
+diff --git a/src/modules/commander/ModeManagement.hpp b/src/modules/commander/ModeManagement.hpp
+index 6f6c39ca..a77cef4a 100644
+--- a/src/modules/commander/ModeManagement.hpp
++++ b/src/modules/commander/ModeManagement.hpp
+@@ -95,6 +95,7 @@ public:
+ 		char name[sizeof(register_ext_component_request_s::name)] {};
+ 		bool valid{false};
+ 		uint8_t replaces_nav_state{REPLACES_NAV_STATE_NONE};
++		uint64_t registration_request_id{};
+ 		bool unresponsive_reported{false};
+ 		int arming_check_registration_id{-1};
+ 		int mode_executor_registration_id{-1};
+@@ -160,6 +161,7 @@ public:
+ 	uint8_t onDisarm(uint8_t stored_nav_state) override;
+ 
+ 	uint8_t getNavStateReplacementIfValid(uint8_t nav_state, bool report_error = true);
++	uint64_t externalModeRegistrationId(uint8_t nav_state) const { return _modes.valid(nav_state) ? _modes.mode(nav_state).registration_request_id : 0; }
+ 
+ 	mode_util::SetpointType getSetpointType(uint8_t nav_state);
+ 
+@@ -227,6 +229,7 @@ public:
+ 	uint8_t onDisarm(uint8_t stored_nav_state) override { return stored_nav_state; }
+ 
+ 	uint8_t getNavStateReplacementIfValid(uint8_t nav_state, bool report_error = true) { return nav_state; }
++	uint64_t externalModeRegistrationId(uint8_t) const { return 0; }
+ 
+ 	mode_util::SetpointType getSetpointType(uint8_t nav_state) { return mode_util::SetpointType::Trajectory; }
+ 
+diff --git a/src/modules/commander/OwnedModeGuard.hpp b/src/modules/commander/OwnedModeGuard.hpp
+new file mode 100644
+index 00000000..75ede62f
+--- /dev/null
++++ b/src/modules/commander/OwnedModeGuard.hpp
+@@ -0,0 +1,289 @@
++// SPDX-License-Identifier: BSD-3-Clause
++#pragma once
++
++#include <array>
++#include <cstddef>
++#include <cstdint>
++#include <limits>
++
++namespace px4
++{
++
++using OwnedModeToken = std::array<uint64_t, 2>;
++static_assert(sizeof(OwnedModeToken) == 16, "Ownership token must be exactly 128 bits");
++
++inline bool validOwnedModeToken(const OwnedModeToken &token)
++{
++	return token[0] != 0 || token[1] != 0;
++}
++
++inline bool ownedModeSourceSettled(uint8_t actual_mode, uint8_t effective_intention, bool autopilot_in_charge)
++{
++	return actual_mode == effective_intention && autopilot_in_charge;
++}
++
++inline bool advanceOwnedModeRevision(uint64_t &revision)
++{
++	if (revision == std::numeric_limits<uint64_t>::max()) { return false; }
++
++	++revision;
++	return revision != std::numeric_limits<uint64_t>::max();
++}
++
++template<typename RandomProvider>
++OwnedModeToken makeOwnedModeIncarnation(RandomProvider provider)
++{
++	OwnedModeToken incarnation{};
++
++	if (provider(reinterpret_cast<uint8_t *>(incarnation.data()), sizeof(incarnation)) != sizeof(incarnation)
++	    || !validOwnedModeToken(incarnation)) { return {}; }
++
++	return incarnation;
++}
++
++// Correlation belongs to the existing intention, not a second control owner.
++class OwnedModeIntention
++{
++public:
++	uint64_t revision() const { return _revision; }
++	const OwnedModeToken &token() const { return _token; }
++	bool available() const { return _revision != std::numeric_limits<uint64_t>::max(); }
++
++	void acceptedChange(const OwnedModeToken &token = {})
++	{
++		_token = advanceOwnedModeRevision(_revision) ? token : OwnedModeToken{};
++	}
++
++	bool consume(uint64_t expected_revision)
++	{
++		if (!available() || expected_revision != _revision || validOwnedModeToken(_token)) { return false; }
++
++		acceptedChange();
++		return available();
++	}
++
++private:
++	uint64_t _revision{};
++	OwnedModeToken _token{};
++};
++
++enum class OwnedModeOperation : uint8_t { Acquire = 1, Release = 2 };
++enum class OwnedModeState : uint8_t { Idle, Pending, Acquired, Releasing, Released, Cancelled, Rejected, Expired, Superseded };
++enum class OwnedModeAction { None, Acquire, Hold, RestoreSource };
++
++struct OwnedModeRequest {
++	OwnedModeOperation operation{};
++	OwnedModeToken incarnation{}, token{};
++	uint64_t source_revision{}, source_epoch{}, acquired_epoch{}, source_clock{}, expires{};
++	uint8_t source_mode{}, mode{};
++	uint64_t registration_id{};
++
++	bool sameAcquisition(const OwnedModeRequest &other) const
++	{
++		return incarnation == other.incarnation && token == other.token && source_revision == other.source_revision
++		       && source_epoch == other.source_epoch && source_mode == other.source_mode && mode == other.mode
++		       && registration_id == other.registration_id;
++	}
++
++	bool operator==(const OwnedModeRequest &other) const
++	{
++		return sameAcquisition(other) && operation == other.operation && acquired_epoch == other.acquired_epoch
++		       && source_clock == other.source_clock && expires == other.expires;
++	}
++};
++
++struct OwnedModeObservation {
++	uint8_t mode{};
++	uint64_t epoch{};
++	bool armed{}, rescue{};
++	uint64_t registration_id{};
++};
++
++// A bounded causal receipt. It cannot publish a setpoint or establish a lease.
++class OwnedModeGuard
++{
++public:
++	static constexpr uint64_t MaximumRequestWindowUs = 500000;
++	static constexpr uint8_t FirstExternalMode = 23, LastExternalMode = 30;
++	static constexpr uint8_t ExternalModeCount = LastExternalMode - FirstExternalMode + 1;
++
++	void initialize(const OwnedModeToken &incarnation)
++	{
++		if (_initialized) { return; }
++
++		_initialized = true;
++		_incarnation = incarnation;
++	}
++	bool available(const OwnedModeIntention &intention) const { return validOwnedModeToken(_incarnation) && intention.available(); }
++	const OwnedModeToken &incarnation() const { return _incarnation; }
++	OwnedModeState state() const { return _state; }
++	const OwnedModeRequest &acquisition() const { return _acquisition; }
++	uint64_t acquiredEpoch() const { return _acquired_epoch; }
++	uint64_t acceptedRevision() const { return _accepted_revision; }
++
++	bool ownerActive(const OwnedModeObservation &observation, const OwnedModeIntention &intention) const
++	{
++		return _state == OwnedModeState::Acquired && matchesActivation(observation)
++		       && intention.token() == _acquisition.token && intention.revision() == _accepted_revision
++		       && observation.registration_id == _acquisition.registration_id && observation.armed && !observation.rescue;
++	}
++
++	bool validTime(const OwnedModeRequest &request, uint64_t now) const
++	{
++		return request.source_clock > 0 && request.source_clock <= now && request.expires > now
++		       && request.expires > request.source_clock
++		       && request.expires - request.source_clock <= MaximumRequestWindowUs;
++	}
++
++	OwnedModeAction request(const OwnedModeRequest &request, const OwnedModeObservation &observation,
++				OwnedModeIntention &intention, uint64_t now, uint8_t hold_mode)
++	{
++		if (!available(intention) || request.incarnation != _incarnation || !validOwnedModeToken(request.token)
++		    || (request.operation != OwnedModeOperation::Acquire && request.operation != OwnedModeOperation::Release)
++		    || (request.operation == OwnedModeOperation::Acquire && request.acquired_epoch != 0)
++		    || request.mode < FirstExternalMode || request.mode > LastExternalMode) { return OwnedModeAction::None; }
++
++		if (request.token == _acquisition.token && _state != OwnedModeState::Idle) {
++			if (!request.sameAcquisition(_acquisition)) { return OwnedModeAction::None; }
++
++			if (request.operation == OwnedModeOperation::Acquire) {
++				// Repeated acquire is observation only, including after cancellation.
++				return OwnedModeAction::None;
++			}
++
++			if ((_release_seen && !((_state == OwnedModeState::Acquired || _state == OwnedModeState::Releasing) && _release == request))
++			    || terminal() || !validTime(request, now)
++			    || (request.acquired_epoch != 0 && request.acquired_epoch != _acquired_epoch)) { return OwnedModeAction::None; }
++
++			// An accepted Hold is already under native arbitration; a duplicate cannot
++			// reinterpret it as an unrelated takeover or issue it again.
++			if (_state == OwnedModeState::Releasing
++			    && (intention.token() != _acquisition.token || intention.revision() != _release_revision)) {
++				return OwnedModeAction::None;
++			}
++
++			_release_seen = true;
++			_release = request;
++
++			if (ownerActive(observation, intention)
++			    || (_state == OwnedModeState::Releasing && matchesActivation(observation)
++				&& intention.token() == _acquisition.token && intention.revision() == _release_revision
++				&& observation.registration_id == _acquisition.registration_id && observation.armed && !observation.rescue)) {
++				_state = OwnedModeState::Releasing;
++				_hold_mode = hold_mode;
++				return OwnedModeAction::Hold;
++			}
++
++			if (_state == OwnedModeState::Pending && intention.token() == _acquisition.token
++			    && intention.revision() == _accepted_revision && matchesSource(observation)) {
++				_state = OwnedModeState::Cancelled;
++				return OwnedModeAction::RestoreSource;
++			}
++
++			_state = OwnedModeState::Superseded;
++			return OwnedModeAction::None;
++		}
++
++		if (!terminal() || !validTime(request, now) || !observation.armed || observation.rescue
++		    || request.registration_id == 0 || request.registration_id != observation.registration_id
++		    || !matchesSource(request, observation) || request.source_mode == request.mode
++		    || !intention.consume(request.source_revision)) { return OwnedModeAction::None; }
++
++		_acquisition = request;
++		_acquisition.operation = OwnedModeOperation::Acquire;
++		_acquired_epoch = 0;
++		_accepted_revision = 0;
++		_release_revision = 0;
++		_release_seen = request.operation == OwnedModeOperation::Release;
++		_hold_mode = hold_mode;
++		_state = _release_seen ? OwnedModeState::Cancelled : OwnedModeState::Pending;
++		return _release_seen ? OwnedModeAction::None : OwnedModeAction::Acquire;
++	}
++
++	void acquisitionRequested(bool accepted, const OwnedModeIntention &intention)
++	{
++		if (_state != OwnedModeState::Pending) { return; }
++
++		_accepted_revision = intention.revision();
++
++		if (!accepted || intention.token() != _acquisition.token) { _state = OwnedModeState::Rejected; }
++	}
++
++	void releaseRequested(bool accepted, const OwnedModeIntention &intention)
++	{
++		if (_state != OwnedModeState::Releasing) { return; }
++
++		_release_revision = intention.revision();
++
++		if (!accepted && _acquired_epoch < _acquisition.expires) { _state = OwnedModeState::Acquired; }
++	}
++
++	OwnedModeAction observe(const OwnedModeObservation &observation, const OwnedModeIntention &intention, uint64_t now)
++	{
++		if (_state == OwnedModeState::Pending) {
++			if (observation.registration_id != _acquisition.registration_id) {
++				_state = OwnedModeState::Superseded;
++				return intention.token() == _acquisition.token && matchesSource(observation)
++				       ? OwnedModeAction::RestoreSource : OwnedModeAction::None;
++
++			} else if (intention.token() != _acquisition.token || intention.revision() != _accepted_revision
++				   || !observation.armed || observation.rescue) {
++				_state = OwnedModeState::Superseded;
++
++			} else if (observation.mode == _acquisition.mode && observation.epoch > _acquisition.source_epoch) {
++				// The activation epoch, not the later receipt poll, decides native deadline validity.
++				_acquired_epoch = observation.epoch;
++				_state = _acquired_epoch < _acquisition.expires ? OwnedModeState::Acquired : OwnedModeState::Releasing;
++
++				if (_state == OwnedModeState::Releasing) { return OwnedModeAction::Hold; }
++
++			} else if (now >= _acquisition.expires) {
++				_state = OwnedModeState::Expired;
++				return matchesSource(observation) ? OwnedModeAction::RestoreSource : OwnedModeAction::None;
++
++			} else if (!matchesSource(observation)) {
++				_state = OwnedModeState::Superseded;
++			}
++
++		} else if (_state == OwnedModeState::Acquired && !ownerActive(observation, intention)) {
++			_state = OwnedModeState::Superseded;
++
++		} else if (_state == OwnedModeState::Releasing) {
++			if (intention.revision() != _release_revision || observation.rescue || !observation.armed
++			    || observation.registration_id != _acquisition.registration_id) {
++				_state = OwnedModeState::Superseded;
++
++			} else if (!matchesActivation(observation)) {
++				_state = observation.mode == _hold_mode && observation.epoch > _acquired_epoch
++					 ? OwnedModeState::Released : OwnedModeState::Superseded;
++			}
++		}
++
++		return OwnedModeAction::None;
++	}
++
++	bool terminal() const
++	{
++		return _state != OwnedModeState::Pending && _state != OwnedModeState::Acquired && _state != OwnedModeState::Releasing;
++	}
++
++private:
++	static bool matchesSource(const OwnedModeRequest &request, const OwnedModeObservation &observation)
++	{
++		return request.source_mode == observation.mode && request.source_epoch > 0 && request.source_epoch == observation.epoch;
++	}
++	bool matchesSource(const OwnedModeObservation &observation) const { return matchesSource(_acquisition, observation); }
++	bool matchesActivation(const OwnedModeObservation &observation) const
++	{
++		return _acquired_epoch > 0 && observation.mode == _acquisition.mode && observation.epoch == _acquired_epoch;
++	}
++	OwnedModeToken _incarnation{};
++	OwnedModeRequest _acquisition{}, _release{};
++	OwnedModeState _state{OwnedModeState::Idle};
++	uint64_t _accepted_revision{}, _release_revision{}, _acquired_epoch{};
++	uint8_t _hold_mode{};
++	bool _release_seen{};
++	bool _initialized{};
++};
++
++} // namespace px4
+diff --git a/src/modules/commander/OwnedModeGuardTest.cpp b/src/modules/commander/OwnedModeGuardTest.cpp
+new file mode 100644
+index 00000000..8f8b8af7
+--- /dev/null
++++ b/src/modules/commander/OwnedModeGuardTest.cpp
+@@ -0,0 +1,328 @@
++// SPDX-License-Identifier: BSD-3-Clause
++#include "OwnedModeGuard.hpp"
++#include <gtest/gtest.h>
++
++namespace
++{
++using namespace px4;
++constexpr uint8_t Hold = 4, External = 23;
++const OwnedModeToken Incarnation{10, 11}, Token{20, 21};
++
++struct Fixture {
++	OwnedModeGuard guard;
++	OwnedModeIntention intention;
++	OwnedModeObservation observation{Hold, 100, true, false, 9000};
++	OwnedModeRequest acquisition{OwnedModeOperation::Acquire, Incarnation, Token, 0, 100, 0, 1000, 501000, Hold, External, 9000};
++	Fixture() { guard.initialize(Incarnation); }
++	void acquire()
++	{
++		ASSERT_EQ(guard.request(acquisition, observation, intention, 1001, Hold), OwnedModeAction::Acquire);
++		intention.acceptedChange(Token);
++		guard.acquisitionRequested(true, intention);
++		observation = {External, 200, true, false, 9000};
++		guard.observe(observation, intention, 1002);
++		ASSERT_TRUE(guard.ownerActive(observation, intention));
++	}
++	OwnedModeRequest release() const
++	{
++		auto request = acquisition;
++		request.operation = OwnedModeOperation::Release;
++		request.acquired_epoch = guard.acquiredEpoch();
++		request.source_clock = 2000;
++		request.expires = 502000;
++		return request;
++	}
++};
++
++TEST(OwnedModeGuard, AcknowledgedIntentionDoesNotEstablishAcquisition)
++{
++	Fixture f;
++	EXPECT_EQ(f.guard.request(f.acquisition, f.observation, f.intention, 1001, Hold), OwnedModeAction::Acquire);
++	f.intention.acceptedChange(Token);
++	f.guard.acquisitionRequested(true, f.intention);
++	EXPECT_EQ(f.guard.state(), OwnedModeState::Pending);
++	EXPECT_EQ(f.guard.acquiredEpoch(), 0);
++	EXPECT_FALSE(f.guard.ownerActive(f.observation, f.intention));
++}
++
++TEST(OwnedModeGuard, ExplicitPilotSameIdSelectionCannotBeAdoptedWhilePending)
++{
++	Fixture f;
++	ASSERT_EQ(f.guard.request(f.acquisition, f.observation, f.intention, 1001, Hold), OwnedModeAction::Acquire);
++	f.intention.acceptedChange(Token);
++	f.guard.acquisitionRequested(true, f.intention);
++	f.intention.acceptedChange();
++	f.observation = {External, 200, true, false, 9000};
++	f.guard.observe(f.observation, f.intention, 1002);
++	EXPECT_EQ(f.guard.state(), OwnedModeState::Superseded);
++	EXPECT_EQ(f.guard.acquiredEpoch(), 0);
++	EXPECT_FALSE(f.guard.ownerActive(f.observation, f.intention));
++	EXPECT_EQ(f.guard.request(f.release(), f.observation, f.intention, 2001, Hold), OwnedModeAction::None);
++}
++
++TEST(OwnedModeGuard, SkippedOriginalActivationRetainsItsEpochAndNeverReleasesReplacement)
++{
++	Fixture f;
++	f.acquire(); // Firmware records 200 even if no adapter has received that status.
++	f.intention.acceptedChange();
++	f.observation = {Hold, 250, true, false, 9000};
++	f.guard.observe(f.observation, f.intention, 1003);
++	f.intention.acceptedChange();
++	f.observation = {External, 300, true, false, 9000};
++	f.guard.observe(f.observation, f.intention, 1004);
++	EXPECT_EQ(f.guard.acquiredEpoch(), 200);
++	EXPECT_EQ(f.guard.state(), OwnedModeState::Superseded);
++	EXPECT_FALSE(f.guard.ownerActive(f.observation, f.intention));
++	EXPECT_EQ(f.guard.request(f.release(), f.observation, f.intention, 2001, Hold), OwnedModeAction::None);
++}
++
++TEST(OwnedModeGuard, UnchangedObservationAndReadOnlyReconciliationPreserveOwner)
++{
++	Fixture f;
++	f.acquire();
++	const auto revision = f.intention.revision();
++
++	for (uint64_t time = 2000; time < 3000; ++time) {
++		EXPECT_EQ(f.guard.observe(f.observation, f.intention, time), OwnedModeAction::None);
++		EXPECT_EQ(f.intention.revision(), revision);
++		EXPECT_TRUE(f.guard.ownerActive(f.observation, f.intention));
++	}
++}
++
++TEST(OwnedModeGuard, SameOwnerReleaseConfirmsActualHoldAndIsIdempotent)
++{
++	Fixture f;
++	f.acquire();
++	const auto request = f.release();
++	ASSERT_EQ(f.guard.request(request, f.observation, f.intention, 2001, Hold), OwnedModeAction::Hold);
++	f.intention.acceptedChange();
++	f.guard.releaseRequested(true, f.intention);
++	EXPECT_EQ(f.guard.state(), OwnedModeState::Releasing);
++	EXPECT_EQ(f.guard.request(request, f.observation, f.intention, 2002, Hold), OwnedModeAction::None);
++	f.observation = {Hold, 400, true, false, 9000};
++	f.guard.observe(f.observation, f.intention, 2003);
++	EXPECT_EQ(f.guard.state(), OwnedModeState::Released);
++	EXPECT_EQ(f.guard.acquiredEpoch(), 200);
++	EXPECT_EQ(f.guard.request(request, f.observation, f.intention, 2004, Hold), OwnedModeAction::None);
++}
++
++TEST(OwnedModeGuard, CancellationBeforeAcquireLeavesTombstoneAndConsumesRevision)
++{
++	Fixture f;
++	const auto cancel = f.release();
++	EXPECT_EQ(f.guard.request(cancel, f.observation, f.intention, 2001, Hold), OwnedModeAction::None);
++	EXPECT_EQ(f.guard.state(), OwnedModeState::Cancelled);
++	EXPECT_GT(f.intention.revision(), f.acquisition.source_revision);
++	EXPECT_EQ(f.guard.request(f.acquisition, f.observation, f.intention, 2002, Hold), OwnedModeAction::None);
++	EXPECT_EQ(f.guard.state(), OwnedModeState::Cancelled);
++	EXPECT_EQ(f.guard.acquiredEpoch(), 0);
++}
++
++TEST(OwnedModeGuard, OldAcquireCannotReplayAfterOneReceiptWasReplaced)
++{
++	Fixture f;
++	f.guard.request(f.release(), f.observation, f.intention, 2001, Hold);
++	auto other = f.acquisition;
++	other.token = {30, 31};
++	other.source_revision = f.intention.revision();
++	EXPECT_EQ(f.guard.request(other, f.observation, f.intention, 2002, Hold), OwnedModeAction::Acquire);
++	f.intention.acceptedChange(other.token);
++	f.guard.acquisitionRequested(true, f.intention);
++	f.intention.acceptedChange();
++	f.guard.observe(f.observation, f.intention, 2003);
++	EXPECT_EQ(f.guard.request(f.acquisition, f.observation, f.intention, 2004, Hold), OwnedModeAction::None);
++	EXPECT_EQ(f.guard.acquisition().token, other.token);
++}
++
++TEST(OwnedModeGuard, PendingCancellationRestoresOnlyItsOwnStillCurrentIntention)
++{
++	Fixture f;
++	ASSERT_EQ(f.guard.request(f.acquisition, f.observation, f.intention, 1001, Hold), OwnedModeAction::Acquire);
++	f.intention.acceptedChange(Token);
++	f.guard.acquisitionRequested(true, f.intention);
++	EXPECT_EQ(f.guard.request(f.release(), f.observation, f.intention, 2001, Hold), OwnedModeAction::RestoreSource);
++	f.intention.acceptedChange();
++	EXPECT_EQ(f.guard.request(f.acquisition, f.observation, f.intention, 2002, Hold), OwnedModeAction::None);
++	EXPECT_EQ(f.guard.state(), OwnedModeState::Cancelled);
++}
++
++TEST(OwnedModeGuard, ExpiryBeforeActualActivationCannotCreateAnAcquisitionReceipt)
++{
++	Fixture f;
++	f.guard.request(f.acquisition, f.observation, f.intention, 1001, Hold);
++	f.intention.acceptedChange(Token);
++	f.guard.acquisitionRequested(true, f.intention);
++	EXPECT_EQ(f.guard.observe(f.observation, f.intention, f.acquisition.expires), OwnedModeAction::RestoreSource);
++	f.intention.acceptedChange();
++	f.observation = {External, 200, true, false, 9000};
++	f.guard.observe(f.observation, f.intention, 501001);
++	EXPECT_EQ(f.guard.state(), OwnedModeState::Expired);
++	EXPECT_EQ(f.guard.acquiredEpoch(), 0);
++}
++
++TEST(OwnedModeGuard, PreexistingExternalModeAndMalformedTimingCannotAcquire)
++{
++	for (int invalid = 0; invalid < 6; ++invalid) {
++		Fixture f;
++		auto request = f.acquisition;
++
++		if (invalid == 0) { f.observation = {External, 100, true, false, 9000}; request.source_mode = External; }
++
++		if (invalid == 1) { request.source_clock = 0; }
++
++		if (invalid == 2) { request.source_clock = 1002; }
++
++		if (invalid == 3) { request.expires = 1001; }
++
++		if (invalid == 4) { ++request.expires; }
++
++		if (invalid == 5) { request.incarnation[0]++; }
++
++		EXPECT_EQ(f.guard.request(request, f.observation, f.intention, 1001, Hold), OwnedModeAction::None);
++		EXPECT_EQ(f.guard.state(), OwnedModeState::Idle);
++		EXPECT_EQ(f.intention.revision(), 0);
++	}
++}
++
++TEST(OwnedModeGuard, TakeoverDisarmRescueAndSameIdRevisionLossFenceReleaseAtInvocation)
++{
++	for (int condition = 0; condition < 4; ++condition) {
++		Fixture f;
++		f.acquire();
++
++		if (condition == 0) { f.observation = {5, 300, true, false, 9000}; }
++
++		if (condition == 1) { f.observation.armed = false; }
++
++		if (condition == 2) { f.observation.rescue = true; }
++
++		if (condition == 3) { f.intention.acceptedChange(); }
++
++		f.guard.observe(f.observation, f.intention, 2001);
++		EXPECT_EQ(f.guard.request(f.release(), f.observation, f.intention, 2002, Hold), OwnedModeAction::None);
++		EXPECT_EQ(f.guard.state(), OwnedModeState::Superseded);
++	}
++}
++
++TEST(OwnedModeGuard, NoEntropyCannotCreateOwnershipOrRetryInitialization)
++{
++	OwnedModeGuard guard;
++	OwnedModeIntention intention;
++	guard.initialize({});
++	EXPECT_FALSE(guard.available(intention));
++	guard.initialize(Incarnation);
++	EXPECT_FALSE(guard.available(intention));
++}
++
++TEST(OwnedModeGuard, FullNonzeroEntropyIsRequiredForTheExact128BitIncarnation)
++{
++	const auto good = makeOwnedModeIncarnation([](uint8_t *out, size_t length) {
++		for (size_t index = 0; index < length; ++index) { out[index] = static_cast<uint8_t>(index + 1); }
++
++		return length;
++	});
++	EXPECT_TRUE(validOwnedModeToken(good));
++	const auto short_read = makeOwnedModeIncarnation([](uint8_t *out, size_t length) {
++		for (size_t index = 0; index < length; ++index) { out[index] = 1; }
++
++		return length - 1;
++	});
++	EXPECT_FALSE(validOwnedModeToken(short_read));
++	const auto zero = makeOwnedModeIncarnation([](uint8_t *, size_t length) { return length; });
++	EXPECT_FALSE(validOwnedModeToken(zero));
++}
++
++TEST(OwnedModeGuard, RevisionExhaustionNeverWrapsOrReturnsAuthority)
++{
++	uint64_t revision = std::numeric_limits<uint64_t>::max() - 1;
++	EXPECT_FALSE(advanceOwnedModeRevision(revision));
++	EXPECT_EQ(revision, std::numeric_limits<uint64_t>::max());
++	EXPECT_FALSE(advanceOwnedModeRevision(revision));
++	EXPECT_EQ(revision, std::numeric_limits<uint64_t>::max());
++}
++
++TEST(OwnedModeGuard, RegistrationReplacementWithdrawsPendingAcquisitionAndNeverAdoptsItsMode)
++{
++	Fixture f;
++	f.guard.request(f.acquisition, f.observation, f.intention, 1001, Hold);
++	f.intention.acceptedChange(Token);
++	f.guard.acquisitionRequested(true, f.intention);
++	f.observation.registration_id = 0;
++	EXPECT_EQ(f.guard.observe(f.observation, f.intention, 1002), OwnedModeAction::RestoreSource);
++	f.intention.acceptedChange();
++	f.observation = {External, 200, true, false, 9001};
++	f.guard.observe(f.observation, f.intention, 1003);
++	EXPECT_EQ(f.guard.state(), OwnedModeState::Superseded);
++	EXPECT_EQ(f.guard.acquiredEpoch(), 0);
++	EXPECT_FALSE(f.guard.ownerActive(f.observation, f.intention));
++}
++
++TEST(OwnedModeGuard, RepeatedAcquisitionCannotRefreshTheOriginalNativeDeadline)
++{
++	Fixture f;
++	f.guard.request(f.acquisition, f.observation, f.intention, 1001, Hold);
++	f.intention.acceptedChange(Token);
++	f.guard.acquisitionRequested(true, f.intention);
++	auto repeated = f.acquisition;
++	repeated.source_clock += 1000;
++	repeated.expires += 1000;
++	EXPECT_EQ(f.guard.request(repeated, f.observation, f.intention, 2001, Hold), OwnedModeAction::None);
++	EXPECT_EQ(f.guard.acquisition().expires, f.acquisition.expires);
++	EXPECT_EQ(f.guard.observe(f.observation, f.intention, f.acquisition.expires), OwnedModeAction::RestoreSource);
++}
++
++TEST(OwnedModeGuard, TimelyActualActivationIsRecordedEvenWhenObservedAfterDeadline)
++{
++	Fixture f;
++	f.guard.request(f.acquisition, f.observation, f.intention, 1001, Hold);
++	f.intention.acceptedChange(Token);
++	f.guard.acquisitionRequested(true, f.intention);
++	f.observation = {External, f.acquisition.expires - 1, true, false, 9000};
++	EXPECT_EQ(f.guard.observe(f.observation, f.intention, f.acquisition.expires + 100), OwnedModeAction::None);
++	EXPECT_EQ(f.guard.acquiredEpoch(), f.acquisition.expires - 1);
++	EXPECT_TRUE(f.guard.ownerActive(f.observation, f.intention));
++}
++
++TEST(OwnedModeGuard, ActivationCrossingDeadlineRemainsUnconfirmedUntilActualHold)
++{
++	for (const uint64_t offset : {0, 1}) {
++		Fixture f;
++		f.guard.request(f.acquisition, f.observation, f.intention, 1001, Hold);
++		f.intention.acceptedChange(Token);
++		f.guard.acquisitionRequested(true, f.intention);
++		EXPECT_EQ(f.guard.observe(f.observation, f.intention, f.acquisition.expires - 1), OwnedModeAction::None);
++		f.observation = {External, f.acquisition.expires + offset, true, false, 9000};
++		EXPECT_EQ(f.guard.observe(f.observation, f.intention, f.acquisition.expires + 100), OwnedModeAction::Hold);
++		EXPECT_EQ(f.guard.acquiredEpoch(), f.acquisition.expires + offset);
++		EXPECT_EQ(f.guard.state(), OwnedModeState::Releasing);
++		EXPECT_FALSE(f.guard.ownerActive(f.observation, f.intention));
++		// Ineligible Hold keeps the exact activation unresolved, not terminal/already released.
++		f.guard.releaseRequested(false, f.intention);
++		f.guard.observe(f.observation, f.intention, f.acquisition.expires + 101);
++		EXPECT_EQ(f.guard.state(), OwnedModeState::Releasing);
++		EXPECT_FALSE(f.guard.terminal());
++		auto release = f.release();
++		release.source_clock = f.acquisition.expires + 102;
++		release.expires = release.source_clock + 1000;
++		EXPECT_EQ(f.guard.request(release, f.observation, f.intention, release.source_clock, Hold), OwnedModeAction::Hold);
++		f.intention.acceptedChange();
++		f.guard.releaseRequested(true, f.intention);
++		f.observation = {Hold, release.source_clock + 1, true, false, 9000};
++		f.guard.observe(f.observation, f.intention, release.source_clock + 2);
++		EXPECT_EQ(f.guard.state(), OwnedModeState::Released);
++	}
++}
++
++TEST(OwnedModeGuard, DeadlineCrossingNeverReleasesPilotSameIdActivation)
++{
++	Fixture f;
++	f.guard.request(f.acquisition, f.observation, f.intention, 1001, Hold);
++	f.intention.acceptedChange(Token);
++	f.guard.acquisitionRequested(true, f.intention);
++	f.intention.acceptedChange();
++	f.observation = {External, f.acquisition.expires, true, false, 9000};
++	EXPECT_EQ(f.guard.observe(f.observation, f.intention, f.acquisition.expires + 100), OwnedModeAction::None);
++	EXPECT_EQ(f.guard.state(), OwnedModeState::Superseded);
++	EXPECT_EQ(f.guard.acquiredEpoch(), 0);
++}
++} // namespace
+diff --git a/src/modules/commander/UserModeIntention.cpp b/src/modules/commander/UserModeIntention.cpp
+index c1578b2f..bb6f206e 100644
+--- a/src/modules/commander/UserModeIntention.cpp
++++ b/src/modules/commander/UserModeIntention.cpp
+@@ -42,7 +42,7 @@ UserModeIntention::UserModeIntention(const vehicle_status_s &vehicle_status,
+ }
+ 
+ bool UserModeIntention::change(uint8_t user_intended_nav_state, ModeChangeSource source, bool allow_fallback,
+-			       bool force)
++			       bool force, const px4::OwnedModeToken &ownership_token)
+ {
+ 	if (_handler) {
+ 		// If a replacement mode is selected, select the internal one instead. The replacement will be selected after.
+@@ -70,6 +70,11 @@ bool UserModeIntention::change(uint8_t user_intended_nav_state, ModeChangeSource
+ 	allow_change &= _vehicle_status.nav_state != vehicle_status_s::NAVIGATION_STATE_TERMINATION;
+ 
+ 	if (allow_change) {
++		if (px4::validOwnedModeToken(ownership_token)) { _owned_previous_intention = _user_intented_nav_state; }
++
++		// change() is an accepted intention event, even when the mode ID is unchanged.
++		// Polling/getHadModeChangeAndClear never changes this correlation.
++		_owned_mode_intention.acceptedChange(ownership_token);
+ 		_had_mode_change = true;
+ 		_user_intented_nav_state = user_intended_nav_state;
+ 
+@@ -89,8 +94,20 @@ bool UserModeIntention::change(uint8_t user_intended_nav_state, ModeChangeSource
+ 	return allow_change;
+ }
+ 
++bool UserModeIntention::cancelOwnedChange(const px4::OwnedModeToken &token, uint64_t revision)
++{
++	if (!px4::validOwnedModeToken(token) || _owned_mode_intention.token() != token
++	    || _owned_mode_intention.revision() != revision) { return false; }
++
++	// Withdraw only our still-pending intention. The source may no longer be executable;
++	// native failsafe arbitration, not this rollback, selects the resulting actual mode.
++	return change(_owned_previous_intention, ModeChangeSource::User, false, true);
++}
++
+ void UserModeIntention::onDisarm()
+ {
++	_owned_mode_intention.acceptedChange();
++
+ 	if (_handler) {
+ 		_user_intented_nav_state = _handler->onDisarm(_nav_state_after_disarming);
+ 
+diff --git a/src/modules/commander/UserModeIntention.hpp b/src/modules/commander/UserModeIntention.hpp
+index 3f229b9d..67693520 100644
+--- a/src/modules/commander/UserModeIntention.hpp
++++ b/src/modules/commander/UserModeIntention.hpp
+@@ -34,6 +34,7 @@
+ #pragma once
+ 
+ #include <uORB/topics/vehicle_status.h>
++#include "OwnedModeGuard.hpp"
+ #include "HealthAndArmingChecks/HealthAndArmingChecks.hpp"
+ 
+ enum class ModeChangeSource {
+@@ -90,7 +91,10 @@ public:
+ 	 * @return true if successfully set (also if unchanged)
+ 	 */
+ 	bool change(uint8_t user_intended_nav_state, ModeChangeSource source = ModeChangeSource::User,
+-		    bool allow_fallback = false, bool force = false);
++		    bool allow_fallback = false, bool force = false, const px4::OwnedModeToken &ownership_token = {});
++
++	px4::OwnedModeIntention &ownedModeIntention() { return _owned_mode_intention; }
++	bool cancelOwnedChange(const px4::OwnedModeToken &token, uint64_t revision);
+ 
+ 	uint8_t get() const { return _user_intented_nav_state; }
+ 
+@@ -113,4 +117,6 @@ private:
+ 	uint8_t _nav_state_after_disarming{vehicle_status_s::NAVIGATION_STATE_POSCTL}; ///< Mode that is switched into after landing/disarming
+ 
+ 	bool _had_mode_change{false}; ///< true if there was a mode change call since the last getHadModeChangeAndClear()
++	px4::OwnedModeIntention _owned_mode_intention;
++	uint8_t _owned_previous_intention{vehicle_status_s::NAVIGATION_STATE_POSCTL};
+ };
+diff --git a/src/modules/commander/UserModeIntentionOwnedTest.cpp b/src/modules/commander/UserModeIntentionOwnedTest.cpp
+new file mode 100644
+index 00000000..e87c2143
+--- /dev/null
++++ b/src/modules/commander/UserModeIntentionOwnedTest.cpp
+@@ -0,0 +1,151 @@
++// SPDX-License-Identifier: BSD-3-Clause
++#include "UserModeIntention.hpp"
++#include <gtest/gtest.h>
++#include <px4_platform_common/px4_work_queue/WorkQueueManager.hpp>
++#include <px4_random.h>
++
++namespace
++{
++class ModeEvents : public ModeChangeHandler
++{
++public:
++	void onUserIntendedNavStateChange(ModeChangeSource, uint8_t mode) override { last_mode = mode; ++events; }
++	uint8_t getReplacedModeIfAny(uint8_t mode) override { return mode; }
++	uint8_t onDisarm(uint8_t mode) override { return mode; }
++	uint8_t last_mode{};
++	unsigned events{};
++};
++
++class WorkQueueRuntime
++{
++public:
++	WorkQueueRuntime() { EXPECT_EQ(px4::WorkQueueManagerStart(), 0); }
++	~WorkQueueRuntime() { px4::WorkQueueManagerStop(); }
++};
++
++struct Fixture {
++	WorkQueueRuntime work_queue;
++	vehicle_status_s status{};
++	HealthAndArmingChecks health{nullptr, status};
++	ModeEvents events;
++	UserModeIntention intention{status, health, &events};
++	const px4::OwnedModeToken token{1, 2};
++	Fixture()
++	{
++		status.arming_state = vehicle_status_s::ARMING_STATE_DISARMED;
++		status.nav_state = vehicle_status_s::NAVIGATION_STATE_AUTO_LOITER;
++		status.nav_state_timestamp = 100;
++	}
++	void pending(uint8_t source = vehicle_status_s::NAVIGATION_STATE_AUTO_LOITER)
++	{
++		ASSERT_TRUE(intention.change(source));
++		ASSERT_TRUE(intention.change(vehicle_status_s::NAVIGATION_STATE_EXTERNAL1, ModeChangeSource::User, false, false, token));
++	}
++};
++
++TEST(UserModeIntentionOwned, RollbackWithdrawsPendingIntentionWhenSourceCanNoLongerRun)
++{
++	Fixture f;
++	f.pending();
++	const auto revision = f.intention.ownedModeIntention().revision();
++	f.status.arming_state = vehicle_status_s::ARMING_STATE_ARMED;
++	// No fabricated health report: an unqualified source is ineligible in the real class.
++	ASSERT_FALSE(f.health.canRun(vehicle_status_s::NAVIGATION_STATE_AUTO_LOITER));
++	ASSERT_FALSE(f.intention.change(vehicle_status_s::NAVIGATION_STATE_AUTO_LOITER));
++	ASSERT_TRUE(f.intention.cancelOwnedChange(f.token, revision));
++	EXPECT_EQ(f.intention.get(), vehicle_status_s::NAVIGATION_STATE_AUTO_LOITER);
++	EXPECT_FALSE(px4::validOwnedModeToken(f.intention.ownedModeIntention().token()));
++	// An intention rollback is not forced actual aircraft mode entry.
++	EXPECT_EQ(f.status.nav_state, vehicle_status_s::NAVIGATION_STATE_AUTO_LOITER);
++	EXPECT_EQ(f.status.nav_state_timestamp, 100);
++}
++
++TEST(UserModeIntentionOwned, MissingSourceRegistrationCannotLeaveExpiredExternalIntentionPending)
++{
++	Fixture f;
++	f.status.nav_state = vehicle_status_s::NAVIGATION_STATE_EXTERNAL2;
++	f.pending(vehicle_status_s::NAVIGATION_STATE_EXTERNAL2);
++	const auto revision = f.intention.ownedModeIntention().revision();
++	f.status.arming_state = vehicle_status_s::ARMING_STATE_ARMED;
++	ASSERT_FALSE(f.health.canRun(vehicle_status_s::NAVIGATION_STATE_EXTERNAL2));
++	ASSERT_TRUE(f.intention.cancelOwnedChange(f.token, revision));
++	EXPECT_EQ(f.intention.get(), vehicle_status_s::NAVIGATION_STATE_EXTERNAL2);
++	EXPECT_NE(f.intention.get(), vehicle_status_s::NAVIGATION_STATE_EXTERNAL1);
++	EXPECT_EQ(f.status.nav_state, vehicle_status_s::NAVIGATION_STATE_EXTERNAL2);
++}
++
++TEST(UserModeIntentionOwned, AcceptedPilotRequestIncludingSameIdPreventsOldRollback)
++{
++	for (const auto pilot_mode : {vehicle_status_s::NAVIGATION_STATE_AUTO_RTL, vehicle_status_s::NAVIGATION_STATE_EXTERNAL1}) {
++		Fixture f;
++		f.pending();
++		const auto revision = f.intention.ownedModeIntention().revision();
++		ASSERT_TRUE(f.intention.change(pilot_mode));
++		EXPECT_FALSE(f.intention.cancelOwnedChange(f.token, revision));
++		EXPECT_EQ(f.intention.get(), pilot_mode);
++	}
++}
++
++TEST(UserModeIntentionOwned, ReadOnlyPollingDoesNotRetireTheCurrentToken)
++{
++	Fixture f;
++	f.pending();
++	const auto revision = f.intention.ownedModeIntention().revision();
++
++	for (unsigned iteration = 0; iteration < 100; ++iteration) {
++		f.intention.get();
++		f.intention.getHadModeChangeAndClear();
++		EXPECT_EQ(f.intention.ownedModeIntention().revision(), revision);
++		EXPECT_EQ(f.intention.ownedModeIntention().token(), f.token);
++	}
++}
++
++TEST(UserModeIntentionOwned, PendingDifferentIntentionOrExecutorIsNotAnAcquisitionSource)
++{
++	Fixture f;
++	ASSERT_TRUE(f.intention.change(vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION));
++	EXPECT_FALSE(px4::ownedModeSourceSettled(f.status.nav_state, f.intention.get(), true));
++	ASSERT_TRUE(f.intention.change(f.status.nav_state));
++	EXPECT_FALSE(px4::ownedModeSourceSettled(f.status.nav_state, f.intention.get(), false));
++	EXPECT_TRUE(px4::ownedModeSourceSettled(f.status.nav_state, f.intention.get(), true));
++}
++
++TEST(UserModeIntentionOwned, PosixEntropyProviderReturnsFullNonzeroIncarnation)
++{
++	const auto incarnation = px4::makeOwnedModeIncarnation(px4_get_secure_random);
++	EXPECT_TRUE(px4::validOwnedModeToken(incarnation));
++	uint8_t out[16] {};
++	EXPECT_EQ(px4_get_secure_random(nullptr, sizeof(out)), 0);
++	EXPECT_EQ(px4_get_secure_random(out, 0), 0);
++}
++
++TEST(UserModeIntentionOwned, DeadlineCrossingUsesCanonicalIneligibleHoldWithoutFalseRelease)
++{
++	Fixture f;
++	px4::OwnedModeGuard guard;
++	const px4::OwnedModeToken incarnation{7, 8};
++	guard.initialize(incarnation);
++	px4::OwnedModeRequest request{px4::OwnedModeOperation::Acquire, incarnation, f.token,
++				      f.intention.ownedModeIntention().revision(), f.status.nav_state_timestamp, 0, 1000, 2000,
++				      f.status.nav_state, vehicle_status_s::NAVIGATION_STATE_EXTERNAL1, 9000};
++	px4::OwnedModeObservation observation{f.status.nav_state, f.status.nav_state_timestamp, true, false, 9000};
++	ASSERT_EQ(guard.request(request, observation, f.intention.ownedModeIntention(), 1001,
++				vehicle_status_s::NAVIGATION_STATE_AUTO_LOITER), px4::OwnedModeAction::Acquire);
++	ASSERT_TRUE(f.intention.change(request.mode, ModeChangeSource::User, false, false, f.token));
++	guard.acquisitionRequested(true, f.intention.ownedModeIntention());
++	f.status.nav_state = request.mode;
++	f.status.nav_state_timestamp = request.expires;
++	f.status.arming_state = vehicle_status_s::ARMING_STATE_ARMED;
++	observation = {f.status.nav_state, f.status.nav_state_timestamp, true, false, 9000};
++	ASSERT_EQ(guard.observe(observation, f.intention.ownedModeIntention(), request.expires + 1), px4::OwnedModeAction::Hold);
++	const bool accepted = f.intention.change(vehicle_status_s::NAVIGATION_STATE_AUTO_LOITER);
++	ASSERT_FALSE(accepted);
++	guard.releaseRequested(accepted, f.intention.ownedModeIntention());
++	guard.observe(observation, f.intention.ownedModeIntention(), request.expires + 2);
++	EXPECT_EQ(guard.state(), px4::OwnedModeState::Releasing);
++	EXPECT_EQ(guard.acquiredEpoch(), request.expires);
++	EXPECT_FALSE(guard.terminal());
++	EXPECT_EQ(f.status.nav_state, request.mode);
++	EXPECT_EQ(f.intention.get(), request.mode);
++}
++} // namespace
+diff --git a/src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.cpp b/src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.cpp
+index 61d07d7d..8005a81d 100644
+--- a/src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.cpp
++++ b/src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.cpp
+@@ -422,7 +422,6 @@ void FwLateralLongitudinalControl::publishGuidanceStatus(hrt_abstime now, bool a
+ 	status.observed_equivalent_airspeed = status.airspeed_control_enabled ? _long_control_state.airspeed_eas : NAN;
+ 	status.underspeed_ratio = active ? _tecs.get_underspeed_ratio() : NAN;
+ 	status.controller_active = active;
+-	status.owner_bound_mode_changes_supported = true;
+ 	_guidance_status_pub.publish(status);
+ 	_last_guidance_status_publication = now;
+ }
+diff --git a/src/modules/uxrce_dds_client/dds_topics.yaml b/src/modules/uxrce_dds_client/dds_topics.yaml
+index c19621c9..f192c411 100644
+--- a/src/modules/uxrce_dds_client/dds_topics.yaml
++++ b/src/modules/uxrce_dds_client/dds_topics.yaml
+@@ -97,6 +97,9 @@ publications:
+     type: px4_msgs::msg::AirspeedValidated
+     rate_limit: 50.
+ 
++  - topic: /fmu/out/owned_mode_status
++    type: px4_msgs::msg::OwnedModeStatus
++
+   - topic: /fmu/out/fixed_wing_guidance_status
+     type: px4_msgs::msg::FixedWingGuidanceStatus
+     rate_limit: 10.
+@@ -129,6 +132,9 @@ publications:
+ 
+ # Create uORB::Publication
+ subscriptions:
++  - topic: /fmu/in/owned_mode_request
++    type: px4_msgs::msg::OwnedModeRequest
++
+   - topic: /fmu/in/register_ext_component_request
+     type: px4_msgs::msg::RegisterExtComponentRequest
+ 

@@ -1,11 +1,12 @@
 # ==============================================================================
-# PixEagle Configuration File - v4.0.0 (Schema-Ready Template)
+# PixEagle factory configuration (runtime defaults and schema value source)
 # ==============================================================================
 # 🛡️ CONSERVATIVE DEFAULTS - Safe for first-time testing and demos
 #    - Video: Local file (no network dependencies)
 #    - Tracker: CSRT (OpenCV short-term tracker with validation)
 #    - Follower: mc_velocity_position (stationary, yaw-only)
-#    - Velocities: Max 2 m/s (safe acceleration: 0.5 m/s²)
+#    - Command publication: blocked by FOLLOWER_CIRCUIT_BREAKER
+#    - Limits: see Safety.GlobalLimits; follower guidance may request less
 #
 # 📋 Priority parameters are at the top for quick access
 # 🔧 Clean unified configuration - deprecated params removed
@@ -124,6 +125,13 @@ VideoSource:
   # Universal frame orientation (applies to all source types/backends)
   FRAME_ROTATION_DEG: 0     # Options: 0, 90, 180, 270
   FRAME_FLIP_MODE: none     # Options: none, horizontal, vertical, both
+
+  # Optional measured fixed-camera decoder-grid calibration; null stays uncalibrated.
+  FIXED_CAMERA_CALIBRATION: null
+
+  # Optional isolated Gazebo stamped-image provider. The training launcher fills
+  # socket/source identity and measured camera geometry; ordinary installs leave null.
+  GAZEBO_CAMERA: null
   
   # Custom GStreamer pipeline (advanced users)
   # Example: "videotestsrc ! video/x-raw,width=640,height=480 ! videoconvert ! appsink"
@@ -946,7 +954,9 @@ GimbalTracker:
   ENABLED: false               # Opt-in camera provider; ordinary video/local tracking needs no gimbal
   CONTROL_ENABLED: false       # Opt-in manual camera selection and bounded camera controls
   PROVIDER: "topotek_sip_udp"  # Provider implementation for external gimbal input
+  GAZEBO_INPUT: null           # Advanced isolated simulator transport; null retains ordinary UDP
   MOUNT_TYPE: "HORIZONTAL"      # Options: "HORIZONTAL", "VERTICAL" — aircraft installation, not image rotation
+  HOME_AFTER_TRANSITION: true   # Send camera Home once after an observed tailsitter transition settles
   GEOMETRY_OVERRIDE:
     AZIMUTH_AXIS: "AUTO"          # Options: "AUTO", "YAW", "PITCH", "ROLL"
     AZIMUTH_SIGN: "AUTO"          # Options: "AUTO", "POSITIVE", "NEGATIVE"
@@ -965,15 +975,14 @@ GimbalTracker:
     FORWARD_REENTRY_BEARING_DEG: 80.0
     TRANSITION_DWELL_MS: 300.0
     REARWARD_GRACE_MS: 500.0
-    # Optional fallback for a provider which cannot advertise capabilities.
-    # Keep KNOWN false until the adapter has qualified these values.
-    CAPABILITIES:
-      KNOWN: false
-      SUPPORTS_VERTICAL: false
-      SUPPORTS_REVERSE: false
-      SUPPORTS_YAW_FALLBACK: false
-      AZIMUTH_LIMITS_DEG: [-180.0, 180.0]
-      DEPRESSION_LIMITS_DEG: [-90.0, 90.0]
+    # Null preserves the strategy's implemented MC manoeuvres. [] permits
+    # forward guidance only; a list can restrict vertical/reverse/yaw recovery.
+    ALLOWED_MANOEUVRES: null
+    # Optional measured physical-body FRD acceptance windows, not joint limits
+    # or a claim that the camera can mechanically reach every direction.
+    OBSERVATION_LIMITS:
+      AZIMUTH_LIMITS_DEG: null
+      DEPRESSION_LIMITS_DEG: null
 
   # Network configuration for gimbal UDP communication
   UDP_HOST: "192.168.0.108"      # Gimbal IP address
@@ -995,6 +1004,10 @@ GimbalTracker:
 # FOLLOWER MODE (Drone Following Behavior)
 # ==============================================================================
 Follower:
+  # AUTO follows fresh PX4 state. Explicit choices verify the installation;
+  # they do not force a flight phase or change the camera mounting transform.
+  AIRFRAME_LAYOUT: AUTO  # AUTO | MULTICOPTER | FIXED_WING | VTOL | VTOL_TAILSITTER
+  AIRFRAME_PHASE_CONFIRMATION_S: 0.5  # Fresh settled phase before native pursuit starts
   # === Interface Settings ===
   USE_MAVLINK2REST: true                    # Use REST API for MAVLink
   FOLLOWER_DATA_REFRESH_RATE: 5.0           # Telemetry refresh rate (Hz; runtime sleeps 1/rate)
@@ -1004,7 +1017,7 @@ Follower:
   TARGET_POSITION_MODE: center              # center = Tracking.DESIRE_AIM; initial = engagement location
 
   # === Following Mode ===
-  # Options: mc_velocity_ground | mc_velocity_distance | mc_velocity_position | mc_velocity_chase | mc_attitude_rate | fw_attitude_rate | gm_velocity_chase | gm_velocity_vector
+  # Options come from follower_commands.yaml; advanced profiles retain their live qualification gates.
   # Removed aliases raise migration errors: ground_view, constant_distance, constant_position, body_velocity_chase, gimbal_vector_body
   FOLLOWER_MODE: mc_velocity_position
 
@@ -1045,7 +1058,7 @@ Follower:
     GUIDANCE_MODE_SWITCH_VELOCITY: 3.0       # m/s — velocity threshold for mode switch
     MODE_SWITCH_HYSTERESIS: 0.5              # m/s — hysteresis band around switch threshold
     MIN_MODE_SWITCH_INTERVAL: 2.0            # seconds — minimum time between mode switches
-    ENABLE_ALTITUDE_CONTROL: false           # false = safe default (no altitude commands)
+    ENABLE_ALTITUDE_CONTROL: false           # No target-directed vertical guidance; rate-mode altitude hold remains separate
     ALTITUDE_CHECK_INTERVAL: 0.1             # seconds — altitude safety check frequency
 
     # === Yaw Rate Smoothing Pipeline ===
@@ -1083,6 +1096,22 @@ Follower:
 # Follower.FOLLOWER_EXECUTION_MODE=COMMAND_PREVIEW and has no PX4 publisher.
 FOLLOWER_CIRCUIT_BREAKER: true            # true blocks Following/PX4 dispatch; false permits the reviewed command path
 
+# Experimental calibrated-image FW pursuit thresholds; live admission stays gated.
+FW_NAVIGATION_CHASE:
+  # Image-bearing strategy only; no gimbal settings, speed limits or TECS gains.
+  VERTICAL_ENTER_HORIZONTAL_NORM: 0.20  # Enter near-vertical geometry below this unit-ray horizontal norm
+  VERTICAL_EXIT_HORIZONTAL_NORM: 0.30   # Leave near-vertical geometry above this norm
+  REARWARD_ENTRY_BEARING_DEG: 100.0     # Latch coordinated-turn direction beyond this absolute bearing
+  FORWARD_REENTRY_BEARING_DEG: 80.0     # Release the turn latch inside this bearing
+
+# Shared by FW guidance implementations using the qualified native PX4 owner.
+# Older direct-rate guidance cannot silently claim these native capabilities.
+FixedWingGuidance:
+  UPPER_SPEED_POLICY: px4_configured_max # px4_configured_max | no_upper_speed_bound
+  # Optional normalized floor during authorized path-priority descent (0..1).
+  # null retains native throttle behavior; native actuator/underspeed limits remain.
+  MIN_DIVE_THROTTLE: null
+
 
 # ==============================================================================
 # TARGET CONTINUITY (Shared Command-Authority Policy)
@@ -1091,9 +1120,10 @@ FOLLOWER_CIRCUIT_BREAKER: true            # true blocks Following/PX4 dispatch; 
 # section alone controls command authority when target evidence is unavailable.
 # bounded_decay is the gimbal default for multicopter body velocity. It decays
 # horizontal velocity for the configured time/distance budget, then requests
-# Hold if the target is not reacquired. Other live control types still hand off.
+# Hold if the target is not reacquired. Native FW recovery retains viable course
+# and airspeed instead of applying MC decay; live support requires qualification.
 TargetContinuity:
-  MODE: immediate_handoff                 # Options: immediate_handoff | bounded_decay
+  MODE: immediate_handoff                 # Options: immediate_handoff | bounded_decay | bounded_flight
   MAX_COAST_TIME_S: 1.0                   # Upper decay duration
   MAX_COAST_DISTANCE_M: 2.0               # Upper commanded travel budget
   MAX_RETARGET_TIME_S: 3.0                 # Bounded-motion deadline for operator retarget
@@ -1103,6 +1133,14 @@ TargetContinuity:
   RETARGET_PROVISIONAL_AUTHORITY_FRACTION: 0.5 # Cap unconfirmed camera guidance
   RETARGET_RESTORE_TIME_S: 0.5            # New-target authority ramp after confirmation
   TERMINAL_ACTION: hold                   # Supported terminal action: hold
+  # Used only when actual phase and a compatible native contract are available.
+  # Existing saved configurations adopt this through Config Sync preview/apply.
+  PhaseOverrides:
+    fixed_wing:
+      MODE: bounded_flight
+      MAX_COAST_TIME_S: 8.0
+      MAX_RETARGET_TIME_S: 8.0
+      AUTHORITY_RESTORE_TIME_S: 0.5
   # Sparse overrides; absent legacy overrides retain the saved global policy.
   FollowerOverrides:
     GM_VELOCITY_CHASE:
@@ -1123,9 +1161,6 @@ TargetContinuity:
 # GIMBAL PID PURSUIT FOLLOWER CONFIGURATION
 # ==============================================================================
 GM_VELOCITY_CHASE:
-  # === Required Tracker Fields ===
-  REQUIRED_TRACKER_FIELDS: ["angular"]     # Must have angular data from gimbal
-
   # === Forward Velocity Control System ===
   # Implemented modes only; neither mode estimates target range or interception state.
   # NOTE: Max velocity limits are now in Safety.GlobalLimits
@@ -1136,13 +1171,8 @@ GM_VELOCITY_CHASE:
   # === Lateral Guidance / Yaw Smoothing / Mode Switch ===
   # Now in Follower.General (with per-follower overrides in Follower.FollowerOverrides)
 
-  # === Safety Parameters (Override Safety.GlobalLimits if needed) ===
-  # These use unified naming: MIN_ALTITUDE, MAX_ALTITUDE
-  # If not specified, values inherit from Safety.GlobalLimits section
-  # MIN_ALTITUDE: 3.0                     # Override global minimum altitude (meters)
-  # MAX_ALTITUDE: 120.0                   # Override global maximum altitude (meters)
-  # MAX_SAFETY_VIOLATIONS, EMERGENCY_STOP_ENABLED now from Safety.GlobalLimits
-  SAFETY_RETURN_SPEED: 3.0                # Velocity when returning to safe altitude (m/s)
+  # Limits and protection behavior come from Safety.GlobalLimits and its
+  # tighter per-follower overrides, not from this algorithm section.
 
   # === Coordinate Transformation ===
   ANGLE_DEADZONE: 2.0                     # Ignore gimbal movements below this (degrees)
@@ -1152,9 +1182,6 @@ GM_VELOCITY_CHASE:
   PITCH_DEADZONE_DEGREES: 2.0             # Pitch deadzone to prevent jitter (degrees)
   MAX_ROLL_ANGLE: 90.0                    # Maximum expected roll range (degrees)
   MAX_PITCH_ANGLE: 90.0                   # Maximum expected pitch range (degrees)
-
-  # === Default Values for Optional Features ===
-  DEFAULT_THRUST: 0.5                     # Default thrust for attitude rate control mode
 
   # === Performance ===
   # CONTROL_UPDATE_RATE, COMMAND_SMOOTHING_ENABLED, SMOOTHING_FACTOR
@@ -1189,12 +1216,9 @@ GM_VELOCITY_VECTOR:
 
   # === Altitude Safety (Optional Enforcement) ===
   # Enable altitude monitoring and enforcement
-  # Uses unified naming: MIN_ALTITUDE, MAX_ALTITUDE (overrides Safety.GlobalLimits if set)
-  # Resolution: Follower Override → Safety.GlobalLimits → Hardcoded Fallbacks
+  # Resolution: tighter Safety.FollowerOverrides → Safety.GlobalLimits → fallback
   # ALTITUDE_SAFETY_ENABLED, RTL_ON_ALTITUDE_VIOLATION, EMERGENCY_STOP_ENABLED, MAX_SAFETY_VIOLATIONS
   # are now sourced from Safety.GlobalLimits (with per-follower overrides in Safety.FollowerOverrides)
-  # MIN_ALTITUDE: 3.0                     # Override global minimum altitude (meters)
-  # MAX_ALTITUDE: 120.0                   # Override global maximum altitude (meters)
   # ALTITUDE_CHECK_INTERVAL override: 1.0s (set in Follower.FollowerOverrides.GM_VELOCITY_VECTOR)
 
   # === Performance ===
@@ -1204,6 +1228,7 @@ GM_VELOCITY_VECTOR:
 MC_VELOCITY_CHASE:
   # === Forward Velocity Ramping ===
   # NOTE: Max velocity limits are now in Safety.GlobalLimits (single source of truth)
+  REQUESTED_SPEED: 0.5                   # m/s - session startup request; null/missing retains the saved forward target
   INITIAL_FORWARD_VELOCITY: 0.0           # m/s - starting velocity
   FORWARD_RAMP_RATE: 0.5                 # m/s² - acceleration rate
 
@@ -1350,7 +1375,7 @@ MC_VELOCITY_CHASE:
 MC_VELOCITY_POSITION:
   # === Control Enablement ===
   # ENABLE_ALTITUDE_CONTROL now in Follower.General (default: false)
-  ENABLE_YAW_CONTROL: true                # Always enabled for this mode
+  ENABLE_YAW_CONTROL: true                # Allow image-guided yaw; false holds yaw command at zero
 
   # === Yaw Control ===
   # MAX_YAW_RATE now in Safety.FollowerOverrides.MC_VELOCITY_POSITION
@@ -1500,7 +1525,7 @@ MC_ATTITUDE_RATE:
   # === ALTITUDE CONTROL ===
   # Explicit altitude hold using thrust PID
   ENABLE_ALTITUDE_HOLD: true                 # Enable altitude PID for hover
-  TARGET_ALTITUDE_OFFSET: 15.0               # meters — offset from initial capture altitude
+  TARGET_ALTITUDE_OFFSET: 0.0                # meters from engagement; applied only with shared altitude guidance enabled
   ALTITUDE_PID_MIN_OUTPUT: -0.3              # Min altitude PID correction (thrust units)
   ALTITUDE_PID_MAX_OUTPUT: 0.3               # Max altitude PID correction (thrust units)
 
@@ -1552,17 +1577,8 @@ MC_VELOCITY_GROUND:
   # Resolution: FollowerOverrides -> GlobalLimits -> Hardcoded Fallbacks
   ENABLE_DESCEND_TO_TARGET: false       # Enable automatic descent to target
 
-  # === Gimbal Corrections ===
-  IS_CAMERA_GIMBALED: false             # Camera stabilization status
-  BASE_ADJUSTMENT_FACTOR_X: 0.1         # Base correction factor for roll (X-axis)
-  BASE_ADJUSTMENT_FACTOR_Y: 0.1         # Base correction factor for pitch (Y-axis)
-
-  # === Altitude Adjustments ===
-  ALTITUDE_FACTOR: 0.005                # Altitude scaling factor for distance compensation
-
   # === Performance Tuning ===
   # CONTROL_UPDATE_RATE now in Follower.General (default: 20.0 Hz)
-  COORDINATE_CORRECTIONS_ENABLED: true  # Enable gimbal and altitude corrections
   ERROR_LOGGING_ENABLED: true           # Enable detailed error logging
 
 # ==============================================================================
@@ -1725,7 +1741,7 @@ PID:
     mc_pitchspeed_deg_s:    {p: 18.0, i: 0.15, d: 0.4}     # [deg/s] — pitch rate
     mc_rollspeed_deg_s:     {p: 1.5,  i: 0.08, d: 0.25}    # [deg/s] — roll rate
     mc_att_yawspeed_deg_s:  {p: 12.0, i: 0.1,  d: 0.3}     # [deg/s] — yaw rate (attitude mode)
-    mc_att_altitude:        {p: 2.0,  i: 0.3,  d: 0.5}     # [m]     — altitude via thrust
+    mc_att_altitude:        {p: 0.03, i: 0.003, d: 0.08}   # normalized thrust / m; D uses measured upward m/s
 
     # ── FW: L1 + TECS Cascade ────────────────────────────────
     # Used by: fw_attitude_rate only
@@ -1751,6 +1767,7 @@ PID:
 # Resolution Order: valid tighter FollowerOverrides -> GlobalLimits -> fallback
 # ==============================================================================
 Safety:
+  ALLOW_SESSION_VELOCITY_OVERRIDE: false # Advanced: permit temporary MC velocity caps above saved limits
   # ===========================================================================
   # GLOBAL SAFETY LIMITS - SINGLE SOURCE OF TRUTH
   # ===========================================================================
@@ -1759,16 +1776,16 @@ Safety:
   # ===========================================================================
   GlobalLimits:
     # Altitude relative to the estimator/home reference; not terrain clearance
-    MIN_ALTITUDE: 3.0                    # Minimum permitted relative altitude
-    MAX_ALTITUDE: 120.0                  # Maximum permitted relative altitude
+    MIN_ALTITUDE: 5.0                    # Relative-altitude floor; not terrain clearance
+    MAX_ALTITUDE: 100.0                  # Maximum permitted relative altitude
     ALTITUDE_WARNING_BUFFER: 2.0         # Warning zone before hard limits
     ALTITUDE_SAFETY_ENABLED: true        # Enable altitude enforcement
 
     # Velocity Limits (m/s) - SAFE DEFAULTS
     # These are conservative values suitable for testing and demos.
     # Increase these values gradually as you gain confidence with your setup.
-    MAX_VELOCITY: 1.0                    # Overall velocity magnitude limit
-    MAX_VELOCITY_FORWARD: 0.5            # Max forward velocity (demo safe)
+    MAX_VELOCITY: 4.0                    # Configured MC session ceiling; startup request is separate
+    MAX_VELOCITY_FORWARD: 4.0            # Forward ceiling; Chase starts at its lower REQUESTED_SPEED
     MAX_VELOCITY_LATERAL: 0.5            # Max lateral velocity (demo safe)
     MAX_VELOCITY_VERTICAL: 0.5           # Max vertical velocity (demo safe)
 
@@ -1794,10 +1811,10 @@ Safety:
   # FollowerOverrides:
   #   MC_VELOCITY_CHASE:
   #     MAX_VELOCITY_FORWARD: 0.25       # Tighter than the 0.5 m/s envelope
-  #     MIN_ALTITUDE: 5.0                # Stricter minimum for chase mode
+  #     MIN_ALTITUDE: 35.0               # Stricter than the shared 5 m floor
   #   FW_ATTITUDE_RATE:
-  #     MIN_ALTITUDE: 30.0               # Higher floor for fixed-wing safety
-  #     MAX_ALTITUDE: 100.0              # Tighter than the 120 m envelope
+  #     MIN_ALTITUDE: 40.0               # Stricter floor for a configured test site
+  #     MAX_ALTITUDE: 80.0               # Tighter than the 100 m envelope
   #   MC_VELOCITY_GROUND:
   #     MIN_ALTITUDE: 40.0               # Higher minimum for ground view mode
   # ===========================================================================

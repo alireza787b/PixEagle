@@ -10,7 +10,7 @@ aiogrpc
 grpcio
 # Keep the Python client reproducible alongside the separately pinned server.
 # Any upgrade is a requirements/manifest/test evidence change.
-mavsdk == 3.15.3
+mavsdk-grpc == 4.0.5
 protobuf
 
 # OpenCV for computer vision and tracking. This headless contrib wheel is the

@@ -1,0 +1,216 @@
+{
+  "schema_version": 1,
+  "ros_distribution": "jazzy",
+  "ros_image": "ros@sha256:8eed0a4669bbf43ee331878a4c39bd8ebddea8e3312a58b4fae8edb14526b617",
+  "reference_px4_commit": "155f415168cef08dca2f5d85d2bc258b44a589ec",
+  "sih_build": {
+    "toolchain_image": "ghcr.io/px4/px4-dev:v1.18.0-beta2@sha256:8e61e75c975673e4ff6846c05f2e67a9c6658c596a4758f5d5fe6ea6c5b9062f",
+    "runtime_image": "px4io/px4-sitl@sha256:fd6d93dc2705482aeb64ea26fdf16185d8a511010fdc53e26305f10d91855865",
+    "platform": "linux/amd64",
+    "target": "px4_sitl_sih",
+    "submodules": [
+      "src/drivers/gps/devices",
+      "src/lib/events/libevents",
+      "src/lib/heatshrink/heatshrink",
+      "src/modules/mavlink/mavlink",
+      "src/modules/uxrce_dds_client/Micro-XRCE-DDS-Client"
+    ],
+    "microcdr": {
+      "repository": "https://github.com/eProsima/Micro-CDR.git",
+      "commit": "3d1b17703c7cf4f22def2910bc845bdb5152d7b5",
+      "tag": "v2.0.1"
+    }
+  },
+  "external_mode_api_version": 2,
+  "sources": [
+    {
+      "repository": "Auterion/px4-ros2-interface-lib",
+      "commit": "912868fe2597bac4cf3115a54ac813a97eee4dbb",
+      "sha256": "a30997aba5e0a04fe27b898fa7160057670d93c28a839cac596b9211af21e477",
+      "extension_manifest_sha256": "8c7fb0e875302efd7316ae2089311c7fcb14796daab47935560824a8397f17b1"
+    },
+    {
+      "repository": "PX4/px4_msgs",
+      "commit": "652f67c23d0d433a7c0fb5ccb7824702864c357e",
+      "sha256": "bf4263a871eea35ccc13c74f2889e1694b70311c48177c43ee0c3930e5e5a180"
+    },
+    {
+      "repository": "eProsima/Micro-XRCE-DDS-Agent",
+      "commit": "73622810d984349b80bbac0ef55fc0b694d62222",
+      "sha256": "f9c5a4e8c6ed902cb24bdec33269f85dce5b1023c22267d941acbda800a2bf2a"
+    },
+    {
+      "repository": "gabime/spdlog",
+      "commit": "eb3220622e73a4889eee355ffa37972b3cac3df5",
+      "sha256": "c60cd3742d24c3f8014618ea7e54c7fa3d5fb3886cfd59281101e6f5058dfcc5"
+    }
+  ],
+  "qualification": {
+    "linux_x86_64": "compile_and_contract_tests_only",
+    "linux_arm64": "pending",
+    "sih": "pending",
+    "hardware": "not_qualified",
+    "unrestricted_speed": "unavailable_without_verified_firmware_extension"
+  },
+  "px4_functional_tests": {
+    "fuzztest_gitlink": "1e47f9d7437de5c3ee4cb0ac860d5ec875478059",
+    "dependencies": {
+      "googletest": {
+        "relative_cache_directory": "googletest",
+        "source_tree_sha256": "e9d85e897249328f564e0180c0ca41652767a496a02f849abace008571a0e8b1",
+        "source_file_count": 247,
+        "git_commit": "6910c9d9165801d8827d628cb72eb7ea9dd538c5",
+        "repository": "https://github.com/google/googletest.git"
+      },
+      "abseil-cpp": {
+        "relative_cache_directory": "abseil-cpp",
+        "source_tree_sha256": "a2cf763f8dc313ad7cca6637a803cddb394cbe51197b65b3ebbb177a98866b99",
+        "source_file_count": 1528,
+        "git_commit": "d04b964d82ed5146f7e5e34701a5ba69f9514c9a",
+        "repository": "https://github.com/abseil/abseil-cpp.git"
+      },
+      "re2": {
+        "relative_cache_directory": "re2",
+        "source_tree_sha256": "83497ee43aca07f9f1d53bd3cf6c588c182b05400af0ce6bb8333f2b5720b5d6",
+        "source_file_count": 136,
+        "git_commit": "6dcd83d60f7944926bfd308cc13979fc53dd69ca",
+        "repository": "https://github.com/google/re2.git"
+      },
+      "antlr_cpp": {
+        "relative_cache_directory": "antlr_cpp",
+        "source_tree_sha256": "fc3e3dfda0bd602ae5764cb1ef21508833d6e78ec6733e0ea801223d05acd3b6",
+        "source_file_count": 687,
+        "archive_sha256": "642d59854ddc0cebb5b23b2233ad0a8723eef20e66ef78b5b898d0a67556893b",
+        "archive_name": "antlr4-cpp-runtime-4.12.0-source.zip",
+        "url": "https://www.antlr.org/download/antlr4-cpp-runtime-4.12.0-source.zip"
+      }
+    },
+    "fuzztest_path": "test/fuzztest",
+    "default_regression": "transition-acceleration",
+    "regressions": {
+      "transition-acceleration": {
+        "target": "functional-FlightTaskTransition",
+        "expected_tests": 10,
+        "expected_negative_failures": [
+          "PlannedAccelerationBothDirectionsAndSeeds",
+          "PriorNanUsesStateAndInvalidStateStaysAbsent",
+          "AutoInheritsPlannedAccelerationInsteadOfMeasuredImpulse",
+          "DerivativeAgreesWithNonzeroDtFilterStep",
+          "AutoHandoverAcrossSignsStateFallbackAndVariableDt",
+          "HighSpeedHandoverPreservesPlannedReferenceThroughPositionControl"
+        ],
+        "test_source": "src/modules/flight_mode_manager/tasks/Transition/FlightTaskTransitionTest.cpp",
+        "test_suite": "TransitionAccelerationTest",
+        "negative_patch": "patches/0003-transition-planned-vertical-acceleration.patch",
+        "original_files": [
+          "src/modules/flight_mode_manager/tasks/Transition/FlightTaskTransition.cpp"
+        ],
+        "characterization_env": "TRANSITION_CHARACTERIZATION"
+      },
+      "fw-mode-transition-heading": {
+        "target": "functional-FixedWingModeManager",
+        "test_source": "src/modules/fw_mode_manager/FixedWingModeManagerTest.cpp",
+        "test_suite": "FixedWingModeManagerTest",
+        "negative_patch": "patches/0006-front-transition-native-heading.patch",
+        "original_files": [
+          "src/modules/fw_mode_manager/FixedWingModeManager.cpp"
+        ],
+        "expected_tests": 10,
+        "expected_negative_failures": [
+          "ActualUprightTailSitterUsesNativeMCHeading",
+          "TiltPerturbationsAndArbitraryYawKeepStableBoundary",
+          "NonfiniteExplicitYawUsesQualifiedNativeHeading",
+          "NonfiniteNativeHeadingKeepsNavigatorGeometry",
+          "UnqualifiedNativeHeadingKeepsNavigatorGeometry"
+        ],
+        "characterization_env": null
+      },
+      "control-allocation-sparse-axes": {
+        "target": "functional-ControlAllocationSparseAxes",
+        "test_source": "src/lib/control_allocation/control_allocation/ControlAllocationSparseAxesTest.cpp",
+        "test_suite": "ControlAllocationSparseAxesTest",
+        "negative_patch": "patches/0008-control-allocation-active-axis-normalization.patch",
+        "original_files": [
+          "src/lib/control_allocation/control_allocation/ControlAllocationPseudoInverse.cpp"
+        ],
+        "expected_tests": 11,
+        "expected_negative_failures": [
+          "RollOnlyCommonCoefficientInvariant",
+          "PitchOnlyCommonCoefficientInvariant"
+        ],
+        "characterization_env": null
+      },
+      "owned-mode-start-context": {
+        "target": "functional-OwnedModeStartContext",
+        "test_source": "src/modules/commander/OwnedModeStartContextTest.cpp",
+        "test_suite": "OwnedModeStartContext",
+        "negative_patch": "patches/0011-original-phase-context-acquisition-fence.patch",
+        "original_files": [
+          "src/modules/commander/OwnedModeGuard.hpp"
+        ],
+        "expected_tests": 14,
+        "expected_negative_failures": [
+          "UnseenRoundTripRejectsOriginalAcquire",
+          "AcceptedIntentBeforeStateFlipIsNotSettled",
+          "AbortedTransitionCannotReviveOriginalAcquire",
+          "SourceModuleRestartInvalidatesContext",
+          "ChangedHistoryDuringPendingWithdrawsOriginalIntention",
+          "ChangedHistoryAtOwnEntryWithdrawsOnlyTaggedIntention",
+          "WrongPhysicalPhaseCannotAcquire",
+          "UnknownVtolHistoryCannotAcquire",
+          "ExhaustedHistoryCannotAcquireOrResume"
+        ],
+        "characterization_env": null
+      }
+    }
+  },
+  "gazebo_build": {
+    "toolchain_image": "ghcr.io/px4/px4-dev-ros2-gazebo@sha256:4e7bb18e46f8007d3e601e25597f84117ef14d282df10999e2dc0a9fe7d4e1f2",
+    "runtime_image": "ghcr.io/px4/px4-dev-ros2-gazebo@sha256:4e7bb18e46f8007d3e601e25597f84117ef14d282df10999e2dc0a9fe7d4e1f2",
+    "platform": "linux/amd64",
+    "target": "px4_sitl_default",
+    "distribution": "harmonic",
+    "model": "quadtailsitter",
+    "world": "default",
+    "airframe_id": 4018,
+    "submodules": [
+      "src/drivers/gps/devices",
+      "src/lib/events/libevents",
+      "src/lib/heatshrink/heatshrink",
+      "src/modules/mavlink/mavlink",
+      "src/modules/uxrce_dds_client/Micro-XRCE-DDS-Client",
+      "Tools/simulation/gz",
+      "src/modules/simulation/gz_plugins/optical_flow/PX4-OpticalFlow"
+    ],
+    "submodule_pins": {
+      "Tools/simulation/gz": "a15af9628536914ff7201c992fce5e3cb5d70db9",
+      "src/modules/simulation/gz_plugins/optical_flow/PX4-OpticalFlow": "a4d4cfde0c023be6b1ff8c8e796862413bc99272"
+    },
+    "microcdr": {
+      "repository": "https://github.com/eProsima/Micro-CDR.git",
+      "commit": "3d1b17703c7cf4f22def2910bc845bdb5152d7b5",
+      "tag": "v2.0.1"
+    },
+    "qualification": "build_only_recipe; compilation, runtime and aircraft response pending"
+  },
+  "reference_px4_version": {
+    "describe": "v1.18.0-beta1-1442-g155f415168",
+    "tag": "v1.18.0-beta1",
+    "tag_object": "d90ac5b79200c44895c03ee7c284b20b80ecf75d",
+    "tag_commit": "fd132028513748238be1762e57893bbca9fcf179"
+  },
+  "stock_px4": {
+    "commit": "722ebc963555189314a8ce77b426ed074ffa6dae",
+    "version": {
+      "describe": "v1.18.0-beta1-1589-g722ebc96",
+      "tag": "v1.18.0-beta1",
+      "tag_object": "d90ac5b79200c44895c03ee7c284b20b80ecf75d",
+      "tag_commit": "fd132028513748238be1762e57893bbca9fcf179"
+    },
+    "additional_submodules": [
+      "src/lib/cdrstream/cyclonedds",
+      "src/lib/cdrstream/rosidl",
+      "src/modules/zenoh/zenoh-pico"
+    ]
+  }
+}

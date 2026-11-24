@@ -28,6 +28,9 @@ from typing import Optional, Tuple, Dict, Any, List
 import time
 import logging
 
+from classes.guidance_observation import ImageMeasurement
+from classes.gimbal_types import GimbalAngleObservation
+
 logger = logging.getLogger(__name__)
 
 # Import schema manager for dynamic schema handling
@@ -143,6 +146,8 @@ class TrackerOutput:
 
     # Schema-specific fields (handled as optional kwargs)
     gimbal_metadata: Optional[Dict[str, Any]] = None
+    image_measurement: Optional[ImageMeasurement] = None
+    gimbal_observation: Optional[GimbalAngleObservation] = None
     
     def __post_init__(self):
         """Validate the tracker output after initialization."""
@@ -157,6 +162,14 @@ class TrackerOutput:
             bool: True if valid, raises ValueError if invalid
         """
         # Basic validation
+        if self.image_measurement is not None and not isinstance(self.image_measurement, ImageMeasurement):
+            raise ValueError("image_measurement must be a typed ImageMeasurement")
+        if self.gimbal_observation is not None and not isinstance(self.gimbal_observation, GimbalAngleObservation):
+            raise ValueError("gimbal_observation must be a typed GimbalAngleObservation")
+        if self.gimbal_observation is not None and (
+                self.data_type is not TrackerDataType.GIMBAL_ANGLES or self.angular != self.gimbal_observation.angles_deg
+                or self.position_2d is not None or self.image_measurement is not None):
+            raise ValueError('gimbal_observation_output_mismatch')
         if self.timestamp <= 0:
             raise ValueError("Timestamp must be positive")
         
@@ -223,8 +236,15 @@ class TrackerOutput:
             TrackerOutput: New instance
         """
         # Convert string back to enum
+        data = dict(data)
         if 'data_type' in data and isinstance(data['data_type'], str):
             data['data_type'] = TrackerDataType(data['data_type'])
+        if isinstance(data.get('image_measurement'), dict):
+            data['image_measurement'] = ImageMeasurement.from_dict(data['image_measurement'])
+        if isinstance(data.get('gimbal_observation'), dict):
+            data['gimbal_observation'] = GimbalAngleObservation.from_dict(data['gimbal_observation'])
+            if isinstance(data.get('angular'), list):
+                data['angular'] = tuple(data['angular'])
         
         return cls(**data)
     

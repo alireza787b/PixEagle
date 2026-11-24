@@ -17,6 +17,22 @@ bounding boxes.
 
 Evidence and animation: [follower evidence gallery](follower-visual-guide.md).
 
+For the stock-firmware direction and two-stage operator sequence, see
+[stock PX4 gimbal/VTOL integration](../07-integration/stock-px4-gimbal-vtol.md).
+The installed VTOL path is not yet qualified for that stock workflow.
+
+FW/VTOL support is an [active native-adapter development checkpoint](../../../native/README.md).
+Its native course/airspeed contract is separate from the MC velocity
+path. Qualification is bounded by the [evidence inventory](../05-development/follower-sih-validation-matrix.md),
+not implied by a profile identifier. Do not use the MC command contract as fixed-wing guidance or change the
+mount preset during a tailsitter transition. Full FW/VTOL qualification and
+hardware deployment remain pending.
+
+Native FW paths use the [shared fixed-wing guidance policy](../04-configuration/fixed-wing-guidance-policy.md).
+Its objective is the target-directed flight path, with PX4's native envelope
+and qualified source degradation. Experimental upper-speed relaxation is not
+enabled by increasing MC velocity limits.
+
 ## Control Path
 
 The follower applies the shared camera mounting geometry to raw measurements,
@@ -24,6 +40,14 @@ validates the resulting body-frame line of sight, filters that unit vector,
 ramps the commanded speed using bounded monotonic time,
 and then applies the shared safety envelope. Body axes use PX4 FRD convention:
 forward, right, down.
+
+For MC publication, physical FRD is converted through the measured attitude to
+NED and then to MAVLink's heading-only body-velocity frame. Pitch and roll must
+not be applied again by the receiver. Both the native VTOL-MC strategy and pure
+MC MAVSDK path use the same conversion. Physical attitude comes from the
+existing fresh telemetry owner; new camera/video frames cannot refresh it.
+Provider adapters must normalize device angles into physical-body rays first,
+including any device-specific earth/body reference, signs and mounting rotation.
 
 Two lateral modes are supported through the shared follower configuration:
 
@@ -56,9 +80,10 @@ components are not enlarged to compensate. A directly vertical target
 therefore produces zero translation rather than an unexpected horizontal
 command.
 
-Provider capabilities are advertised with normalized body-ray metadata. Unknown
-vertical, reverse, or yaw-fallback capabilities fail closed; they are never
-guessed from raw axis names. The classifier is Vector-only for now. Ordinary
+Vector MC declares implemented vertical, reverse and yaw-recovery states.
+`GimbalTracker.GUIDANCE` can restrict those states and the accepted physical
+body-ray domain; provider metadata cannot widen either. Unqualified mechanical
+reachability does not authorize camera aiming. The classifier is Vector-only. Ordinary
 2D camera followers retain their existing guidance until a separate capability
 and scaling contract is qualified.
 
@@ -95,13 +120,10 @@ GimbalTracker:
     FORWARD_REENTRY_BEARING_DEG: 80.0
     TRANSITION_DWELL_MS: 300.0
     REARWARD_GRACE_MS: 500.0
-    CAPABILITIES:
-      KNOWN: false
-      SUPPORTS_VERTICAL: false
-      SUPPORTS_REVERSE: false
-      SUPPORTS_YAW_FALLBACK: false
-      AZIMUTH_LIMITS_DEG: [-180.0, 180.0]
-      DEPRESSION_LIMITS_DEG: [-90.0, 90.0]
+    ALLOWED_MANOEUVRES: null     # null = implemented states; [] = forward only
+    OBSERVATION_LIMITS:
+      AZIMUTH_LIMITS_DEG: null   # observed physical-FRD ray; not mechanical reach
+      DEPRESSION_LIMITS_DEG: null
 
 GM_VELOCITY_VECTOR:
   RAMP_ACCELERATION: 0.25

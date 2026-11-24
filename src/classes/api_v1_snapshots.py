@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from dataclasses import asdict
 import logging
 import math
 from pathlib import Path
@@ -15,6 +16,7 @@ import numpy as np
 from fastapi.encoders import jsonable_encoder
 
 from classes.app_version import PIXEAGLE_VERSION
+from classes.aircraft_state import GuidanceSessionIdentity
 from classes.api_v1_contracts import (
     FOLLOWING_STATUS_CLAIM_BOUNDARY,
     FOLLOWING_TELEMETRY_CLAIM_BOUNDARY,
@@ -627,9 +629,10 @@ def get_following_command_publication_status(owner: Any) -> Dict[str, Any]:
     commands_sent_to_px4 = bool(
         source == "offboard_commander"
         and commander_status is not None
-        and commander_status.get("sends_mavsdk_commands") is True
-        and isinstance(successful_publishes, int)
-        and successful_publishes > 0
+        and ((commander_status.get("sends_mavsdk_commands") is True
+              and isinstance(successful_publishes, int) and successful_publishes > 0)
+             or (type(commander_status.get("observed_native_publications")) is int
+                 and commander_status["observed_native_publications"] > 0))
     )
 
     return {
@@ -663,6 +666,10 @@ def get_following_command_publication_status(owner: Any) -> Dict[str, Any]:
             if commander_status is not None
             else None
         ),
+        "dynamic_command_contract": (commander_status is not None
+                                     and commander_status.get("dynamic_command_contract") is True),
+        "observed_native_publications": (commander_status.get("observed_native_publications")
+                                         if commander_status is not None else None),
         "commands_sent_to_px4": commands_sent_to_px4,
         "last_intent_fresh": (
             commander_status.get("last_intent_fresh")
@@ -853,7 +860,7 @@ def serialize_command_intent(intent: Any) -> Optional[Dict[str, Any]]:
         return intent
 
     fields = getattr(intent, "fields", None)
-    return {
+    serialized = {
         "profile_name": getattr(intent, "profile_name", None),
         "control_type": getattr(intent, "control_type", None),
         "source": getattr(intent, "source", None),
@@ -861,6 +868,10 @@ def serialize_command_intent(intent: Any) -> Optional[Dict[str, Any]]:
         "created_at_utc": getattr(intent, "created_at_utc", None),
         "fields": fields.copy() if isinstance(fields, dict) else fields,
     }
+    identity = getattr(intent, "guidance_identity", None)
+    if isinstance(identity, GuidanceSessionIdentity):
+        serialized["guidance_identity"] = asdict(identity)
+    return serialized
 
 
 def get_circuit_breaker_snapshot(
@@ -913,30 +924,42 @@ def get_following_telemetry_snapshot(owner: Any) -> Dict[str, Any]:
 
     fields = {}
     field_source = "unavailable"
-    if setpoint_handler and hasattr(setpoint_handler, "get_fields"):
+    dynamic = status_snapshot["command_publication"].get("dynamic_command_contract") is True
+    last_command_intent = None
+    if dynamic:
+        commander = getattr(getattr(owner, "app_controller", None), "offboard_commander", None)
+        try:
+            last_command_intent = commander.get_published_intent()
+            if last_command_intent is not None:
+                fields = dict(last_command_intent.fields)
+                field_source = "command_publication"
+        except Exception as fields_error:
+            health_issues.append(f"published_fields_unavailable:{fields_error}")
+    elif setpoint_handler and hasattr(setpoint_handler, "get_fields"):
         try:
             fields = coerce_mapping(setpoint_handler.get_fields())
             field_source = "active_follower"
         except Exception as fields_error:
             health_issues.append(f"active_fields_unavailable:{fields_error}")
 
-    if not fields:
+    if not fields and not dynamic:
         legacy_fields = coerce_mapping(legacy_telemetry.get("fields"))
         if legacy_fields:
             fields = legacy_fields
             field_source = "legacy_telemetry"
 
-    if not fields:
+    if not fields and not dynamic:
         legacy_setpoints = coerce_mapping(legacy_telemetry.get("setpoints"))
         if legacy_setpoints:
             fields = legacy_setpoints
             field_source = "legacy_telemetry"
 
-    if not fields and status_snapshot["profile"].get("available_fields"):
+    if not fields and not dynamic and status_snapshot["profile"].get("available_fields"):
         field_source = "schema_profile"
 
-    last_command_intent = legacy_telemetry.get("last_command_intent")
-    if last_command_intent is None:
+    if not dynamic:
+        last_command_intent = legacy_telemetry.get("last_command_intent")
+    if last_command_intent is None and not dynamic:
         follower = getattr(getattr(owner, "app_controller", None), "follower", None)
         getter = getattr(follower, "get_last_command_intent", None)
         if callable(getter):

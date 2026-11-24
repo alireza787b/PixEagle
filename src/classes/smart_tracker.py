@@ -18,6 +18,7 @@ from classes.detection_adapter import (
 )
 from classes.geometry_utils import point_in_polygon
 from classes.tracker_output import TrackerOutput, TrackerDataType
+from classes.guidance_observation import image_measurement_for_output
 from classes.tracking_state_manager import TrackingStateManager
 from classes.motion_predictor import MotionPredictor
 from classes.appearance_model import AppearanceModel
@@ -167,6 +168,10 @@ class SmartTracker:
         self.selected_polygon: Optional[List[Tuple[float, float]]] = None
         self._last_frame_shape: Optional[Tuple[int, int]] = None
         self._last_measurement_current = False
+        self.image_measurement = None
+        self._last_image_capture = None
+        self.last_measurement_timestamp = None
+        self._output_initialized_at = time.time()
         self.last_loss_reason: Optional[str] = None
         self._last_selection_match = None
         self._last_selection_source = None
@@ -863,6 +868,7 @@ class SmartTracker:
         Clears the currently selected object for tracking.
         Also clears tracking_manager state.
         """
+        self.image_measurement = None
         self.selected_object_id = None
         self.selected_class_id = None
         self.selected_bbox = None
@@ -1197,6 +1203,12 @@ class SmartTracker:
         self.last_frame_processing_ms = (time.perf_counter() - t0) * 1000.0
         return frame
 
+    def _initial_output_timestamp(self) -> float:
+        """Legacy output creation time is stable before the first measured frame."""
+        if getattr(self, '_output_initialized_at', None) is None:
+            self._output_initialized_at = time.time()
+        return self._output_initialized_at
+
     def get_output(self) -> TrackerOutput:
         """
         Returns SmartTracker output in the new flexible schema format.
@@ -1267,9 +1279,14 @@ class SmartTracker:
 
         return TrackerOutput(
             data_type=data_type,
-            timestamp=time.time(),
+            timestamp=getattr(self, 'last_measurement_timestamp', None) or self._initial_output_timestamp(),
             tracking_active=tracking_active,
             tracker_id=f"SmartTracker_{id(self)}",
+            image_measurement=image_measurement_for_output(
+                getattr(self, 'image_measurement', None), measured=usable_for_following,
+                source_epoch=getattr(self.app_controller.video_handler, '_source_epoch', None),
+                target_generation=getattr(self.app_controller, '_tracking_session_generation', None),
+            ),
 
             # Primary target data (selected object)
             position_2d=self._normalize_center(self.selected_center) if self.selected_center else None,

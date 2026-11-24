@@ -2,6 +2,7 @@
 
 import asyncio
 import time
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -9,6 +10,7 @@ import pytest
 
 from classes.command_intent import CommandIntent
 from classes.offboard_commander import OffboardCommander
+from classes.aircraft_state import AircraftBinding, GuidanceSessionIdentity
 
 
 def _handler(fields=None, control_type="velocity_body_offboard"):
@@ -39,6 +41,7 @@ def _handler(fields=None, control_type="velocity_body_offboard"):
         )
 
     return SimpleNamespace(
+        profile_name="test_profile",
         get_control_type=MagicMock(return_value=control_type),
         get_fields=MagicMock(side_effect=lambda: state.copy()),
         set_fields=MagicMock(side_effect=set_fields),
@@ -91,7 +94,7 @@ async def test_offboard_commander_transient_publish_failure_recovers_before_thre
 
 @pytest.mark.asyncio
 async def test_offboard_commander_publish_and_final_stop_are_bounded():
-    async def never_finishes():
+    async def never_finishes(**_kwargs):
         await asyncio.Event().wait()
 
     px4 = SimpleNamespace(send_commands_unified=never_finishes)
@@ -271,7 +274,7 @@ async def test_offboard_commander_stop_serializes_final_publish_after_heartbeat(
     active_publishes = 0
     max_active_publishes = 0
 
-    async def send_commands_unified():
+    async def send_commands_unified(**kwargs):
         nonlocal active_publishes, max_active_publishes
         active_publishes += 1
         max_active_publishes = max(max_active_publishes, active_publishes)
@@ -351,6 +354,13 @@ def test_offboard_commander_accepts_matching_command_intent():
     assert commander.get_status()["rejected_intents"] == 0
 
 
+def test_command_application_preserves_the_guidance_owner_identity():
+    identity = GuidanceSessionIdentity("follow", AircraftBinding("123", "connection", 1), 2)
+    commander = OffboardCommander(SimpleNamespace(send_commands_unified=AsyncMock(return_value=True)), _handler())
+    assert commander.submit_intent(replace(_intent(), guidance_identity=identity))
+    assert commander._last_intent.guidance_identity == identity
+
+
 def test_offboard_commander_failsafe_defaults_invalidate_prior_intent():
     handler = _handler()
     commander = OffboardCommander(
@@ -376,7 +386,7 @@ def test_offboard_commander_failsafe_defaults_invalidate_prior_intent():
 async def test_offboard_commander_publishes_applied_command_intent_fields():
     handler = _handler()
 
-    async def send_commands_unified():
+    async def send_commands_unified(**kwargs):
         assert handler.get_fields()["vel_body_fwd"] == 3.0
         assert handler.get_fields()["vel_body_right"] == -1.0
         return 1
@@ -429,7 +439,55 @@ async def test_offboard_commander_publish_callback_uses_completed_send_evidence(
     assert events[0]["publish_status"]["last_publish_success"] is True
     assert events[1]["reason"] == "failsafe_default"
     assert events[1]["command_intent"] is None
+    assert events[1]["submitted_fields"] == {key: 0. for key in intent.fields}
     assert events[1]["publish_status"]["last_publish_success"] is False
+
+
+@pytest.mark.asyncio
+async def test_fallback_publication_snapshots_fields_before_await_without_inventing_fresh_intent():
+    events = []
+    handler = _handler()
+
+    async def send(**_kwargs):
+        # Another measurement can arrive while the concrete send is awaited.
+        handler.set_fields(_intent().fields)
+        return True
+
+    commander = OffboardCommander(SimpleNamespace(send_commands_unified=send), handler,
+                                  on_publish_result=events.append)
+    assert await commander.publish_once(reason="no_intent")
+    assert events[0]["command_intent"] is None
+    assert events[0]["submitted_fields"] == {key: 0. for key in _intent().fields}
+    assert events[0]["publish_status"]["last_intent_fresh"] is False
+    assert events[0]["publication_attempted"] is True
+
+
+@pytest.mark.asyncio
+async def test_readiness_refusal_is_distinct_from_a_failed_concrete_submission():
+    events = []
+    px4 = SimpleNamespace(send_commands_unified=AsyncMock())
+    commander = OffboardCommander(px4, _handler(), on_publish_result=events.append)
+    commander.validate_configuration = MagicMock(return_value=False)
+    assert not await commander.publish_once(reason="readiness_refused")
+    px4.send_commands_unified.assert_not_called()
+    assert events[0]["publication_attempted"] is False
+    assert events[0]["submitted_fields"] is None
+
+
+@pytest.mark.asyncio
+async def test_old_guard_error_cannot_disguise_a_new_failed_send_as_pre_submission_refusal():
+    events = []
+    handler = _handler(fields=dict(rollspeed_deg_s=0., pitchspeed_deg_s=0., yawspeed_deg_s=0., thrust=.5),
+                       control_type="attitude_rate")
+    handler.profile_name = "mc_attitude_rate"
+    px4 = SimpleNamespace(send_commands_unified=AsyncMock(return_value=False),
+                          _terminal_attitude_guard_reason="old_error",
+                          _last_attitude_guard={"effective_fields": handler.get_fields()})
+    commander = OffboardCommander(px4, handler, on_publish_result=events.append)
+    assert not await commander.publish_once()
+    assert events[0]["publication_attempted"] is True
+    assert events[0]["submitted_fields"] is not None
+    assert not commander.get_status()["terminal_failure"]
 
 
 def test_offboard_commander_rejects_mismatched_command_intent():

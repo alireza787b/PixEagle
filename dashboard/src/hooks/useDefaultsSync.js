@@ -15,8 +15,8 @@ const EMPTY_META = {
 
 const isCanonicalPath = (path) => (
   Array.isArray(path)
-  && (path.length === 1 || path.length === 2)
-  && path.every((part) => typeof part === 'string' && part.length > 0)
+  && path.length >= 1 && path.length <= 16
+  && path.every((part) => typeof part === 'string' && part.length > 0 && part.trim() === part)
 );
 
 export const getConfigSyncItemPath = (item) => {

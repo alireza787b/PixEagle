@@ -8,6 +8,7 @@ Tests the factory pattern implementation for creating tracker instances.
 import pytest
 import sys
 import os
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 # Add src to path
@@ -124,22 +125,18 @@ class TestCreateTrackerFunction:
         tracker = create_tracker("dlib", mock_video_handler, None, mock_app_controller)
         assert isinstance(tracker, DlibTracker)
 
-    @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
-    @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
-    def test_create_gimbal_tracker(self, mock_transformer, mock_interface):
+    def test_create_gimbal_tracker(self):
         """create_tracker('Gimbal') should return GimbalTracker instance."""
-        mock_interface.return_value = MagicMock()
-        mock_transformer.return_value = MagicMock()
-
         from classes.trackers.tracker_factory import create_tracker
         from classes.trackers.gimbal_tracker import GimbalTracker
 
         mock_video_handler = MagicMock()
-        mock_app_controller = MagicMock()
-        mock_app_controller.estimator = None
+        mock_app_controller = SimpleNamespace(estimator=None)
 
         tracker = create_tracker("Gimbal", mock_video_handler, None, mock_app_controller)
         assert isinstance(tracker, GimbalTracker)
+        assert not tracker.gimbal_provider.running
+        assert tracker.gimbal_provider.listen_socket is tracker.gimbal_provider.control_socket is None
 
     def test_create_tracker_with_none_arguments(self):
         """create_tracker should accept None for video_handler and detector."""
@@ -264,15 +261,10 @@ class TestTrackerBaseClass:
         tracker = create_tracker("dlib", None, None, mock_app_controller)
         assert isinstance(tracker, BaseTracker)
 
-    @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
-    @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
-    def test_gimbal_inherits_base_tracker(self, mock_transformer, mock_interface, mock_app_controller):
+    def test_gimbal_inherits_base_tracker(self):
         """GimbalTracker should inherit from BaseTracker."""
-        mock_interface.return_value = MagicMock()
-        mock_transformer.return_value = MagicMock()
-
         from classes.trackers.tracker_factory import create_tracker
         from classes.trackers.base_tracker import BaseTracker
 
-        tracker = create_tracker("Gimbal", None, None, mock_app_controller)
+        tracker = create_tracker("Gimbal", None, None, SimpleNamespace(estimator=None))
         assert isinstance(tracker, BaseTracker)

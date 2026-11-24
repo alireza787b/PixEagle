@@ -205,6 +205,9 @@ Route inventory tests must:
   because that module owns typed runtime-log read dispatch, frontend error
   report ingestion, rate limiting, sanitized export dispatch, and log-report
   response/error semantics
+- record `src/classes/api_v1_native_following.py`, `follower_catalog.py`, and
+  the canonical follower/tracker YAML declarations in generated candidate
+  provenance for catalog eligibility; their hashes do not promote callable MCP
 - record `src/classes/api_v1_snapshots.py` in generated candidate provenance
   because that module owns process-local runtime, following, tracking
   runtime/telemetry, and typed tracker catalog snapshot semantics. The typed

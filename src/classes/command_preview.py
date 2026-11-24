@@ -12,10 +12,13 @@ from collections import deque
 from dataclasses import asdict
 import json
 import logging
+import math
 import time
 from typing import Any, Deque, Dict, Optional
 
 from classes.command_intent import CommandIntent
+from classes.aircraft_state import Quaternion
+from classes.telemetry_observation import AltitudeObservation
 
 logger = logging.getLogger(__name__)
 
@@ -72,8 +75,24 @@ class CommandPreviewController:
         """Return deterministic yaw/pitch/roll telemetry for follower math."""
         return self.current_yaw, self.current_pitch, self.current_roll
 
+    def get_guidance_attitude(self):
+        """Explicit synthetic attitude; this controller never owns an aircraft."""
+        yaw = math.radians(self.current_yaw)
+        return Quaternion.from_euler(math.radians(self.current_roll), math.radians(self.current_pitch), yaw), yaw
+
     def get_ground_speed(self) -> float:
         return self.current_ground_speed
+
+    def get_altitude_observation(self) -> AltitudeObservation:
+        """Explicit synthetic height feedback; this adapter has no aircraft owner."""
+        now = time.monotonic()
+        return AltitudeObservation(
+            height_relative_m=self.current_altitude, vertical_speed_up_m_s=0.,
+            source_marker=int(now * 1000) % 2**32, sample_time_s=now,
+            received_at_monotonic_s=now, sample_time_basis="synthetic_monotonic_s",
+            source="command_preview", altitude_reference_generation=1,
+            connection_generation=0, telemetry_generation=0,
+        )
 
     def get_airspeed_observation(self) -> Dict[str, Any]:
         """Describe explicit synthetic input without implying aircraft telemetry."""
@@ -250,6 +269,8 @@ class CommandPreviewCommander:
             reason=intent.reason,
             created_at_monotonic_s=intent.created_at_monotonic_s,
             created_at_utc=intent.created_at_utc,
+            guidance_identity=intent.guidance_identity,
+            altitude_hold=intent.altitude_hold,
         )
         self._last_intent = retained
         self._intent_history.append(retained)

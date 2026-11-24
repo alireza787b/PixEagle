@@ -1,0 +1,1023 @@
+{
+  "schema_version": 3,
+  "name": "quadtailsitter-nose-camera-training-coast-v2",
+  "build_manifest_sha256": "96f0968e55b3af0856245234e78ae16292f1686654c6ae444bebde7bac97f8a9",
+  "image_id": "sha256:011fad450eb9a2c3187e36663a03be517840b5cd08cc11c45fb77314113bdf5a",
+  "binary_sha256": "5f42a1abb96894bdc0a429db06edced09dda7a8116c53301297bcbcab3181c37",
+  "model": "quadtailsitter_nose_cam",
+  "world": "pixeagle_training_coast_v2",
+  "airframe_id": 4018,
+  "airframe_chain": [
+    "etc/init.d-posix/airframes/4018_gz_quadtailsitter",
+    "etc/init.d/rc.vtol_defaults"
+  ],
+  "identity_parameters": [
+    "MAV_TYPE",
+    "CA_AIRFRAME",
+    "CA_ROTOR_COUNT",
+    "CA_SV_CS_COUNT",
+    "VT_TYPE",
+    "SIM_GZ_EN"
+  ],
+  "models": [
+    "quadtailsitter_nose_cam",
+    "quadtailsitter",
+    "airspeed",
+    "mono_cam",
+    "arucotag"
+  ],
+  "scene_models": [
+    "ground_plane",
+    "arucotag",
+    "training_board",
+    "far_board",
+    "warehouse_north",
+    "warehouse_south",
+    "parked_car_north",
+    "parked_car_south",
+    "field_blocks",
+    "cross_roads",
+    "runway_markings",
+    "orbit_landmark_0",
+    "orbit_landmark_1",
+    "orbit_landmark_2",
+    "orbit_landmark_3",
+    "orbit_landmark_4",
+    "orbit_landmark_5",
+    "orbit_landmark_6",
+    "orbit_landmark_7",
+    "pixeagle_welcome",
+    "pixeagle_road_art",
+    "pixeagle_vision_sculpture",
+    "pixeagle_balloon_0",
+    "pixeagle_balloon_1",
+    "pixeagle_balloon_2",
+    "pixeagle_airship",
+    "training_sea",
+    "training_coast_road",
+    "training_pier",
+    "pixeagle_surface_vessel_0",
+    "pixeagle_surface_vessel_1",
+    "pixeagle_surface_vessel_2",
+    "tracker_test_car_0",
+    "tracker_test_car_1",
+    "tracker_test_car_2",
+    "tracker_test_car_3",
+    "tracker_test_car_4",
+    "pixeagle_airfield",
+    "pixeagle_operations_center",
+    "pixeagle_control_tower",
+    "pixeagle_aircraft_display_0",
+    "pixeagle_aircraft_display_1",
+    "pixeagle_aircraft_display_2",
+    "pixeagle_greenbelt",
+    "coastal_tree_0",
+    "coastal_tree_1",
+    "coastal_tree_2",
+    "coastal_tree_3",
+    "coastal_tree_4",
+    "coastal_tree_5",
+    "coastal_tree_6",
+    "coastal_tree_7",
+    "coastal_tree_8",
+    "coastal_tree_9",
+    "coastal_tree_10",
+    "coastal_tree_11",
+    "coastal_tree_12",
+    "coastal_tree_13",
+    "coastal_tree_14",
+    "coastal_tree_15",
+    "coastal_tree_16",
+    "coastal_tree_17",
+    "marina_container_0",
+    "marina_container_1",
+    "marina_container_2",
+    "marina_container_3",
+    "marina_container_4",
+    "marina_container_5"
+  ],
+  "resources": {
+    "etc/init.d-posix/px4-rc.gzsim": {
+      "sha256": "4dfe8151ceb0ea8056ee102f06f83e7d4b82af7226e84e11df2a95f6de3b0e30",
+      "executable": false
+    },
+    "etc/init.d-posix/rcS": {
+      "sha256": "6c2dfba5624eeb5ad7a391e5703d1bb9e1045e9b834536ec7d0c0a809840bf75",
+      "executable": false
+    },
+    "etc/init.d/rc.vtol_defaults": {
+      "sha256": "3f02908764d25387b9d44f3e4b2602b6744d847d0a59197ffda8d430939d1dec",
+      "executable": false
+    },
+    "gazebo/models/arucotag/arucotag.png": {
+      "sha256": "6e71335b7e96803e2e520b08433a95bc2b58d93c7eaad972c84560af3b180729",
+      "executable": false
+    },
+    "gazebo/models/arucotag/model.config": {
+      "sha256": "184cc16d33c380ae255833bc4f1c9e20db2296f6c7de6a9951f0760ed354f415",
+      "executable": false
+    },
+    "gazebo/models/arucotag/model.sdf": {
+      "sha256": "b9d567a3a8d883eff2a6961c2da6d939ec3d79e0290aac4e113be34da8eca8a0",
+      "executable": false
+    },
+    "gazebo/models/mono_cam/model.config": {
+      "sha256": "e5441ac8b808f9bfef9eefca42cb58993c369544794b8bf70932715226c74123",
+      "executable": false
+    },
+    "gazebo/models/mono_cam/model.sdf": {
+      "sha256": "405f2f9d973b6b75379a418865ee18b3d27f936322d85e17beced04bdd09ef6e",
+      "executable": false
+    },
+    "gazebo/models/rover_ackermann/meshes/rover_ackermann_base.dae": {
+      "sha256": "e1adb5c6de6aae3f15c4d55bcfd79d1dd63ffc1cc5990aa7610d83777cd78de8",
+      "executable": false
+    },
+    "gazebo/models/rover_ackermann/meshes/rover_ackermann_wheel.dae": {
+      "sha256": "e0280b3344054e3ea9c604a9b7e40cb7b311be122ec0d11138b9d36a83af83b4",
+      "executable": false
+    },
+    "gazebo/models/rover_ackermann/model.config": {
+      "sha256": "767665c4f6884800b7f17d10b7d3517974ca9572439267ba1f609e4444654f72",
+      "executable": false
+    },
+    "gazebo/models/rover_ackermann/model.sdf": {
+      "sha256": "74acdd3b3a5bde43bd2b18ce5db6b363aabdea909f2b3c9983e3c8d617f6e8fb",
+      "executable": false
+    },
+    "gazebo/plugins/libAirSpeedPlugin.so": {
+      "sha256": "1780e4fbfa09c1478f7973ef12b391f458611db41c0e05f22e56ee07adac8f8e",
+      "executable": true
+    },
+    "gazebo/plugins/libBuoyancySystemPlugin.so": {
+      "sha256": "c9a26bd629d28c68ad31ba7b0d5b33e8afee7c3415644e34fd04152772511a53",
+      "executable": true
+    },
+    "gazebo/plugins/libGenericMotorModelPlugin.so": {
+      "sha256": "d004c78593dc92c12e85f0ff76378bddeff8f367d9dd75ff24d2b5a26d152359",
+      "executable": true
+    },
+    "gazebo/plugins/libGstCameraSystem.so": {
+      "sha256": "e565c417f7bbcecd3b34e85a7f38427a0998f85049dbb676257d1be75a1e3cad",
+      "executable": true
+    },
+    "gazebo/plugins/libMotorFailurePlugin.so": {
+      "sha256": "40d7bd0d30883477fc121abf2a193af27b476a32f67af4cec8855a783a2a3923",
+      "executable": true
+    },
+    "gazebo/plugins/libMovingPlatformController.so": {
+      "sha256": "d7c6c52ac6fa9a21ca57f6d201d57e64a88cdcab70d9fa0c78690a9a0351508e",
+      "executable": true
+    },
+    "gazebo/plugins/libOpticalFlow.so": {
+      "sha256": "7b2ce7fad8be61e0b70f86085cce7c6fb73987b4e39d8633906e8457056b7e09",
+      "executable": true
+    },
+    "gazebo/plugins/libOpticalFlowSystem.so": {
+      "sha256": "987dca4a3206d3847b48afdbd1b0984c3d8b717cb95358efaeefabb64d63a169",
+      "executable": true
+    },
+    "gazebo/plugins/libSpacecraftThrusterModelPlugin.so": {
+      "sha256": "604f41a9cc9e4008a261870041728dc91938c55c03a8aab33a2333b5436f3f06",
+      "executable": true
+    },
+    "gazebo/plugins/libTemplatePlugin.so": {
+      "sha256": "7311b06296e22a9791a974506fcce2e00b2ff7d82748603515fe1c9747086d1b",
+      "executable": true
+    },
+    "gazebo/server.config": {
+      "sha256": "aff8773a62cadc7fca66338297fc382f2887a64e3742ab65eafe51a94bac083c",
+      "executable": false
+    },
+    "gazebo/worlds/aruco.sdf": {
+      "sha256": "849545b6191ec41b177064355e73cef03a8773d12a293614e2ebb10e4919ecf4",
+      "executable": false
+    },
+    "etc/init.d-posix/airframes/4018_gz_quadtailsitter": {
+      "sha256": "bc8b892945a16e52149d191cf867c727aa7d974098dc23dae18d64a49b6304f3",
+      "executable": false
+    },
+    "gazebo/models/airspeed/model.config": {
+      "sha256": "296f95fd270b9f3412d20edc0bf223b0f60f91832635e8f5494beb42e839b0a2",
+      "executable": false
+    },
+    "gazebo/models/airspeed/model.sdf": {
+      "sha256": "8e39836e6e9f749497bf2d98a0bc3f2bf583c2b0fe56078c99ea275bf8b1d7a6",
+      "executable": false
+    },
+    "gazebo/models/quadtailsitter/meshes/body.dae": {
+      "sha256": "72934cd4119af69cabc22de79f992adac1e350bec39bd4c250e5d757529842ab",
+      "executable": false
+    },
+    "gazebo/models/quadtailsitter/meshes/iris_prop_ccw.dae": {
+      "sha256": "5f8b01668ee24a5b663ca8c4dd56e294fd6480db7eec1e5a7c11e45ba9004e99",
+      "executable": false
+    },
+    "gazebo/models/quadtailsitter/meshes/iris_prop_cw.dae": {
+      "sha256": "6cbc686772dccd46253fb65ece000e7ffa6a74b9c097bda349884bd1e78cd879",
+      "executable": false
+    },
+    "gazebo/models/quadtailsitter/model.config": {
+      "sha256": "d7db0c9f42bd0b6b782fc42f4716e12f3ab189b0fcc2f5ecba958cfba4619c86",
+      "executable": false
+    },
+    "gazebo/models/quadtailsitter/model.sdf": {
+      "sha256": "55e41552e340a0c7b4ee6f058097f70e581158be959f818fc12ff4264f9acd90",
+      "executable": false
+    },
+    "gazebo/models/rc_cessna/meshes/body.dae": {
+      "sha256": "d33feef517d7dd84a902cc85022e492a9a4e411e7562d1f91d098a99af28e56c",
+      "executable": false
+    }
+  },
+  "spawn_pose": [
+    -6,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "camera": {
+    "link": "camera_link",
+    "sensor": "camera",
+    "model": "mono_cam",
+    "udp_port": 5600
+  },
+  "added_world": {
+    "resource": "worlds/pixeagle_training_coast_v2.sdf",
+    "base_resource": "worlds/aruco.sdf",
+    "sha256": "315db256e617736db52b51b039042020aa7b59bf671d559e8d5863c7e70aa1c3",
+    "executable": false
+  },
+  "target": {
+    "name": "training_board",
+    "frame": "gazebo_world_enu",
+    "pose": [
+      35,
+      25,
+      10,
+      0,
+      0,
+      0
+    ],
+    "panel_size_m": [
+      10,
+      10
+    ],
+    "aim_point_m": [
+      35,
+      25,
+      10
+    ]
+  },
+  "base_model": "quadtailsitter",
+  "scene_additions": [
+    {
+      "name": "far_board",
+      "pose": [
+        150,
+        -45,
+        12,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "warehouse_north",
+      "pose": [
+        80,
+        60,
+        10,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "warehouse_south",
+      "pose": [
+        180,
+        -60,
+        7,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "parked_car_north",
+      "pose": [
+        45,
+        32,
+        0.3,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "parked_car_south",
+      "pose": [
+        110,
+        -32,
+        0.3,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "field_blocks",
+      "pose": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "cross_roads",
+      "pose": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "runway_markings",
+      "pose": [
+        75,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "orbit_landmark_0",
+      "pose": [
+        -170,
+        -150,
+        12.0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "orbit_landmark_1",
+      "pose": [
+        0,
+        -210,
+        9.0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "orbit_landmark_2",
+      "pose": [
+        190,
+        -165,
+        14.0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "orbit_landmark_3",
+      "pose": [
+        240,
+        65,
+        10.0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "orbit_landmark_4",
+      "pose": [
+        170,
+        180,
+        13.0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "orbit_landmark_5",
+      "pose": [
+        0,
+        220,
+        11.0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "orbit_landmark_6",
+      "pose": [
+        -180,
+        170,
+        15.0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "orbit_landmark_7",
+      "pose": [
+        -230,
+        0,
+        9.0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "pixeagle_welcome",
+      "pose": [
+        18,
+        35,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "pixeagle_road_art",
+      "pose": [
+        42,
+        0,
+        0.025,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "pixeagle_vision_sculpture",
+      "pose": [
+        -25,
+        38,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "pixeagle_balloon_0",
+      "pose": [
+        45,
+        100,
+        55,
+        0,
+        0,
+        -0.4228539261329407
+      ]
+    },
+    {
+      "name": "pixeagle_balloon_1",
+      "pose": [
+        -85,
+        85,
+        85,
+        0,
+        0,
+        0.7853981633974483
+      ]
+    },
+    {
+      "name": "pixeagle_balloon_2",
+      "pose": [
+        190,
+        -30,
+        110,
+        0,
+        0,
+        -1.727398203776912
+      ]
+    },
+    {
+      "name": "pixeagle_airship",
+      "pose": [
+        -130,
+        190,
+        100,
+        0,
+        0,
+        -0.5
+      ]
+    },
+    {
+      "name": "training_sea",
+      "pose": [
+        590,
+        0,
+        0.018,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "training_coast_road",
+      "pose": [
+        280,
+        0,
+        0.03,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "training_pier",
+      "pose": [
+        340,
+        40,
+        1,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "pixeagle_surface_vessel_0",
+      "pose": [
+        430,
+        65,
+        0,
+        0,
+        0,
+        0.2
+      ]
+    },
+    {
+      "name": "pixeagle_surface_vessel_1",
+      "pose": [
+        590,
+        -100,
+        0,
+        0,
+        0,
+        -0.6
+      ]
+    },
+    {
+      "name": "pixeagle_surface_vessel_2",
+      "pose": [
+        680,
+        220,
+        0,
+        0,
+        0,
+        1.0
+      ]
+    },
+    {
+      "name": "tracker_test_car_0",
+      "pose": [
+        55,
+        -5,
+        0.03,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "tracker_test_car_1",
+      "pose": [
+        95,
+        5,
+        0.03,
+        0,
+        0,
+        3.141592653589793
+      ]
+    },
+    {
+      "name": "tracker_test_car_2",
+      "pose": [
+        275,
+        90,
+        0.03,
+        0,
+        0,
+        1.5707963267948966
+      ]
+    },
+    {
+      "name": "tracker_test_car_3",
+      "pose": [
+        285,
+        -120,
+        0.03,
+        0,
+        0,
+        -1.5707963267948966
+      ]
+    },
+    {
+      "name": "tracker_test_car_4",
+      "pose": [
+        265,
+        200,
+        0.03,
+        0,
+        0,
+        0.3
+      ]
+    },
+    {
+      "name": "pixeagle_airfield",
+      "pose": [
+        -100,
+        -65,
+        0.02,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "pixeagle_operations_center",
+      "pose": [
+        -125,
+        -125,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "pixeagle_control_tower",
+      "pose": [
+        -50,
+        -125,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "pixeagle_aircraft_display_0",
+      "pose": [
+        -165,
+        -62,
+        2,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "pixeagle_aircraft_display_1",
+      "pose": [
+        -115,
+        -62,
+        2,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "pixeagle_aircraft_display_2",
+      "pose": [
+        80,
+        160,
+        70,
+        0,
+        -0.08,
+        0.6
+      ]
+    },
+    {
+      "name": "pixeagle_greenbelt",
+      "pose": [
+        90,
+        -145,
+        0.025,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "coastal_tree_0",
+      "pose": [
+        30,
+        -185,
+        0,
+        0,
+        0,
+        0.0
+      ]
+    },
+    {
+      "name": "coastal_tree_1",
+      "pose": [
+        52,
+        -185,
+        0,
+        0,
+        0,
+        0.3
+      ]
+    },
+    {
+      "name": "coastal_tree_2",
+      "pose": [
+        74,
+        -185,
+        0,
+        0,
+        0,
+        0.6
+      ]
+    },
+    {
+      "name": "coastal_tree_3",
+      "pose": [
+        96,
+        -185,
+        0,
+        0,
+        0,
+        0.8999999999999999
+      ]
+    },
+    {
+      "name": "coastal_tree_4",
+      "pose": [
+        118,
+        -185,
+        0,
+        0,
+        0,
+        1.2
+      ]
+    },
+    {
+      "name": "coastal_tree_5",
+      "pose": [
+        140,
+        -185,
+        0,
+        0,
+        0,
+        1.5
+      ]
+    },
+    {
+      "name": "coastal_tree_6",
+      "pose": [
+        30,
+        -151,
+        0,
+        0,
+        0,
+        1.7999999999999998
+      ]
+    },
+    {
+      "name": "coastal_tree_7",
+      "pose": [
+        52,
+        -151,
+        0,
+        0,
+        0,
+        2.1
+      ]
+    },
+    {
+      "name": "coastal_tree_8",
+      "pose": [
+        74,
+        -151,
+        0,
+        0,
+        0,
+        2.4
+      ]
+    },
+    {
+      "name": "coastal_tree_9",
+      "pose": [
+        96,
+        -151,
+        0,
+        0,
+        0,
+        2.6999999999999997
+      ]
+    },
+    {
+      "name": "coastal_tree_10",
+      "pose": [
+        118,
+        -151,
+        0,
+        0,
+        0,
+        3.0
+      ]
+    },
+    {
+      "name": "coastal_tree_11",
+      "pose": [
+        140,
+        -151,
+        0,
+        0,
+        0,
+        3.3
+      ]
+    },
+    {
+      "name": "coastal_tree_12",
+      "pose": [
+        30,
+        -117,
+        0,
+        0,
+        0,
+        3.5999999999999996
+      ]
+    },
+    {
+      "name": "coastal_tree_13",
+      "pose": [
+        52,
+        -117,
+        0,
+        0,
+        0,
+        3.9
+      ]
+    },
+    {
+      "name": "coastal_tree_14",
+      "pose": [
+        74,
+        -117,
+        0,
+        0,
+        0,
+        4.2
+      ]
+    },
+    {
+      "name": "coastal_tree_15",
+      "pose": [
+        96,
+        -117,
+        0,
+        0,
+        0,
+        4.5
+      ]
+    },
+    {
+      "name": "coastal_tree_16",
+      "pose": [
+        118,
+        -117,
+        0,
+        0,
+        0,
+        4.8
+      ]
+    },
+    {
+      "name": "coastal_tree_17",
+      "pose": [
+        140,
+        -117,
+        0,
+        0,
+        0,
+        5.1
+      ]
+    },
+    {
+      "name": "marina_container_0",
+      "pose": [
+        315,
+        -45,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "marina_container_1",
+      "pose": [
+        330,
+        -45,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "marina_container_2",
+      "pose": [
+        345,
+        -45,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "marina_container_3",
+      "pose": [
+        315,
+        -36,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "marina_container_4",
+      "pose": [
+        330,
+        -36,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "marina_container_5",
+      "pose": [
+        345,
+        -36,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "camera_mount": {
+    "frame": "base_link_flu",
+    "pose": [
+      0,
+      0,
+      0.34,
+      0,
+      -1.5707963267948966,
+      0
+    ]
+  },
+  "added_model": {
+    "model.sdf": {
+      "sha256": "3b777ab3cfb0b950b21ab78ae398f44544da2a8ffe81de8e7d5fcc0cbdcc1346",
+      "executable": false
+    },
+    "model.config": {
+      "sha256": "268dd4c98bd87f8c76b93906bf4e3aefce9e3cbe4e621b87fbeb0651a5110898",
+      "executable": false
+    }
+  },
+  "server_config": {
+    "sha256": "c54d984074547ff0be47c20f84c15b229a33bee938e363833ff8377eb25ad76b",
+    "executable": false
+  },
+  "scene_assets": {
+    "models/pixeagle_training_art/materials/textures/pixeagle-banner.png": {
+      "sha256": "517ac948e85ad5bcb182ee2e52406a1657694c02f5f9b44c75c541dfd9423adc",
+      "executable": false
+    }
+  }
+}

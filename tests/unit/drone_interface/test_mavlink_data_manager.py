@@ -25,6 +25,20 @@ import asyncio
 # Test Fixtures
 # ============================================================================
 
+
+def test_independent_polling_demands_share_one_poller_without_mutating_configuration(mavlink_data_manager):
+    manager = mavlink_data_manager
+    configured = manager.polling_interval
+    first, second = object(), object()
+    manager.set_polling_period_demand(first, .1)
+    manager.set_polling_period_demand(second, .05)
+    assert manager.get_polling_period() == .05
+    manager.clear_polling_period_demand(second)
+    assert manager.get_polling_period() == .1
+    manager.clear_polling_period_demand(first)
+    assert manager.get_polling_period() == configured
+    assert manager.polling_interval == configured
+
 @pytest.fixture
 def mock_parameters():
     """Mock Parameters class."""
@@ -81,6 +95,85 @@ def mavlink_data_manager(sample_data_points, mock_parameters):
 # ============================================================================
 # Test Classes
 # ============================================================================
+
+
+def test_identity_query_uses_configured_route_without_granting_identity(mavlink_data_manager, mock_requests, monkeypatch):
+    manager = mavlink_data_manager
+    manager.system_id, manager.component_id = 9, 42
+    template = {'message': {'type': 'COMMAND_LONG', 'target_system': 99, 'param2': 10.0}}
+    request = MagicMock(return_value=template)
+    monkeypatch.setattr(manager, '_request_json', request)
+    assert manager.request_aircraft_identity()
+    request.assert_called_once_with('/v1/helper/mavlink?name=COMMAND_LONG')
+    payload = mock_requests.post.call_args.kwargs['json']['message']
+    assert payload['command'] == {'type': 'MAV_CMD_REQUEST_MESSAGE'}
+    assert (payload['target_system'], payload['target_component'], payload['param1']) == (9, 42, 148.0)
+    assert all(payload[f'param{n}'] == 0.0 for n in range(2, 8))
+    assert template['message']['target_system'] == 99
+    assert manager.get_aircraft_identity()['autopilot_uid'] is None
+    assert manager.get_flight_state()['fresh'] is False
+    assert not manager.request_aircraft_identity()  # Existing freshness budget bounds discovery retries.
+    assert mock_requests.post.call_count == 1
+
+
+@pytest.mark.parametrize('state', ['fresh', 'disabled', 'stopped', 'inflight'])
+def test_unneeded_or_competing_discovery_sends_no_packet(mavlink_data_manager, mock_requests, monkeypatch, state):
+    manager = mavlink_data_manager
+    if state == 'fresh': monkeypatch.setattr(manager, 'get_aircraft_identity', lambda: {'fresh': True})
+    elif state == 'disabled': manager.enabled = False
+    elif state == 'stopped': manager._stop_event.set()
+    else: manager._identity_request_lock.acquire()
+    assert not manager.request_aircraft_identity()
+    mock_requests.post.assert_not_called()
+    if state == 'inflight': manager._identity_request_lock.release()
+
+
+def test_failed_identity_template_releases_request_owner_without_sending_arbitrary_command(
+    mavlink_data_manager, mock_requests, monkeypatch,
+):
+    manager = mavlink_data_manager
+    monkeypatch.setattr(manager, '_request_json', lambda path: {'message': {'type': 'COMMAND_INT'}})
+    with pytest.raises(ValueError, match='identity_query_template_invalid'):
+        manager.request_aircraft_identity()
+    mock_requests.post.assert_not_called()
+    assert manager._identity_request_lock.acquire(blocking=False)
+    manager._identity_request_lock.release()
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status,body", [(200, "None"), (200, "null"), (404, "Not found"), (200, "broken JSON")])
+async def test_unavailable_message_does_not_invalidate_aircraft_link(mavlink_data_manager, monkeypatch, status, body):
+    import requests
+
+    response = requests.Response()
+    response.status_code = status
+    response._content = body.encode()
+    monkeypatch.setattr("classes.mavlink_data_manager.requests.get", lambda *args, **kwargs: response)
+    manager = mavlink_data_manager
+    manager._record_successful_fetch()
+    before = manager.get_aircraft_identity()["connection_generation"]
+    result = await manager.fetch_data_from_uri("/v1/mavlink/vehicles/1/components/1/messages/HOME_POSITION")
+    assert result is None
+    assert manager.connection_state == "connected"
+    assert manager.get_aircraft_identity()["connection_generation"] == before
+    assert manager.get_flight_state()["fresh"] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("uri,status,body", [
+    ("/v1/mavlink", 200, "None"),
+    ("/v1/mavlink/vehicles/1/components/1/messages/ATTITUDE", 503, "unavailable"),
+])
+async def test_bridge_failure_still_invalidates_link(mavlink_data_manager, monkeypatch, uri, status, body):
+    import requests
+
+    response = requests.Response()
+    response.status_code = status
+    response._content = body.encode()
+    monkeypatch.setattr("classes.mavlink_data_manager.requests.get", lambda *args, **kwargs: response)
+    mavlink_data_manager._record_successful_fetch()
+    assert await mavlink_data_manager.fetch_data_from_uri(uri) is None
+    assert mavlink_data_manager.connection_state == "error"
+
 
 class TestMavlinkDataManagerInitialization:
     """Tests for MavlinkDataManager initialization."""
@@ -160,6 +253,124 @@ async def test_ground_receipt_handles_wrap_and_missing_source_marker(mavlink_dat
     assert await mavlink_data_manager.fetch_ground_speed_observation() == (18.0, (10, 100.0))
     del payload["message"]["time_boot_ms"]
     assert await mavlink_data_manager.fetch_ground_speed_observation() == (18.0, (10, None))
+
+
+def altitude_payloads():
+    return ({"message": {"time_boot_ms": 10, "relative_alt": 20000, "alt": 520000, "vz": -125}},
+            {"message": {"time_usec": 1000000, "altitude": 500000}})
+
+
+def provide_altitude_payloads(manager, payload, home):
+    async def fetch(uri):
+        return home if uri.endswith("HOME_POSITION") else payload
+    manager.fetch_data_from_uri = AsyncMock(side_effect=fetch)
+
+
+@pytest.mark.asyncio
+async def test_control_altitude_pairs_home_height_and_earth_vertical_speed_without_refreshed_cache(
+    mavlink_data_manager, monkeypatch,
+):
+    from dataclasses import FrozenInstanceError
+    clock = [100.]
+    monkeypatch.setattr("classes.mavlink_data_manager.time.monotonic", lambda: clock[0])
+    payload, home = altitude_payloads()
+    provide_altitude_payloads(mavlink_data_manager, payload, home)
+    assert await mavlink_data_manager.fetch_altitude_observation() is None
+    assert await mavlink_data_manager.fetch_altitude_observation() is None
+    payload["message"]["time_boot_ms"] = 210
+    sample = await mavlink_data_manager.fetch_altitude_observation()
+    assert sample.height_relative_m == 20.
+    assert sample.vertical_speed_up_m_s == 1.25
+    assert sample.sample_time_s == pytest.approx(.210)
+    assert sample.received_at_monotonic_s == 100.
+    assert sample.altitude_reference_generation == 1
+    with pytest.raises(FrozenInstanceError):
+        sample.height_relative_m = 99.
+    clock[0] = 102.
+    assert await mavlink_data_manager.fetch_altitude_observation() is sample
+    payload["message"].update(time_boot_ms=410, relative_alt=20000, vz=0)
+    sample = await mavlink_data_manager.fetch_altitude_observation()
+    assert sample.received_at_monotonic_s == 102.
+    assert sample.vertical_speed_up_m_s == 0.
+
+
+@pytest.mark.asyncio
+async def test_control_altitude_unwraps_wire_clock_and_rejects_rollback(mavlink_data_manager):
+    payload, home = altitude_payloads()
+    payload["message"]["time_boot_ms"] = 2**32 - 10
+    provide_altitude_payloads(mavlink_data_manager, payload, home)
+    assert await mavlink_data_manager.fetch_altitude_observation() is None
+    payload["message"]["time_boot_ms"] = 10
+    sample = await mavlink_data_manager.fetch_altitude_observation()
+    assert sample.source_marker == 10
+    assert sample.sample_time_s == pytest.approx((2**32 + 10) / 1000.)
+    payload["message"]["time_boot_ms"] = 9
+    assert await mavlink_data_manager.fetch_altitude_observation() is None
+    payload["message"]["time_boot_ms"] = 10
+    assert await mavlink_data_manager.fetch_altitude_observation() is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field,value", [
+    ("relative_alt", 2**31 - 1), ("relative_alt", -2**31), ("relative_alt", None),
+    ("alt", 2**31 - 1), ("vz", 32767), ("vz", -32768), ("vz", float("nan")),
+    ("vz", float("inf")), ("vz", True), ("time_boot_ms", True), ("time_boot_ms", -1),
+    ("time_boot_ms", 2**32),
+])
+async def test_control_altitude_rejects_unavailable_or_invalid_wire_values(mavlink_data_manager, field, value):
+    payload, home = altitude_payloads()
+    provide_altitude_payloads(mavlink_data_manager, payload, home)
+    await mavlink_data_manager.fetch_altitude_observation()
+    payload["message"]["time_boot_ms"] = 20
+    assert await mavlink_data_manager.fetch_altitude_observation() is not None
+    payload["message"][field] = value
+    assert await mavlink_data_manager.fetch_altitude_observation() is None
+
+
+@pytest.mark.asyncio
+async def test_control_altitude_requires_home_and_detects_reference_changes(mavlink_data_manager):
+    payload, home = altitude_payloads()
+    provide_altitude_payloads(mavlink_data_manager, payload, home)
+    await mavlink_data_manager.fetch_altitude_observation()
+    payload["message"]["time_boot_ms"] = 20
+    first = await mavlink_data_manager.fetch_altitude_observation()
+    home["message"].update(time_usec=2000000, altitude=501000)
+    assert await mavlink_data_manager.fetch_altitude_observation() is None
+    payload["message"].update(time_boot_ms=30, relative_alt=19000)
+    assert await mavlink_data_manager.fetch_altitude_observation() is None
+    payload["message"]["time_boot_ms"] = 40
+    second = await mavlink_data_manager.fetch_altitude_observation()
+    assert second.altitude_reference_generation != first.altitude_reference_generation
+    assert second.height_relative_m == 19.
+    home.clear()
+    assert await mavlink_data_manager.fetch_altitude_observation() is None
+
+
+@pytest.mark.asyncio
+async def test_home_message_timestamp_changes_do_not_change_altitude_datum(mavlink_data_manager):
+    payload, home = altitude_payloads()
+    provide_altitude_payloads(mavlink_data_manager, payload, home)
+    await mavlink_data_manager.fetch_altitude_observation()
+    payload["message"]["time_boot_ms"] = 20
+    first = await mavlink_data_manager.fetch_altitude_observation()
+    home["message"]["time_usec"] += 1000000
+    assert await mavlink_data_manager.fetch_altitude_observation() is first
+    payload["message"]["time_boot_ms"] = 30
+    second = await mavlink_data_manager.fetch_altitude_observation()
+    assert second.altitude_reference_generation == first.altitude_reference_generation
+
+
+@pytest.mark.asyncio
+async def test_late_control_altitude_fetch_cannot_cross_receipt_reset(mavlink_data_manager):
+    payload, home = altitude_payloads()
+    async def fetch(uri):
+        if uri.endswith("HOME_POSITION"):
+            mavlink_data_manager.reset_attitude_receipt()
+            return home
+        return payload
+    mavlink_data_manager.fetch_data_from_uri = AsyncMock(side_effect=fetch)
+    assert await mavlink_data_manager.fetch_altitude_observation() is None
+    assert mavlink_data_manager._altitude_source_marker is None
 
 
 class TestMavlinkDataManagerPolling:
@@ -608,6 +819,14 @@ class TestMavlinkDataManagerConnectionState:
             "fresh": True, "connection_generation": "7", "autopilot_uid": "42",
             "arm_status": "Armed", "landed_state": "MAV_LANDED_STATE_IN_AIR",
             "flight_mode": None,
+            "aircraft_kind": "unknown",
+            "flight_mode_observed_at_monotonic_s": None,
+            "phase_observation": {
+                "phase": "unknown", "fresh": False, "reason": "telemetry_identity_unknown",
+                "source": "HEARTBEAT", "source_counter": None, "source_age_s": None,
+                "source_observed_at_monotonic_s": None,
+                "generation": 0, "connection_generation": "0", "autopilot_uid": None,
+            },
             "offboard_exit_observed_at_monotonic_s": None,
         }
 

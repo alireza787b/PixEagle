@@ -1,12 +1,15 @@
 # Requested speed during following
 
-GM Velocity Vector exposes a **Requested speed** control in Dashboard and the
-custom QGC follower panel while following is active. Other followers expose no
-speed adjustment unless their profile and implementation explicitly support it.
+Supported active followers advertise a **Requested speed** control to Dashboard
+and the custom QGC follower panel. The backend declares its meaning through
+`speed_basis`: `translation_3d` for the existing MC velocity adjustment, or
+`equivalent_airspeed` for a native FW reference. Unsupported followers expose no
+control; clients must not infer support from the follower name. MC Velocity Chase
+and GM Velocity Vector share the MC control without sharing a pursuit law.
 
-Use **− / +** to request a slower or faster **total 3D velocity**, in 0.5 m/s
-steps. The speedometer and numeric readout sit next to follower status in QGC,
-and below Stop in Dashboard's Command card. The same control is available
+For the MC control, use **− / +** to request a slower or faster **total 3D
+velocity ceiling**, in 0.5 m/s steps. The speedometer and numeric readout sit next to
+follower status in QGC, and below Stop in Dashboard's Command card. The same control is available
 near the top of **Follower**, above the saved profile selector and diagnostics,
 with an independent Stop button. Idle and unsupported followers have no speed
 adjustment. Tap the value to open an inline
@@ -21,11 +24,14 @@ aircraft speed: turns, acceleration, continuity and safety limits can reduce the
 effective submitted command. A request of zero ramps translation down; tracking
 and permitted yaw guidance continue. Use **Stop Following** to end the session.
 
-**An adjustment activates a temporary velocity override.** The requested 3D speed
+**Factory behavior keeps saved limits.** Adjustments reduce the requested speed
+and increase it again within the advertised ceiling. Experts can enable
+`Safety.ALLOW_SESSION_VELOCITY_OVERRIDE`; only then does an adjustment activate
+a temporary velocity override. The requested 3D ceiling
 replaces PixEagle's saved total, forward, lateral and vertical velocity caps for
-this session. The target direction determines the components; coordinated-turn
+this session. Each follower retains its existing guidance law; coordinated-turn
 guidance still turns instead of commanding sideways flight. There is no additional
-PixEagle UI speed ceiling. Existing aircraft firmware limits remain independent.
+PixEagle UI speed ceiling in that expert policy. Existing firmware limits remain independent.
 Altitude protection, acceleration, yaw/rate limits, validity checks and the
 circuit breaker are unchanged. No target-distance or new pursuit law is added.
 
@@ -53,18 +59,45 @@ between pages never replays an earlier adjustment.
 
 | Setting | Meaning |
 | --- | --- |
+| `Safety.ALLOW_SESSION_VELOCITY_OVERRIDE` | Advanced MC permission: factory `false` retains saved caps; explicit `true` permits the existing session override and Restore. It adds no controller or second resolver. |
 | `GM_VELOCITY_VECTOR.REQUESTED_SPEED` | Optional saved request at session start. Default `null` or an omitted key preserves the existing ceiling-based startup behavior. Clear the advanced Dashboard field to restore `null`. |
 | `GM_VELOCITY_VECTOR.INITIAL_VELOCITY` | Initial condition of the existing speed ramp; not a second cruise setting. |
 | `GM_VELOCITY_VECTOR.RAMP_ACCELERATION` | Existing acceleration/deceleration ramp and final command slew limit; the session control does not change it. |
-| `Safety.GlobalLimits` and `Safety.FollowerOverrides.GM_VELOCITY_VECTOR` | Saved limits used before adjustment and after restore. The startup ceiling is the smaller of the effective forward and total-magnitude limits. The owned velocity override replaces velocity limits only. |
-| `Follower.General.ENABLE_ALTITUDE_CONTROL` and follower override | Enable existing angle-guided climb/descent. The speed control does not enable it. |
+| `MC_VELOCITY_CHASE.REQUESTED_SPEED` | Saved session startup request; factory 0.5 m/s. Missing/null preserves the previous saved-forward-target behavior. It is not a second speed limit. |
+| `MC_VELOCITY_CHASE.INITIAL_FORWARD_VELOCITY` / `FORWARD_RAMP_RATE` | Initial ramp state and acceleration, not cruise settings. The same acceleration bounds subsequent speed changes. |
+| `Safety.GlobalLimits` and the selected follower's `Safety.FollowerOverrides` | One authoritative saved velocity envelope. A startup request and public session adjustments remain inside it; explicit expert permission enables the existing owned velocity override. |
+| `Follower.General.ENABLE_ALTITUDE_CONTROL` and follower override | Enable the profile's existing vertical guidance. The speed control does not enable it. |
 
-The public demo keeps its 0.5 m/s forward ceiling, 1 m/s overall ceiling, video
-file/CSRT, constant-position follower and enabled safety/circuit-breaker defaults.
-Saved startup requests remain within the configured envelope. Only an explicit
+The public factory keeps video file/CSRT, MC Position, altitude guidance off,
+5–100 m relative-altitude protection and the enabled circuit breaker. MC Chase
+starts at 0.5 m/s and permits session requests up to the configured 4 m/s total
+and forward ceiling. Lateral and vertical component caps remain 0.5 m/s. These
+are configuration values, not client constants; use Config Sync preview/apply
+to adopt them on an existing installation.
+Saved startup requests remain within the configured envelope. With expert permission, only an explicit
 session adjustment activates the velocity override; startup and reconnect do not
 activate or replay one. Increasing the request does not edit the saved ceiling.
 An existing saved startup request outside its configured envelope is rejected.
+
+MC Chase reports its configured startup request; legacy missing/null settings
+retain the previous total-ceiling display and saved forward target. The request
+constrains total translation while retaining image-error PID/yaw guidance and
+the saved component caps. Public adjustments do not override those caps. Only
+an explicit speed action with expert permission activates the shared override.
+Zero ramps all translation down; it is not just a forward-speed zero and does
+not promise geographic position Hold. Restore reapplies the saved limits without
+raising a lower request. Stop/new Start restores the configured startup state.
+No image coordinate is converted into a fabricated physical 3D ray.
+
+At the configured ceiling, `+` is disabled and `−` remains available. Raising
+the saved ceiling is a configuration change while inactive, not an implicit
+side effect of an operator tap. `INITIAL_FORWARD_VELOCITY` is the ramp's initial
+condition; `REQUESTED_SPEED` is the session request; `Safety.GlobalLimits` owns
+the limits. The same control contract supplies both Dashboard and QGC.
+
+The shared speed limiter receives each follower's own timing explicitly:
+Chase uses `RAMP_UPDATE_RATE`; Vector uses `CONTROL_UPDATE_RATE`. Neither
+follower depends on timing attributes supplied by the other implementation.
 
 Altitude is the backend's **relative altitude**, referenced to the estimator/home
 reference. It is not terrain clearance. Existing minimum/maximum altitude and
@@ -75,6 +108,43 @@ invalid geometry follows the existing fail-closed path.
 There is no distance hold, target-speed estimator or automatic overtaking
 detection in this control. Screen position alone does not establish target range.
 
+## Requested, submitted and observed speed
+
+A native FW row requests **equivalent airspeed**, not total 3D ground velocity.
+Its positive minimum and feasible envelope remain aircraft-owned. An acknowledged
+request can be below a changing load-dependent minimum; it remains distinct from
+PX4's effective reference and the aircraft's actual speed. Zero is not a FW stop
+request. Use Stop to end following and request the existing native handoff.
+
+`effective_command_magnitude` is the **submitted command**, not a measurement or
+a report of PX4's internally slewed reference. The API does not currently expose
+that native effective reference. Optional `observed_speed_m_s` uses the row's
+`speed_basis`: a full fresh NED velocity norm for MC, or PX4's selected qualified
+EAS observation for FW. A valid low EAS remains visible below the native minimum;
+it is not replaced by a requested speed, trim reference or groundspeed.
+
+Observations must match the active session's aircraft, connection, phase and,
+when present, guidance generation. The existing connection-owned snapshot retains
+its original measurement age; status reads cannot refresh it. Legacy MC scalar
+telemetry cannot establish a full NED vector, so its observation remains absent.
+For a qualified MC vector, `observed_speed_source: null` means no airspeed-source
+label applies; `speed_basis: translation_3d` defines its meaning.
+
+FW source labels are `sensor` or the qualified `ground_minus_wind` estimate.
+Missing, invalid, stale or misbound airspeed leaves the observation unknown.
+`native_airspeedless` additionally requires fresh matching native feedback proving
+that the FW controller is active with airspeed control disabled; unavailable
+EAS alone cannot establish that mode. It still reports no measured EAS or stall
+margin. These fields add no observer, polling loop, controller or flight authority.
+The stock MAVLink path reports `ground_speed_proxy` when fresh navigation
+velocity is the available fallback. This is not measured airspeed or proof of
+stall margin. See the [stock integration guide](../07-integration/stock-px4-gimbal-vtol.md)
+for current qualification scope.
+
+Missing legacy permission retains the previous override behavior until Config
+Sync preview/apply accepts the new factory choice. It stays absent in saved
+configuration; validation does not silently rewrite command authority.
+
 ## Client and extension contract
 
 `GET /api/v1/integration/following` adds optional `session_controls` and
@@ -82,9 +152,17 @@ detection in this control. Screen position alone does not establish target range
 maximum, step, acknowledged value, revision, availability, increase permission,
 effective submitted-command magnitude and limiting reason. Missing controls mean
 unsupported; clients must not infer support from a follower name.
+Optional `description` explains the declared guidance meaning: Chase's total
+translation ceiling, Vector's requested translation magnitude, or the native FW
+airspeed reference. It is display metadata, not a new speed basis or policy.
+Older rows can omit it; clients can show it in the existing expanded explanation.
 `maximum: null` means no configured adjustment ceiling. `configured_maximum`
 describes the saved startup ceiling; `override_active` and `reset_supported`
 advertise the restore affordance. Clients show acknowledged values only.
+Clients request `control_contract_version=2` for phase-bound controls and submit
+the advertised `guidance_generation` with each mutation. Version 1 hides EAS and
+all generation-bound rows, including MC; ordinary legacy MC rows without a
+generation remain available. The mutation guard is unchanged.
 
 `POST /api/v1/actions/following-control` accepts the ordinary action envelope
 plus `instance_id`, `runtime_id`, `follow_session_id`, `aircraft_uid`,
@@ -116,9 +194,9 @@ implementation; their existing independent-axis laws are not silently changed.
 
 ### Ordinary camera followers
 
-Only GM Velocity Vector supports this control today. A normal-camera chase
-follower can reuse the action, session ownership, limit resolver and interfaces,
-but needs an explicit guidance adapter and qualification before advertising it.
+A normal-camera chase follower can reuse the action, session ownership, limit
+resolver and interfaces, but needs an explicit guidance adapter and qualification
+before advertising it.
 Its image controller first derives the desired motion from image error and any
 other existing observations. The requested speed can then set that motion's
 magnitude while preserving its direction and existing acceleration/altitude

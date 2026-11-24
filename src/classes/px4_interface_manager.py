@@ -2,16 +2,24 @@ import asyncio
 import math
 import logging
 import time
-from typing import List, Literal, NamedTuple, Optional, TypedDict
-from mavsdk import System
+from dataclasses import asdict
+from pathlib import Path
+from typing import Callable, List, Literal, NamedTuple, Optional, TypedDict
+from mavsdk_grpc import System
 from classes.parameters import Parameters
-from mavsdk.offboard import OffboardError, VelocityBodyYawspeed, AttitudeRate
+from mavsdk_grpc.offboard import OffboardError, VelocityBodyYawspeed, AttitudeRate
 from classes.command_safety import (
     CommandValidationError,
     validate_and_clamp_command_values,
 )
+from classes.command_dispatch_guard import DispatchRefused, validate_before_dispatch
+from classes.command_intent import CommandIntent
 from classes.setpoint_handler import SetpointHandler
 from classes.attitude_envelope import guard_body_rates
+from classes.aircraft_state import AircraftBinding, AircraftKind, AircraftState, AircraftStateOwner, AirframePhase, Quaternion, finite_number
+from classes.native_guidance import NativeGuidanceClient, NativeGuidanceError
+from classes.gazebo_guidance_alignment import SourceAttitudeHistory
+from classes.telemetry_observation import AltitudeObservation, AltitudeSourceSample
 
 # Import circuit breaker for testing support
 try:
@@ -29,6 +37,16 @@ class PX4CommandGateDecision(NamedTuple):
     blocked: bool
     degraded: bool
     reason: str
+
+
+class _OffboardReleaseContext(NamedTuple):
+    drone: object
+    connection_generation: int
+    aircraft_uid: str | None
+    identity_generation: str | None
+    follow_session_id: str | None
+    start_attempt_monotonic_s: float
+    airframe_phase: AirframePhase | None
 
 
 class PX4ActionOutcome(TypedDict):
@@ -201,9 +219,10 @@ class PX4InterfaceManager:
     DEFAULT_TELEMETRY_MAX_SKEW_S = 0.25
     DEFAULT_MAVLINK2REST_CYCLE_TIMEOUT_S = 1.0
     DEFAULT_OWNED_TASK_STOP_TIMEOUT_S = 2.0
+    NATIVE_OBSERVATION_PERIOD_S = .02
     # Hold the first accepted setpoint long enough to establish PX4 proof-of-life.
     OFFBOARD_PRIME_DURATION_S = 1.1
-    MAVSDK_TELEMETRY_STREAM_NAMES = ("position", "attitude", "velocity_body")
+    MAVSDK_TELEMETRY_STREAM_NAMES = ("position", "attitude", "velocity_ned")
     MIN_MAVSDK_STREAM_RETRY_DELAY_S = 0.25
     MAX_MAVSDK_STREAM_RETRY_DELAY_S = 5.0
 
@@ -242,6 +261,13 @@ class PX4InterfaceManager:
         self._telemetry_source_requested = self._get_requested_telemetry_source()
         self._telemetry_source_active = None
         self._telemetry_generation = 0
+        self._aircraft_state_owner = AircraftStateOwner()
+        self._native_guidance_client = None
+        self._mavlink_guidance_source = None
+        self._native_observation_task = None
+        self._native_observation_snapshot = None
+        self._source_attitude_history = SourceAttitudeHistory()
+        self._native_guidance_lock = asyncio.Lock()
         self._telemetry_connection_generation = None
         self._telemetry_state = "idle"
         self._telemetry_sample_count = 0
@@ -284,6 +310,10 @@ class PX4InterfaceManager:
         self._last_telemetry_error = None
         self._attitude_receipt_monotonic_s = None
         self._ground_speed_receipt_monotonic_s = None
+        self._altitude_observation = None
+        self._mavsdk_altitude_reference = None
+        self._mavsdk_altitude_reference_generation = 0
+        self._mc_altitude_guard_context = None
         self._last_attitude_guard = None
         self._terminal_attitude_guard_reason = None
         self._sender_quiesce_task = None
@@ -291,6 +321,7 @@ class PX4InterfaceManager:
         self._mavsdk_offboard_sender_last_reason = None
         self._mavsdk_offboard_sender_last_transition_monotonic_s = None
         self._offboard_mode_start_acknowledged = False
+        self.last_start_cleanup_outcome = None
 
         # Determine if we are using MAVLink2Rest for telemetry data
         if Parameters.USE_MAVLINK2REST and self.app_controller:
@@ -322,6 +353,7 @@ class PX4InterfaceManager:
         _px4_command_params=None,
         _px4_gate_checked=False,
         _marks_offboard_sender=False,
+        _before_dispatch: Callable[[], None] | None = None,
         **kwargs,
     ):
         """
@@ -343,6 +375,7 @@ class PX4InterfaceManager:
                 velocity_setpoint
             )
         """
+        validate_before_dispatch(_before_dispatch)
         connection_generation = self._connection_generation
         disconnect_error = self._validation_mavsdk_disconnect_error()
         if disconnect_error:
@@ -377,8 +410,14 @@ class PX4InterfaceManager:
                 return False
 
         try:
+            async def invoke_guarded():
+                validate_before_dispatch(_before_dispatch)
+                if _marks_offboard_sender:
+                    self._set_offboard_sender_state("primed", f"dispatching:{_px4_command_type}")
+                return await coro_func(*args, **kwargs)
+
             await asyncio.wait_for(
-                coro_func(*args, **kwargs),
+                invoke_guarded(),
                 timeout=self.get_mavsdk_command_timeout_s(),
             )
             if not self.is_command_connection_ready(
@@ -394,6 +433,8 @@ class PX4InterfaceManager:
             if _marks_offboard_sender:
                 self._set_offboard_sender_state("primed", _px4_command_type)
             return True
+        except DispatchRefused:
+            raise
         except asyncio.TimeoutError:
             logger.error(
                 "MAVSDK command %s exceeded %.2f s deadline",
@@ -437,8 +478,11 @@ class PX4InterfaceManager:
 
     def _advance_connection_generation(self) -> int:
         """Invalidate command owners created for every previous connection."""
+        self._abort_native_guidance()
+        self._clear_mavlink_guidance_source()
         self._connection_generation += 1
         self._aircraft_identity = None
+        self._aircraft_state_owner.bind(None)
         return self._connection_generation
 
     async def observe_aircraft_identity(self) -> None:
@@ -481,13 +525,356 @@ class PX4InterfaceManager:
             "hardware_uid": (identity or {}).get("hardware_uid"),
         }
 
+    def get_aircraft_state_binding(self) -> AircraftBinding | None:
+        """Bind native observations to verified MAVSDK identity and telemetry epoch.
+
+        A configured system ID, source label or reconnect does not grant this
+        binding. Native transport qualification remains a separate prerequisite.
+        """
+        identity = self.get_aircraft_identity()
+        uid = identity.get("autopilot_uid")
+        if not identity.get("connected") or not isinstance(uid, str) or not uid:
+            self._aircraft_state_owner.bind(None)
+            return None
+        binding = AircraftBinding(uid, identity["connection_generation"], self._telemetry_generation)
+        self._aircraft_state_owner.bind(binding)
+        return binding
+
+    def get_aircraft_kind(self) -> AircraftKind:
+        """Use fresh observed MAV_TYPE from the verified aircraft, never config."""
+        manager = getattr(self, "mavlink_data_manager", None)
+        if manager is None and self.app_controller is not None:
+            manager = getattr(self.app_controller, "mavlink_data_manager", None)
+        getter = getattr(manager, "get_flight_state", None)
+        state = getter() if callable(getter) else {}
+        identity = self.get_aircraft_identity()
+        if (not isinstance(state, dict) or state.get("fresh") is not True
+                or not identity.get("connected") or not identity.get("autopilot_uid")
+                or state.get("autopilot_uid") != identity.get("autopilot_uid")):
+            return AircraftKind.UNKNOWN
+        try:
+            return AircraftKind(state.get("aircraft_kind"))
+        except (TypeError, ValueError):
+            return AircraftKind.UNKNOWN
+
+    def commit_aircraft_state(self, state: AircraftState) -> bool:
+        binding = self.get_aircraft_state_binding()
+        if binding is None or state.binding != binding:
+            return False
+        return self._aircraft_state_owner.commit(state)
+
+    def get_aircraft_state(self) -> AircraftState | None:
+        if self.get_aircraft_state_binding() is None:
+            return None
+        if getattr(self, '_mavlink_guidance_source', None) is not None:
+            observation = self.get_mavlink_guidance_observation()
+            return None if observation is None else observation.state
+        if self._native_guidance_client is not None and self._native_observation_snapshot is None:
+            return None
+        return self._aircraft_state_owner.snapshot(timeout_s=self.get_telemetry_stale_timeout_s())
+
+    @property
+    def mavlink_guidance_source(self):
+        return getattr(self, '_mavlink_guidance_source', None)
+
+    def _clear_mavlink_guidance_source(self):
+        source = self.mavlink_guidance_source
+        close = getattr(source, 'close', None)
+        if callable(close):
+            close()
+        self._mavlink_guidance_source = None
+
+    def get_mavlink_guidance_observation(self):
+        source = self.mavlink_guidance_source
+        observation = None if source is None else source.observation()
+        if observation is None:
+            return None
+        previous = self._aircraft_state_owner.snapshot(timeout_s=self.get_telemetry_stale_timeout_s())
+        if previous != observation.state and not self.commit_aircraft_state(observation.state):
+            return None
+        return observation if self._aircraft_state_owner.snapshot(
+            timeout_s=self.get_telemetry_stale_timeout_s()) == observation.state else None
+
+    async def prepare_mavlink_guidance(self, *, lookahead_m):
+        """Read-only stock setup on the existing connection and telemetry owner."""
+        from classes.mavlink_guidance_source import MavlinkGuidanceSource
+
+        async with self._native_guidance_lock:
+            client = self._native_guidance_client
+            if client is not None and client.session_identity is not None:
+                raise ValueError("guidance_command_owner_already_active")
+            binding = self.get_aircraft_state_binding()
+            if binding is None or not self.is_command_connection_ready():
+                raise ValueError("mavlink_guidance_connection_unavailable")
+            manager = getattr(self, 'mavlink_data_manager', None)
+            if manager is None and self.app_controller is not None:
+                manager = getattr(self.app_controller, 'mavlink_data_manager', None)
+            if manager is None:
+                raise ValueError("mavlink_guidance_telemetry_unavailable")
+            rate = self.get_follower_data_refresh_rate_hz()
+            try:
+                results = await asyncio.wait_for(asyncio.gather(
+                    self.drone.telemetry.set_rate_attitude_quaternion(rate),
+                    self.drone.telemetry.set_rate_velocity_ned(rate),
+                    self.drone.telemetry.set_rate_position(rate),
+                    self.drone.telemetry.set_rate_fixedwing_metrics(rate),
+                    self.drone.telemetry.set_rate_vtol_state(min(1., rate)), return_exceptions=True),
+                    timeout=self.get_mavsdk_command_timeout_s())
+                if any(isinstance(result, Exception) for result in results):
+                    logger.warning("Stock guidance telemetry-rate request incomplete; observed source freshness remains authoritative")
+            except asyncio.TimeoutError:
+                logger.warning("Stock guidance telemetry-rate request timed out; waiting for observed source progress")
+            source = await MavlinkGuidanceSource.prepare(manager, binding,
+                current_binding=self.get_aircraft_state_binding, parameter_client=self.drone.param,
+                lookahead_m=lookahead_m, timeout_s=self.get_mavsdk_command_timeout_s())
+            self._abort_native_guidance()
+            source.request_polling_period(1. / rate)
+            self._clear_mavlink_guidance_source()
+            self._aircraft_state_owner.bind(None)
+            self._aircraft_state_owner.bind(binding)
+            self._mavlink_guidance_source = source
+            self.get_mavlink_guidance_observation()
+            return source
+
+    @property
+    def native_guidance_client(self):
+        return self._native_guidance_client
+
+    @property
+    def source_attitude_history(self):
+        history = getattr(self, '_source_attitude_history', None)
+        if history is None:
+            history = SourceAttitudeHistory()
+            self._source_attitude_history = history
+        return history
+
+    @property
+    def airframe_contract_ready(self):
+        source = self.mavlink_guidance_source
+        if source is not None:
+            state = self.get_aircraft_state()
+            return bool(state is not None and source.envelope is not None and source.tuning is not None
+                        and state.phase in {AirframePhase.MULTICOPTER, AirframePhase.FIXED_WING})
+        client = self._native_guidance_client
+        capabilities = None if client is None else client.capabilities
+        state = self.get_aircraft_state()
+        return bool(capabilities is not None and state is not None and state.is_vtol
+            and capabilities.owned_mode_supported and capabilities.multicopter_supported
+            and capabilities.multicopter_altitude_hold_supported)
+
+    @property
+    def guidance_start_context(self):
+        """Immutable original observation; polling cannot renew its source age."""
+        source = self.mavlink_guidance_source
+        if source is not None:
+            return source.start_context
+        snapshot = getattr(self, '_native_observation_snapshot', None)
+        client = self._native_guidance_client
+        capabilities = None if client is None else client.capabilities
+        current = self.get_aircraft_state()
+        if (snapshot is None or capabilities is None or current is None
+                or client.session_identity is not None
+                or getattr(client, 'passive_observation_allowed', True) is not True):
+            return None
+        context, state = snapshot
+        if (context is None or current.binding != state.binding or current.phase is not state.phase
+                or not state.fresh(time.monotonic(), self.get_telemetry_stale_timeout_s())
+                or current.rescue_active or self._native_observation_snapshot is not snapshot):
+            return None
+        try:
+            context.require_match(current.binding, capabilities.runtime_id, phase=current.phase)
+        except (ValueError, NativeGuidanceError):
+            return None
+        return context
+
+    @property
+    def guidance_capabilities(self):
+        source = self.mavlink_guidance_source
+        if source is not None:
+            from classes.mavlink_vector_guidance_session import MavlinkGuidanceCapabilities
+            fixed_wing = source.envelope is not None and source.tuning is not None
+            return MavlinkGuidanceCapabilities(source.runtime_id, fixed_wing, True, True, fixed_wing)
+        client = self._native_guidance_client
+        return None if client is None else client.capabilities
+
+    def commit_native_observation(self, observation):
+        """Retain state, pre-acquire identity and raw source samples from one read."""
+        from classes.native_guidance import NativeStartContext
+
+        client = self._native_guidance_client
+        capabilities = None if client is None else client.capabilities
+        if capabilities is None or observation.get('runtime_id') != capabilities.runtime_id:
+            return False
+        payload = observation.get('aircraft_state')
+        state = None if payload is None else AircraftState.from_payload(payload)
+        binding = self.get_aircraft_state_binding()
+        if state is None or binding is None or state.binding != binding:
+            return False
+        if not self._aircraft_state_owner.accepts(state):
+            return False
+        if observation.get('fresh') is not True or observation.get('rescue_active') is not False:
+            snapshot = self._native_observation_snapshot
+            if snapshot is not None and snapshot[1].binding == binding:
+                self._native_observation_snapshot = None
+            self.source_attitude_history.clear_if_current(binding, capabilities.runtime_id)
+            return False
+        payload = observation.get('start_context')
+        try:
+            context = None if payload is None else NativeStartContext.from_payload(payload)
+            if context is not None:
+                context.require_match(state.binding, capabilities.runtime_id, phase=state.phase)
+        except (ValueError, NativeGuidanceError):
+            self._native_observation_snapshot = None
+            self.source_attitude_history.clear_if_current(binding, capabilities.runtime_id)
+            raise
+        self.commit_aircraft_state(state)
+        if self._aircraft_state_owner.snapshot(timeout_s=self.get_telemetry_stale_timeout_s()) != state:
+            return False
+        self._native_observation_snapshot = (context, state)
+        source = observation.get('source_attitude')
+        clock_id = getattr(capabilities, 'source_clock_id', None)
+        if source is None or clock_id is None:
+            self.source_attitude_history.clear()
+        else:
+            try:
+                self.source_attitude_history.commit(source, state,
+                    runtime_id=capabilities.runtime_id, source_clock_id=clock_id)
+            except (TypeError, ValueError):
+                self.source_attitude_history.clear()
+                logger.warning('Native source-attitude evidence rejected; camera alignment is unavailable')
+        return True
+
+    def _abort_native_guidance(self) -> None:
+        task = getattr(self, '_native_observation_task', None)
+        if task is not None and not task.done():
+            task.cancel()
+        client = getattr(self, "_native_guidance_client", None)
+        self._native_guidance_client = None
+        self._native_observation_snapshot = None
+        self.source_attitude_history.clear()
+        if client is not None:
+            client.abort()
+
+    def _ensure_native_observation_task(self, client, binding):
+        task = getattr(self, '_native_observation_task', None)
+        if task is None or task.done():
+            self._native_observation_task = asyncio.create_task(
+                self._observe_native_passively(client, binding), name='PixEagleNativeObservations')
+
+    async def _observe_native_passively(self, client, binding):
+        """Keep source history at the native status cadence, independent of UI reads.
+
+        The socket owner serializes observation with acquisition. Once owned,
+        only the existing command publisher observes; this task sends no action.
+        """
+        try:
+            while self._native_guidance_client is client and self.get_aircraft_state_binding() == binding:
+                await asyncio.sleep(self.NATIVE_OBSERVATION_PERIOD_S)
+                async with self._native_guidance_lock:
+                    if self._native_guidance_client is not client or self.get_aircraft_state_binding() != binding:
+                        return
+                    observation = await client.observe(passive=True)
+                    if self._native_guidance_client is not client or self.get_aircraft_state_binding() != binding:
+                        return
+                    if (observation is None or client.session_identity is not None
+                            or getattr(client, 'passive_observation_allowed', True) is not True):
+                        continue
+                    if (observation.get('rescue_active') is not False
+                            or observation.get('owner_confirmed') is not False):
+                        raise NativeGuidanceError('native_aircraft_state_unavailable')
+                    if observation.get('fresh') is not True:
+                        # A valid stale read revokes admission, not the transport
+                        # identity. Only passive observation may recover here.
+                        self._native_observation_snapshot = None
+                        self.source_attitude_history.clear()
+                        continue
+                    if not self.commit_native_observation(observation):
+                        raise NativeGuidanceError('native_aircraft_state_unavailable')
+        except asyncio.CancelledError:
+            raise
+        except (NativeGuidanceError, ValueError, TypeError, KeyError):
+            if self._native_guidance_client is client and self.get_aircraft_state_binding() == binding:
+                self._native_guidance_client = None
+                self._native_observation_snapshot = None
+                self.source_attitude_history.clear()
+                self._aircraft_state_owner.bind(None)
+                client.abort()
+                logger.warning('Passive native observations unavailable; fresh discovery is required')
+
+    async def prepare_native_guidance(self, socket_path: Path):
+        """Read-only native discovery, bound to this verified aircraft connection.
+
+        Called on the existing flight-owner loop. Preparing observations does
+        not acquire a mode or create another telemetry/publication worker.
+        """
+        async with self._native_guidance_lock:
+            if self.mavlink_guidance_source is not None:
+                raise NativeGuidanceError("guidance_transport_already_prepared")
+            previous = self._native_guidance_client
+            if previous is not None and (previous.session_identity is not None
+                    or getattr(previous, 'passive_observation_allowed', True) is not True):
+                raise NativeGuidanceError("native_follow_session_already_owned")
+            binding = self.get_aircraft_state_binding()
+            if binding is None:
+                raise NativeGuidanceError("native_aircraft_connection_unverified")
+            client = previous
+            try:
+                if client is None or client.capabilities is None:
+                    if not await self._cancel_owned_task(
+                            getattr(self, '_native_observation_task', None), label='Previous native observation worker'):
+                        raise NativeGuidanceError('native_observation_cleanup_pending')
+                    if client is not None:
+                        await client.close()
+                    client = NativeGuidanceClient(socket_path)
+                    self._native_guidance_client = client
+                    capabilities = await client.connect()
+                    await client.bind(binding)
+                else:
+                    capabilities = client.capabilities
+                observation = await client.observe(passive=True)
+                if observation is None:
+                    # An acquisition won the RPC lock. Passive discovery must
+                    # neither replace its context nor close its owned socket.
+                    return capabilities
+                if (observation.get("fresh") is not True or observation.get("rescue_active") is not False
+                        or observation.get("owner_confirmed") is not False):
+                    raise NativeGuidanceError("native_aircraft_state_unavailable")
+                state = AircraftState.from_payload(observation["aircraft_state"])
+                if state.binding != binding or self.get_aircraft_state_binding() != binding:
+                    raise NativeGuidanceError("native_aircraft_connection_changed")
+                if not self.commit_native_observation(observation):
+                    raise NativeGuidanceError("native_aircraft_state_rejected")
+                if self.get_aircraft_state() != state:
+                    raise NativeGuidanceError("native_aircraft_state_rejected")
+                self._native_guidance_client = client
+                self._ensure_native_observation_task(client, binding)
+                return capabilities
+            except BaseException as error:
+                if self._native_guidance_client is client:
+                    self._native_guidance_client = None
+                    task = getattr(self, '_native_observation_task', None)
+                    if task is not None and not task.done():
+                        task.cancel()
+                    self._native_observation_snapshot = None
+                    self.source_attitude_history.clear()
+                if self.get_aircraft_state_binding() == binding:
+                    self._aircraft_state_owner.bind(None)
+                if client is not None:
+                    await client.close()
+                if isinstance(error, (KeyError, TypeError, ValueError)):
+                    raise NativeGuidanceError("native_aircraft_state_unavailable") from error
+                raise
+
     def _advance_telemetry_generation(self, connection_generation: int) -> int:
         """Create a telemetry owner bound to one connection generation."""
         if connection_generation != self._connection_generation:
             raise RuntimeError(
                 "Cannot start telemetry for a superseded PX4 connection generation"
             )
+        self._abort_native_guidance()
+        self._clear_mavlink_guidance_source()
         self._telemetry_generation += 1
+        self._aircraft_state_owner.bind(None)
         self._telemetry_connection_generation = connection_generation
         return self._telemetry_generation
 
@@ -549,6 +936,10 @@ class PX4InterfaceManager:
         self._telemetry_pending_values = {}
         self._attitude_receipt_monotonic_s = None
         self._ground_speed_receipt_monotonic_s = None
+        self._altitude_observation = None
+        self._mavsdk_altitude_reference = None
+        self._mavsdk_altitude_reference_generation = 0
+        self._mc_altitude_guard_context = None
         self._last_attitude_guard = None
         self._terminal_attitude_guard_reason = None
         reset_receipt = getattr(getattr(self, "mavlink_data_manager", None), "reset_attitude_receipt", None)
@@ -582,6 +973,7 @@ class PX4InterfaceManager:
         temporal_skew_s: float | None = None,
         attitude_receipt_monotonic_s: float | None = None,
         ground_speed_receipt_monotonic_s: float | None = None,
+        altitude_observation: AltitudeSourceSample | None = None,
     ) -> bool:
         """Publish one complete finite follower snapshot without partial writes."""
         connection_generation = (
@@ -618,11 +1010,31 @@ class PX4InterfaceManager:
                 raise ValueError(f"Telemetry field {field_name} is not finite")
             parsed[field_name] = value
 
+        height_sample = None
+        if altitude_observation is not None:
+            if not isinstance(altitude_observation, AltitudeSourceSample):
+                raise ValueError("Altitude observation has an invalid contract")
+            for value in (altitude_observation.height_relative_m, altitude_observation.vertical_speed_up_m_s,
+                          altitude_observation.sample_time_s, altitude_observation.received_at_monotonic_s):
+                finite_number(value, "altitude_observation")
+            if altitude_observation.received_at_monotonic_s > time.monotonic():
+                self._altitude_observation = None
+                raise ValueError("Altitude observation receipt is in the future")
+            if altitude_observation.height_relative_m != parsed["relative_altitude_m"]:
+                raise ValueError("Altitude observation does not match the committed height")
+            height_sample = AltitudeObservation(
+                **asdict(altitude_observation), connection_generation=connection_generation,
+                telemetry_generation=telemetry_generation,
+            )
+            if height_sample == self._altitude_observation:
+                height_sample = self._altitude_observation
+
         self.current_roll = parsed["roll_deg"]
         self.current_pitch = parsed["pitch_deg"]
         self.current_yaw = parsed["yaw_deg"]
         self.current_altitude = parsed["relative_altitude_m"]
         self.current_ground_speed = parsed["ground_speed_m_s"]
+        self._altitude_observation = height_sample
         self._attitude_receipt_monotonic_s = attitude_receipt_monotonic_s
         self._ground_speed_receipt_monotonic_s = ground_speed_receipt_monotonic_s
         completed_at = (
@@ -643,6 +1055,19 @@ class PX4InterfaceManager:
         self._telemetry_ready_event.set()
         return True
 
+    def get_altitude_observation(self) -> AltitudeObservation | None:
+        """Return the original fresh paired sample, never freshness from polling.
+
+        MAVSDK position/NED velocity pairs use explicitly labelled receipt timing.
+        """
+        sample = self._altitude_observation
+        if (sample is None or not self.active_mode
+                or not self._is_telemetry_owner_current(sample.connection_generation, sample.telemetry_generation)
+                or not self.get_telemetry_readiness()["ready"]):
+            return None
+        age = time.monotonic() - sample.received_at_monotonic_s
+        return sample if 0. <= age <= self.get_telemetry_stale_timeout_s() else None
+
     def guard_mc_attitude_command(self, fields):
         """Recheck measured attitude at calculation and every publication boundary."""
         from classes.offboard_commander import OffboardCommander
@@ -662,6 +1087,18 @@ class PX4InterfaceManager:
         period, timeout, ttl = timing
         horizon = age + max(ttl, self.get_follower_data_refresh_period_s() + period + timeout)
         config = getattr(Parameters, "MC_ATTITUDE_RATE", {})
+        height = None
+        height_context = None
+        if config.get("ENABLE_ALTITUDE_HOLD", True):
+            height = self.get_altitude_observation()
+            if height is None:
+                raise CommandValidationError("altitude_sample_unavailable")
+            binding = (height.source, height.connection_generation, height.telemetry_generation,
+                       height.altitude_reference_generation)
+            previous = self._mc_altitude_guard_context
+            if previous is not None and previous[0] is self.setpoint_handler and previous[1] != binding:
+                raise CommandValidationError("altitude_reference_changed")
+            height_context = (self.setpoint_handler, binding)
         guarded, status = guard_body_rates(
             fields, roll_deg=self.current_roll, pitch_deg=self.current_pitch,
             max_roll_deg=config.get("MAX_ROLL_ANGLE"), max_pitch_deg=config.get("MAX_PITCH_ANGLE"),
@@ -669,6 +1106,16 @@ class PX4InterfaceManager:
         )
         status["measurement_age_s"] = age
         status["source"] = self._telemetry_source_active
+        if height is not None:
+            status["altitude_observation"] = {
+                "measurement_age_s": now - height.received_at_monotonic_s,
+                "source": height.source, "source_marker": height.source_marker,
+                "sample_time_basis": height.sample_time_basis,
+                "connection_generation": height.connection_generation,
+                "telemetry_generation": height.telemetry_generation,
+                "altitude_reference_generation": height.altitude_reference_generation,
+            }
+            self._mc_altitude_guard_context = height_context
         self._last_attitude_guard = status
         return guarded
 
@@ -1469,6 +1916,10 @@ class PX4InterfaceManager:
             value, completed = await timed_fetch(self.mavlink_data_manager.fetch_ground_speed)
             return value, completed, None
 
+        async def altitude_observation_fetch():
+            fetch = getattr(self.mavlink_data_manager, "fetch_altitude_observation", None)
+            return await fetch() if callable(fetch) else None
+
         try:
             if not self._is_telemetry_owner_current(
                 connection_generation,
@@ -1480,6 +1931,7 @@ class PX4InterfaceManager:
                     attitude_fetch(),
                     timed_fetch(self.mavlink_data_manager.fetch_altitude_data),
                     ground_speed_fetch(),
+                    altitude_observation_fetch(),
                 ),
                 timeout=self.get_mavlink2rest_cycle_timeout_s(),
             )
@@ -1487,7 +1939,11 @@ class PX4InterfaceManager:
                 ground_speed,
                 ground_speed_at,
                 ground_speed_received,
-            ) = results
+            ), altitude_observation = results
+
+            if (altitude_observation is None
+                    and self._is_telemetry_owner_current(connection_generation, telemetry_generation)):
+                self._altitude_observation = None
 
             completion_times = (attitude_at, altitude_at, ground_speed_at)
             temporal_skew_s = max(completion_times) - min(completion_times)
@@ -1510,7 +1966,8 @@ class PX4InterfaceManager:
                     "roll_deg": attitude_data["roll"],
                     "pitch_deg": attitude_data["pitch"],
                     "yaw_deg": attitude_data["yaw"],
-                    "relative_altitude_m": altitude_data["altitude_relative"],
+                    "relative_altitude_m": (altitude_observation.height_relative_m
+                                            if altitude_observation is not None else altitude_data["altitude_relative"]),
                     "ground_speed_m_s": ground_speed,
                 },
                 connection_generation=connection_generation,
@@ -1519,6 +1976,7 @@ class PX4InterfaceManager:
                 temporal_skew_s=temporal_skew_s,
                 attitude_receipt_monotonic_s=attitude_received,
                 ground_speed_receipt_monotonic_s=ground_speed_received,
+                altitude_observation=altitude_observation,
             )
             return committed
         except asyncio.TimeoutError:
@@ -1560,6 +2018,12 @@ class PX4InterfaceManager:
             telemetry_generation,
         ):
             return
+        rate_hz = self.get_follower_data_refresh_rate_hz()
+        await asyncio.wait_for(
+            asyncio.gather(self.drone.telemetry.set_rate_position(rate_hz),
+                           self.drone.telemetry.set_rate_velocity_ned(rate_hz)),
+            timeout=self.get_mavsdk_command_timeout_s(),
+        )
         workers = {
             "position": (
                 self.drone.telemetry.position,
@@ -1569,9 +2033,9 @@ class PX4InterfaceManager:
                 self.drone.telemetry.attitude_euler,
                 self._consume_mavsdk_attitude,
             ),
-            "velocity_body": (
-                self.drone.telemetry.velocity_body,
-                self._consume_mavsdk_velocity_body,
+            "velocity_ned": (
+                self.drone.telemetry.velocity_ned,
+                self._consume_mavsdk_velocity_ned,
             ),
         }
         statuses = {
@@ -1699,6 +2163,9 @@ class PX4InterfaceManager:
                 status["state"] = "cancelled"
                 raise
             except Exception as exc:
+                if (name in {"position", "velocity_ned"}
+                        and self._is_telemetry_owner_current(connection_generation, telemetry_generation)):
+                    self._altitude_observation = None
                 status["state"] = "retrying"
                 status["restart_count"] += 1
                 status["last_error"] = f"{type(exc).__name__}: {exc}"
@@ -1712,11 +2179,35 @@ class PX4InterfaceManager:
 
         status["state"] = "stopped"
 
+    @staticmethod
+    def _mavsdk_altitude_reference_interval(absolute_m, relative_m):
+        """Bound the inferred datum by transport precision, not a flight tolerance."""
+        def half_float32_ulp(value):
+            if value == 0.:
+                return math.ldexp(1., -150)
+            exponent = math.frexp(abs(value))[1]
+            return math.ldexp(1., max(exponent - 24, -149) - 1)
+
+        uncertainty_m = 0.
+        for value in (absolute_m, relative_m):
+            # Integer-mm truncation, float32 mm scaling/casting, and SDK float output.
+            uncertainty_m += (.001 + 2. * half_float32_ulp(value * 1000.) / 1000.
+                              + half_float32_ulp(value))
+        datum_m = absolute_m - relative_m
+        return datum_m - uncertainty_m, datum_m + uncertainty_m
+
     def _consume_mavsdk_position(self, position):
         value = float(position.relative_altitude_m)
         if not math.isfinite(value):
             raise ValueError("MAVSDK relative altitude is not finite")
-        return {"relative_altitude_m": value}
+        result = {"relative_altitude_m": value}
+        absolute = getattr(position, "absolute_altitude_m", None)
+        result["home_altitude_reference_interval_m"] = (
+            self._mavsdk_altitude_reference_interval(float(absolute), value)
+            if isinstance(absolute, (int, float)) and not isinstance(absolute, bool) and math.isfinite(absolute)
+            else None
+        )
+        return result
 
     def _consume_mavsdk_attitude(self, attitude):
         values = {
@@ -1728,14 +2219,15 @@ class PX4InterfaceManager:
             raise ValueError("MAVSDK attitude contains a non-finite value")
         return values
 
-    def _consume_mavsdk_velocity_body(self, velocity):
+    def _consume_mavsdk_velocity_ned(self, velocity):
         ground_speed = math.hypot(
-            float(velocity.x_m_s),
-            float(velocity.y_m_s),
+            float(velocity.north_m_s),
+            float(velocity.east_m_s),
         )
-        if not math.isfinite(ground_speed):
-            raise ValueError("MAVSDK ground speed is not finite")
-        return {"ground_speed_m_s": ground_speed}
+        vertical_up = -float(velocity.down_m_s)
+        if not math.isfinite(ground_speed) or not math.isfinite(vertical_up):
+            raise ValueError("MAVSDK NED velocity is not finite")
+        return {"ground_speed_m_s": ground_speed, "vertical_speed_up_m_s": vertical_up}
 
     def _try_commit_mavsdk_telemetry_snapshot(
         self,
@@ -1768,13 +2260,16 @@ class PX4InterfaceManager:
                 stream_status["connection_generation"] != connection_generation
                 or stream_status["telemetry_generation"] != telemetry_generation
             ):
+                self._altitude_observation = None
                 return False
             last_update = stream_status["last_update_monotonic_s"]
-            if last_update is None or now - last_update > stale_timeout_s:
+            if last_update is None or not 0. <= now - last_update <= stale_timeout_s:
+                self._altitude_observation = None
                 return False
             completion_times.append(last_update)
         temporal_skew_s = max(completion_times) - min(completion_times)
         if temporal_skew_s > self.get_telemetry_max_skew_s():
+            self._altitude_observation = None
             self._last_telemetry_error = (
                 "MAVSDK telemetry stream skew "
                 f"{temporal_skew_s:.3f}s exceeds "
@@ -1782,14 +2277,41 @@ class PX4InterfaceManager:
             )
             return False
         try:
+            values = self._telemetry_pending_values
+            position_status = self._telemetry_stream_status["position"]
+            position_at = position_status["last_update_monotonic_s"]
+            velocity_at = self._telemetry_stream_status["velocity_ned"]["last_update_monotonic_s"]
+            reference = values.get("home_altitude_reference_interval_m")
+            altitude_observation = None
+            paired_streams_valid = all(self._telemetry_stream_status[name]["last_error"] is None
+                                       for name in ("position", "velocity_ned"))
+            if reference is not None and "vertical_speed_up_m_s" in values and paired_streams_valid:
+                previous = self._mavsdk_altitude_reference
+                coherent = ((max(previous[0], reference[0]), min(previous[1], reference[1]))
+                            if previous is not None else None)
+                if coherent is None or coherent[0] > coherent[1]:
+                    self._mavsdk_altitude_reference = reference
+                    self._mavsdk_altitude_reference_generation += 1
+                else:
+                    self._mavsdk_altitude_reference = coherent
+                altitude_observation = AltitudeSourceSample(
+                    height_relative_m=values["relative_altitude_m"],
+                    vertical_speed_up_m_s=values["vertical_speed_up_m_s"],
+                    source_marker=position_status["sample_count"] % 2**32,
+                    sample_time_s=position_at, received_at_monotonic_s=min(position_at, velocity_at),
+                    sample_time_basis="position receipt_monotonic; age from oldest paired receipt; SDK source timestamps unavailable",
+                    source="mavsdk:position+velocity_ned",
+                    altitude_reference_generation=self._mavsdk_altitude_reference_generation,
+                )
             committed = self._commit_telemetry_snapshot(
-                dict(self._telemetry_pending_values),
+                {key: values[key] for key in ("roll_deg", "pitch_deg", "yaw_deg", "relative_altitude_m", "ground_speed_m_s")},
                 connection_generation=connection_generation,
                 telemetry_generation=telemetry_generation,
                 completed_at_monotonic_s=max(completion_times),
                 temporal_skew_s=temporal_skew_s,
                 attitude_receipt_monotonic_s=self._telemetry_stream_status["attitude"]["last_update_monotonic_s"],
-                ground_speed_receipt_monotonic_s=self._telemetry_stream_status["velocity_body"]["last_update_monotonic_s"],
+                ground_speed_receipt_monotonic_s=velocity_at,
+                altitude_observation=altitude_observation,
             )
         except ValueError:
             return False
@@ -1888,14 +2410,20 @@ class PX4InterfaceManager:
             getattr(self, "_sender_quiesce_task", None) is not None
             and not self._sender_quiesce_task.done()
         )
+        native_observer_alive = bool(
+            getattr(self, '_native_observation_task', None) is not None
+            and not self._native_observation_task.done()
+        )
         alive_count = (
             int(sender_quiesce_alive)
+            + int(native_observer_alive)
             + int(telemetry_supervisor_alive)
             + int(connection_monitor_alive)
             + sum(int(alive) for alive in stream_workers.values())
         )
         return {
             "sender_quiesce_alive": sender_quiesce_alive,
+            "native_observer_alive": native_observer_alive,
             "telemetry_supervisor_alive": telemetry_supervisor_alive,
             "connection_monitor_alive": connection_monitor_alive,
             "mavsdk_stream_workers": stream_workers,
@@ -1905,13 +2433,15 @@ class PX4InterfaceManager:
 
     async def _cancel_telemetry_update_task(self):
         """Cancel and join the owned telemetry supervisor task."""
+        native_stopped = await self._cancel_owned_task(
+            getattr(self, '_native_observation_task', None), label='Native observation worker')
         supervisor_stopped = await self._cancel_owned_task(
             self.update_task,
             label="PX4 telemetry supervisor",
             timeout_s=self.DEFAULT_OWNED_TASK_STOP_TIMEOUT_S * 2.0,
         )
         streams_stopped = await self._cancel_mavsdk_stream_tasks()
-        return supervisor_stopped and streams_stopped
+        return native_stopped and supervisor_stopped and streams_stopped
 
     async def _cancel_connection_monitor_task(self):
         """Cancel and join the owned MAVSDK connection monitor."""
@@ -1926,11 +2456,46 @@ class PX4InterfaceManager:
         """
         return self.current_yaw, self.current_pitch, self.current_roll
 
+    def get_guidance_attitude(self):
+        """Physical FRD attitude from the existing fresh complete telemetry owner."""
+        if not self.is_command_connection_ready(require_fresh_telemetry=True):
+            raise ValueError("aircraft_attitude_unavailable")
+        receipt = self._attitude_receipt_monotonic_s
+        if (type(receipt) not in (int, float) or not math.isfinite(receipt)
+                or not 0. <= time.monotonic() - receipt <= self.get_telemetry_stale_timeout_s()):
+            raise ValueError("aircraft_attitude_stale")
+        source = self._telemetry_source_active
+        yaw = finite_number(self.current_yaw, "aircraft_yaw")
+        if source == "mavsdk":
+            # The legacy MAVSDK Euler view includes the camera yaw offset.
+            # Physical aircraft attitude must not include that installation view.
+            yaw -= finite_number(self.camera_yaw_offset, "camera_yaw_offset")
+        elif source != "mavlink2rest":
+            raise ValueError("aircraft_attitude_source_unknown")
+        yaw = math.radians(yaw)
+        return Quaternion.from_euler(math.radians(finite_number(self.current_roll, "aircraft_roll")),
+                                     math.radians(finite_number(self.current_pitch, "aircraft_pitch")), yaw), yaw
+
     def get_ground_speed(self):
         return self.current_ground_speed
 
 
-    async def send_velocity_body_offboard_commands(self):
+    def _command_dispatch_fields(self, command_intent: CommandIntent | None, control_type: str) -> dict:
+        """Copy an accepted snapshot without substituting a newer handler frame."""
+        if command_intent is None:
+            return self.setpoint_handler.get_fields()
+        if (not isinstance(command_intent, CommandIntent)
+                or command_intent.control_type != control_type
+                or command_intent.profile_name != self.setpoint_handler.profile_name):
+            raise ValueError("command_dispatch_snapshot_mismatch")
+        if command_intent.altitude_hold is not None:
+            raise ValueError("altitude_hold_transport_unsupported")
+        return dict(command_intent.fields)
+
+    async def send_velocity_body_offboard_commands(
+        self, *, command_intent: CommandIntent | None = None,
+        before_dispatch: Callable[[], None] | None = None,
+    ):
         """
         Sends body velocity offboard commands for quadcopter control.
         Uses the new body velocity field names (vel_body_fwd, vel_body_right, vel_body_down, yawspeed_deg_s).
@@ -1949,7 +2514,7 @@ class PX4InterfaceManager:
                 )
                 return False
                 
-            setpoint = self.setpoint_handler.get_fields()
+            setpoint = self._command_dispatch_fields(command_intent, control_type)
             if not setpoint:
                 logger.error("No setpoint data available")
                 return False
@@ -2009,8 +2574,11 @@ class PX4InterfaceManager:
                     "yawspeed_deg_s": yawspeed,
                 },
                 _marks_offboard_sender=True,
+                _before_dispatch=before_dispatch,
             )
 
+        except DispatchRefused:
+            raise
         except OffboardError as e:
             logger.error(f"MAVSDK offboard velocity_body_offboard command failed: {e}")
             return False
@@ -2030,23 +2598,123 @@ class PX4InterfaceManager:
         allow_hold: bool = True,
     ) -> dict:
         """Join the owned scheduler-stop RPC rather than issue concurrent Stops."""
-        result = await asyncio.shield(self._begin_sender_quiesce(reason, force=force, allow_hold=allow_hold))
+        release = self._capture_offboard_release_context()
+        result = await asyncio.shield(self._begin_sender_quiesce(
+            reason, force=force, allow_hold=allow_hold, release=release,
+        ))
         if force and not result["attempted"]:
-            result = await asyncio.shield(self._begin_sender_quiesce(reason, force=True, allow_hold=allow_hold))
+            result = await asyncio.shield(self._begin_sender_quiesce(
+                reason, force=True, allow_hold=allow_hold, release=release,
+            ))
         return result
 
-    def _begin_sender_quiesce(self, reason, *, force=False, allow_hold=True):
+    def _capture_offboard_release_context(self) -> _OffboardReleaseContext:
+        identity = self.get_aircraft_identity()
+        session = getattr(self.app_controller, '_following_session_id', None)
+        state = self.get_aircraft_state()
+        return _OffboardReleaseContext(
+            self.drone, self._connection_generation,
+            identity.get('autopilot_uid'), identity.get('connection_generation'),
+            session if isinstance(session, str) and session else None,
+            getattr(self, '_offboard_start_attempt_monotonic_s', 0.0),
+            state.phase if isinstance(state, AircraftState) else None,
+        )
+
+    def _offboard_release_context_current(self, release) -> bool:
+        current = self._capture_offboard_release_context()
+        return (
+            current.drone is release.drone
+            and current.connection_generation == release.connection_generation
+            and current.aircraft_uid == release.aircraft_uid
+            and current.identity_generation == release.identity_generation
+            and current.follow_session_id == release.follow_session_id
+            and current.start_attempt_monotonic_s == release.start_attempt_monotonic_s
+        )
+
+    def _offboard_release_hold_allowed(self, release) -> bool:
+        if not self._offboard_release_context_current(release):
+            return False
+        state = self.get_aircraft_state()
+        if isinstance(state, AircraftState) and (
+            state.rescue_active or state.phase is AirframePhase.VTOL_TRANSITION
+            or release.airframe_phase is not None and state.phase is not release.airframe_phase
+        ):
+            return False
+        manager = getattr(self, 'mavlink_data_manager', None)
+        getter = getattr(manager, 'get_flight_state', None)
+        flight = getter() if callable(getter) else {}
+        observed_mode = flight.get('flight_mode')
+        exited_at = flight.get('offboard_exit_observed_at_monotonic_s')
+        flight_uid = flight.get('autopilot_uid')
+        if flight.get('fresh') is not True:
+            return True
+        if (release.aircraft_uid is not None and flight_uid is not None
+                and flight_uid != release.aircraft_uid):
+            return False
+        return not (
+            type(observed_mode) is int and observed_mode != getattr(manager, 'offboard_mode_code', None)
+            and type(exited_at) in (int, float) and math.isfinite(exited_at)
+            and exited_at > release.start_attempt_monotonic_s
+        )
+
+    def _release_cleanup_result(self, release, *, state_before, reason, quiesced,
+                                hold_acknowledged=False, error=None, authority_released=False):
+        if not self._offboard_release_context_current(release):
+            # A replacement scheduler/owner is not the subject of this cleanup.
+            return dict(attempted=True, local_sender_quiesced=False, vehicle_hold_acknowledged=False,
+                        authority_released=True, state_before=state_before, state_after='unknown',
+                        reason=reason, error='Offboard release owner changed; Hold was withheld or unconfirmed')
+        state_after = 'quiesced' if quiesced else 'unknown'
+        self._set_offboard_sender_state(state_after, reason)
+        if quiesced:
+            self._offboard_mode_start_acknowledged = False
+        return dict(attempted=True, local_sender_quiesced=quiesced,
+                    vehicle_hold_acknowledged=hold_acknowledged, authority_released=authority_released,
+                    state_before=state_before, state_after=state_after, reason=reason, error=error)
+
+    async def _quiesce_offboard_sender_readonly(self, release, *, state_before, reason, deadline):
+        if not self._offboard_release_context_current(release):
+            return self._release_cleanup_result(
+                release, state_before=state_before, reason=reason, quiesced=False,
+            )
+        try:
+            quiesced = False
+            while time.monotonic() < deadline:
+                active = await asyncio.wait_for(release.drone.offboard.is_active(),
+                                                timeout=max(.001, deadline - time.monotonic()))
+                if not self._offboard_release_context_current(release):
+                    break
+                if active is False:
+                    quiesced = True
+                    break
+                await asyncio.sleep(min(.1, max(0, deadline - time.monotonic())))
+            error = None if quiesced else 'Waiting for MAVSDK to stop its sender after authority release'
+        except Exception as exc:
+            quiesced, error = False, str(exc)
+        return self._release_cleanup_result(
+            release, state_before=state_before, reason=reason, quiesced=quiesced,
+            authority_released=True, error=error,
+        )
+
+    def _begin_sender_quiesce(self, reason, *, force=False, allow_hold=True, release=None):
+        release = self._capture_offboard_release_context() if release is None else release
         task = getattr(self, '_sender_quiesce_task', None)
         if task is None or task.done():
-            task = asyncio.create_task(self._quiesce_offboard_sender_once(reason=reason, force=force, allow_hold=allow_hold),
-                                       name='pixeagle-mavsdk-sender-quiesce')
+            task = asyncio.create_task(self._quiesce_offboard_sender_once(
+                reason=reason, force=force, allow_hold=allow_hold, release=release,
+            ), name='pixeagle-mavsdk-sender-quiesce')
             self._sender_quiesce_task = task
         return task
 
     async def _quiesce_offboard_sender_once(self, *, reason: str, force: bool = False,
-                                           allow_hold: bool = True) -> dict:
+                                           allow_hold: bool = True, release=None) -> dict:
         """Stop MAVSDK's local setpoint scheduler without assuming PX4 receipt."""
+        release = self._capture_offboard_release_context() if release is None else release
         state_before = self._mavsdk_offboard_sender_state
+        if not self._offboard_release_context_current(release):
+            return self._release_cleanup_result(
+                release, state_before=state_before, reason=reason, quiesced=False,
+            )
         if state_before != "primed" and not force:
             return {
                 "attempted": False,
@@ -2059,105 +2727,74 @@ class PX4InterfaceManager:
             }
 
         timeout_s = self.get_mavsdk_command_timeout_s()
-        manager = getattr(self, 'mavlink_data_manager', None)
-        getter = getattr(manager, 'get_flight_state', None)
-        flight = getter() if callable(getter) else {}
-        observed_mode = flight.get('flight_mode')
-        exited_at = flight.get('offboard_exit_observed_at_monotonic_s')
-        started_at = getattr(self, '_offboard_start_attempt_monotonic_s', 0.0)
-        if (flight.get('fresh') is True and type(observed_mode) is int
-                and observed_mode != getattr(manager, 'offboard_mode_code', None)
-                and type(exited_at) in (int, float) and exited_at > started_at):
-            allow_hold = False
-        if not allow_hold:
-            # MAVSDK Stop also requests Hold. After takeover, use its read-only
-            # scheduler state; heartbeat processing stops the sender itself.
-            try:
-                deadline = time.monotonic() + timeout_s
-                quiesced = False
-                while time.monotonic() < deadline:
-                    active = await asyncio.wait_for(self.drone.offboard.is_active(),
-                                                    timeout=max(.001, deadline - time.monotonic()))
-                    if active is False:
-                        quiesced = True
-                        break
-                    await asyncio.sleep(min(.1, max(0, deadline - time.monotonic())))
-                error = None if quiesced else 'Waiting for MAVSDK to stop its sender after authority release'
-            except Exception as exc:
-                quiesced, error = False, str(exc)
-            self._set_offboard_sender_state('quiesced' if quiesced else 'unknown', reason)
-            self._offboard_mode_start_acknowledged = False
-            return dict(attempted=True, local_sender_quiesced=quiesced,
-                        vehicle_hold_acknowledged=False, authority_released=True,
-                        state_before=state_before, state_after=self._mavsdk_offboard_sender_state,
-                        reason=reason, error=error)
+        deadline = time.monotonic() + timeout_s
         try:
-            await asyncio.wait_for(
-                self.drone.offboard.stop(),
-                timeout=timeout_s,
+            if not allow_hold or not self._offboard_release_hold_allowed(release):
+                # MAVSDK Stop also requests Hold. After takeover, use its read-only
+                # scheduler state; heartbeat processing stops the sender itself.
+                return await self._quiesce_offboard_sender_readonly(
+                    release, state_before=state_before, reason=reason, deadline=deadline,
+                )
+
+            async def stop_if_owned():
+                if time.monotonic() >= deadline or not self._offboard_release_hold_allowed(release):
+                    return False
+                # Stock SDK Stop unconditionally requests Hold. Nothing here
+                # can retract it once the SDK's RPC has been invoked.
+                await release.drone.offboard.stop()
+                return True
+
+            hold_sent = await asyncio.wait_for(
+                stop_if_owned(), timeout=max(.001, deadline - time.monotonic()),
             )
+            if not hold_sent:
+                return await self._quiesce_offboard_sender_readonly(
+                    release, state_before=state_before, reason=reason, deadline=deadline,
+                )
+        except asyncio.CancelledError:
+            self._release_cleanup_result(release, state_before=state_before, reason=reason, quiesced=False)
+            raise
         except OffboardError as exc:
             # MAVSDK C++ stops its local scheduler before requesting Hold. An
             # OffboardError is a completed RPC response, so local quiescence did
             # occur even though PX4 did not acknowledge the mode change.
-            self._set_offboard_sender_state("quiesced", reason)
-            self._offboard_mode_start_acknowledged = False
-            return {
-                "attempted": True,
-                "local_sender_quiesced": True,
-                "vehicle_hold_acknowledged": False,
-                "state_before": state_before,
-                "state_after": "quiesced",
-                "reason": reason,
-                "error": str(exc),
-            }
+            return self._release_cleanup_result(
+                release, state_before=state_before, reason=reason, quiesced=True, error=str(exc),
+            )
         except asyncio.TimeoutError:
             error = f"MAVSDK Offboard sender quiesce exceeded {timeout_s:.2f} s"
-            self._set_offboard_sender_state("unknown", reason)
             logger.error(error)
-            return {
-                "attempted": True,
-                "local_sender_quiesced": False,
-                "vehicle_hold_acknowledged": False,
-                "state_before": state_before,
-                "state_after": "unknown",
-                "reason": reason,
-                "error": error,
-            }
+            return self._release_cleanup_result(
+                release, state_before=state_before, reason=reason, quiesced=False, error=error,
+            )
         except Exception as exc:
-            self._set_offboard_sender_state("unknown", reason)
             logger.error("MAVSDK Offboard sender quiesce failed: %s", exc)
-            return {
-                "attempted": True,
-                "local_sender_quiesced": False,
-                "vehicle_hold_acknowledged": False,
-                "state_before": state_before,
-                "state_after": "unknown",
-                "reason": reason,
-                "error": str(exc),
-            }
+            return self._release_cleanup_result(
+                release, state_before=state_before, reason=reason, quiesced=False, error=str(exc),
+            )
 
-        self._set_offboard_sender_state("quiesced", reason)
-        self._offboard_mode_start_acknowledged = False
-        return {
-            "attempted": True,
-            "local_sender_quiesced": True,
-            "vehicle_hold_acknowledged": True,
-            "state_before": state_before,
-            "state_after": "quiesced",
-            "reason": reason,
-            "error": None,
-        }
+        return self._release_cleanup_result(
+            release, state_before=state_before, reason=reason, quiesced=True, hold_acknowledged=True,
+        )
 
-    async def start_offboard_mode(self) -> PX4ActionOutcome:
+    async def start_offboard_mode(
+        self, *, before_dispatch: Callable[[], None] | None = None,
+        on_mode_dispatch: Callable[[], None] | None = None,
+    ) -> PX4ActionOutcome:
         """
         Prime a fail-closed default setpoint stream and enter PX4 Offboard mode.
 
         MAVSDK independently retransmits the latest accepted setpoint. Waiting
         after the first setter call establishes more than one second of PX4
         Offboard proof-of-life before mode entry without depending on frame rate.
+
+        A guarded pre-acquire refusal uses read-only sender cleanup. Its outcome
+        remains in last_start_cleanup_outcome, including unconfirmed quiescence.
+        on_mode_dispatch runs only immediately before the mode-start RPC.
         """
         self._offboard_start_attempt_monotonic_s = time.monotonic()
+        self.last_start_cleanup_outcome = None
+        mode_dispatched = False
         disconnect_error = self._validation_mavsdk_disconnect_error()
         if disconnect_error:
             logger.error("Cannot start Offboard during validation disconnect: %s", disconnect_error)
@@ -2205,15 +2842,18 @@ class PX4InterfaceManager:
             )
 
         try:
+            validate_before_dispatch(before_dispatch)
             control_type = self.setpoint_handler.get_control_type()
             self.setpoint_handler.reset_setpoints()
-            initial_setpoint_success = await self.send_commands_unified()
+            initial_setpoint_success = (await self.send_commands_unified() if before_dispatch is None
+                                        else await self.send_commands_unified(before_dispatch=before_dispatch))
             if initial_setpoint_success is not True:
                 raise RuntimeError(
                     f"MAVSDK rejected the initial {control_type} setpoint"
                 )
 
             await asyncio.sleep(self.OFFBOARD_PRIME_DURATION_S)
+            validate_before_dispatch(before_dispatch)
             if not self.active_mode:
                 raise RuntimeError(
                     "MAVSDK vehicle connection was lost while priming Offboard"
@@ -2235,7 +2875,9 @@ class PX4InterfaceManager:
             if post_prime_gate.blocked:
                 quiesce = await self.quiesce_offboard_sender(
                     reason=f"start_gate_changed:{post_prime_gate.reason}",
+                    allow_hold=before_dispatch is None,
                 )
+                self.last_start_cleanup_outcome = quiesce
                 outcome = _blocked_action_outcome(
                     "start_offboard_mode",
                     post_prime_gate,
@@ -2253,13 +2895,22 @@ class PX4InterfaceManager:
             # externally hosted MAVSDK server can discard its pending setpoint
             # during the proof-of-life interval while still acknowledging the
             # first setter call.
-            if await self.send_commands_unified() is not True:
+            final_setpoint_success = (await self.send_commands_unified() if before_dispatch is None
+                                      else await self.send_commands_unified(before_dispatch=before_dispatch))
+            if final_setpoint_success is not True:
                 raise RuntimeError(
                     f"MAVSDK rejected the final {control_type} setpoint"
                 )
 
+            async def acquire_guarded():
+                nonlocal mode_dispatched
+                validate_before_dispatch(before_dispatch)
+                validate_before_dispatch(on_mode_dispatch)
+                mode_dispatched = True
+                return await self.drone.offboard.start()
+
             await asyncio.wait_for(
-                self.drone.offboard.start(),
+                acquire_guarded(),
                 timeout=self.get_mavsdk_command_timeout_s(),
             )
             self._offboard_mode_start_acknowledged = True
@@ -2306,16 +2957,26 @@ class PX4InterfaceManager:
                     "MAVSDK Offboard start command acknowledged.",
                 ],
             )
+        except DispatchRefused:
+            quiesce = await self.quiesce_offboard_sender(
+                reason="offboard_start_dispatch_refused",
+                allow_hold=False,
+            )
+            self.last_start_cleanup_outcome = quiesce
+            raise
         except asyncio.CancelledError:
-            await self.quiesce_offboard_sender(
+            self.last_start_cleanup_outcome = await self.quiesce_offboard_sender(
                 reason="offboard_start_canceled",
+                allow_hold=before_dispatch is None or mode_dispatched,
             )
             raise
         except Exception as e:
             logger.error(f"Failed to start offboard mode: {e}")
             quiesce = await self.quiesce_offboard_sender(
                 reason="offboard_start_failed",
+                allow_hold=before_dispatch is None or mode_dispatched,
             )
+            self.last_start_cleanup_outcome = quiesce
             outcome = _px4_action_outcome(
                 "start_offboard_mode",
                 status="failed",
@@ -2568,7 +3229,10 @@ class PX4InterfaceManager:
         logging.critical("Initiating Return to Launch due to altitude safety violation")
         return await self.trigger_return_to_launch()
         
-    async def send_commands_unified(self):
+    async def send_commands_unified(
+        self, *, command_intent: CommandIntent | None = None,
+        before_dispatch: Callable[[], None] | None = None,
+    ):
         """
         Unified command dispatcher that automatically selects the appropriate 
         MAVSDK method based on the current follower's control type from schema.
@@ -2588,18 +3252,31 @@ class PX4InterfaceManager:
             
             # Dispatch to appropriate method
             if control_type == 'attitude_rate':
-                return await self.send_attitude_rate_commands()
+                if command_intent is None and before_dispatch is None:
+                    return await self.send_attitude_rate_commands()
+                return await self.send_attitude_rate_commands(
+                    command_intent=command_intent, before_dispatch=before_dispatch,
+                )
             elif control_type == 'velocity_body_offboard':
-                return await self.send_velocity_body_offboard_commands()
+                if command_intent is None and before_dispatch is None:
+                    return await self.send_velocity_body_offboard_commands()
+                return await self.send_velocity_body_offboard_commands(
+                    command_intent=command_intent, before_dispatch=before_dispatch,
+                )
             else:
                 logger.error(f"Unknown control type from schema: {control_type}")
                 return False
             
+        except DispatchRefused:
+            raise
         except Exception as e:
             logger.error(f"Error in unified command dispatch: {e}")
             return False
 
-    async def send_attitude_rate_commands(self):
+    async def send_attitude_rate_commands(
+        self, *, command_intent: CommandIntent | None = None,
+        before_dispatch: Callable[[], None] | None = None,
+    ):
         """
         Enhanced schema-aware attitude rate command sender.
         Only sends attitude rate commands if the current profile supports them.
@@ -2621,7 +3298,7 @@ class PX4InterfaceManager:
                 )
                 return False
 
-            setpoint = self.setpoint_handler.get_fields()
+            setpoint = self._command_dispatch_fields(command_intent, control_type)
             if not setpoint:
                 logger.error("No setpoint data available")
                 return False
@@ -2678,7 +3355,7 @@ class PX4InterfaceManager:
             logger.debug(f"Sending ATTITUDE_RATE (deg/s): Roll={roll_deg_s:.3f}, Pitch={pitch_deg_s:.3f}, Yaw={yaw_deg_s:.3f}, Thrust={thrust:.3f}")
 
             # Send the attitude rate commands to the drone (values already in deg/s)
-            from mavsdk.offboard import AttitudeRate, OffboardError
+            from mavsdk_grpc.offboard import AttitudeRate, OffboardError
             next_setpoint = AttitudeRate(roll_deg_s, pitch_deg_s, yaw_deg_s, thrust)
             return await self._safe_mavsdk_call(
                 self.drone.offboard.set_attitude_rate,
@@ -2691,8 +3368,11 @@ class PX4InterfaceManager:
                     "thrust": thrust,
                 },
                 _marks_offboard_sender=True,
+                _before_dispatch=before_dispatch,
             )
 
+        except DispatchRefused:
+            raise
         except OffboardError as e:
             logger.error(f"MAVSDK offboard attitude rate command failed: {e}")
             return False

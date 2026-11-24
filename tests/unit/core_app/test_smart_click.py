@@ -18,6 +18,7 @@ import numpy as np
 import pytest
 
 from classes.detection_adapter import NormalizedDetection
+from tests.fixtures.following_observation import bind_image_source
 
 
 class CleanupBackend:
@@ -145,6 +146,7 @@ def _make_controller():
     ctrl.following_active = False
     ctrl._follower_state_lock = asyncio.Lock()
     ctrl._tracker_model_state_lock = threading.RLock()
+    bind_image_source(ctrl, active=True)
     return ctrl
 
 

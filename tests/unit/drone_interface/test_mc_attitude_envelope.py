@@ -3,6 +3,7 @@
 import asyncio
 import math
 import time
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -18,6 +19,7 @@ from classes.parameters import Parameters
 from classes.px4_interface_manager import PX4InterfaceManager
 from classes.setpoint_handler import SetpointHandler
 from classes.tracker_output import TrackerDataType, TrackerOutput
+from classes.telemetry_observation import AltitudeObservation
 
 
 def fields(p=0.0, q=0.0, r=0.0):
@@ -99,6 +101,7 @@ def test_invalid_geometry_and_envelope_fail_closed(override):
 
 def interface(monkeypatch):
     monkeypatch.setattr(Parameters, "FOLLOWER_MODE", "mc_attitude_rate")
+    monkeypatch.setattr(Parameters, "MC_ATTITUDE_RATE", {**Parameters.MC_ATTITUDE_RATE, "ENABLE_ALTITUDE_HOLD": True})
     controller = PX4InterfaceManager.__new__(PX4InterfaceManager)
     controller.current_roll = 0.0
     controller.current_pitch = 34.0
@@ -109,6 +112,17 @@ def interface(monkeypatch):
     controller._telemetry_source_active = "mavsdk"
     controller._last_attitude_guard = None
     controller._terminal_attitude_guard_reason = None
+    controller.active_mode = True
+    controller._connection_generation = 1
+    controller._telemetry_connection_generation = 1
+    controller._telemetry_generation = 1
+    controller._mc_altitude_guard_context = None
+    controller._altitude_observation = AltitudeObservation(
+        height_relative_m=20., vertical_speed_up_m_s=0., source_marker=1,
+        sample_time_s=1., received_at_monotonic_s=time.monotonic(),
+        sample_time_basis="test source clock", source="test paired height",
+        altitude_reference_generation=1, connection_generation=1, telemetry_generation=1,
+    )
     controller.get_telemetry_readiness = lambda: {"ready": True}
     controller.is_command_connection_ready = lambda **_: True
     controller.setpoint_handler = SetpointHandler("mc_attitude_rate")
@@ -208,6 +222,79 @@ async def test_frozen_frame_heartbeat_rejects_missing_or_old_attitude(monkeypatc
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["missing", "stale", "old_generation"])
+async def test_frozen_frame_heartbeat_rejects_unusable_height_despite_fresh_attitude(monkeypatch, failure):
+    controller = interface(monkeypatch)
+    events = []
+    commander = OffboardCommander(controller, controller.setpoint_handler, on_publish_result=events.append)
+    commander.submit_intent(CommandIntent(
+        profile_name="mc_attitude_rate", control_type="attitude_rate",
+        fields=fields(), source="frozen_frame",
+    ))
+    assert await commander.publish_once()
+    if failure == "missing":
+        controller._altitude_observation = None
+    elif failure == "stale":
+        controller._altitude_observation = replace(
+            controller._altitude_observation, received_at_monotonic_s=time.monotonic() - 2.1,
+        )
+    else:
+        controller._altitude_observation = replace(controller._altitude_observation, telemetry_generation=0)
+    controller._attitude_receipt_monotonic_s = time.monotonic()
+    assert not await commander.publish_once()
+    assert commander.terminal_failure_reason == "altitude_sample_unavailable"
+    assert events[-1]["publication_attempted"] is False
+    assert events[-1]["submitted_fields"] is None
+    assert controller._safe_mavsdk_call.await_count == 1
+    await asyncio.sleep(0)
+
+
+def test_altitude_reference_cannot_rebind_until_a_new_handler_starts(monkeypatch):
+    controller = interface(monkeypatch)
+    controller.guard_mc_attitude_command(fields())
+    status = controller._last_attitude_guard["altitude_observation"]
+    assert status["measurement_age_s"] >= 0.
+    assert status["source"] == "test paired height"
+    assert status["altitude_reference_generation"] == 1
+    controller._altitude_observation = replace(controller._altitude_observation, altitude_reference_generation=2)
+    for _ in range(2):
+        with pytest.raises(CommandValidationError, match="altitude_reference_changed"):
+            controller.guard_mc_attitude_command(fields())
+    controller.setpoint_handler = SetpointHandler("mc_attitude_rate")
+    controller.guard_mc_attitude_command(fields())
+    assert controller._last_attitude_guard["altitude_observation"]["altitude_reference_generation"] == 2
+
+
+@pytest.mark.asyncio
+async def test_home_reference_change_during_heartbeat_hands_off_without_another_frame(monkeypatch):
+    controller = interface(monkeypatch)
+    commander = OffboardCommander(controller, controller.setpoint_handler)
+    assert await commander.publish_once()
+    controller._altitude_observation = replace(controller._altitude_observation, altitude_reference_generation=2)
+    assert not await commander.publish_once()
+    assert commander.terminal_failure_reason == "altitude_reference_changed"
+    assert controller._safe_mavsdk_call.await_count == 1
+    await asyncio.sleep(0)
+
+
+def test_telemetry_reset_discards_the_altitude_guard_context(monkeypatch):
+    monkeypatch.setattr(Parameters, "FOLLOWER_MODE", "mc_attitude_rate")
+    controller = PX4InterfaceManager()
+    controller._mc_altitude_guard_context = (controller.setpoint_handler, ("old", 1, 1, 1))
+    controller._reset_telemetry_health("mavlink2rest")
+    assert controller._mc_altitude_guard_context is None
+    assert controller.get_altitude_observation() is None
+
+
+def test_altitude_guard_does_not_require_height_when_altitude_hold_is_explicitly_disabled(monkeypatch):
+    controller = interface(monkeypatch)
+    monkeypatch.setattr(Parameters, "MC_ATTITUDE_RATE", {**Parameters.MC_ATTITUDE_RATE, "ENABLE_ALTITUDE_HOLD": False})
+    controller._altitude_observation = None
+    controller.guard_mc_attitude_command(fields())
+    assert "altitude_observation" not in controller._last_attitude_guard
+
+
+@pytest.mark.asyncio
 async def test_first_hard_attitude_rejection_trips_handoff_without_three_failures(
     monkeypatch,
 ):
@@ -252,6 +339,8 @@ async def test_repeated_cached_rest_counter_does_not_refresh_angle_receipt():
 
 def test_new_sdk_position_does_not_rejuvenate_attitude(monkeypatch):
     monkeypatch.setattr(Parameters, "FOLLOWER_MODE", "mc_attitude_rate")
+    clock = [100.]
+    monkeypatch.setattr("classes.px4_interface_manager.time.monotonic", lambda: clock[0])
     controller = PX4InterfaceManager()
     controller.active_mode = True
     controller._reset_telemetry_health("mavsdk")
@@ -273,6 +362,7 @@ def test_new_sdk_position_does_not_rejuvenate_attitude(monkeypatch):
     controller._telemetry_stream_status["position"]["last_update_monotonic_s"] = (
         now + 0.1
     )
+    clock[0] += .1
     assert controller._try_commit_mavsdk_telemetry_snapshot()
     assert controller._attitude_receipt_monotonic_s == now - 0.1
 

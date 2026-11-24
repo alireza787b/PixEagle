@@ -3,7 +3,7 @@
 Unit tests for BaseFollower and related utility classes.
 
 Tests the base follower functionality including:
-- Name derivation (CamelCase to UPPER_SNAKE_CASE)
+- Explicit configuration identity
 - Velocity and rate clamping
 - Target coordinate validation
 - Tracker data extraction
@@ -150,61 +150,20 @@ class TestErrorAggregator:
 
 
 # =============================================================================
-# Test: Follower Config Name Derivation
+# Test: Follower Configuration Identity
 # =============================================================================
 
-class TestFollowerConfigNameDerivation:
-    """
-    Test _derive_follower_config_name by calling the REAL production method.
-
-    Uses __new__ to bypass __init__ so we test the actual CamelCase→UPPER_SNAKE_CASE
-    conversion logic without requiring PX4 controllers or config files.
-    """
-
-    def _derive(self, follower_class) -> str:
-        """Call the real _derive_follower_config_name on a bare stub instance."""
-        instance = follower_class.__new__(follower_class)
-        return instance._derive_follower_config_name()
-
-    def test_mc_velocity_chase_follower(self):
-        """MCVelocityChaseFollower -> MC_VELOCITY_CHASE."""
-        from classes.followers.mc_velocity_chase_follower import MCVelocityChaseFollower
-        assert self._derive(MCVelocityChaseFollower) == "MC_VELOCITY_CHASE"
-
-    def test_mc_velocity_ground_follower(self):
-        """MCVelocityGroundFollower -> MC_VELOCITY_GROUND."""
-        from classes.followers.mc_velocity_ground_follower import MCVelocityGroundFollower
-        assert self._derive(MCVelocityGroundFollower) == "MC_VELOCITY_GROUND"
-
-    def test_mc_velocity_distance_follower(self):
-        """MCVelocityDistanceFollower -> MC_VELOCITY_DISTANCE."""
-        from classes.followers.mc_velocity_distance_follower import MCVelocityDistanceFollower
-        assert self._derive(MCVelocityDistanceFollower) == "MC_VELOCITY_DISTANCE"
-
-    def test_mc_velocity_position_follower(self):
-        """MCVelocityPositionFollower -> MC_VELOCITY_POSITION."""
-        from classes.followers.mc_velocity_position_follower import MCVelocityPositionFollower
-        assert self._derive(MCVelocityPositionFollower) == "MC_VELOCITY_POSITION"
-
-    def test_mc_attitude_rate_follower(self):
-        """MCAttitudeRateFollower -> MC_ATTITUDE_RATE."""
-        from classes.followers.mc_attitude_rate_follower import MCAttitudeRateFollower
-        assert self._derive(MCAttitudeRateFollower) == "MC_ATTITUDE_RATE"
-
-    def test_gm_velocity_chase_follower(self):
-        """GMVelocityChaseFollower -> GM_VELOCITY_CHASE."""
-        from classes.followers.gm_velocity_chase_follower import GMVelocityChaseFollower
-        assert self._derive(GMVelocityChaseFollower) == "GM_VELOCITY_CHASE"
-
-    def test_gm_velocity_vector_follower(self):
-        """GMVelocityVectorFollower -> GM_VELOCITY_VECTOR."""
-        from classes.followers.gm_velocity_vector_follower import GMVelocityVectorFollower
-        assert self._derive(GMVelocityVectorFollower) == "GM_VELOCITY_VECTOR"
-
-    def test_fw_attitude_rate_follower(self):
-        """FWAttitudeRateFollower -> FW_ATTITUDE_RATE."""
-        from classes.followers.fw_attitude_rate_follower import FWAttitudeRateFollower
-        assert self._derive(FWAttitudeRateFollower) == "FW_ATTITUDE_RATE"
+class TestFollowerConfigIdentity:
+    def test_declared_sections_preserve_existing_safety_keys(self):
+        from classes.follower_catalog import get_follower_catalog
+        declared = {profile.mode: profile.config_section for profile in get_follower_catalog()}
+        existing = {
+            "mc_velocity_chase": "MC_VELOCITY_CHASE", "mc_velocity_ground": "MC_VELOCITY_GROUND",
+            "mc_velocity_distance": "MC_VELOCITY_DISTANCE", "mc_velocity_position": "MC_VELOCITY_POSITION",
+            "mc_attitude_rate": "MC_ATTITUDE_RATE", "fw_attitude_rate": "FW_ATTITUDE_RATE",
+            "gm_velocity_chase": "GM_VELOCITY_CHASE", "gm_velocity_vector": "GM_VELOCITY_VECTOR",
+        }
+        assert {mode: declared[mode] for mode in existing} == existing
 
 
 # =============================================================================
@@ -257,6 +216,7 @@ class TestBaseFollowerCompatibilityFailClosed:
         from classes.followers.mc_velocity_chase_follower import MCVelocityChaseFollower
 
         stub = MCVelocityChaseFollower.__new__(MCVelocityChaseFollower)
+        stub.profile_name = "mc_velocity_chase"
         stub._rate_limiter = MagicMock()
         stub._error_aggregator = MagicMock()
         stub.get_required_tracker_data_types = MagicMock(
@@ -287,16 +247,9 @@ class TestBaseFollowerCompatibilityFailClosed:
         assert stub.validate_tracker_compatibility(self._sample()) is False
         stub._error_aggregator.record_error.assert_called_once()
 
-    @patch('classes.followers.base_follower.get_schema_manager')
-    def test_compatible_type_still_requires_current_sample_fields(
-        self,
-        get_schema_manager,
-    ):
+    def test_compatible_type_still_requires_current_sample_fields(self):
         stub = self._make_stub()
-        get_schema_manager.return_value.check_follower_compatibility.return_value = (
-            'required'
-        )
-
+        assert stub.validate_tracker_compatibility(self._sample()) is True
         assert stub.validate_tracker_compatibility(
             self._sample(position_2d=None)
         ) is False

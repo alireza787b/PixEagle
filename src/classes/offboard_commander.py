@@ -1,6 +1,7 @@
 """Async owner of PixEagle's application-level MAVSDK setpoint refresh."""
 
 import asyncio
+from copy import deepcopy
 import logging
 import math
 import time
@@ -8,6 +9,7 @@ from dataclasses import replace
 from typing import Callable, Optional
 
 from classes.command_intent import CommandIntent
+from classes.command_dispatch_guard import DispatchRefused, DispatchRefusalKind
 from classes.parameters import Parameters
 from classes.setpoint_handler import SetpointHandler
 
@@ -51,8 +53,16 @@ class OffboardCommander:
         publish_timeout_s: Optional[float] = None,
         on_failure_threshold: Optional[Callable[[dict], object]] = None,
         on_publish_result: Optional[Callable[[dict], object]] = None,
+        command_transport=None,
+        before_dispatch: Optional[Callable[[], None]] = None,
+        dispatch_context: Optional[dict] = None,
+        stop_before_dispatch: Optional[Callable[[], None]] = None,
     ):
         self.px4_interface = px4_interface
+        self.command_transport = command_transport
+        self._before_dispatch = before_dispatch
+        self._dispatch_context = dict(dispatch_context or {})
+        self._stop_before_dispatch = stop_before_dispatch
         self.setpoint_handler = setpoint_handler
         connection_generation = getattr(
             px4_interface,
@@ -99,6 +109,7 @@ class OffboardCommander:
         self.last_publish_reason: Optional[str] = None
         self.last_publish_monotonic_s: Optional[float] = None
         self.last_error: Optional[str] = None
+        self.last_dispatch_refusal = None
         self.failure_policy_triggered = False
         self.failure_policy_reason: Optional[str] = None
         self.failure_policy_triggered_at_monotonic_s: Optional[float] = None
@@ -249,6 +260,11 @@ class OffboardCommander:
 
     def validate_configuration(self) -> bool:
         """Return whether the commander has the dependencies needed to publish."""
+        if self.command_transport is not None:
+            if self.command_transport.ready():
+                return True
+            self.last_error = "Native command owner is no longer ready"
+            return False
         if self.px4_interface is None:
             self.last_error = "PX4 interface is not configured"
             logger.error(self.last_error)
@@ -294,6 +310,10 @@ class OffboardCommander:
             logger.error(self.last_error)
             return False
         if not self.validate_configuration():
+            return False
+
+        if self.command_transport is not None and not self._has_fresh_intent():
+            self.last_error = "A fresh native objective is required before publication starts"
             return False
 
         self.running = True
@@ -362,13 +382,26 @@ class OffboardCommander:
         logger.info("OffboardCommander stopped")
         return True
 
-    def submit_intent(self, intent: CommandIntent) -> bool:
+    def submit_intent(self, intent: CommandIntent, *, before_dispatch=None, dispatch_context=None) -> bool:
         """Accept the latest follower command intent for heartbeat publication."""
         if not isinstance(intent, CommandIntent):
             self.rejected_intents += 1
             self.last_error = f"Expected CommandIntent, got {type(intent)}"
             logger.error(self.last_error)
             return False
+
+        if self.command_transport is not None:
+            try:
+                self._last_intent = self.command_transport.accept_intent(intent)
+                self._before_dispatch = before_dispatch
+                self._dispatch_context = dict(dispatch_context or {})
+                self._failsafe_defaults_active = False
+                self.last_error = None
+                return True
+            except ValueError as error:
+                self.rejected_intents += 1
+                self.last_error = str(error)
+                return False
 
         expected_control_type = self.setpoint_handler.get_control_type()
         if intent.control_type != expected_control_type:
@@ -411,7 +444,11 @@ class OffboardCommander:
             reason=intent.reason,
             created_at_monotonic_s=intent.created_at_monotonic_s,
             created_at_utc=intent.created_at_utc,
+            guidance_identity=intent.guidance_identity,
+            altitude_hold=intent.altitude_hold,
         )
+        self._before_dispatch = before_dispatch
+        self._dispatch_context = dict(dispatch_context or {})
         self._failsafe_defaults_active = False
         self.last_error = None
         logger.debug(
@@ -425,6 +462,8 @@ class OffboardCommander:
     def activate_failsafe_defaults(self, reason: str) -> None:
         """Invalidate the last intent and atomically restore profile defaults."""
         self._last_intent = None
+        if self.command_transport is not None:
+            self.command_transport.abort()
         self._apply_default_setpoints(reason)
 
     async def publish_once(
@@ -539,6 +578,10 @@ class OffboardCommander:
     ) -> bool:
         terminal_failure_triggered = False
         published_intent: Optional[CommandIntent] = None
+        submitted_fields = None
+        publication_attempted = False
+        admission_refused = False
+        dispatch_context = {}
         async with self._publish_lock:
             if reason == "heartbeat" and not self.running:
                 return False
@@ -559,11 +602,38 @@ class OffboardCommander:
                 else:
                     published_intent = self._last_intent
 
-                try:
-                    success = await asyncio.wait_for(
-                        self.px4_interface.send_commands_unified(),
-                        timeout=self.publish_timeout_s,
+                before_dispatch = (self._stop_before_dispatch if force_default_reason == "operator_stop"
+                                   and self._stop_before_dispatch is not None else self._before_dispatch)
+                dispatch_context = dict(self._dispatch_context)
+                if self.command_transport is None:
+                    submitted_fields = dict(published_intent.fields if published_intent is not None
+                                            else self.setpoint_handler.get_fields())
+                    command_snapshot = published_intent or CommandIntent(
+                        profile_name=self.setpoint_handler.profile_name,
+                        control_type=self.setpoint_handler.get_control_type(), fields=submitted_fields,
+                        source="offboard_commander", reason=force_default_reason or reason,
                     )
+
+                try:
+                    publication_attempted = True
+                    publication = (self.command_transport.publish(
+                        published_intent, reason=force_default_reason or reason, ttl_s=self.command_ttl_s,
+                        before_dispatch=before_dispatch,
+                    ) if self.command_transport is not None else self.px4_interface.send_commands_unified(
+                        command_intent=command_snapshot, before_dispatch=before_dispatch))
+                    success = await asyncio.wait_for(publication, timeout=self.publish_timeout_s)
+                except DispatchRefused as exc:
+                    admission_refused = True
+                    publication_attempted = False
+                    submitted_fields = None
+                    self.last_dispatch_refusal = {"kind": exc.kind.value, "reason_code": exc.reason_code}
+                    if exc.details is not None:
+                        self.last_dispatch_refusal["details"] = exc.details
+                    if exc.kind is DispatchRefusalKind.TERMINAL:
+                        self.last_error = exc.reason_code
+                    success = False
+                    if exc.kind is DispatchRefusalKind.TERMINAL and enforce_failure_policy:
+                        terminal_failure_triggered = self._mark_terminal_failure(exc.reason_code)
                 except asyncio.TimeoutError:
                     self.last_error = (
                         "Offboard publication exceeded "
@@ -577,32 +647,59 @@ class OffboardCommander:
                     success = False
 
                 success = bool(success)
+                if success and self.command_transport is not None:
+                    effective = self.command_transport.last_published_intent
+                    if effective is not None:
+                        # A fresh phase observation may have replaced the old
+                        # contract. Preserve a newer tracker intent that arrived
+                        # while awaiting the adapter's acknowledgement.
+                        if self._last_intent is published_intent:
+                            self._last_intent = effective
+                        published_intent = effective
+                        submitted_fields = dict(effective.fields)
                 guard_reason = getattr(self.px4_interface, '_terminal_attitude_guard_reason', None)
+                guard = getattr(self.px4_interface, '_last_attitude_guard', None)
                 if (not success and isinstance(guard_reason, str) and guard_reason
+                        and isinstance(guard, dict) and guard.get('rejected') is True
                         and self.setpoint_handler.profile_name == 'mc_attitude_rate'):
+                    # The measured-state guard refused before the MAVSDK call.
+                    publication_attempted = False
+                    submitted_fields = None
                     self.last_error = guard_reason
                     if enforce_failure_policy:
                         terminal_failure_triggered = self._mark_terminal_failure(guard_reason)
-                guard = getattr(self.px4_interface, '_last_attitude_guard', None)
+                if (success and self.command_transport is None
+                        and self.setpoint_handler.get_control_type() == 'attitude_rate'
+                        and isinstance(guard, dict) and isinstance(guard.get('effective_fields'), dict)):
+                    submitted_fields = dict(guard['effective_fields'])
                 if (success and published_intent is not None
                         and published_intent.profile_name == 'mc_attitude_rate'
                         and isinstance(guard, dict) and isinstance(guard.get('effective_fields'), dict)):
                     published_intent = replace(published_intent, fields=dict(guard['effective_fields']))
-                self._record_publish_result(success, reason)
+                if not admission_refused:
+                    self._record_publish_result(success, reason)
         await self._notify_publish_result(
             reason,
             command_intent=published_intent,
+            submitted_fields=submitted_fields,
+            publication_attempted=publication_attempted,
+            dispatch_context=dispatch_context,
         )
         if terminal_failure_triggered:
             await self._invoke_failure_threshold_callback()
-        elif not success and enforce_failure_policy:
+        elif not success and enforce_failure_policy and not admission_refused:
             await self._maybe_trigger_failure_policy(reason)
         return success
 
     def _has_fresh_intent(self) -> bool:
         if self._last_intent is None:
             return False
-        return (time.monotonic() - self._last_intent.created_at_monotonic_s) <= self.command_ttl_s
+        return 0 <= (time.monotonic() - self._last_intent.created_at_monotonic_s) <= self.command_ttl_s
+
+    def get_published_intent(self) -> CommandIntent | None:
+        if self.command_transport is None or self._failsafe_defaults_active:
+            return None
+        return self.command_transport.published_intent(ttl_s=self.command_ttl_s)
 
     def _apply_default_setpoints(self, reason: str) -> None:
         if not self._failsafe_defaults_active:
@@ -611,7 +708,8 @@ class OffboardCommander:
                 "OffboardCommander applying default setpoints because %s",
                 reason,
             )
-        self.setpoint_handler.reset_setpoints()
+        if self.command_transport is None:
+            self.setpoint_handler.reset_setpoints()
         self._failsafe_defaults_active = True
 
     def _record_publish_result(self, success: bool, reason: str) -> None:
@@ -681,14 +779,23 @@ class OffboardCommander:
         reason: str,
         *,
         command_intent: Optional[CommandIntent] = None,
+        submitted_fields: Optional[dict] = None,
+        publication_attempted: Optional[bool] = None,
+        dispatch_context: Optional[dict] = None,
     ) -> None:
         """Emit evidence only after the concrete publication attempt completed."""
         if self._on_publish_result is None:
             return
+        status = self.get_status()
+        if publication_attempted is False:
+            status["last_publish_success"] = None
         event = {
             "reason": reason,
+            "dispatch_context": dict(dispatch_context or {}),
             "command_intent": command_intent,
-            "publish_status": self.get_status(),
+            "submitted_fields": submitted_fields,
+            "publication_attempted": publication_attempted,
+            "publish_status": status,
         }
         try:
             callback_result = self._on_publish_result(event)
@@ -738,6 +845,7 @@ class OffboardCommander:
             "last_publish_reason": self.last_publish_reason,
             "last_publish_monotonic_s": self.last_publish_monotonic_s,
             "last_error": self.last_error,
+            "last_dispatch_refusal": deepcopy(self.last_dispatch_refusal),
             "failure_policy_triggered": self.failure_policy_triggered,
             "failure_policy_reason": self.failure_policy_reason,
             "failure_policy_triggered_at_monotonic_s": self.failure_policy_triggered_at_monotonic_s,
@@ -745,8 +853,12 @@ class OffboardCommander:
             "terminal_failure": self.terminal_failure,
             "terminal_failure_reason": self.terminal_failure_reason,
             "failure_action": "stop_following",
-            "sends_mavsdk_commands": True,
-            "command_publication_source": "offboard_commander",
+            "sends_mavsdk_commands": self.command_transport is None,
+            "dynamic_command_contract": self.command_transport is not None,
+            "observed_native_publications": (self.command_transport.observed_publications
+                                              if self.command_transport is not None else None),
+            "command_publication_source": (self.command_transport.publication_source
+                                           if self.command_transport is not None else "offboard_commander"),
             "connection_generation": self._connection_generation,
             "attitude_guard": (
                 dict(self.px4_interface._last_attitude_guard)

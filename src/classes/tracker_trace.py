@@ -86,10 +86,12 @@ def tracker_output_summary(tracker_output: TrackerOutput) -> dict[str, Any]:
         "polygon": _jsonable(tracker_output.polygon),
         "normalized_polygon": _jsonable(tracker_output.normalized_polygon),
         "angular": _jsonable(tracker_output.angular),
+        "gimbal_observation": _jsonable(tracker_output.gimbal_observation),
+        "image_measurement": _jsonable(tracker_output.image_measurement),
         "camera_measurement": {
             name: _jsonable(raw_data[name])
             for name in (
-                "camera_provider_instance", "angle_sample_timestamp",
+                "angle_sample_timestamp",
                 "angle_sample_monotonic", "angle_sample_sequence",
                 "angle_sample_age_s", "tracking_sample_timestamp",
                 "tracking_sample_monotonic", "processing_timestamp",
@@ -162,6 +164,9 @@ def build_offboard_publish_trace_record(
     vehicle_observation: dict[str, Any] | None = None,
     target_generation: int | None = None,
     timestamp: float | None = None,
+    submitted_fields: dict[str, float] | None = None,
+    publication_attempted: bool | None = None,
+    dispatch_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build one normalized record from an actual commander publish result.
 
@@ -175,12 +180,15 @@ def build_offboard_publish_trace_record(
     return {
         "schema_version": TRACE_SCHEMA_VERSION,
         "record_type": "offboard_publish",
+        "dispatch_context": _jsonable(dispatch_context or {}),
+        "submitted_fields": _jsonable(submitted_fields),
+        "publication_attempted": publication_attempted,
         "timestamp": record_time,
         "sequence": int(sequence),
         "source": source,
         "command_intent": command_intent_summary(command_intent),
         "publish_status": _jsonable(status),
-        "publish_success": status.get("last_publish_success"),
+        "publish_success": None if publication_attempted is False else status.get("last_publish_success"),
         "vehicle_observation": _jsonable(vehicle_observation or {}),
         "target_generation": target_generation,
         "claim_boundary": (
@@ -266,6 +274,9 @@ class TrackerTraceRecorder:
         publish_status: dict[str, Any] | None,
         vehicle_observation: dict[str, Any] | None = None,
         target_generation: int | None = None,
+        submitted_fields: dict[str, float] | None = None,
+        publication_attempted: bool | None = None,
+        dispatch_context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Record a completed OffboardCommander publication result."""
         record = build_offboard_publish_trace_record(
@@ -275,6 +286,9 @@ class TrackerTraceRecorder:
             source=self.source,
             vehicle_observation=vehicle_observation,
             target_generation=target_generation,
+            submitted_fields=submitted_fields,
+            publication_attempted=publication_attempted,
+            dispatch_context=dispatch_context,
         )
         append_trace_jsonl(self.offboard_publish_trace_path, record)
         return record

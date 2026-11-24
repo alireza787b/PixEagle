@@ -519,7 +519,7 @@ class TestConfigServiceWrite:
         original = service.get_parameter('Safety', 'FollowerOverrides')
         invalid = copy.deepcopy(original)
         invalid['MC_VELOCITY_CHASE'] = {
-            'MAX_VELOCITY_FORWARD': 0.75,
+            'MAX_VELOCITY_FORWARD': service.get_parameter('Safety', 'GlobalLimits')['MAX_VELOCITY_FORWARD'] + 0.25,
         }
 
         result = service.set_parameter(

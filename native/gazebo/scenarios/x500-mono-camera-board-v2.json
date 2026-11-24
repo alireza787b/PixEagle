@@ -1,0 +1,264 @@
+{
+  "schema_version": 2,
+  "name": "x500-mono-camera-board-v2",
+  "build_manifest_sha256": "df1c4cd67bd30ca4cca00e1b8fb1472058c029b23778321a24e8b2cdf3e38489",
+  "image_id": "sha256:bce891ea37d2746fd5c1e1f364d5e51d1561cecc15a16a05441c84e6f3c25c3e",
+  "binary_sha256": "155d01db46159aed235bcac79b1a193cfac6a4272068bb57996996bf8f9ce776",
+  "model": "x500_mono_cam",
+  "world": "training_board_v1",
+  "airframe_id": 4010,
+  "airframe_chain": [
+    "etc/init.d-posix/airframes/4010_gz_x500_mono_cam",
+    "etc/init.d-posix/airframes/4001_gz_x500",
+    "etc/init.d/rc.mc_defaults"
+  ],
+  "identity_parameters": [
+    "MAV_TYPE",
+    "CA_AIRFRAME",
+    "CA_ROTOR_COUNT",
+    "SIM_GZ_EN"
+  ],
+  "models": [
+    "x500_mono_cam",
+    "x500",
+    "x500_base",
+    "mono_cam",
+    "arucotag"
+  ],
+  "scene_models": [
+    "ground_plane",
+    "arucotag",
+    "training_board"
+  ],
+  "resources": {
+    "etc/init.d-posix/airframes/4010_gz_x500_mono_cam": {
+      "sha256": "25c6208075d24f64300b357594bccb77826f00aa07b02e2ccec492e575772d0d",
+      "executable": false
+    },
+    "etc/init.d-posix/airframes/4001_gz_x500": {
+      "sha256": "e824ac7a7a0829fa3f25a90c9e23e5510064a858e452796b41339e485220eb16",
+      "executable": false
+    },
+    "etc/init.d/rc.mc_defaults": {
+      "sha256": "63b4b3e729beeca5faba46f8658df1dc7be16e38452c3e49bd7180cf84b5ca82",
+      "executable": false
+    },
+    "gazebo/models/arucotag/arucotag.png": {
+      "sha256": "6e71335b7e96803e2e520b08433a95bc2b58d93c7eaad972c84560af3b180729",
+      "executable": false
+    },
+    "gazebo/models/arucotag/model.config": {
+      "sha256": "184cc16d33c380ae255833bc4f1c9e20db2296f6c7de6a9951f0760ed354f415",
+      "executable": false
+    },
+    "gazebo/models/arucotag/model.sdf": {
+      "sha256": "b9d567a3a8d883eff2a6961c2da6d939ec3d79e0290aac4e113be34da8eca8a0",
+      "executable": false
+    },
+    "gazebo/models/mono_cam/model.config": {
+      "sha256": "e5441ac8b808f9bfef9eefca42cb58993c369544794b8bf70932715226c74123",
+      "executable": false
+    },
+    "gazebo/models/mono_cam/model.sdf": {
+      "sha256": "405f2f9d973b6b75379a418865ee18b3d27f936322d85e17beced04bdd09ef6e",
+      "executable": false
+    },
+    "gazebo/models/x500/LICENSE": {
+      "sha256": "cee4ef94e73cd38fb2886f5d7e7a04d6488f54b1e70cd8b1b29d74f38bfdba5b",
+      "executable": false
+    },
+    "gazebo/models/x500/model.config": {
+      "sha256": "52fdda8e66faa5095434d54e4dcaad5a6a8833cd014e0a5b439349ed8b4a1b67",
+      "executable": false
+    },
+    "gazebo/models/x500/model.sdf": {
+      "sha256": "cb76a4afd439f253a8c516b1fcd3528f80347619cfa46bebb620557054fbf125",
+      "executable": false
+    },
+    "gazebo/models/x500/thumbnails/1.png": {
+      "sha256": "54d00187e5a03766d5e7b73311bc6bfa22f51cd98b823a287b2da8c551c3175e",
+      "executable": false
+    },
+    "gazebo/models/x500/thumbnails/2.png": {
+      "sha256": "cb6040c119b2a382030165a2a98ab9e9cf816557808a4549c323f2a3792cb8b4",
+      "executable": false
+    },
+    "gazebo/models/x500/thumbnails/3.png": {
+      "sha256": "848f431c64b34df15c59ad874e6211695ac53ee932ad3509ebb7c6372fc67375",
+      "executable": false
+    },
+    "gazebo/models/x500/thumbnails/4.png": {
+      "sha256": "86e1b7f31a49894caeef210f43248587d6454eba467a492f9bc147bf732ae666",
+      "executable": false
+    },
+    "gazebo/models/x500/thumbnails/5.png": {
+      "sha256": "b76053e95f7aff65c6f83533fb5635554292acb26fe51376c2d62e437e350e75",
+      "executable": false
+    },
+    "gazebo/models/x500_base/LICENSE": {
+      "sha256": "cee4ef94e73cd38fb2886f5d7e7a04d6488f54b1e70cd8b1b29d74f38bfdba5b",
+      "executable": false
+    },
+    "gazebo/models/x500_base/materials/textures/CF.png": {
+      "sha256": "3a56ec48eeaaf7774e8d3e8e5e88f6973bfa5652c610974c3eb2dbec6ec85944",
+      "executable": false
+    },
+    "gazebo/models/x500_base/materials/textures/nxp.png": {
+      "sha256": "6c2262c84e0f5f55dbe38e712e6508d654fb6e7c427d1a19cdd62231bc2d52b1",
+      "executable": false
+    },
+    "gazebo/models/x500_base/materials/textures/rd.png": {
+      "sha256": "9d8851c37dc612c336b46e41744c17fb8333a0af33ac4be93f7147f7549a8e25",
+      "executable": false
+    },
+    "gazebo/models/x500_base/meshes/1345_prop_ccw.stl": {
+      "sha256": "ba197e0961117a3462b555d65edf3433ba8ff5691624100a185242cb5f456244",
+      "executable": false
+    },
+    "gazebo/models/x500_base/meshes/1345_prop_cw.stl": {
+      "sha256": "7aa4b61c1ddc5304c9c1f5602eacf5e2ec5eafb95dd1f2a3368342f256122fc0",
+      "executable": false
+    },
+    "gazebo/models/x500_base/meshes/5010Base.dae": {
+      "sha256": "798396a1945c7ff55a0840b77869e27affdd35fed0d784fff96b68f50f160ea0",
+      "executable": false
+    },
+    "gazebo/models/x500_base/meshes/5010Bell.dae": {
+      "sha256": "b90a1b2dd63a8ebbe1f3339ed18cef23673e0d8f03314fd9b9533a68b6b66668",
+      "executable": false
+    },
+    "gazebo/models/x500_base/meshes/CF.png": {
+      "sha256": "3a56ec48eeaaf7774e8d3e8e5e88f6973bfa5652c610974c3eb2dbec6ec85944",
+      "executable": false
+    },
+    "gazebo/models/x500_base/meshes/NXP-HGD-CF.dae": {
+      "sha256": "7321861b113866996dfa79b403def5666d4b796810840d2c057c7b51fc315b0a",
+      "executable": false
+    },
+    "gazebo/models/x500_base/model.config": {
+      "sha256": "4856afbdeb52f19468f56ddaf4be57c04688f347b8cef2f609daacd2d014d437",
+      "executable": false
+    },
+    "gazebo/models/x500_base/model.sdf": {
+      "sha256": "6eccbff824a0e1ceaaf3bc12fe18cd0eb3ece890bf995a2607b477c3d2ae5772",
+      "executable": false
+    },
+    "gazebo/models/x500_base/thumbnails/1.png": {
+      "sha256": "54d00187e5a03766d5e7b73311bc6bfa22f51cd98b823a287b2da8c551c3175e",
+      "executable": false
+    },
+    "gazebo/models/x500_base/thumbnails/2.png": {
+      "sha256": "cb6040c119b2a382030165a2a98ab9e9cf816557808a4549c323f2a3792cb8b4",
+      "executable": false
+    },
+    "gazebo/models/x500_base/thumbnails/3.png": {
+      "sha256": "848f431c64b34df15c59ad874e6211695ac53ee932ad3509ebb7c6372fc67375",
+      "executable": false
+    },
+    "gazebo/models/x500_base/thumbnails/4.png": {
+      "sha256": "86e1b7f31a49894caeef210f43248587d6454eba467a492f9bc147bf732ae666",
+      "executable": false
+    },
+    "gazebo/models/x500_base/thumbnails/5.png": {
+      "sha256": "b76053e95f7aff65c6f83533fb5635554292acb26fe51376c2d62e437e350e75",
+      "executable": false
+    },
+    "gazebo/models/x500_mono_cam/model.config": {
+      "sha256": "c569710dd05a46ad4f2f5a4ebcb22bcdc5861a9f2c4be2bcb8a211e6f66b9f66",
+      "executable": false
+    },
+    "gazebo/models/x500_mono_cam/model.sdf": {
+      "sha256": "458d1a09d522ea62bb8027c34c5a3ffd24547ebc17655b0ae7a86b5cc99ebee6",
+      "executable": false
+    },
+    "gazebo/plugins/libAirSpeedPlugin.so": {
+      "sha256": "1780e4fbfa09c1478f7973ef12b391f458611db41c0e05f22e56ee07adac8f8e",
+      "executable": true
+    },
+    "gazebo/plugins/libBuoyancySystemPlugin.so": {
+      "sha256": "c9a26bd629d28c68ad31ba7b0d5b33e8afee7c3415644e34fd04152772511a53",
+      "executable": true
+    },
+    "gazebo/plugins/libGenericMotorModelPlugin.so": {
+      "sha256": "d004c78593dc92c12e85f0ff76378bddeff8f367d9dd75ff24d2b5a26d152359",
+      "executable": true
+    },
+    "gazebo/plugins/libGstCameraSystem.so": {
+      "sha256": "e565c417f7bbcecd3b34e85a7f38427a0998f85049dbb676257d1be75a1e3cad",
+      "executable": true
+    },
+    "gazebo/plugins/libMotorFailurePlugin.so": {
+      "sha256": "40d7bd0d30883477fc121abf2a193af27b476a32f67af4cec8855a783a2a3923",
+      "executable": true
+    },
+    "gazebo/plugins/libMovingPlatformController.so": {
+      "sha256": "d7c6c52ac6fa9a21ca57f6d201d57e64a88cdcab70d9fa0c78690a9a0351508e",
+      "executable": true
+    },
+    "gazebo/plugins/libOpticalFlow.so": {
+      "sha256": "7b2ce7fad8be61e0b70f86085cce7c6fb73987b4e39d8633906e8457056b7e09",
+      "executable": true
+    },
+    "gazebo/plugins/libOpticalFlowSystem.so": {
+      "sha256": "987dca4a3206d3847b48afdbd1b0984c3d8b717cb95358efaeefabb64d63a169",
+      "executable": true
+    },
+    "gazebo/plugins/libSpacecraftThrusterModelPlugin.so": {
+      "sha256": "604f41a9cc9e4008a261870041728dc91938c55c03a8aab33a2333b5436f3f06",
+      "executable": true
+    },
+    "gazebo/plugins/libTemplatePlugin.so": {
+      "sha256": "7311b06296e22a9791a974506fcce2e00b2ff7d82748603515fe1c9747086d1b",
+      "executable": true
+    },
+    "gazebo/server.config": {
+      "sha256": "aff8773a62cadc7fca66338297fc382f2887a64e3742ab65eafe51a94bac083c",
+      "executable": false
+    },
+    "gazebo/worlds/aruco.sdf": {
+      "sha256": "849545b6191ec41b177064355e73cef03a8773d12a293614e2ebb10e4919ecf4",
+      "executable": false
+    }
+  },
+  "spawn_pose": [
+    -6,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "camera": {
+    "link": "camera_link",
+    "sensor": "camera",
+    "model": "mono_cam",
+    "udp_port": 5600
+  },
+  "added_world": {
+    "resource": "worlds/training_board_v1.sdf",
+    "base_resource": "worlds/aruco.sdf",
+    "sha256": "5f86a47ef8a3a9c8f710e2e1efca9b58ae162180fe3cda871e6cf057f0871993",
+    "executable": false
+  },
+  "target": {
+    "name": "training_board",
+    "frame": "gazebo_world_enu",
+    "pose": [
+      12,
+      0,
+      6,
+      0,
+      0,
+      0
+    ],
+    "panel_size_m": [
+      6,
+      6
+    ],
+    "aim_point_m": [
+      12,
+      0,
+      6
+    ]
+  }
+}

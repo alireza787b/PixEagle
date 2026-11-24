@@ -1,0 +1,510 @@
+diff --git a/msg/versioned/OwnedModeRequest.msg b/msg/versioned/OwnedModeRequest.msg
+--- a/msg/versioned/OwnedModeRequest.msg
++++ b/msg/versioned/OwnedModeRequest.msg
+@@ -1,6 +1,6 @@
+ # Optional atomic external-mode ownership request. This never arms or requests a VTOL transition.
+ uint32 MESSAGE_VERSION = 0
+-uint8 CONTRACT_VERSION = 1
++uint8 CONTRACT_VERSION = 2
+ uint8 OPERATION_ACQUIRE = 1
+ uint8 OPERATION_RELEASE = 2
+ 
+@@ -10,6 +10,9 @@
+ uint64[2] incarnation # Firmware Commander instance, copied from OwnedModeStatus
+ uint64[2] token # Opaque acquisition token, bound to the companion's runtime/session
+ uint64 source_revision # Original acquisition source intention revision
++uint8 source_vehicle_type # Original settled VehicleStatus vehicle type
++uint64 source_phase_instance # Original VTOL module lifetime, zero only for non-VTOL
++uint64 source_phase_revision # Original persistent transition/phase history
+ uint64 source_nav_state_timestamp # Original acquisition source mode epoch, raw PX4 time
+ uint8 source_nav_state
+ uint8 mode_id # Registered external mode to acquire/release
+diff --git a/msg/versioned/OwnedModeStatus.msg b/msg/versioned/OwnedModeStatus.msg
+--- a/msg/versioned/OwnedModeStatus.msg
++++ b/msg/versioned/OwnedModeStatus.msg
+@@ -1,6 +1,6 @@
+ # Optional ownership receipt, published by Commander. A receipt is not command authority.
+ uint32 MESSAGE_VERSION = 0
+-uint8 CONTRACT_VERSION = 1
++uint8 CONTRACT_VERSION = 2
+ uint8 STATE_IDLE = 0
+ uint8 STATE_PENDING = 1
+ uint8 STATE_ACQUIRED = 2
+@@ -20,6 +20,10 @@
+ uint64[2] incarnation
+ uint64 source_clock_us # Raw firmware clock at this actual publication; DDS does not adjust this field
+ uint64 intention_revision
++uint8 vehicle_type
++bool phase_settled # Includes accepted VTOL intent before the physical state flips
++uint64 phase_source_instance
++uint64 phase_revision
+ uint64[8] registration_ids # Current registration request IDs for EXTERNAL1..EXTERNAL8, zero when absent
+ uint8 state
+ uint64[2] token
+diff --git a/msg/versioned/VtolVehicleStatus.msg b/msg/versioned/VtolVehicleStatus.msg
+--- a/msg/versioned/VtolVehicleStatus.msg
++++ b/msg/versioned/VtolVehicleStatus.msg
+@@ -9,6 +9,9 @@
+ uint8 VEHICLE_VTOL_STATE_FW = 4
+ 
+ uint64 timestamp			# time since system start (microseconds)
++uint64 phase_source_instance # Module lifetime within this firmware incarnation, zero when unavailable
++uint64 phase_revision # Accepted transition intentions and actual phase/failure changes, never a poll counter
++bool transition_intent_pending # Accepted target does not yet match the actual settled MC/FW state
+ 
+ uint8 vehicle_vtol_state		# current state of the vtol, see VEHICLE_VTOL_STATE
+ 
+diff --git a/src/modules/commander/Commander.cpp b/src/modules/commander/Commander.cpp
+--- a/src/modules/commander/Commander.cpp
++++ b/src/modules/commander/Commander.cpp
+@@ -817,6 +817,8 @@
+ {
+ 	static_assert(px4::OwnedModeGuard::FirstExternalMode == vehicle_status_s::NAVIGATION_STATE_EXTERNAL1, "External-mode range changed");
+ 	static_assert(px4::OwnedModeGuard::LastExternalMode == vehicle_status_s::NAVIGATION_STATE_EXTERNAL8, "External-mode range changed");
++	static_assert(px4::OwnedModeGuard::RotaryWingVehicleType == vehicle_status_s::VEHICLE_TYPE_ROTARY_WING, "Vehicle type changed");
++	static_assert(px4::OwnedModeGuard::FixedWingVehicleType == vehicle_status_s::VEHICLE_TYPE_FIXED_WING, "Vehicle type changed");
+ #if defined(__PX4_POSIX) || (defined(PIXEAGLE_OWNED_MODE_ENTROPY_LINKED) && defined(CONFIG_CRYPTO_RANDOM_POOL))
+ 	_owned_mode_guard.initialize(px4::makeOwnedModeIncarnation(px4_get_secure_random));
+ #endif
+@@ -2559,14 +2561,25 @@
+ 
+ px4::OwnedModeObservation Commander::ownedModeObservation(uint8_t mode_id) const
+ {
++	const bool rotary = _vehicle_status.vehicle_type == vehicle_status_s::VEHICLE_TYPE_ROTARY_WING;
++	const bool fixed = _vehicle_status.vehicle_type == vehicle_status_s::VEHICLE_TYPE_FIXED_WING;
++	const bool phase_settled = (rotary || fixed) && !_vehicle_status.in_transition_mode
++				   && (!_vehicle_status.is_vtol || (_vtol_vehicle_status.phase_source_instance > 0
++						   && _vtol_vehicle_status.phase_revision > 0 && !_vtol_vehicle_status.transition_intent_pending
++						   && ((rotary && _vtol_vehicle_status.vehicle_vtol_state == vtol_vehicle_status_s::VEHICLE_VTOL_STATE_MC)
++								   || (fixed && _vtol_vehicle_status.vehicle_vtol_state == vtol_vehicle_status_s::VEHICLE_VTOL_STATE_FW))));
+ 	return {_vehicle_status.nav_state, _vehicle_status.nav_state_timestamp, isArmed(),
+ 		_vehicle_status.failsafe || _vehicle_status.failsafe_and_user_took_over
+ 		|| (_vehicle_status.is_vtol &&_vtol_vehicle_status.fixed_wing_system_failure),
+-		_mode_management.externalModeRegistrationId(mode_id)};
++		_mode_management.externalModeRegistrationId(mode_id),
++		_vehicle_status.is_vtol ? _vtol_vehicle_status.phase_source_instance : 0,
++		_vehicle_status.is_vtol ? _vtol_vehicle_status.phase_revision : 0,
++		_vehicle_status.vehicle_type, _vehicle_status.is_vtol, phase_settled};
+ }
+ 
+ void Commander::updateOwnedModeReceipt()
+ {
++	vtolStatusUpdate();
+ 	auto &intention = _user_mode_intention.ownedModeIntention();
+ 	const auto previous_state = _owned_mode_guard.state();
+ 	const auto action = _owned_mode_guard.observe(ownedModeObservation(_owned_mode_guard.acquisition().mode), intention, hrt_absolute_time());
+@@ -2585,6 +2598,7 @@
+ 
+ void Commander::handleOwnedModeRequest()
+ {
++	vtolStatusUpdate();
+ 	owned_mode_request_s message{};
+ 
+ 	if (!_owned_mode_request_sub.update(&message)
+@@ -2596,6 +2610,9 @@
+ 	request.incarnation = {message.incarnation[0], message.incarnation[1]};
+ 	request.token = {message.token[0], message.token[1]};
+ 	request.source_revision = message.source_revision;
++	request.source_vehicle_type = message.source_vehicle_type;
++	request.source_phase_instance = message.source_phase_instance;
++	request.source_phase_revision = message.source_phase_revision;
+ 	request.source_epoch = message.source_nav_state_timestamp;
+ 	request.source_mode = message.source_nav_state;
+ 	request.mode = message.mode_id;
+@@ -2654,6 +2671,11 @@
+ 	message.incarnation[1] = incarnation[1];
+ 	message.source_clock_us = now;
+ 	message.intention_revision = intention.revision();
++	const auto phase = ownedModeObservation(_owned_mode_guard.acquisition().mode);
++	message.vehicle_type = phase.vehicle_type;
++	message.phase_settled = phase.phase_settled;
++	message.phase_source_instance = phase.phase_source_instance;
++	message.phase_revision = phase.phase_revision;
+ 
+ 	for (uint8_t index = 0; index < px4::OwnedModeGuard::ExternalModeCount; ++index) {
+ 		message.registration_ids[index] = _mode_management.externalModeRegistrationId(px4::OwnedModeGuard::FirstExternalMode + index);
+diff --git a/src/modules/commander/OwnedModeGuard.hpp b/src/modules/commander/OwnedModeGuard.hpp
+--- a/src/modules/commander/OwnedModeGuard.hpp
++++ b/src/modules/commander/OwnedModeGuard.hpp
+@@ -77,12 +77,15 @@
+ 	uint64_t source_revision{}, source_epoch{}, acquired_epoch{}, source_clock{}, expires{};
+ 	uint8_t source_mode{}, mode{};
+ 	uint64_t registration_id{};
++	uint64_t source_phase_instance{}, source_phase_revision{};
++	uint8_t source_vehicle_type{};
+ 
+ 	bool sameAcquisition(const OwnedModeRequest &other) const
+ 	{
+ 		return incarnation == other.incarnation && token == other.token && source_revision == other.source_revision
+ 		       && source_epoch == other.source_epoch && source_mode == other.source_mode && mode == other.mode
+-		       && registration_id == other.registration_id;
++		       && registration_id == other.registration_id && source_phase_instance == other.source_phase_instance
++		       && source_phase_revision == other.source_phase_revision && source_vehicle_type == other.source_vehicle_type;
+ 	}
+ 
+ 	bool operator==(const OwnedModeRequest &other) const
+@@ -97,6 +100,9 @@
+ 	uint64_t epoch{};
+ 	bool armed{}, rescue{};
+ 	uint64_t registration_id{};
++	uint64_t phase_source_instance{}, phase_revision{};
++	uint8_t vehicle_type{};
++	bool is_vtol{}, phase_settled{};
+ };
+ 
+ // A bounded causal receipt. It cannot publish a setpoint or establish a lease.
+@@ -106,6 +112,7 @@
+ 	static constexpr uint64_t MaximumRequestWindowUs = 500000;
+ 	static constexpr uint8_t FirstExternalMode = 23, LastExternalMode = 30;
+ 	static constexpr uint8_t ExternalModeCount = LastExternalMode - FirstExternalMode + 1;
++	static constexpr uint8_t RotaryWingVehicleType = 1, FixedWingVehicleType = 2;
+ 
+ 	void initialize(const OwnedModeToken &incarnation)
+ 	{
+@@ -268,6 +275,17 @@
+ 	}
+ 
+ private:
++	static bool matchesSourcePhase(const OwnedModeRequest &request, const OwnedModeObservation &observation)
++	{
++		if (!observation.phase_settled || (observation.vehicle_type != RotaryWingVehicleType && observation.vehicle_type != FixedWingVehicleType)
++		    || request.source_vehicle_type != observation.vehicle_type) { return false; }
++
++		if (!observation.is_vtol) { return request.source_phase_instance == 0 && request.source_phase_revision == 0; }
++
++		return request.source_phase_instance > 0 && request.source_phase_revision > 0
++		       && request.source_phase_instance == observation.phase_source_instance
++		       && request.source_phase_revision == observation.phase_revision;
++	}
+ 	static bool matchesSource(const OwnedModeRequest &request, const OwnedModeObservation &observation)
+ 	{
+ 		return request.source_mode == observation.mode && request.source_epoch > 0 && request.source_epoch == observation.epoch;
+diff --git a/src/modules/commander/OwnedModeGuardTest.cpp b/src/modules/commander/OwnedModeGuardTest.cpp
+--- a/src/modules/commander/OwnedModeGuardTest.cpp
++++ b/src/modules/commander/OwnedModeGuardTest.cpp
+@@ -11,15 +11,15 @@
+ struct Fixture {
+ 	OwnedModeGuard guard;
+ 	OwnedModeIntention intention;
+-	OwnedModeObservation observation{Hold, 100, true, false, 9000};
+-	OwnedModeRequest acquisition{OwnedModeOperation::Acquire, Incarnation, Token, 0, 100, 0, 1000, 501000, Hold, External, 9000};
++	OwnedModeObservation observation{Hold, 100, true, false, 9000, 0, 0, 2, false, true};
++	OwnedModeRequest acquisition{OwnedModeOperation::Acquire, Incarnation, Token, 0, 100, 0, 1000, 501000, Hold, External, 9000, 0, 0, 2};
+ 	Fixture() { guard.initialize(Incarnation); }
+ 	void acquire()
+ 	{
+ 		ASSERT_EQ(guard.request(acquisition, observation, intention, 1001, Hold), OwnedModeAction::Acquire);
+ 		intention.acceptedChange(Token);
+ 		guard.acquisitionRequested(true, intention);
+-		observation = {External, 200, true, false, 9000};
++		observation = {External, 200, true, false, 9000, 0, 0, 2, false, true};
+ 		guard.observe(observation, intention, 1002);
+ 		ASSERT_TRUE(guard.ownerActive(observation, intention));
+ 	}
+@@ -52,7 +52,7 @@
+ 	f.intention.acceptedChange(Token);
+ 	f.guard.acquisitionRequested(true, f.intention);
+ 	f.intention.acceptedChange();
+-	f.observation = {External, 200, true, false, 9000};
++	f.observation = {External, 200, true, false, 9000, 0, 0, 2, false, true};
+ 	f.guard.observe(f.observation, f.intention, 1002);
+ 	EXPECT_EQ(f.guard.state(), OwnedModeState::Superseded);
+ 	EXPECT_EQ(f.guard.acquiredEpoch(), 0);
+@@ -65,10 +65,10 @@
+ 	Fixture f;
+ 	f.acquire(); // Firmware records 200 even if no adapter has received that status.
+ 	f.intention.acceptedChange();
+-	f.observation = {Hold, 250, true, false, 9000};
++	f.observation = {Hold, 250, true, false, 9000, 0, 0, 2, false, true};
+ 	f.guard.observe(f.observation, f.intention, 1003);
+ 	f.intention.acceptedChange();
+-	f.observation = {External, 300, true, false, 9000};
++	f.observation = {External, 300, true, false, 9000, 0, 0, 2, false, true};
+ 	f.guard.observe(f.observation, f.intention, 1004);
+ 	EXPECT_EQ(f.guard.acquiredEpoch(), 200);
+ 	EXPECT_EQ(f.guard.state(), OwnedModeState::Superseded);
+@@ -99,7 +99,7 @@
+ 	f.guard.releaseRequested(true, f.intention);
+ 	EXPECT_EQ(f.guard.state(), OwnedModeState::Releasing);
+ 	EXPECT_EQ(f.guard.request(request, f.observation, f.intention, 2002, Hold), OwnedModeAction::None);
+-	f.observation = {Hold, 400, true, false, 9000};
++	f.observation = {Hold, 400, true, false, 9000, 0, 0, 2, false, true};
+ 	f.guard.observe(f.observation, f.intention, 2003);
+ 	EXPECT_EQ(f.guard.state(), OwnedModeState::Released);
+ 	EXPECT_EQ(f.guard.acquiredEpoch(), 200);
+@@ -154,7 +154,7 @@
+ 	f.guard.acquisitionRequested(true, f.intention);
+ 	EXPECT_EQ(f.guard.observe(f.observation, f.intention, f.acquisition.expires), OwnedModeAction::RestoreSource);
+ 	f.intention.acceptedChange();
+-	f.observation = {External, 200, true, false, 9000};
++	f.observation = {External, 200, true, false, 9000, 0, 0, 2, false, true};
+ 	f.guard.observe(f.observation, f.intention, 501001);
+ 	EXPECT_EQ(f.guard.state(), OwnedModeState::Expired);
+ 	EXPECT_EQ(f.guard.acquiredEpoch(), 0);
+@@ -166,7 +166,7 @@
+ 		Fixture f;
+ 		auto request = f.acquisition;
+ 
+-		if (invalid == 0) { f.observation = {External, 100, true, false, 9000}; request.source_mode = External; }
++		if (invalid == 0) { f.observation = {External, 100, true, false, 9000, 0, 0, 2, false, true}; request.source_mode = External; }
+ 
+ 		if (invalid == 1) { request.source_clock = 0; }
+ 
+@@ -190,7 +190,7 @@
+ 		Fixture f;
+ 		f.acquire();
+ 
+-		if (condition == 0) { f.observation = {5, 300, true, false, 9000}; }
++		if (condition == 0) { f.observation = {5, 300, true, false, 9000, 0, 0, 2, false, true}; }
+ 
+ 		if (condition == 1) { f.observation.armed = false; }
+ 
+@@ -250,7 +250,7 @@
+ 	f.observation.registration_id = 0;
+ 	EXPECT_EQ(f.guard.observe(f.observation, f.intention, 1002), OwnedModeAction::RestoreSource);
+ 	f.intention.acceptedChange();
+-	f.observation = {External, 200, true, false, 9001};
++	f.observation = {External, 200, true, false, 9001, 0, 0, 2, false, true};
+ 	f.guard.observe(f.observation, f.intention, 1003);
+ 	EXPECT_EQ(f.guard.state(), OwnedModeState::Superseded);
+ 	EXPECT_EQ(f.guard.acquiredEpoch(), 0);
+@@ -277,7 +277,7 @@
+ 	f.guard.request(f.acquisition, f.observation, f.intention, 1001, Hold);
+ 	f.intention.acceptedChange(Token);
+ 	f.guard.acquisitionRequested(true, f.intention);
+-	f.observation = {External, f.acquisition.expires - 1, true, false, 9000};
++	f.observation = {External, f.acquisition.expires - 1, true, false, 9000, 0, 0, 2, false, true};
+ 	EXPECT_EQ(f.guard.observe(f.observation, f.intention, f.acquisition.expires + 100), OwnedModeAction::None);
+ 	EXPECT_EQ(f.guard.acquiredEpoch(), f.acquisition.expires - 1);
+ 	EXPECT_TRUE(f.guard.ownerActive(f.observation, f.intention));
+@@ -291,7 +291,7 @@
+ 		f.intention.acceptedChange(Token);
+ 		f.guard.acquisitionRequested(true, f.intention);
+ 		EXPECT_EQ(f.guard.observe(f.observation, f.intention, f.acquisition.expires - 1), OwnedModeAction::None);
+-		f.observation = {External, f.acquisition.expires + offset, true, false, 9000};
++		f.observation = {External, f.acquisition.expires + offset, true, false, 9000, 0, 0, 2, false, true};
+ 		EXPECT_EQ(f.guard.observe(f.observation, f.intention, f.acquisition.expires + 100), OwnedModeAction::Hold);
+ 		EXPECT_EQ(f.guard.acquiredEpoch(), f.acquisition.expires + offset);
+ 		EXPECT_EQ(f.guard.state(), OwnedModeState::Releasing);
+@@ -307,7 +307,7 @@
+ 		EXPECT_EQ(f.guard.request(release, f.observation, f.intention, release.source_clock, Hold), OwnedModeAction::Hold);
+ 		f.intention.acceptedChange();
+ 		f.guard.releaseRequested(true, f.intention);
+-		f.observation = {Hold, release.source_clock + 1, true, false, 9000};
++		f.observation = {Hold, release.source_clock + 1, true, false, 9000, 0, 0, 2, false, true};
+ 		f.guard.observe(f.observation, f.intention, release.source_clock + 2);
+ 		EXPECT_EQ(f.guard.state(), OwnedModeState::Released);
+ 	}
+@@ -320,7 +320,7 @@
+ 	f.intention.acceptedChange(Token);
+ 	f.guard.acquisitionRequested(true, f.intention);
+ 	f.intention.acceptedChange();
+-	f.observation = {External, f.acquisition.expires, true, false, 9000};
++	f.observation = {External, f.acquisition.expires, true, false, 9000, 0, 0, 2, false, true};
+ 	EXPECT_EQ(f.guard.observe(f.observation, f.intention, f.acquisition.expires + 100), OwnedModeAction::None);
+ 	EXPECT_EQ(f.guard.state(), OwnedModeState::Superseded);
+ 	EXPECT_EQ(f.guard.acquiredEpoch(), 0);
+diff --git a/src/modules/commander/UserModeIntentionOwnedTest.cpp b/src/modules/commander/UserModeIntentionOwnedTest.cpp
+--- a/src/modules/commander/UserModeIntentionOwnedTest.cpp
++++ b/src/modules/commander/UserModeIntentionOwnedTest.cpp
+@@ -127,8 +127,8 @@
+ 	guard.initialize(incarnation);
+ 	px4::OwnedModeRequest request{px4::OwnedModeOperation::Acquire, incarnation, f.token,
+ 				      f.intention.ownedModeIntention().revision(), f.status.nav_state_timestamp, 0, 1000, 2000,
+-				      f.status.nav_state, vehicle_status_s::NAVIGATION_STATE_EXTERNAL1, 9000};
+-	px4::OwnedModeObservation observation{f.status.nav_state, f.status.nav_state_timestamp, true, false, 9000};
++				      f.status.nav_state, vehicle_status_s::NAVIGATION_STATE_EXTERNAL1, 9000, 0, 0, 2};
++	px4::OwnedModeObservation observation{f.status.nav_state, f.status.nav_state_timestamp, true, false, 9000, 0, 0, 2, false, true};
+ 	ASSERT_EQ(guard.request(request, observation, f.intention.ownedModeIntention(), 1001,
+ 				vehicle_status_s::NAVIGATION_STATE_AUTO_LOITER), px4::OwnedModeAction::Acquire);
+ 	ASSERT_TRUE(f.intention.change(request.mode, ModeChangeSource::User, false, false, f.token));
+@@ -136,7 +136,7 @@
+ 	f.status.nav_state = request.mode;
+ 	f.status.nav_state_timestamp = request.expires;
+ 	f.status.arming_state = vehicle_status_s::ARMING_STATE_ARMED;
+-	observation = {f.status.nav_state, f.status.nav_state_timestamp, true, false, 9000};
++	observation = {f.status.nav_state, f.status.nav_state_timestamp, true, false, 9000, 0, 0, 2, false, true};
+ 	ASSERT_EQ(guard.observe(observation, f.intention.ownedModeIntention(), request.expires + 1), px4::OwnedModeAction::Hold);
+ 	const bool accepted = f.intention.change(vehicle_status_s::NAVIGATION_STATE_AUTO_LOITER);
+ 	ASSERT_FALSE(accepted);
+diff --git a/src/modules/vtol_att_control/NativePhaseHistory.hpp b/src/modules/vtol_att_control/NativePhaseHistory.hpp
+new file mode 100644
+--- /dev/null
++++ b/src/modules/vtol_att_control/NativePhaseHistory.hpp
+@@ -0,0 +1,32 @@
++#pragma once
++
++#include <cstdint>
++#include <limits>
++
++namespace px4
++{
++
++// One controller-owned history. Publishing or observing it cannot create events.
++class NativePhaseHistory
++{
++public:
++	explicit NativePhaseHistory(uint64_t instance) : _instance(instance), _revision(instance ? 1 : 0) {}
++	uint64_t instance() const { return _instance; }
++	uint64_t revision() const { return _revision; }
++	void advance()
++	{
++		if (_instance == 0 || _revision >= std::numeric_limits<uint64_t>::max() - 1) {
++			_instance = 0;
++			_revision = 0;
++
++		} else {
++			++_revision;
++		}
++	}
++private:
++	friend struct NativePhaseHistoryTestPeer;
++	uint64_t _instance{};
++	uint64_t _revision{};
++};
++
++} // namespace px4
+diff --git a/src/modules/vtol_att_control/vtol_att_control_main.cpp b/src/modules/vtol_att_control/vtol_att_control_main.cpp
+--- a/src/modules/vtol_att_control/vtol_att_control_main.cpp
++++ b/src/modules/vtol_att_control/vtol_att_control_main.cpp
+@@ -50,15 +50,34 @@
+ #include <px4_platform_common/events.h>
+ #include <systemlib/mavlink_log.h>
+ #include <uORB/Publication.hpp>
++#include <px4_platform_common/atomic.h>
++#include <limits>
+ 
+ using namespace matrix;
+ using namespace time_literals;
++
++namespace
++{
++uint64_t nextPhaseSourceInstance()
++{
++	// Firmware incarnation covers process restart; this survives module restart and paused hrt.
++	static px4::atomic<uint32_t> next{1};
++	uint32_t value = next.load();
++
++	while (value != std::numeric_limits<uint32_t>::max()) {
++		if (next.compare_exchange(&value, value + 1)) { return value; }
++	}
++
++	return 0;
++}
++}
+ 
+ ModuleBase::Descriptor VtolAttitudeControl::desc{task_spawn, custom_command, print_usage};
+ 
+ VtolAttitudeControl::VtolAttitudeControl() :
+ 	ModuleParams(nullptr),
+ 	WorkItem(MODULE_NAME, px4::wq_configurations::rate_ctrl),
++	_phase_history(nextPhaseSourceInstance()),
+ 	_loop_perf(perf_alloc(PC_ELAPSED, "vtol_att_control: cycle"))
+ {
+ 	// start vtol in rotary wing mode
+@@ -114,6 +133,7 @@
+ 	if (_vehicle_status.nav_state == vehicle_status_s::NAVIGATION_STATE_AUTO_RTL
+ 	    && _nav_state_prev != vehicle_status_s::NAVIGATION_STATE_AUTO_RTL && _vtol_type->get_mode() == mode::TRANSITION_TO_FW) {
+ 		_transition_command = vtol_vehicle_status_s::VEHICLE_VTOL_STATE_MC;
++		publish_vtol_status(true);
+ 	}
+ 
+ 	_nav_state_prev = _vehicle_status.nav_state;
+@@ -129,6 +149,7 @@
+ 			case action_request_s::ACTION_VTOL_TRANSITION_TO_MULTICOPTER:
+ 				_transition_command = vtol_vehicle_status_s::VEHICLE_VTOL_STATE_MC;
+ 				_immediate_transition = false;
++				publish_vtol_status(true);
+ 				break;
+ 
+ 			case action_request_s::ACTION_VTOL_TRANSITION_TO_FIXEDWING:
+@@ -140,6 +161,7 @@
+ 					_vtol_vehicle_status.fixed_wing_system_failure = false;
+ 				}
+ 
++				publish_vtol_status(true);
+ 				break;
+ 			}
+ 		}
+@@ -174,6 +196,8 @@
+ 				if (_transition_command == vtol_vehicle_status_s::VEHICLE_VTOL_STATE_FW) {
+ 					_vtol_vehicle_status.fixed_wing_system_failure = false;
+ 				}
++
++				publish_vtol_status(true);
+ 			}
+ 
+ 			if (vehicle_command.from_external) {
+@@ -468,16 +492,7 @@
+ 		_vehicle_torque_setpoint0_pub.publish(_torque_setpoint_0);
+ 		_vehicle_torque_setpoint1_pub.publish(_torque_setpoint_1);
+ 
+-		// Advertise/publish vtol vehicle status -- immediately if changed, otherwise at 1 Hz
+-		const bool vtol_vehicle_status_changed =
+-			(_vtol_vehicle_status.vehicle_vtol_state != _prev_published_vtol_vehicle_status.vehicle_vtol_state) ||
+-			(_vtol_vehicle_status.fixed_wing_system_failure != _prev_published_vtol_vehicle_status.fixed_wing_system_failure);
+-
+-		if (vtol_vehicle_status_changed || hrt_elapsed_time(&_prev_published_vtol_vehicle_status.timestamp) >= 1_s) {
+-			_vtol_vehicle_status.timestamp = hrt_absolute_time();
+-			_vtol_vehicle_status_pub.publish(_vtol_vehicle_status);
+-			_prev_published_vtol_vehicle_status = _vtol_vehicle_status;
+-		}
++		publish_vtol_status();
+ 
+ 		// Publish flaps/spoiler setpoint with configured deflection in Hover if in Auto.
+ 		// In Manual always published in FW rate controller, and in Auto FW in FW Position Controller.
+@@ -508,6 +523,27 @@
+ 	perf_end(_loop_perf);
+ }
+ 
++void VtolAttitudeControl::publish_vtol_status(bool accepted_intent)
++{
++	const bool changed = _vtol_vehicle_status.vehicle_vtol_state != _prev_published_vtol_vehicle_status.vehicle_vtol_state
++			     || _vtol_vehicle_status.fixed_wing_system_failure != _prev_published_vtol_vehicle_status.fixed_wing_system_failure;
++
++	if (accepted_intent || changed) { _phase_history.advance(); }
++
++	_vtol_vehicle_status.phase_source_instance = _phase_history.instance();
++	_vtol_vehicle_status.phase_revision = _phase_history.revision();
++	_vtol_vehicle_status.transition_intent_pending =
++		(_vtol_vehicle_status.vehicle_vtol_state != vtol_vehicle_status_s::VEHICLE_VTOL_STATE_MC
++		 && _vtol_vehicle_status.vehicle_vtol_state != vtol_vehicle_status_s::VEHICLE_VTOL_STATE_FW)
++		|| _transition_command != _vtol_vehicle_status.vehicle_vtol_state;
++
++	if (accepted_intent || changed || hrt_elapsed_time(&_prev_published_vtol_vehicle_status.timestamp) >= 1_s) {
++		_vtol_vehicle_status.timestamp = hrt_absolute_time();
++		_vtol_vehicle_status_pub.publish(_vtol_vehicle_status);
++		_prev_published_vtol_vehicle_status = _vtol_vehicle_status;
++	}
++}
++
+ int
+ VtolAttitudeControl::task_spawn(int argc, char *argv[])
+ {
+diff --git a/src/modules/vtol_att_control/vtol_att_control_main.h b/src/modules/vtol_att_control/vtol_att_control_main.h
+--- a/src/modules/vtol_att_control/vtol_att_control_main.h
++++ b/src/modules/vtol_att_control/vtol_att_control_main.h
+@@ -88,6 +88,7 @@
+ #include "tailsitter.h"
+ #include "tiltrotor.h"
+ #include "vtol_type.h"
++#include "NativePhaseHistory.hpp"
+ 
+ using namespace time_literals;
+ 
+@@ -222,6 +223,7 @@
+ 	/* For multicopters it is usual to have a non-zero idle speed of the engines
+ 	 * for fixed wings we want to have an idle speed of zero since we do not want
+ 	 * to waste energy when gliding. */
++	px4::NativePhaseHistory _phase_history;
+ 	int		_transition_command{vtol_vehicle_status_s::VEHICLE_VTOL_STATE_MC};
+ 	bool		_immediate_transition{false};
+ 
+@@ -239,6 +241,7 @@
+ 	void		action_request_poll();
+ 
+ 	void		vehicle_cmd_poll();
++	void		publish_vtol_status(bool accepted_intent = false);
+ 
+ 	void 		parameters_update();
+ 

@@ -1,0 +1,22 @@
+# Additive full-rate SIH diagnostics; pinned firmware source in manifest.
+# Explicit instance, zero per-topic decimation; retain SDLOG_PROFILE=131.
+trajectory_setpoint 0 0
+fixed_wing_lateral_setpoint 0 0
+fixed_wing_longitudinal_setpoint 0 0
+vehicle_status 0 0
+vtol_vehicle_status 0 0
+vehicle_local_position 0 0
+vehicle_attitude 0 0
+vehicle_attitude_setpoint 0 0
+vehicle_control_mode 0 0
+home_position 0 0
+airspeed_validated 0 0
+fixed_wing_guidance_status 0 0
+owned_mode_status 0 0
+owned_mode_request 0 0
+tecs_status 0 0
+vehicle_thrust_setpoint 0 0
+vehicle_thrust_setpoint 0 1
+actuator_motors 0 0
+actuator_servos 0 0
+differential_pressure 0 0

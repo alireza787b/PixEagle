@@ -189,18 +189,25 @@ MC_VELOCITY_CHASE:
 
 ```yaml
 MC_VELOCITY_GROUND:
-  MAX_RATE_OF_DESCENT: 2.0           # m/s
+  MAX_RATE_OF_DESCENT: 1.0           # m/s
   ENABLE_DESCEND_TO_TARGET: false
-  IS_CAMERA_GIMBALED: false
-  BASE_ADJUSTMENT_FACTOR_X: 0.1
-  BASE_ADJUSTMENT_FACTOR_Y: 0.1
-  ALTITUDE_FACTOR: 0.005
-  COORDINATE_CORRECTIONS_ENABLED: true
 ```
 
 The desired image aim is resolved centrally from
 `Follower.TARGET_POSITION_MODE` and `Tracking.DESIRE_AIM`. Velocity limits and
 control rate are shared settings under `Safety` and `Follower`.
+
+Ground now feeds raw image coordinates to its PIDs. The degree-based attitude
+correction and coupled altitude scaling were removed because they could
+reinforce tilt-induced error, reverse error direction and saturate commands.
+`COORDINATE_CORRECTIONS_ENABLED`, `IS_CAMERA_GIMBALED`,
+`BASE_ADJUSTMENT_FACTOR_X/Y`, and `ALTITUDE_FACTOR` are exact-path retirements,
+not calibration controls. Old saved values cannot enable the removed algorithm.
+ConfigSync preview/confirmed apply cleans up selected retired values with a
+backup and preserves other saved Ground values and custom siblings. There is no
+automatic conversion to calibrated geometry. The
+[Ground reference](../02-reference/mc-velocity-ground.md#removed-correction-heuristic)
+describes the algorithm change and required SIH requalification.
 
 ---
 

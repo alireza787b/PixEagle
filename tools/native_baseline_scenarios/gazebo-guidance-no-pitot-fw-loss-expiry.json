@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "native_fixture": "gazebo-quadtailsitter-no-pitot-hold-cycle.json",
+  "target": {
+    "forward_m": 1000.0,
+    "right_m": 35.0,
+    "speed_m_s": 0.25,
+    "coverage_s": 300.0
+  },
+  "mc": {
+    "duration_s": 20.0,
+    "transition_at_s": 8.0,
+    "requested_speed_m_s": 1.0
+  },
+  "fw": {
+    "duration_s": 24.0,
+    "faults": [
+      {
+        "kind": "target_loss",
+        "at_s": 3.0,
+        "duration_s": 1.0
+      },
+      {
+        "kind": "target_loss",
+        "at_s": 9.0,
+        "duration_s": 9.5
+      }
+    ],
+    "expected_handoff": "maximum_coast_time_reached"
+  },
+  "minimum_forward_ground_speed_m_s": 14.0
+}

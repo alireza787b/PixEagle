@@ -22,8 +22,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'sr
 
 from unittest.mock import MagicMock
 from classes.followers.gm_velocity_vector_follower import GMVelocityVectorFollower, Vector3D
+from classes.aircraft_state import Quaternion
+from classes.gimbal_guidance import GimbalManoeuvreSupport, GimbalObservationLimits, VECTOR_MC_MANOEUVRES, GimbalGuidanceClassifier, GimbalGuidancePolicy, GuidanceState
 from classes.tracker_output import TrackerOutput, TrackerDataType
+from tests.unit.followers import test_gimbal_retarget_reset as retarget_fixtures
 from tools.sitl_gimbal_geometry_fixture import camera_angles_for_world_target
+
+
+real_gimbal_environment = retarget_fixtures.environment
 
 
 # ---------------------------------------------------------------------------
@@ -55,9 +61,14 @@ def _build_follower_stub(
     Uses HORIZONTAL mount (project default) with no filtering/offsets for determinism.
     """
     follower = GMVelocityVectorFollower.__new__(GMVelocityVectorFollower)
+    follower.guidance_policy = GimbalGuidancePolicy()
+    follower.guidance_manoeuvres = VECTOR_MC_MANOEUVRES
+    follower.observation_limits = GimbalObservationLimits()
+    follower.guidance_classifier = GimbalGuidanceClassifier(follower.guidance_policy, follower.guidance_manoeuvres)
 
-    # --- _filter_angles() ---
-    follower.filtered_angles = None       # None = first call returns raw angles unchanged
+    # --- _filter_body_ray() ---
+    follower.filtered_body_ray = None    # first observation is unfiltered
+    follower._guidance_state_identity = None
     follower.angle_deadzone = 0.0         # no deadzone → deterministic pass-through
     follower.angle_smoothing_alpha = 1.0  # alpha=1 → no EMA smoothing
 
@@ -89,9 +100,11 @@ def _build_follower_stub(
     follower.px4_controller = SimpleNamespace(
         current_altitude=20.0,
         is_command_connection_ready=lambda **_: True,
+        get_guidance_attitude=lambda: (Quaternion(1., 0., 0., 0.), 0.),
     )
     follower._follower_config_name = "GM_VELOCITY_VECTOR"
     follower.safety_manager = SimpleNamespace(
+        allows_session_velocity_override=lambda: True,
         get_altitude_limits=lambda _: SimpleNamespace(
             min_altitude=3.0, max_altitude=120.0, warning_buffer=2.0,
         ),
@@ -101,6 +114,94 @@ def _build_follower_stub(
     follower.set_command_fields = MagicMock(return_value=True)
 
     return follower
+
+
+@pytest.mark.parametrize("angles", [(0., 0., 0.), (0., 90., 0.), (180., 0., 0.)])
+@pytest.mark.parametrize("initialization", ["absent", "none", "invalid"])
+def test_uninitialized_classifier_never_invents_provider_authority_or_nominal_command(angles, initialization):
+    follower = _build_follower_stub(True, 2.)
+    invalid = SimpleNamespace(update=MagicMock())
+    if initialization == "absent":
+        del follower.guidance_classifier
+    else:
+        follower.guidance_classifier = None if initialization == "none" else invalid
+    with pytest.raises(RuntimeError, match="gimbal_guidance_classifier_unavailable"):
+        _run_normalization(follower, *angles)
+    follower.set_command_fields.assert_not_called()
+    invalid.update.assert_not_called()
+    if initialization == "absent":
+        assert "guidance_classifier" not in vars(follower)
+    else:
+        assert follower.guidance_classifier is (None if initialization == "none" else invalid)
+
+
+@pytest.mark.parametrize("ray", [Vector3D(0., 0., 1.), Vector3D(0., 0., -1.), Vector3D(-1., .01, 0.)])
+def test_unimplemented_manoeuvres_never_gain_vertical_reverse_or_yaw_authority(ray):
+    follower = GMVelocityVectorFollower.__new__(GMVelocityVectorFollower)
+    now = [100.]
+    capabilities = GimbalManoeuvreSupport()
+    follower.guidance_classifier = GimbalGuidanceClassifier(GimbalGuidancePolicy(), capabilities, clock=lambda: now[0])
+    for elapsed in (0., .31, .9):
+        now[0] = 100.+elapsed
+        decision = follower._classify_guidance(ray, observation_time=now[0])
+        assert decision.state is GuidanceState.UNREACHABLE
+        assert follower.guidance_classifier.manoeuvres is capabilities
+        assert not capabilities.supports_vertical
+    assert "guidance_capabilities" not in vars(follower)
+
+
+@pytest.mark.parametrize("mount", ["HORIZONTAL", "VERTICAL"])
+def test_real_constructor_keeps_explicit_classifier_and_forward_guidance(real_gimbal_environment, mount):
+    build, _ = real_gimbal_environment
+    follower = build(GMVelocityVectorFollower, mount)
+    classifier = follower.guidance_classifier
+    assert isinstance(classifier, GimbalGuidanceClassifier)
+    assert classifier.policy is follower.guidance_policy
+    assert classifier.manoeuvres is follower.guidance_manoeuvres
+    decision = follower._classify_guidance(Vector3D(1., 0., 0.))
+    assert decision.state is GuidanceState.FORWARD
+    assert follower.guidance_classifier is classifier
+
+
+@pytest.mark.parametrize('mount', ['HORIZONTAL', 'VERTICAL'])
+@pytest.mark.parametrize('provider_metadata', [None, {}, {
+    'known': True, 'supports_vertical': True, 'supports_reverse': True,
+    'supports_yaw_fallback': True, 'azimuth_limits_deg': [-180., 180.],
+    'depression_limits_deg': [-90., 90.],
+}])
+def test_provider_cannot_grant_manoeuvres_or_widen_observed_ray_limits(real_gimbal_environment, mount, provider_metadata):
+    from classes.parameters import Parameters
+    build, _ = real_gimbal_environment
+    original = build(GMVelocityVectorFollower, mount)
+    config = Parameters.get_runtime_config_snapshot()
+    config['GimbalTracker']['GUIDANCE']['ALLOWED_MANOEUVRES'] = []
+    config['GimbalTracker']['GUIDANCE']['OBSERVATION_LIMITS'] = {
+        'AZIMUTH_LIMITS_DEG': [-10., 10.], 'DEPRESSION_LIMITS_DEG': None,
+    }
+    Parameters.publish_config_mapping(config)
+    follower = GMVelocityVectorFollower(original.px4_controller, (0., 0.))
+    data = retarget_fixtures.observation(mount)
+    if provider_metadata is not None:
+        data.metadata = {'guidance_capabilities': provider_metadata}
+    follower.set_command_fields = MagicMock(return_value=True)
+    with pytest.raises(RuntimeError, match='gimbal_observation_limit'):
+        follower.calculate_control_commands(data)
+    assert follower.guidance_manoeuvres.to_mapping()['special_manoeuvres'] == []
+    assert follower.observation_limits.azimuth_limits_deg == (-10., 10.)
+    follower.set_command_fields.assert_not_called()
+
+
+def test_only_custom_legacy_vector_start_requires_migration_review(real_gimbal_environment, monkeypatch):
+    from classes.config_service import ConfigService
+    build, _ = real_gimbal_environment
+    pending = {'review_required': True, 'reason_code': 'gimbal_guidance_config_review_required'}
+    monkeypatch.setattr(ConfigService, 'get_gimbal_guidance_migration', lambda self: pending)
+    follower = build(GMVelocityVectorFollower)
+    with pytest.raises(ValueError, match='gimbal_guidance_config_review_required'):
+        follower.require_guidance_input(retarget_fixtures.observation('HORIZONTAL'), None)
+    pending = None
+    reviewed = build(GMVelocityVectorFollower)
+    reviewed.require_guidance_input(retarget_fixtures.observation('HORIZONTAL'), None)
 
 
 def _run_normalization(

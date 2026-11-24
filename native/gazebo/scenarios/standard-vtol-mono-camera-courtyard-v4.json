@@ -1,0 +1,424 @@
+{
+  "schema_version": 3,
+  "name": "standard-vtol-mono-camera-courtyard-v4",
+  "build_manifest_sha256": "96f0968e55b3af0856245234e78ae16292f1686654c6ae444bebde7bac97f8a9",
+  "image_id": "sha256:011fad450eb9a2c3187e36663a03be517840b5cd08cc11c45fb77314113bdf5a",
+  "binary_sha256": "5f42a1abb96894bdc0a429db06edced09dda7a8116c53301297bcbcab3181c37",
+  "model": "standard_vtol_mono_cam",
+  "world": "training_courtyard_v2",
+  "airframe_id": 4004,
+  "airframe_chain": [
+    "etc/init.d-posix/airframes/4004_gz_standard_vtol",
+    "etc/init.d/rc.vtol_defaults"
+  ],
+  "identity_parameters": [
+    "MAV_TYPE",
+    "CA_AIRFRAME",
+    "CA_ROTOR_COUNT",
+    "CA_SV_CS_COUNT",
+    "VT_TYPE",
+    "SIM_GZ_EN"
+  ],
+  "models": [
+    "standard_vtol_mono_cam",
+    "standard_vtol",
+    "mono_cam",
+    "arucotag"
+  ],
+  "scene_models": [
+    "ground_plane",
+    "arucotag",
+    "training_board",
+    "far_board",
+    "warehouse_north",
+    "warehouse_south",
+    "parked_car_north",
+    "parked_car_south",
+    "field_blocks",
+    "cross_roads",
+    "runway_markings",
+    "orbit_landmark_0",
+    "orbit_landmark_1",
+    "orbit_landmark_2",
+    "orbit_landmark_3",
+    "orbit_landmark_4",
+    "orbit_landmark_5",
+    "orbit_landmark_6",
+    "orbit_landmark_7"
+  ],
+  "resources": {
+    "etc/init.d-posix/airframes/4004_gz_standard_vtol": {
+      "sha256": "651d17682247e9aa6faf2008ade2959bbd652d488feae927341405ed24c9100b",
+      "executable": false
+    },
+    "etc/init.d-posix/px4-rc.gzsim": {
+      "sha256": "4dfe8151ceb0ea8056ee102f06f83e7d4b82af7226e84e11df2a95f6de3b0e30",
+      "executable": false
+    },
+    "etc/init.d-posix/rcS": {
+      "sha256": "6c2dfba5624eeb5ad7a391e5703d1bb9e1045e9b834536ec7d0c0a809840bf75",
+      "executable": false
+    },
+    "etc/init.d/rc.vtol_defaults": {
+      "sha256": "3f02908764d25387b9d44f3e4b2602b6744d847d0a59197ffda8d430939d1dec",
+      "executable": false
+    },
+    "gazebo/models/arucotag/arucotag.png": {
+      "sha256": "6e71335b7e96803e2e520b08433a95bc2b58d93c7eaad972c84560af3b180729",
+      "executable": false
+    },
+    "gazebo/models/arucotag/model.config": {
+      "sha256": "184cc16d33c380ae255833bc4f1c9e20db2296f6c7de6a9951f0760ed354f415",
+      "executable": false
+    },
+    "gazebo/models/arucotag/model.sdf": {
+      "sha256": "b9d567a3a8d883eff2a6961c2da6d939ec3d79e0290aac4e113be34da8eca8a0",
+      "executable": false
+    },
+    "gazebo/models/mono_cam/model.config": {
+      "sha256": "e5441ac8b808f9bfef9eefca42cb58993c369544794b8bf70932715226c74123",
+      "executable": false
+    },
+    "gazebo/models/mono_cam/model.sdf": {
+      "sha256": "405f2f9d973b6b75379a418865ee18b3d27f936322d85e17beced04bdd09ef6e",
+      "executable": false
+    },
+    "gazebo/models/rover_ackermann/meshes/rover_ackermann_base.dae": {
+      "sha256": "e1adb5c6de6aae3f15c4d55bcfd79d1dd63ffc1cc5990aa7610d83777cd78de8",
+      "executable": false
+    },
+    "gazebo/models/rover_ackermann/meshes/rover_ackermann_wheel.dae": {
+      "sha256": "e0280b3344054e3ea9c604a9b7e40cb7b311be122ec0d11138b9d36a83af83b4",
+      "executable": false
+    },
+    "gazebo/models/rover_ackermann/model.config": {
+      "sha256": "767665c4f6884800b7f17d10b7d3517974ca9572439267ba1f609e4444654f72",
+      "executable": false
+    },
+    "gazebo/models/rover_ackermann/model.sdf": {
+      "sha256": "74acdd3b3a5bde43bd2b18ce5db6b363aabdea909f2b3c9983e3c8d617f6e8fb",
+      "executable": false
+    },
+    "gazebo/models/standard_vtol/meshes/iris_prop_ccw.dae": {
+      "sha256": "5f8b01668ee24a5b663ca8c4dd56e294fd6480db7eec1e5a7c11e45ba9004e99",
+      "executable": false
+    },
+    "gazebo/models/standard_vtol/meshes/iris_prop_cw.dae": {
+      "sha256": "6cbc686772dccd46253fb65ece000e7ffa6a74b9c097bda349884bd1e78cd879",
+      "executable": false
+    },
+    "gazebo/models/standard_vtol/meshes/x8_elevon_left.dae": {
+      "sha256": "2224bbea750fa0e89389146829ef520ca0d361910f7ff10c1834d36e9f15dcde",
+      "executable": false
+    },
+    "gazebo/models/standard_vtol/meshes/x8_elevon_right.dae": {
+      "sha256": "9934196e8594021127a7e198be8eb59144fa675645f7c72747800157acecd8ff",
+      "executable": false
+    },
+    "gazebo/models/standard_vtol/meshes/x8_wing.dae": {
+      "sha256": "d6a3b05cca7ba958d8399f27443499d8bda0c0085c7e6e9f912fd77691da1a8e",
+      "executable": false
+    },
+    "gazebo/models/standard_vtol/model.config": {
+      "sha256": "980a4179f3b8ac6f7fe472e7e2bf65b202730a3f607040541ef304e50513452b",
+      "executable": false
+    },
+    "gazebo/models/standard_vtol/model.sdf": {
+      "sha256": "a7ea7310741262f3b9a0ad13100279d910b18072ff663f570e634af03d6ed24c",
+      "executable": false
+    },
+    "gazebo/plugins/libAirSpeedPlugin.so": {
+      "sha256": "1780e4fbfa09c1478f7973ef12b391f458611db41c0e05f22e56ee07adac8f8e",
+      "executable": true
+    },
+    "gazebo/plugins/libBuoyancySystemPlugin.so": {
+      "sha256": "c9a26bd629d28c68ad31ba7b0d5b33e8afee7c3415644e34fd04152772511a53",
+      "executable": true
+    },
+    "gazebo/plugins/libGenericMotorModelPlugin.so": {
+      "sha256": "d004c78593dc92c12e85f0ff76378bddeff8f367d9dd75ff24d2b5a26d152359",
+      "executable": true
+    },
+    "gazebo/plugins/libGstCameraSystem.so": {
+      "sha256": "e565c417f7bbcecd3b34e85a7f38427a0998f85049dbb676257d1be75a1e3cad",
+      "executable": true
+    },
+    "gazebo/plugins/libMotorFailurePlugin.so": {
+      "sha256": "40d7bd0d30883477fc121abf2a193af27b476a32f67af4cec8855a783a2a3923",
+      "executable": true
+    },
+    "gazebo/plugins/libMovingPlatformController.so": {
+      "sha256": "d7c6c52ac6fa9a21ca57f6d201d57e64a88cdcab70d9fa0c78690a9a0351508e",
+      "executable": true
+    },
+    "gazebo/plugins/libOpticalFlow.so": {
+      "sha256": "7b2ce7fad8be61e0b70f86085cce7c6fb73987b4e39d8633906e8457056b7e09",
+      "executable": true
+    },
+    "gazebo/plugins/libOpticalFlowSystem.so": {
+      "sha256": "987dca4a3206d3847b48afdbd1b0984c3d8b717cb95358efaeefabb64d63a169",
+      "executable": true
+    },
+    "gazebo/plugins/libSpacecraftThrusterModelPlugin.so": {
+      "sha256": "604f41a9cc9e4008a261870041728dc91938c55c03a8aab33a2333b5436f3f06",
+      "executable": true
+    },
+    "gazebo/plugins/libTemplatePlugin.so": {
+      "sha256": "7311b06296e22a9791a974506fcce2e00b2ff7d82748603515fe1c9747086d1b",
+      "executable": true
+    },
+    "gazebo/server.config": {
+      "sha256": "aff8773a62cadc7fca66338297fc382f2887a64e3742ab65eafe51a94bac083c",
+      "executable": false
+    },
+    "gazebo/worlds/aruco.sdf": {
+      "sha256": "849545b6191ec41b177064355e73cef03a8773d12a293614e2ebb10e4919ecf4",
+      "executable": false
+    }
+  },
+  "spawn_pose": [
+    -6,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "camera": {
+    "link": "camera_link",
+    "sensor": "camera",
+    "model": "mono_cam",
+    "udp_port": 5600
+  },
+  "added_world": {
+    "resource": "worlds/training_courtyard_v2.sdf",
+    "base_resource": "worlds/aruco.sdf",
+    "sha256": "e77b9a5d7e892b2d72a33a0c289d450c91bda024b272b37258ee9c003956ee51",
+    "executable": false
+  },
+  "target": {
+    "name": "training_board",
+    "frame": "gazebo_world_enu",
+    "pose": [
+      35,
+      25,
+      10,
+      0,
+      0,
+      0
+    ],
+    "panel_size_m": [
+      10,
+      10
+    ],
+    "aim_point_m": [
+      35,
+      25,
+      10
+    ]
+  },
+  "base_model": "standard_vtol",
+  "scene_additions": [
+    {
+      "name": "far_board",
+      "pose": [
+        150,
+        -45,
+        12,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "warehouse_north",
+      "pose": [
+        80,
+        60,
+        10,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "warehouse_south",
+      "pose": [
+        180,
+        -60,
+        7,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "parked_car_north",
+      "pose": [
+        45,
+        32,
+        0.3,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "parked_car_south",
+      "pose": [
+        110,
+        -32,
+        0.3,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "field_blocks",
+      "pose": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "cross_roads",
+      "pose": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "runway_markings",
+      "pose": [
+        75,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "orbit_landmark_0",
+      "pose": [
+        -170,
+        -150,
+        12.0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "orbit_landmark_1",
+      "pose": [
+        0,
+        -210,
+        9.0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "orbit_landmark_2",
+      "pose": [
+        190,
+        -165,
+        14.0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "orbit_landmark_3",
+      "pose": [
+        240,
+        65,
+        10.0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "orbit_landmark_4",
+      "pose": [
+        170,
+        180,
+        13.0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "orbit_landmark_5",
+      "pose": [
+        0,
+        220,
+        11.0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "orbit_landmark_6",
+      "pose": [
+        -180,
+        170,
+        15.0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "orbit_landmark_7",
+      "pose": [
+        -230,
+        0,
+        9.0,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "camera_mount": {
+    "frame": "base_link_flu",
+    "pose": [
+      0.12,
+      0.03,
+      0.242,
+      0,
+      0,
+      0
+    ]
+  },
+  "added_model": {
+    "model.sdf": {
+      "sha256": "d439c7faff161a7e8b7a9f37ef0823d2ba6ed81f81ab25746eaf347f16b404a5",
+      "executable": false
+    },
+    "model.config": {
+      "sha256": "4368539ef42a014cd8dee698fde9abb371c83ec074d271c06139641fc7d40fea",
+      "executable": false
+    }
+  },
+  "server_config": {
+    "sha256": "c54d984074547ff0be47c20f84c15b229a33bee938e363833ff8377eb25ad76b",
+    "executable": false
+  }
+}

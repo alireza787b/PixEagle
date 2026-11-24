@@ -1,4 +1,5 @@
 from collections import deque
+from copy import deepcopy
 import threading
 import time
 import requests
@@ -8,7 +9,10 @@ from typing import Dict, Optional
 from .parameters import Parameters
 from .logging_manager import logging_manager
 from .aircraft_identity import TelemetryAircraftIdentity
+from .mavlink_aircraft_state import MavlinkAircraftStateSource, MavlinkGuidanceObservation
+from .telemetry_observation import AltitudeSourceSample
 import math
+
 
 class MavlinkDataManager:
     MAX_STALE_TIMEOUT_S = 5.0
@@ -30,6 +34,7 @@ class MavlinkDataManager:
         self.mavlink_host = mavlink_host
         self.mavlink_port = mavlink_port
         self.polling_interval = polling_interval
+        self._poll_period_demands = {}
         # Route selection is explicit and shared by aggregate/follower reads.
         # Existing literal data paths are rebased to this configured route.
         self.system_id = self._route_id("MAVLINK_SYSTEM_ID", 1)
@@ -63,9 +68,12 @@ class MavlinkDataManager:
         self._aircraft_identity = TelemetryAircraftIdentity(
             self.system_id, self.component_id, self.stale_timeout_s,
         )
+        self._aircraft_state_source = MavlinkAircraftStateSource()
         self._stop_event = threading.Event()
         self._thread = None
         self._lock = threading.RLock()
+        self._identity_request_lock = threading.Lock()
+        self._identity_request_after = 0.0
         self.velocity_buffer = deque(maxlen=10)  # Buffer for velocity smoothing
         self.min_velocity_threshold = 0.5  # m/s, adjust based on your drone's characteristics
         self.gamma = 0
@@ -97,6 +105,12 @@ class MavlinkDataManager:
         self._attitude_source_progress_at = None
         self._ground_speed_source_marker = None
         self._ground_speed_source_progress_at = None
+        self._altitude_source_marker = None
+        self._altitude_source_time_s = None
+        self._altitude_source_sample = None
+        self._altitude_home_reference = None
+        self._altitude_reference_generation = 0
+        self._altitude_observation_epoch = 0
         self.connection_error_count = 0
         self.last_error = None
         self.last_status_log = 0  # For throttling status messages
@@ -107,6 +121,7 @@ class MavlinkDataManager:
         self.last_flight_mode = None
         self.offboard_mode_code = 393216  # PX4 Offboard mode
         self._offboard_exit_callback = None  # Callback for app_controller
+        self.camera_phase_observer = None
 
         # Setup logging
         self.logger = logging.getLogger(__name__)
@@ -137,8 +152,40 @@ class MavlinkDataManager:
                 and not self._stop_event.is_set() and not self._validation_timeout_active(),
             )
 
+    def request_aircraft_identity(self):
+        """Request metadata on this route; only received packets establish identity.
+
+        This is AUTOPILOT_VERSION discovery, never a flight-mode/setpoint action.
+        Concurrent viewers share one request and the existing poller's results.
+        """
+        if not self.enabled or self._stop_event.is_set() or not self._identity_request_lock.acquire(blocking=False):
+            return False
+        try:
+            with self._lock:
+                now = time.monotonic()
+                if self.get_aircraft_identity().get('fresh') or now < self._identity_request_after:
+                    return False
+                self._identity_request_after = now + max(self.polling_interval, self.stale_timeout_s)
+            packet = deepcopy(self._request_json('/v1/helper/mavlink?name=COMMAND_LONG'))
+            if (not isinstance(packet, dict) or not isinstance(packet.get('message'), dict)
+                    or packet['message'].get('type') != 'COMMAND_LONG'):
+                raise ValueError('mavlink_identity_query_template_invalid')
+            packet['message'].update(command={'type': 'MAV_CMD_REQUEST_MESSAGE'}, confirmation=0,
+                target_system=self.system_id, target_component=self.component_id,
+                param1=148.0, param2=0.0, param3=0.0, param4=0.0, param5=0.0, param6=0.0, param7=0.0)
+            validation_timeout = self._validation_timeout_exception()
+            if validation_timeout is not None:
+                raise validation_timeout
+            response = requests.post(f'http://{self.mavlink_host}:{self.mavlink_port}/v1/mavlink',
+                                     json=packet, timeout=self.request_timeout_s)
+            response.raise_for_status()
+            self.logger.debug('Requested AUTOPILOT_VERSION on telemetry route %d/%d', self.system_id, self.component_id)
+            return True
+        finally:
+            self._identity_request_lock.release()
+
     def get_flight_state(self):
-        """Return the fresh observed arm and landed states for native following."""
+        """Read observed flight state; phase freshness is independent of HTTP/heartbeat."""
         with self._lock:
             identity = self.get_aircraft_identity()
             aggregate_age_s = (
@@ -155,8 +202,42 @@ class MavlinkDataManager:
                 "arm_status": self.data.get("arm_status") if fresh else None,
                 "landed_state": self.data.get("landed_state") if fresh else None,
                 "flight_mode": self.data.get("flight_mode") if fresh else None,
+                "flight_mode_observed_at_monotonic_s": (
+                    self._aircraft_identity.heartbeat_observed_at_monotonic_s if fresh else None),
+                "aircraft_kind": self._aircraft_identity.aircraft_kind.value if fresh else "unknown",
+                "phase_observation": self._aircraft_identity.phase_snapshot(connected=fresh),
                 "offboard_exit_observed_at_monotonic_s": getattr(self, '_offboard_exit_observed_at', None),
             }
+
+    def get_aircraft_state_source_epoch(self):
+        with self._lock:
+            return self._aircraft_state_source.epoch if self.get_aircraft_identity()["fresh"] else None
+
+    def get_aircraft_state_observation(self, binding, *, source_epoch, envelope=None):
+        """Read the existing poller's source-owned snapshot; acquire no authority."""
+        with self._lock:
+            state = self.get_flight_state()
+            return self._aircraft_state_source.snapshot(
+                binding, source_epoch=source_epoch, identity=state, phase=state["phase_observation"],
+                now=time.monotonic(), timeout_s=self.stale_timeout_s, envelope=envelope,
+            )
+
+    def get_guidance_observation(self, binding, *, source_epoch, envelope=None):
+        """Keep mode, local position and pose in the same aggregate-read epoch."""
+        with self._lock:
+            state = self.get_aircraft_state_observation(binding, source_epoch=source_epoch, envelope=envelope)
+            if state is None:
+                return None
+            flight = self.get_flight_state()
+            armed = flight.get("arm_status")
+            mode = flight.get("flight_mode")
+            return MavlinkGuidanceObservation(
+                state, source_epoch, self.system_id, self.component_id,
+                True if armed == "Armed" else False if armed == "Disarmed" else None,
+                mode if type(mode) is int else None,
+                flight.get("flight_mode_observed_at_monotonic_s"), self._aircraft_state_source.local_position(),
+                flight["phase_observation"]["generation"], self._aircraft_identity.mode_revision,
+            )
 
     @staticmethod
     def _validate_float_config(name, value, *, default, minimum, maximum):
@@ -237,6 +318,7 @@ class MavlinkDataManager:
         """
         with self._lock:
             self._aircraft_identity.invalidate("telemetry_polling_stopped")
+            self._aircraft_state_source.invalidate()
         thread = self._thread
         if not self.enabled or thread is None:
             return True
@@ -267,12 +349,29 @@ class MavlinkDataManager:
         """
         while not self._stop_event.is_set():
             self._fetch_and_parse_all_data()
-            self._stop_event.wait(self.polling_interval)
+            self._stop_event.wait(self.get_polling_period())
+
+    def set_polling_period_demand(self, owner, period_s):
+        """Consumers share the existing poller without overwriting saved settings."""
+        if type(period_s) not in (int, float) or not math.isfinite(period_s) or period_s <= 0:
+            raise ValueError("mavlink_polling_period_invalid")
+        with self._lock:
+            self._poll_period_demands[owner] = period_s
+
+    def clear_polling_period_demand(self, owner):
+        with self._lock:
+            self._poll_period_demands.pop(owner, None)
+
+    def get_polling_period(self):
+        with self._lock:
+            return min(self.polling_interval, *self._poll_period_demands.values()) if self._poll_period_demands else self.polling_interval
 
     def _fetch_and_parse_all_data(self):
         """
         Fetch all MAVLink data in a single request and parse it into the data dictionary.
         """
+        phase_observer = self.camera_phase_observer
+        phase_sample = None
         try:
             # Update connection state
             with self._lock:
@@ -286,6 +385,13 @@ class MavlinkDataManager:
 
             with self._lock:
                 self._aircraft_identity.observe(json_data)
+                self._aircraft_state_source.observe(
+                    self._extract_data_from_json(json_data,
+                        f"/vehicles/{self.system_id}/components/{self.component_id}/messages"),
+                    identity=self._aircraft_identity.snapshot(connected=True),
+                    phase=self._aircraft_identity.phase_snapshot(connected=True),
+                    kind=self._aircraft_identity.aircraft_kind, now=time.monotonic(),
+                )
                 # Iterate through the data points defined in Parameters
                 for point_name, json_path in self.data_points.items():
                     if point_name in ["vn", "ve", "vd"]:
@@ -363,6 +469,13 @@ class MavlinkDataManager:
                 
                 self.logger.info(f"MAVLINK: Connected | Armed: {arm_status} | Alt: {altitude}m | {coord_str}")
                 self.last_status_log = current_time
+
+            if phase_observer is not None:
+                from classes.gimbal_transition_view import CameraPhaseSample
+
+                phase_sample = CameraPhaseSample.from_mavlink(
+                    json_data, self.get_aircraft_identity(), self._determine_arm_status,
+                )
                 
         except requests.exceptions.ConnectionError:
             self._record_aggregate_payload_failure("Connection refused - server not running")
@@ -376,11 +489,18 @@ class MavlinkDataManager:
         except Exception as e:
             self._record_aggregate_payload_failure(f"Unexpected error: {str(e)[:50]}...")
             self._handle_connection_error(f"Unexpected error: {str(e)[:50]}...")
+        finally:
+            if phase_observer is not None:
+                try:
+                    phase_observer(phase_sample)
+                except Exception:
+                    self.logger.exception("Camera phase observation failed")
     
     def _handle_connection_error(self, error_reason):
         """Handle connection errors with clean, throttled logging."""
         with self._lock:
             self._aircraft_identity.invalidate("telemetry_disconnected")
+            self._aircraft_state_source.invalidate()
             self.last_fetch_attempt_monotonic_s = time.monotonic()
             self.connection_state = "error"
             self.last_request_result = "failure"
@@ -580,6 +700,7 @@ class MavlinkDataManager:
     def _request_json(self, uri):
         """Fetch one MAVLink2REST URI with configured timeout and retry policy."""
         url = f"http://{self.mavlink_host}:{self.mavlink_port}{uri}"
+        message_request = uri.startswith("/v1/mavlink/vehicles/") and "/messages/" in uri
         attempts = self.request_retries + 1
         last_error = None
         for attempt in range(1, attempts + 1):
@@ -590,8 +711,19 @@ class MavlinkDataManager:
                 if validation_timeout is not None:
                     raise validation_timeout
                 response = requests.get(url, timeout=self.request_timeout_s)
+                if message_request and response.status_code == 404:
+                    self._record_successful_fetch()
+                    return None
                 response.raise_for_status()
-                json_data = response.json()
+                try:
+                    json_data = response.json()
+                except ValueError:
+                    if not message_request:
+                        raise
+                    # Older bridges return the non-JSON literal None for an unseen message.
+                    if response.text.strip() != "None":
+                        self._warn_malformed_payload(uri, "non-JSON message response", time.monotonic())
+                    json_data = None
                 self._record_successful_fetch()
                 return json_data
             except Exception as exc:
@@ -1045,6 +1177,81 @@ class MavlinkDataManager:
             self._attitude_source_progress_at = None
             self._ground_speed_source_marker = None
             self._ground_speed_source_progress_at = None
+            self._altitude_source_marker = None
+            self._altitude_source_time_s = None
+            self._altitude_source_sample = None
+            self._altitude_home_reference = None
+            self._altitude_reference_generation = 0
+            self._altitude_observation_epoch += 1
+
+    async def fetch_altitude_observation(self) -> Optional[AltitudeSourceSample]:
+        """Read paired home-relative height and earth vertical speed for control.
+
+        GLOBAL_POSITION_INT contains millimetres and centimetres/second. HOME_POSITION
+        establishes its reference: PX4 can otherwise put AMSL in relative_alt.
+        A repeated REST read retains the original sample and receipt, not a new clock.
+        """
+        with self._lock:
+            epoch = self._altitude_observation_epoch
+
+        async def position_fetch():
+            payload = await self.fetch_data_from_uri(self._message_uri("GLOBAL_POSITION_INT"))
+            return payload, time.monotonic()
+
+        (payload, received_at), home_payload = await asyncio.gather(
+            position_fetch(), self.fetch_data_from_uri(self._message_uri("HOME_POSITION")),
+        )
+        message = payload.get("message") if isinstance(payload, dict) else None
+        home = home_payload.get("message") if isinstance(home_payload, dict) else None
+
+        def wire_integer(mapping, key, lower, upper):
+            value = mapping.get(key) if isinstance(mapping, dict) else None
+            return value if type(value) is int and lower <= value <= upper else None
+
+        marker = wire_integer(message, "time_boot_ms", 0, 2**32 - 1)
+        relative_mm = wire_integer(message, "relative_alt", -2**31 + 1, 2**31 - 2)
+        altitude_mm = wire_integer(message, "alt", -2**31 + 1, 2**31 - 2)
+        down_cm_s = wire_integer(message, "vz", -2**15 + 1, 2**15 - 2)
+        home_mm = wire_integer(home, "altitude", -2**31 + 1, 2**31 - 2)
+        home_marker = wire_integer(home, "time_usec", 1, 2**64 - 1)
+        # The three independently quantized millimetre fields can differ by 2 mm.
+        valid = (all(value is not None for value in
+                     (marker, relative_mm, altitude_mm, down_cm_s, home_mm, home_marker))
+                 and math.isfinite(received_at)
+                 and abs(altitude_mm - relative_mm - home_mm) <= 2)
+        with self._lock:
+            if epoch != self._altitude_observation_epoch:
+                return None
+            if not valid:
+                self._altitude_source_sample = None
+                return None
+            # Home message/publication time can change without changing the height datum.
+            reference = home_mm
+            if reference != self._altitude_home_reference:
+                self._altitude_home_reference = reference
+                self._altitude_reference_generation += 1
+                self._altitude_source_marker = marker
+                self._altitude_source_time_s = marker / 1000.
+                self._altitude_source_sample = None
+                return None
+            previous = self._altitude_source_marker
+            delta = (marker - previous) % 2**32
+            if delta == 0:
+                return self._altitude_source_sample
+            if delta >= 2**31:
+                self._altitude_source_sample = None
+                return None
+            self._altitude_source_marker = marker
+            self._altitude_source_time_s += delta / 1000.
+            self._altitude_source_sample = AltitudeSourceSample(
+                height_relative_m=relative_mm / 1000., vertical_speed_up_m_s=-down_cm_s / 100.,
+                source_marker=marker, sample_time_s=self._altitude_source_time_s,
+                received_at_monotonic_s=received_at,
+                sample_time_basis="px4_boot_ms_unwrapped; receipt_monotonic_age",
+                source="mavlink2rest:GLOBAL_POSITION_INT",
+                altitude_reference_generation=self._altitude_reference_generation,
+            )
+            return self._altitude_source_sample
 
     async def fetch_altitude_data(self) -> Optional[Dict[str, float]]:
         """
