@@ -163,7 +163,7 @@ def test_preflight_offline_low_space_divergence_or_moved_tag(installation, monke
 
 @pytest.mark.parametrize(
     ("version", "state"),
-    [("7.6.0-rc.4", "ahead"), ("7.5.4", "current"), ("7.5.3", "available"), ("dev", "unknown")],
+    [("7.6.0", "ahead"), ("7.5.4", "current"), ("7.5.3", "available"), ("dev", "unknown")],
 )
 def test_stable_release_comparison(version, state):
     assert update.version_state(version, "v7.5.4") == state

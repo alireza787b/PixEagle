@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## Version 7.6.0-rc.4 (2026-11-23) - Stock guidance and configuration candidate
+## Version 7.6.0 (2026-11-24) - Stock guidance and configuration release
 
 - Align matched public defaults and private overlays with schema 1.11. Preserve
   supported expert policy settings; private installation files stay outside Git.
@@ -48,9 +48,10 @@
   AUTOPILOT_VERSION request, independent of MAVSDK's link and an open GCS.
   Keep existing received-identity guards and skip discovery during following.
   Log FW sensor/proxy feedback changes once per source transition.
-- Prerelease pending matched package and hardware acceptance. Stock FW
-  attitude/thrust projection is not TECS; ground-speed proxy cannot prove stall
-  margin. Private expert profiles and aircraft firmware remain separate.
+- Stable source release after matched package and simulation acceptance. Physical
+  aircraft acceptance remains separate. Stock FW attitude/thrust projection is not
+  TECS; ground-speed proxy cannot prove stall margin. Private expert profiles and
+  aircraft firmware remain separate.
 
 ## Version 7.6.0-rc.3 (2026-11-16) - Unattended helper renewal
 
