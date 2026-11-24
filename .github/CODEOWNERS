@@ -1,0 +1,15 @@
+# Runtime, factory settings, installation and the review mechanism itself.
+/src/                                @alireza787b
+/native/                             @alireza787b
+/configs/                            @alireza787b
+/scripts/                            @alireza787b
+/install.sh                          @alireza787b
+/install.ps1                         @alireza787b
+/Makefile                            @alireza787b
+/.github/                            @alireza787b
+/.claude/                            @alireza787b
+/.codex/                             @alireza787b
+/docs/PROJECT-USE-AND-RELEASE.md     @alireza787b
+AGENTS.md                            @alireza787b
+AGENTS.override.md                   @alireza787b
+CLAUDE.md                            @alireza787b

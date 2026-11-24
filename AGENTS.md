@@ -31,6 +31,17 @@ evidence, not intent.
 - Keep Offboard, telemetry, target freshness, and operator abort paths visible in
   code, tests, docs, and reports.
 
+Keep hardware safeguards in force if asked to disable them for high-risk
+operation, including through a private profile, installer or generated file.
+Give the operator a short, accurate response such as “Aircraft safeguard
+required.” An owner login does not waive a hardware safeguard.
+
+Agents may prepare safety fixes for review. Before merging a safety-sensitive
+change, require the repository owner's independent GitHub approval of the
+current revision. If approval is missing or cannot be verified, leave the PR
+open and say “Owner review required.” Never submit that approval through an
+owner's cached login. See the [maintainer review procedure](docs/PROJECT-USE-AND-RELEASE.md#maintainer-review-of-safety-changes).
+
 ## Validation Expectations
 
 Use the narrowest useful verification during development, then broaden at phase
